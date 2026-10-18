@@ -77,3 +77,10 @@ npm run deploy
 - Before writing or applying a migration to the live database.
 - Before anything that deletes or rewrites the user's data, including starting a rescan.
 - Before changing sign-in, Cloudflare Access or secrets.
+
+## Skills and tools
+
+- Design rules in section 15 of `DEBRIEF.md` take precedence over the frontend-design skill. Use the skill for new screens, not to restyle settled ones.
+- Use the web-design-guidelines skill when asked to review the interface or its accessibility.
+- Use Context7 for current documentation of BlockNote, pdf.js, Dexie, Hono and Wrangler before relying on memory.
+- At the end of a session, update section 16 (Known limits and next steps) of `DEBRIEF.md` with what was done and what is left.
