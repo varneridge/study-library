@@ -69,6 +69,8 @@ Deploy, in `app/`. This applies any new migrations and publishes the Worker:
 npm run deploy
 ```
 
+   - Backend tests: `npm run test:backend` (in `app/`). Everything quick: `npm run test:all`. Use these rather than writing `wsl bash -c` commands.
+
 ## Ask the user first
 
 - Before deploying.

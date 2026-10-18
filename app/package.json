@@ -11,7 +11,10 @@
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:local": "wrangler d1 migrations apply DB --local",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "test": "tsx tests/run.ts"
+    "test": "tsx tests/run.ts",
+    "test:backend": "wsl bash -c \"cd ../backend && ~/.venvs/study/bin/pytest -q\"",
+    "test:all": "npm run typecheck && npm test && npm run test:backend"
+  },
   },
   "dependencies": {
     "@blocknote/core": "^0.55.0",
