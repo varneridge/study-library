@@ -1,0 +1,5 @@
+# Local development only. Copy to .dev.vars.
+ALLOW_UNAUTHENTICATED=true
+PROCESSOR_KEY=local-processor-key
+# Lets the browser tests wipe the local database. Never set this in production.
+DEV_RESET=true

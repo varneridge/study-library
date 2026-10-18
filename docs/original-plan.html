@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Study Library: plan and architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #FCFCFB;
+  --ink: #1F2328;
+  --muted: #5F6772;
+  --rule: #D8DCE0;
+  --accent: #185FA5;
+  --wash: #E9F0F7;
+  --code: #F3F5F7;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #16191D;
+    --ink: #E5E8EB;
+    --muted: #9AA3AD;
+    --rule: #2F353C;
+    --accent: #6FA8DC;
+    --wash: #1B2A3B;
+    --code: #1E2227;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #16191D;
+  --ink: #E5E8EB;
+  --muted: #9AA3AD;
+  --rule: #2F353C;
+  --accent: #6FA8DC;
+  --wash: #1B2A3B;
+  --code: #1E2227;
+}
+html {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+  background: var(--paper);
+}
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Literata", Georgia, "Times New Roman", serif;
+  font-optical-sizing: auto;
+  font-size: 1.0625rem;
+  line-height: 1.68;
+  -webkit-text-size-adjust: 100%;
+}
+img, svg { max-width: 100%; }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+}
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: 13rem minmax(0, 1fr);
+    column-gap: 4.5rem;
+    padding: 0 2rem 6rem;
+  }
+}
+
+/* Contents */
+.toc {
+  margin: 1.5rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.toc summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.toc ol {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  counter-reset: toc;
+}
+.toc li { margin: 0 0 0.35rem; }
+.toc a {
+  color: var(--muted);
+  text-decoration: none;
+  display: flex;
+  gap: 0.6rem;
+}
+.toc a:hover { color: var(--accent); }
+.toc .n {
+  font-variant-numeric: tabular-nums;
+  min-width: 1.4rem;
+  color: var(--accent);
+}
+@media (min-width: 64rem) {
+  .toc-wrap {
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 2.5rem);
+    align-self: start;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
+  }
+  .toc { margin-top: 3.5rem; }
+  .toc summary { display: none; }
+}
+
+main { min-width: 0; max-width: 43rem; }
+
+/* Title */
+.masthead { padding: 3rem 0 0; }
+@media (min-width: 64rem) { .masthead { padding-top: 3.5rem; } }
+h1 {
+  font-size: clamp(3rem, 10vw, 5.75rem);
+  font-weight: 500;
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+  margin: 0 0 1.5rem;
+}
+.lede {
+  font-size: clamp(1.2rem, 2.6vw, 1.42rem);
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  max-width: 36rem;
+}
+.meta {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/* Specimen */
+.specimen {
+  margin: 2.75rem 0 1rem;
+  border-top: 2px solid var(--ink);
+}
+.spec-mod {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 600;
+}
+.spec-mod span:last-child {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.wk {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.85rem 0 0.95rem;
+}
+.wk-head {
+  display: flex;
+  gap: 0.8rem;
+  align-items: baseline;
+}
+.wk-code {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 2.7rem;
+  flex: none;
+}
+.wk-title { flex: 1 1 auto; }
+.wk-prog {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.spec-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0 0 0 3.5rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.spec-list li {
+  position: relative;
+  padding: 0.18rem 0;
+}
+.spec-list li.read::before {
+  content: "";
+  position: absolute;
+  left: -1.05rem;
+  top: 0.62em;
+  width: 0.42rem;
+  height: 0.42rem;
+  background: var(--accent);
+}
+.spec-group {
+  margin: 0.6rem 0 0;
+  padding-left: 3.5rem;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.spec-sessions {
+  margin: 0.65rem 0 0;
+  padding-left: 3.5rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.spec-sessions b { font-weight: 600; color: var(--ink); }
+.spec-sessions i { color: var(--accent); }
+figcaption {
+  margin-top: 0.85rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+@media (max-width: 30rem) {
+  .spec-list, .spec-group, .spec-sessions { padding-left: 0; }
+  .spec-list li.read::before { left: auto; right: 0; }
+  .spec-list li.read { padding-right: 1rem; }
+}
+
+/* Sections */
+section.part {
+  border-top: 1px solid var(--rule);
+  margin-top: 3.5rem;
+  padding-top: 0.5rem;
+}
+h2 {
+  font-size: 1.62rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 1.4rem 0 1rem;
+  display: flex;
+  gap: 0.9rem;
+  align-items: baseline;
+}
+h2 .n {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  min-width: 1.6rem;
+}
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 2.1rem 0 0.6rem;
+  line-height: 1.35;
+}
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1.1rem; padding-left: 1.3rem; }
+li { margin: 0 0 0.45rem; }
+li::marker { color: var(--muted); }
+a { color: var(--accent); text-underline-offset: 0.18em; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+strong { font-weight: 600; }
+
+dl { margin: 0 0 1.2rem; }
+dt { font-weight: 600; margin-top: 1rem; }
+dd { margin: 0.15rem 0 0; }
+
+/* Tables */
+.table-wrap {
+  overflow-x: auto;
+  margin: 0.5rem 0 1.4rem;
+  -webkit-overflow-scrolling: touch;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.93rem;
+  line-height: 1.5;
+}
+th {
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid var(--ink);
+  padding: 0.45rem 1rem 0.45rem 0;
+  vertical-align: bottom;
+}
+td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.6rem 1rem 0.6rem 0;
+  vertical-align: top;
+}
+td:first-child { min-width: 9rem; }
+td.wide { min-width: 15rem; }
+
+/* Code */
+pre:not(.mermaid) {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  background: var(--code);
+  border: 1px solid var(--rule);
+  padding: 1rem 1.1rem;
+  margin: 0.4rem 0 1.4rem;
+  overflow-x: auto;
+  tab-size: 2;
+}
+code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  background: var(--code);
+  padding: 0.05em 0.3em;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* Diagrams */
+.diagram {
+  margin: 1rem 0 1.6rem;
+  overflow-x: auto;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 1rem 0;
+}
+pre.mermaid {
+  margin: 0;
+  background: transparent;
+  text-align: center;
+}
+
+/* Phases */
+.phases {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 1.5rem;
+}
+.phases > li {
+  border-left: 1px solid var(--rule);
+  padding: 0 0 0.4rem 1.25rem;
+  margin: 0 0 1.4rem;
+}
+.phases h3 { margin-top: 0; }
+.phases .effort {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: -0.35rem 0 0.6rem;
+}
+.phases .done {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.55rem;
+  font-size: 0.97rem;
+}
+.phases .done strong { color: var(--accent); }
+
+.note {
+  background: var(--wash);
+  padding: 1rem 1.15rem;
+  margin: 1.2rem 0 1.4rem;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.note p:last-child { margin-bottom: 0; }
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--ink);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+@media print {
+  .toc-wrap { display: none; }
+  .layout { display: block; }
+  section.part { break-inside: auto; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<div class="toc-wrap">
+  <details class="toc" id="toc">
+    <summary>Contents</summary>
+    <ol>
+      <li><a href="#purpose"><span class="n">1</span>Purpose and scope</a></li>
+      <li><a href="#decisions"><span class="n">2</span>Decisions</a></li>
+      <li><a href="#organisation"><span class="n">3</span>How the course is organised</a></li>
+      <li><a href="#interface"><span class="n">4</span>Interface</a></li>
+      <li><a href="#reader"><span class="n">5</span>The reader</a></li>
+      <li><a href="#notes"><span class="n">6</span>Notes and seminar questions</a></li>
+      <li><a href="#recording"><span class="n">7</span>Recording and transcription</a></li>
+      <li><a href="#import"><span class="n">8</span>Importing readings</a></li>
+      <li><a href="#architecture"><span class="n">9</span>System architecture</a></li>
+      <li><a href="#sync"><span class="n">10</span>Sync</a></li>
+      <li><a href="#data"><span class="n">11</span>Data model</a></li>
+      <li><a href="#phases"><span class="n">12</span>Build phases</a></li>
+      <li><a href="#costs"><span class="n">13</span>Storage and costs</a></li>
+      <li><a href="#risks"><span class="n">14</span>Risks</a></li>
+    </ol>
+  </details>
+</div>
+
+<main>
+
+<header class="masthead">
+  <h1>Study Library</h1>
+  <p class="lede">A personal course library for four History modules. It holds every reading alongside the notes and recordings from each lecture and class. It runs on laptops and phones and keeps them in sync.</p>
+  <p class="meta">Plan and architecture. Working draft, 6 October 2026.</p>
+</header>
+
+<figure class="specimen" aria-label="Example of the module list">
+  <div class="spec-mod"><span>HY335</span><span>Autumn Term</span></div>
+
+  <div class="wk">
+    <div class="wk-head">
+      <span class="wk-code">AT1</span>
+      <span class="wk-title">Introductory Session</span>
+      <span class="wk-prog">3 of 3 read</span>
+    </div>
+    <ul class="spec-list">
+      <li class="read">Chen (2001) 'Introduction'</li>
+      <li class="read">Hunt (1996) 'Constructing a History of CCP Foreign Relations'</li>
+      <li class="read">Westad (2012) 'Empire'</li>
+    </ul>
+    <p class="spec-group">Primary sources</p>
+    <ul class="spec-list">
+      <li class="read">Mao Zedong, 'On the Question of the Differentiation of the Three Worlds', 22 Feb 1974</li>
+    </ul>
+    <p class="spec-sessions"><b>Lecture</b> recording and notes. <b>Seminar</b> three questions and class notes.</p>
+  </div>
+
+  <div class="wk">
+    <div class="wk-head">
+      <span class="wk-code">AT2</span>
+      <span class="wk-title">Legacies of Historical Experience</span>
+      <span class="wk-prog">1 of 4 read</span>
+    </div>
+    <ul class="spec-list">
+      <li class="read">Westad (2012) 'Metamorphosis'</li>
+      <li>Westad (2012) 'Imperialisms'</li>
+      <li>Kirby (1997) 'The Internationalization of China'</li>
+      <li>Luo (1993) 'National Humiliation and National Assertion'</li>
+    </ul>
+    <p class="spec-group">Primary sources</p>
+    <ul class="spec-list">
+      <li>Jiang Jieshi, 'China's Destiny', excerpts from the Russian translation</li>
+      <li>Chen Boda, 'Criticism of the Book China's Destiny'</li>
+    </ul>
+    <p class="spec-sessions"><b>Lecture</b> notes, <i>transcribing</i>. <b>Seminar</b> four questions.</p>
+  </div>
+
+  <div class="wk">
+    <div class="wk-head">
+      <span class="wk-code">AT3</span>
+      <span class="wk-title">Origins of Chinese Communist Foreign Policy</span>
+      <span class="wk-prog">4 readings</span>
+    </div>
+  </div>
+
+  <div class="wk">
+    <div class="wk-head">
+      <span class="wk-code">AT4</span>
+      <span class="wk-title">Leaning to One Side</span>
+      <span class="wk-prog">5 readings</span>
+    </div>
+  </div>
+
+  <figcaption>The HY335 module list as the app would show it. Readings sit in the order they are meant to be read, with primary sources grouped. Weeks open and close with a click. Nothing appears for things that don't exist yet.</figcaption>
+</figure>
+
+<section class="part" id="purpose">
+<h2><span class="n">1</span>Purpose and scope</h2>
+<p>Study Library replaces the current Zotero setup for course work. It is built for one person and is not a reference manager.</p>
+<p>It has four jobs:</p>
+<ul>
+  <li>Store every course PDF and make it pleasant to read, with highlights and comments.</li>
+  <li>Hold lecture notes and class notes, organised by week and session.</li>
+  <li>Record sessions, or take in Moodle recordings, and transcribe them.</li>
+  <li>Gather evidence from the readings against each seminar question.</li>
+</ul>
+<p>Out of scope: citations, bibliographies, a Word plugin, a browser connector, sharing, and editing Word or PowerPoint files inside the app. Word and PowerPoint files are converted to PDF for reading instead.</p>
+</section>
+
+<section class="part" id="decisions">
+<h2><span class="n">2</span>Decisions</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Decision</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td>Last-write-wins sync on every row.</td><td class="wide">One person rarely edits the same thing on two devices at once. It is simple to build and easy to reason about.</td></tr>
+    <tr><td>Note blocks stored as separate rows.</td><td class="wide">A conflict overwrites one paragraph rather than a whole note.</td></tr>
+    <tr><td>Everything read in the app is a PDF.</td><td class="wide">One viewer to build and tune. Slides and Word files get highlighting for free. Originals are kept for download.</td></tr>
+    <tr><td>The week is the unit of organisation.</td><td class="wide">It matches how the course is taught, and replaces the (AT1) title prefixes used in Zotero.</td></tr>
+    <tr><td>Weeks contain sessions.</td><td class="wide">Covers modules with a separate lecture and seminar, and modules with one combined session.</td></tr>
+    <tr><td>Show what exists and hide what doesn't.</td><td class="wide">Empty sections never render, so sparse weeks look finished.</td></tr>
+    <tr><td>Typographic lists instead of cards.</td><td class="wide">Lists get shorter cleanly. Card grids show holes.</td></tr>
+    <tr><td>Bulk import at the start of each term.</td><td class="wide">Readings are ready before they are needed. Processing runs in the background.</td></tr>
+    <tr><td>The laptop is the main recorder.</td><td class="wide">Android web apps can keep recording with the screen off, but battery management on many phones can stop them. A native Android build can follow if phone recording becomes necessary.</td></tr>
+    <tr><td>No current week.</td><td class="wide">You open the week you want. Each module remembers the week you last looked at.</td></tr>
+    <tr><td>No citations.</td><td class="wide">Removes the hardest part of building a reference manager. Zotero's citation tools aren't needed for this.</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section class="part" id="organisation">
+<h2><span class="n">3</span>How the course is organised</h2>
+<p>A module runs for 22 weeks: AT1 to AT11 and WT1 to WT11. Reading weeks stay in the list but hold no sessions.</p>
+<p>Each module has a session pattern, set when the module is created. HY335 might have a lecture and a seminar each week. A module that merges the two has one combined session. Creating a module generates all 22 weeks with their sessions already in place. Any week can be changed by hand, for a cancelled class or a guest lecture.</p>
+<p>Readings belong to the week, since they serve every session in it. One reading can belong to several weeks without being stored twice. Slides and recordings belong to a session, as do its notes. Seminar questions belong to a seminar or a combined session.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  M[Module] --> W[Week]
+  W --> R[Reading]
+  W --> S[Session]
+  R --> H[Highlight]
+  S --> SL[Slides]
+  S --> REC[Recording]
+  S --> N[Session notes]
+  S --> Q[Seminar question]
+  REC --> T[Transcript]
+  H -. filed to .-> Q
+  Q --> A[Answer note]
+</pre>
+</div>
+
+<p>A note always attaches to exactly one thing.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Attached to</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td>Session</td><td class="wide">Lecture notes or class notes, depending on the kind of session.</td></tr>
+    <tr><td>Reading</td><td class="wide">Notes on a reading as a whole.</td></tr>
+    <tr><td>Seminar question</td><td class="wide">Your answer, written around the highlights filed to that question.</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section class="part" id="interface">
+<h2><span class="n">4</span>Interface</h2>
+
+<h3>Screens</h3>
+<dl>
+  <dt>Module list</dt>
+  <dd>One continuous list per module, grouped by week. It keeps the shape of the current Zotero list without the title prefixes. Weeks collapse, and a jump bar goes straight to any week. Each week row shows progress, such as "2 of 4 read". The list opens at the week you last looked at.</dd>
+  <dt>Week page</dt>
+  <dd>Readings first, with primary sources grouped below the secondary readings. Then one section per session, in timetable order.</dd>
+  <dt>Week across modules</dt>
+  <dd>Pick a week number to see that week for all four modules together.</dd>
+  <dt>Reader</dt>
+  <dd>The PDF beside your notes. On a phone the notes open as a sheet over the page.</dd>
+  <dt>Session mode</dt>
+  <dd>The screen for a live lecture or class. It pairs the notes editor with the slides and puts the record control in the header.</dd>
+  <dt>Import</dt>
+  <dd>Bulk upload for a whole module, with a review table before anything is saved.</dd>
+  <dt>Search</dt>
+  <dd>One box across readings, transcripts, notes and highlights. Each result opens at the right page or moment.</dd>
+</dl>
+
+<h3>Empty states</h3>
+<ul>
+  <li>A section renders only when it has content. A week without primary sources has no primary sources heading.</li>
+  <li>No placeholder text and no zero counts. Progress counts only what exists.</li>
+  <li>Weeks are collapsed by default. A collapsed week shows its title and how many readings it holds.</li>
+  <li>Adding content never needs an empty slot. Drop a file anywhere on a week, or use the single Add control in each session header.</li>
+  <li>Recording starts from session mode, so record buttons don't repeat down every week.</li>
+  <li>Work in progress shows quietly, such as "Transcribing". A failure shows a retry. Nothing else announces that something is absent.</li>
+  <li>Generated titles are built only from fields that exist. No empty brackets or stray "pp.".</li>
+</ul>
+
+<h3>Visual rules</h3>
+<ul>
+  <li>Hierarchy comes from type size, weight and thin rules. No boxes or shadows.</li>
+  <li>Zero border radius throughout, with #185FA5 as the accent.</li>
+  <li>The app follows the system light or dark setting. The reader has its own themes on top.</li>
+</ul>
+</section>
+
+<section class="part" id="reader">
+<h2><span class="n">5</span>The reader</h2>
+<p>The reader is built on PDF.js. Pages render only as they come close to the screen, and rendered pages are cached, so long scans scroll smoothly. <code>react-pdf-highlighter-extended</code> is a reasonable starting point for selection and highlighting. If it limits performance, replace it with a custom highlight layer over PDF.js. Zotero's own reader is open source and worth studying for how it handles very long documents.</p>
+<p>Zoom works in steps and by pinch. Phones open pages at full width. Sepia and dark themes sit alongside the plain page. Sepia tints the page with a CSS filter. Dark inverts the page and rotates the hue, which keeps images and maps readable.</p>
+<p>A highlight has a colour and an optional comment, and can be filed to a seminar question. It is stored as a page index plus rectangles in PDF coordinates. That survives zoom and theme changes. It also matches the format Zotero uses, which makes migration straightforward.</p>
+<p>Each reading remembers the last page you were on. Under last-write-wins, the device you used most recently decides where every device opens.</p>
+<p>Text selection needs a text layer. Born-digital PDFs have one. Scans get one from OCR in the worker. Until then a scan can be read but not highlighted, and its row says so quietly.</p>
+</section>
+
+<section class="part" id="notes">
+<h2><span class="n">6</span>Notes and seminar questions</h2>
+<p>Notes use BlockNote, a block editor built on TipTap. It gives Notion-style blocks with slash commands and drag handles.</p>
+<p>Each block is its own row with a stable id. When a note changes, only the changed blocks are written. Deleted blocks are kept as tombstones so deletions sync like any other edit. Block order uses fractional indexing: a block inserted between two others gets a position key that sorts between theirs, so nothing is renumbered.</p>
+<p>Two custom features matter. A highlight block quotes a passage from a reading and opens the reader at that spot. A timestamp is attached to every block written during a recording. It stays invisible until you hover, when a small play control appears.</p>
+
+<h3>Seminar questions</h3>
+<p>Questions are pasted from Moodle and split by line. Each question opens as a panel in two parts. The top lists every highlight filed to it, ordered by reading and then by page. Below that is the answer note. Drag any filed highlight into the answer to quote it.</p>
+<p>Highlights that are not filed stay with their reading as usual.</p>
+</section>
+
+<section class="part" id="recording">
+<h2><span class="n">7</span>Recording and transcription</h2>
+
+<h3>Live recording</h3>
+<p>Recording uses the browser's MediaRecorder API and captures audio only. Chrome records WebM with Opus and Safari records MP4 with AAC. The worker converts both to the same format.</p>
+<p>Audio is recorded in one-minute chunks. Each chunk is written to IndexedDB first, then uploaded. It is removed from the device only once the server confirms it. A dropped connection or a crashed tab costs at most a minute.</p>
+<p>The Screen Wake Lock API keeps the laptop awake for the length of the session.</p>
+<p>Every note block written during the recording stores the recording id and its offset in seconds. Clicking the block plays from that moment.</p>
+<p>Press a key when the lecturer moves to the next slide and the app stores a slide mark. If the slides are open in session mode, turning the page stores the mark automatically.</p>
+
+<h3>Moodle recordings</h3>
+<p>For lectures you miss, drop the Moodle audio or video file onto the session. The worker extracts the audio with ffmpeg and discards the video. Notes taken while watching use the playback position as their offset, so they link to the audio in the same way.</p>
+
+<h3>Transcription</h3>
+<p>Transcription runs after the session rather than live. The worker splits the audio into ten-minute pieces to stay within API file limits, transcribes each one, and joins the results with corrected timestamps.</p>
+<p>Transcripts are stored as segments with start and end times. Clicking a segment plays the audio from there. Slide marks divide the transcript by slide, so each slide shows what was said about it.</p>
+<p>Start with a hosted transcription API. <code>faster-whisper</code> running on the worker is the fallback if cost or privacy matters more later.</p>
+<p>Once a transcript is ready, a second job writes a summary of the session with the Claude API. It appears above the transcript. Where slide marks exist, it adds a sentence or two for each slide. Summaries can be regenerated and are included in search.</p>
+<p>The session header shows a recording's state only while it is being processed or if it has failed. A failure comes with a retry.</p>
+
+<h3>Consent</h3>
+<p>Check LSE's rules on recording teaching before relying on live recording. Ask before recording seminars where classmates speak. Recordings stay private to your account.</p>
+</section>
+
+<section class="part" id="import">
+<h2><span class="n">8</span>Importing readings</h2>
+
+<h3>Bulk import</h3>
+<ol>
+  <li>Choose a module and drop a folder of PDFs onto it.</li>
+  <li>Each filename is parsed with your existing naming convention.</li>
+  <li>A review table lists every file with its week, type, position and title. Correct anything inline.</li>
+  <li>Confirm once. Files that didn't match go to the module's unsorted tray, which only appears when it holds something.</li>
+  <li>Files upload in parallel, and each upload is resumable. A SHA-256 hash is computed first, and a file already stored is linked rather than uploaded again.</li>
+  <li>Processing jobs are queued in week order. Opening a reading that hasn't been processed moves it to the front.</li>
+</ol>
+
+<h3>Filename parsing</h3>
+<pre><code>import re
+
+PREFIX = re.compile(
+    r"^\((?P&lt;term&gt;AT|WT)(?P&lt;week&gt;\d{1,2})\)\s+"
+    r"(?:(?P&lt;session&gt;00)|P(?P&lt;primary&gt;\d+))?\s*(?P&lt;rest&gt;.+)$"
+)
+
+SECONDARY = re.compile(
+    r"^(?P&lt;author&gt;.+?) \((?P&lt;year&gt;\d{4})\) '(?P&lt;title&gt;.+?)'"
+    r"(?:, (?P&lt;source&gt;.+?))?(?:, pp?\. (?P&lt;pages&gt;[\d-]+))?$"
+)
+
+PRIMARY = re.compile(
+    r"^(?P&lt;author&gt;[^']+?), '(?P&lt;title&gt;.+)'(?:, (?P&lt;detail&gt;.+))?$"
+)</code></pre>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Filename</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td class="wide">(00) HY335 Overview</td><td>Module description.</td></tr>
+    <tr><td class="wide">(AT1) 00 Introductory Session</td><td>AT1 week title and session notes.</td></tr>
+    <tr><td class="wide">(AT1) P1 Mao Zedong, 'On the Question of the Differentiation of the Three Worlds', 22 Feb 1974</td><td>AT1 primary source, position 1.</td></tr>
+    <tr><td class="wide">(AT2) Kirby, W. C. (1997) 'The Internationalization of China', China Quarterly 150, pp. 433-58</td><td>AT2 secondary reading, fully split.</td></tr>
+    <tr><td class="wide">(AT4) P1 Memorandum of Conversation between Mikoyan and Mao, 30 Jan 1949</td><td>AT4 primary source. No author or quotes, so the title is kept whole and flagged for review.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Within a week, primary sources are ordered by their P number. Secondary readings keep the order they were found in. Either can be dragged into a different order afterwards.</p>
+
+<h3>Migrating from Zotero</h3>
+<ul>
+  <li>Work from a copy of <code>zotero.sqlite</code> and the storage folder, never the live database.</li>
+  <li>Item titles go through the same parser as bulk import.</li>
+  <li>Each "00" note sets its week's title. Its content becomes notes on the week's first session. Zotero notes are HTML, which BlockNote can convert into blocks.</li>
+  <li>Zotero keeps PDF annotations in its <code>itemAnnotations</code> table, with a page index and rectangles in PDF coordinates. They map directly onto highlights, keeping their colours and comments.</li>
+  <li>Zotero item keys are stored, so a second run updates records instead of duplicating them.</li>
+</ul>
+</section>
+
+<section class="part" id="architecture">
+<h2><span class="n">9</span>System architecture</h2>
+<p>The app is a Next.js progressive web app, installed on each device. Supabase holds the data and handles sign-in. Files are stored in Cloudflare R2. A small Python worker does the heavy processing.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Devices
+    L[Laptop PWA]
+    P[Phone PWA]
+  end
+  V[Next.js API on Vercel]
+  subgraph Supabase
+    DB[(Postgres)]
+    RT[Realtime]
+  end
+  R2[(Cloudflare R2)]
+  WK[Python worker on VPS]
+  TA[Transcription API]
+  CA[Claude API]
+  L & P <-->|rows| DB
+  RT -->|changes| L & P
+  L & P -->|request URL| V
+  V -->|presign| R2
+  L & P <-->|files| R2
+  WK <-->|jobs| DB
+  WK <-->|files| R2
+  WK --> TA
+  WK --> CA
+</pre>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Component</th><th>Choice</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td>Client</td><td>Next.js (App Router) as a PWA</td><td class="wide">Every screen. Installed on each device.</td></tr>
+    <tr><td>Local store</td><td>IndexedDB via Dexie</td><td class="wide">Cached rows, the outbox of pending writes and the audio chunk buffer.</td></tr>
+    <tr><td>Offline files</td><td>Service worker (Serwist) with Cache Storage</td><td class="wide">Cached PDFs and the app shell.</td></tr>
+    <tr><td>Database</td><td>Supabase Postgres</td><td class="wide">All structured data, plus full-text search.</td></tr>
+    <tr><td>Auth</td><td>Supabase Auth</td><td class="wide">One account. Row-level security limits every table to your user id.</td></tr>
+    <tr><td>Live updates</td><td>Supabase Realtime</td><td class="wide">Pushes changes to every open device.</td></tr>
+    <tr><td>Files</td><td>Cloudflare R2</td><td class="wide">PDFs, originals and audio in a private bucket. Accessed through short-lived presigned URLs.</td></tr>
+    <tr><td>API</td><td>Next.js route handlers on Vercel</td><td class="wide">Issues presigned URLs and adds jobs to the queue.</td></tr>
+    <tr><td>Worker</td><td>Python in Docker on a small VPS</td><td class="wide">OCR, conversion, audio processing, transcription and backups.</td></tr>
+    <tr><td>Transcription</td><td>Hosted API, with <code>faster-whisper</code> as fallback</td><td class="wide">Speech to text.</td></tr>
+    <tr><td>Summaries</td><td>Claude API</td><td class="wide">A summary of each session, written from its transcript.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Worker and jobs</h3>
+<p>The worker uses OCRmyPDF, LibreOffice in headless mode, ffmpeg and PyMuPDF. It takes work from a <code>jobs</code> table in Postgres.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Job</th><th>Input</th><th>Output</th></tr></thead>
+  <tbody>
+    <tr><td><code>extract_text</code></td><td>PDF</td><td class="wide">Page text for search. Flags PDFs with no text layer for OCR.</td></tr>
+    <tr><td><code>ocr</code></td><td>Scanned PDF</td><td class="wide">A compressed PDF with a text layer.</td></tr>
+    <tr><td><code>convert</code></td><td>.pptx or .docx</td><td class="wide">A PDF for reading. The original is kept.</td></tr>
+    <tr><td><code>prepare_audio</code></td><td>Live chunks or a Moodle file</td><td class="wide">One Opus audio file for playback.</td></tr>
+    <tr><td><code>transcribe</code></td><td>Audio</td><td class="wide">Timed transcript segments.</td></tr>
+    <tr><td><code>summarise</code></td><td>Transcript and slide marks</td><td class="wide">A session summary, with notes per slide where marks exist.</td></tr>
+    <tr><td><code>backup</code></td><td>Database</td><td class="wide">A nightly dump stored in R2.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Jobs are claimed with <code>select ... for update skip locked</code>, so a second worker could run without conflicts. Each job retries with backoff and is marked failed after five attempts. Jobs run in week order, and opening an unprocessed reading moves its job to the front.</p>
+</section>
+
+<section class="part" id="sync">
+<h2><span class="n">10</span>Sync</h2>
+<p>Sync follows one rule: the most recent edit to a row wins.</p>
+<ul>
+  <li>Every row gets a UUIDv7 generated on the device, so anything can be created offline.</li>
+  <li>Rows carry two timestamps. <code>modified_at</code> is set by the device at the moment of the edit and decides conflicts. <code>synced_at</code> is set by a database trigger when the row is written and drives pulling.</li>
+  <li>Edits wait in an outbox in IndexedDB. When online, the outbox sends batches to one Postgres function, <code>apply_changes</code>, called through Supabase RPC. It applies each row only if it is newer than the stored version.</li>
+  <li>Each device keeps a cursor: the latest <code>synced_at</code> it has seen. On reconnecting it fetches every row written since. While online, Supabase Realtime pushes changes as they happen.</li>
+  <li>Deletions set <code>deleted</code> to true rather than removing the row. Tombstones older than 90 days are purged nightly.</li>
+  <li>Files never change after upload, so they never conflict. All edits are stored in rows.</li>
+  <li>Device clocks are kept in sync by the operating system. A few seconds of skew only matters for edits made seconds apart on two devices.</li>
+</ul>
+<p>The core of <code>apply_changes</code> for one table:</p>
+<pre><code>insert into note_blocks as t
+  (id, user_id, note_id, position, type, content, modified_at, deleted)
+values
+  ($1, $2, $3, $4, $5, $6, $7, $8)
+on conflict (id) do update
+set position    = excluded.position,
+    type        = excluded.type,
+    content     = excluded.content,
+    modified_at = excluded.modified_at,
+    deleted     = excluded.deleted
+where excluded.modified_at &gt; t.modified_at;</code></pre>
+
+<h3>Offline</h3>
+<p>Rows are small, so every device keeps a full copy of them. Files are cached selectively. Laptops can cache every PDF, since a year's readings fit comfortably on disk. Phones cache a week's files when you open it, along with the following week's. Android gives web apps generous storage, so this can be widened to a whole term if it proves useful. Recordings stream rather than cache.</p>
+</section>
+
+<section class="part" id="data">
+<h2><span class="n">11</span>Data model</h2>
+<p>Every synced table also carries <code>user_id</code>, <code>modified_at</code>, <code>synced_at</code> and <code>deleted</code>. They are left out below for readability. Row-level security limits every table to your user id.</p>
+<pre><code>create table modules (
+  id uuid primary key,
+  code text not null,
+  title text,
+  session_pattern jsonb not null,
+  description jsonb,
+  last_opened_week_id uuid,
+  position text not null
+);
+
+create table weeks (
+  id uuid primary key,
+  module_id uuid not null references modules,
+  term text not null check (term in ('AT', 'WT')),
+  number int not null check (number between 1 and 11),
+  title text,
+  is_reading_week boolean not null default false
+);
+
+create table sessions (
+  id uuid primary key,
+  week_id uuid not null references weeks,
+  kind text not null check (kind in ('lecture', 'seminar', 'combined')),
+  title text,
+  position text not null
+);
+
+create table files (
+  id uuid primary key,
+  sha256 text not null unique,
+  r2_key text not null,
+  mime text not null,
+  bytes bigint not null,
+  page_count int,
+  text_status text not null default 'pending'
+);
+
+create table items (
+  id uuid primary key,
+  kind text not null check (kind in ('secondary', 'primary', 'slides')),
+  author text,
+  title text not null,
+  source text,
+  pages text,
+  year int,
+  doc_date text,
+  file_id uuid references files,
+  original_file_id uuid references files,
+  zotero_key text,
+  last_page int,
+  read_status text not null default 'unread'
+);
+
+create table week_items (
+  id uuid primary key,
+  week_id uuid not null references weeks,
+  item_id uuid not null references items,
+  session_id uuid references sessions,
+  position text not null
+);
+
+create table questions (
+  id uuid primary key,
+  session_id uuid not null references sessions,
+  body text not null,
+  position text not null
+);
+
+create table highlights (
+  id uuid primary key,
+  item_id uuid not null references items,
+  page int not null,
+  rects jsonb not null,
+  body text,
+  colour text not null,
+  comment text,
+  question_id uuid references questions,
+  zotero_key text
+);
+
+create table recordings (
+  id uuid primary key,
+  session_id uuid not null references sessions,
+  source text not null check (source in ('live', 'upload')),
+  file_id uuid references files,
+  duration_seconds numeric,
+  slide_marks jsonb not null default '[]',
+  summary jsonb,
+  status text not null default 'recording'
+);
+
+create table notes (
+  id uuid primary key,
+  session_id uuid references sessions,
+  item_id uuid references items,
+  question_id uuid references questions,
+  check (num_nonnulls(session_id, item_id, question_id) = 1)
+);
+
+create table note_blocks (
+  id uuid primary key,
+  note_id uuid not null references notes,
+  position text not null,
+  type text not null,
+  content jsonb not null,
+  recording_id uuid references recordings,
+  offset_seconds numeric,
+  highlight_id uuid references highlights
+);
+
+create table page_text (
+  file_id uuid references files,
+  page int,
+  body text,
+  tsv tsvector generated always as (to_tsvector('english', body)) stored,
+  primary key (file_id, page)
+);
+
+create table transcript_segments (
+  id uuid primary key,
+  recording_id uuid not null references recordings,
+  start_seconds numeric not null,
+  end_seconds numeric not null,
+  body text not null,
+  tsv tsvector generated always as (to_tsvector('english', body)) stored
+);
+
+create table jobs (
+  id bigint generated always as identity primary key,
+  type text not null,
+  payload jsonb not null,
+  status text not null default 'queued',
+  priority int,
+  attempts int not null default 0,
+  run_after timestamptz not null default now(),
+  error text
+);</code></pre>
+<ul>
+  <li><code>position</code> columns hold fractional index keys, which sort as text.</li>
+  <li><code>doc_date</code> is free text because primary source dates vary in precision, from a full date to a single year.</li>
+  <li><code>week_items.session_id</code> is set for slides and left empty for readings.</li>
+  <li>The check constraint on <code>notes</code> makes sure each note has exactly one parent.</li>
+  <li><code>page_text</code> and <code>transcript_segments</code> are written only by the worker. They stay on the server for search, and a session's transcript is fetched when it is opened.</li>
+  <li><code>zotero_key</code> makes repeat migrations safe.</li>
+  <li><code>modules.last_opened_week_id</code> syncs, so every device opens a module at the week you last looked at.</li>
+  <li><code>recordings.summary</code> holds the session summary and any per-slide notes.</li>
+</ul>
+</section>
+
+<section class="part" id="phases">
+<h2><span class="n">12</span>Build phases</h2>
+<p>Each phase leaves something usable. Effort is a rough guide in weeks of evenings.</p>
+<ol class="phases">
+  <li>
+    <h3>Phase 0. Foundations</h3>
+    <p class="effort">About one week.</p>
+    <p>Repository, Supabase project, R2 bucket, schema and row-level security. Sign-in. The PWA shell. The sync engine: outbox, <code>apply_changes</code>, pull cursor and Realtime subscription.</p>
+    <p class="done"><strong>Done when</strong> a module created offline on the laptop appears on the phone after reconnecting.</p>
+  </li>
+  <li>
+    <h3>Phase 1. Library and reader</h3>
+    <p class="effort">About three weeks.</p>
+    <p>Module creation with session patterns. The module list, week page and cross-module week view, following the empty-state rules. Bulk import with the parser, review table, unsorted tray, resumable uploads and deduplication. The reader with zoom, themes, highlights, comments and saved position. Zotero migration, including annotations.</p>
+    <p class="done"><strong>Done when</strong> the Autumn Term readings for all four modules are in, readable on both devices, with existing Zotero highlights intact.</p>
+  </li>
+  <li>
+    <h3>Phase 2. Processing worker</h3>
+    <p class="effort">About one week.</p>
+    <p>The VPS and Docker setup. The job queue. OCR, LibreOffice conversion and page text extraction. Nightly backups to R2.</p>
+    <p class="done"><strong>Done when</strong> a scanned reading or a .pptx dropped onto a week becomes a highlightable PDF with no manual steps.</p>
+  </li>
+  <li>
+    <h3>Phase 3. Notes and questions</h3>
+    <p class="effort">Two to three weeks.</p>
+    <p>BlockNote with block-level sync. The split view in the reader. Highlight blocks. Seminar questions, filing highlights and answer notes. Reading notes.</p>
+    <p class="done"><strong>Done when</strong> a seminar question shows highlights filed from several readings, and the answer written around them syncs between devices.</p>
+  </li>
+  <li>
+    <h3>Phase 4. Sessions and recording</h3>
+    <p class="effort">About two weeks.</p>
+    <p>Session mode. Live recording with the local chunk buffer and wake lock. Timestamped blocks and slide marks. Moodle uploads with audio extraction. Playback that jumps from any note.</p>
+    <p class="done"><strong>Done when</strong> a lecture recorded on the laptop plays from the right moment when any note is clicked.</p>
+  </li>
+  <li>
+    <h3>Phase 5. Transcription and search</h3>
+    <p class="effort">One to two weeks.</p>
+    <p>Transcription jobs with segment joining. The transcript view, divided by slide. Session summaries from the Claude API. Full-text search across page text, transcripts, summaries, notes and highlights.</p>
+    <p class="done"><strong>Done when</strong> a finished lecture shows its summary above the transcript, and searching for a phrase from it opens the transcript at the moment it was said.</p>
+  </li>
+  <li>
+    <h3>Phase 6. Polish</h3>
+    <p class="effort">Ongoing.</p>
+    <p>The phone caching policy. Performance on very long scans. An empty-state audit across a full term of real data. A native Android build with Capacitor for phone recording, if it turns out to be needed. It can be installed directly from an APK, with no Play Store listing.</p>
+  </li>
+</ol>
+<div class="note">
+<p>Keep using Zotero until Phase 3 is done. Then run the migration again to bring in anything added since. Zotero item keys are stored, so the second run updates records rather than duplicating them.</p>
+</div>
+</section>
+
+<section class="part" id="costs">
+<h2><span class="n">13</span>Storage and costs</h2>
+<p>Figures are rough yearly estimates. Check current pricing before committing.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Item</th><th>Estimate</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Readings</td><td>A few GB</td><td class="wide">200 to 350 PDFs a year. Scans make up most of the size. OCR compression helps.</td></tr>
+    <tr><td>Audio</td><td>About 1.5 GB</td><td class="wide">Roughly 120 hours of sessions a year, stored as Opus at 24 kbps.</td></tr>
+    <tr><td>Database</td><td>Tens of MB</td><td class="wide">Notes, highlights, page text and transcripts are all small.</td></tr>
+    <tr><td>Cloudflare R2</td><td>Free to start</td><td class="wide">The free allowance covers the first year or so. Beyond it, storage costs pennies per GB a month and downloads are free.</td></tr>
+    <tr><td>Supabase</td><td>Free to start</td><td class="wide">Free projects can pause after a period of inactivity and have limited backups. The worker's regular queries keep it active, and the nightly dump covers backups.</td></tr>
+    <tr><td>Worker VPS</td><td>A few pounds a month</td><td class="wide">Two vCPUs is plenty for overnight OCR and audio work.</td></tr>
+    <tr><td>Transcription</td><td>Tens of pounds a year</td><td class="wide">Hosted APIs charge per minute of audio.</td></tr>
+    <tr><td>Summaries</td><td>A few pounds a year</td><td class="wide">One Claude API call per session, priced by the length of the transcript.</td></tr>
+    <tr><td>Vercel</td><td>Free</td><td class="wide">The hobby tier covers a single-user app.</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section class="part" id="risks">
+<h2><span class="n">14</span>Risks</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td>Android battery management stops a recording on the phone.</td><td class="wide">Record on the laptop. If phone recording becomes necessary, build a Capacitor app that records through a foreground service, which Android leaves running.</td></tr>
+    <tr><td>Large scans scroll badly on phones.</td><td class="wide">Render only nearby pages, cache them, and render at lower resolution on small screens. Compress during OCR.</td></tr>
+    <tr><td>A crash or bad wifi loses a recording.</td><td class="wide">One-minute chunks saved locally before upload.</td></tr>
+    <tr><td>Clock skew under last-write-wins.</td><td class="wide">Operating systems keep clocks accurate. Only edits seconds apart on two devices are at risk.</td></tr>
+    <tr><td>Free tier limits on Supabase.</td><td class="wide">Nightly dump to R2. Move to a paid plan if the limits start to bite.</td></tr>
+    <tr><td>Copyright on course readings.</td><td class="wide">Private bucket, one user and no sharing features. Personal study use only.</td></tr>
+    <tr><td>Recording consent.</td><td class="wide">Follow LSE's rules. Ask before recording seminars.</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<footer>
+  <p>Study Library. Plan and architecture, working draft of 6 October 2026.</p>
+</footer>
+
+</main>
+</div>
+<script>
+(function () {
+  var toc = document.getElementById('toc');
+  if (!toc) return;
+  var mq = window.matchMedia('(min-width: 64rem)');
+  function sync() { if (mq.matches) toc.open = true; }
+  sync();
+  if (mq.addEventListener) mq.addEventListener('change', sync);
+  toc.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () { if (!mq.matches) toc.open = false; });
+  });
+})();
+</script>
+</body>
+</html>

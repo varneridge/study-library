@@ -1,0 +1,98 @@
+[
+  {
+    "input": "(00) HY335 Overview",
+    "expect": { "kind": "module", "title": "HY335 Overview", "review": false }
+  },
+  {
+    "input": "(AT1) 00 Introductory Session",
+    "expect": { "kind": "session", "term": "AT", "week": 1, "title": "Introductory Session", "review": false }
+  },
+  {
+    "input": "(AT1) Chen, J. (2001) 'Introduction', in Mao's China and the Cold War, pp. 1-16",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 1, "author": "Chen, J.", "year": 2001,
+      "title": "Introduction", "source": "in Mao's China and the Cold War", "pages": "1-16", "review": false
+    }
+  },
+  {
+    "input": "(AT1) P1 Mao Zedong, 'On the Question of the Differentiation of the Three Worlds', 22 Feb 1974",
+    "expect": {
+      "kind": "primary", "term": "AT", "week": 1, "order": 1, "author": "Mao Zedong",
+      "title": "On the Question of the Differentiation of the Three Worlds", "doc_date": "22 Feb 1974", "review": false
+    }
+  },
+  {
+    "input": "(AT1) Westad, O. A. (2012) 'Empire', in Restless Empire, pp. 1-17",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 1, "author": "Westad, O. A.", "year": 2012,
+      "title": "Empire", "source": "in Restless Empire", "pages": "1-17", "review": false
+    }
+  },
+  {
+    "input": "(AT2) Kirby, W. C. (1997) 'The Internationalization of China', China Quarterly 150, pp. 433-58",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 2, "author": "Kirby, W. C.", "year": 1997,
+      "title": "The Internationalization of China", "source": "China Quarterly 150", "pages": "433-58", "review": false
+    }
+  },
+  {
+    "input": "(AT2) P1 Jiang Jieshi, 'China's Destiny', excerpts from the Russian translation",
+    "expect": {
+      "kind": "primary", "term": "AT", "week": 2, "order": 1, "author": "Jiang Jieshi",
+      "title": "China's Destiny", "source": "excerpts from the Russian translation", "review": false
+    }
+  },
+  {
+    "input": "(AT2) P2 Chen Boda, 'Criticism of the Book China's Destiny'",
+    "expect": {
+      "kind": "primary", "term": "AT", "week": 2, "order": 2, "author": "Chen Boda",
+      "title": "Criticism of the Book China's Destiny", "review": false
+    }
+  },
+  {
+    "input": "(AT2) Westad, O. A. (2012) 'Imperialisms', in Restless Empire, ch. 2",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 2, "author": "Westad, O. A.", "year": 2012,
+      "title": "Imperialisms", "source": "in Restless Empire, ch. 2", "review": false
+    }
+  },
+  {
+    "input": "(AT3) Carrai, M. A. (2019) 'China Rejoining the World and Its Fictional Sovereignty, 1912-1949', in Sovereignty in China, pp. 120-150",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 3, "author": "Carrai, M. A.", "year": 2019,
+      "title": "China Rejoining the World and Its Fictional Sovereignty, 1912-1949",
+      "source": "in Sovereignty in China", "pages": "120-150", "review": false
+    }
+  },
+  {
+    "input": "(AT4) Chen, J. (2001) 'The Myth of America's Lost Chance in China', in Mao's China and the Cold War, pp. 38-53",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 4, "author": "Chen, J.", "year": 2001,
+      "title": "The Myth of America's Lost Chance in China", "source": "in Mao's China and the Cold War",
+      "pages": "38-53", "review": false
+    }
+  },
+  {
+    "input": "(AT4) P1 Memorandum of Conversation between Mikoyan and Mao, 30 Jan 1949",
+    "expect": {
+      "kind": "primary", "term": "AT", "week": 4, "order": 1,
+      "title": "Memorandum of Conversation between Mikoyan and Mao", "doc_date": "30 Jan 1949", "review": true
+    }
+  },
+  {
+    "input": "(WT11) Some reading without the usual format",
+    "expect": { "kind": "secondary", "term": "WT", "week": 11, "title": "Some reading without the usual format", "review": true }
+  },
+  {
+    "input": "(AT3) Yang, K. (2015) \u2018The Evolution of the Relationship between the CCP and the Comintern\u2019, Journal of Modern Chinese History 9(1), pp. 1-20",
+    "expect": {
+      "kind": "secondary", "term": "AT", "week": 3, "author": "Yang, K.", "year": 2015,
+      "title": "The Evolution of the Relationship between the CCP and the Comintern",
+      "source": "Journal of Modern Chinese History 9(1)", "pages": "1-20", "review": false
+    }
+  },
+  {
+    "input": "lecture-week-3-slides",
+    "expect": { "kind": "unmatched", "title": "lecture-week-3-slides", "review": true }
+  }
+]

@@ -1,0 +1,8 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+public/pdf.worker.min.mjs
+tests/e2e/files
+tests/e2e/shots
+tests/e2e/files-citations
