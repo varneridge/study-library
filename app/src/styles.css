@@ -826,6 +826,8 @@ kbd { font-family: var(--sans); font-size: var(--fs-xs); border: 1px solid var(-
 .note-highlight .quote-meta button { color: var(--accent); font-size: inherit; }
 .note-highlight .quote-meta button:hover { text-decoration: underline; }
 .note-highlight .quote-tag { text-transform: uppercase; letter-spacing: 0.05em; }
+.note-highlight .quote-delete { margin-left: auto; color: var(--muted) !important; }
+.note-highlight .quote-delete:hover { color: var(--danger) !important; text-decoration: underline; }
 .floating.panel .write-note { justify-content: center; }
 /* A selected quotation is outlined in the accent, square, like everything else. */
 .note-editor .bn-block-content.ProseMirror-selectednode > ::after,

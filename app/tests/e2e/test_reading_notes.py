@@ -145,6 +145,29 @@ with sync_playwright() as p:
     expect(phone.locator(".reading-notes .note-highlight")).to_have_count(3, timeout=15000)
     phone.screenshot(path=f"{shots}-2-phone.png")
 
+    # Deleting a quotation on a phone removes its highlight from the page too.
+    phone.locator(".reading-notes .note-highlight").first.get_by_role("button", name="Delete quotation").click()
+    expect(phone.locator(".toast")).to_contain_text("Highlight removed from the page too")
+    expect(phone.locator(".reading-notes .note-highlight")).to_have_count(2, timeout=10000)
+    print("deleting a quotation on a phone removes the highlight and quotation")
+    phone.close()
+
+    # Deleting all remaining highlights leaves the notes cleanly cleared.
+    while page.locator(".pdf-page .hl").count() > 0:
+        hl_loc = page.locator(".pdf-page .hl").first
+        hl_loc.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        box = hl_loc.bounding_box()
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.locator(".floating.panel").get_by_role("button", name="Delete").click()
+        page.wait_for_timeout(400)
+    expect(page.locator(".reading-notes .note-highlight")).to_have_count(0, timeout=10000)
+    page.reload()
+    page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 3", timeout=20000)
+    expect(page.locator(".reading-notes .note-highlight")).to_have_count(0, timeout=10000)
+    print("deleting all highlights clears the notes and does not return on reload")
+
     print("page errors:", errors[:5])
     assert not errors
     browser.close()
+

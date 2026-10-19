@@ -27,7 +27,17 @@ import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib
 // the passage instead of opening the reading again.
 import { QuoteContext } from "./quoteContext";
 
-function Quote({ props }: { props: { highlightId: string; itemId: string; page: number; text: string; colour: string; source: string } }) {
+function Quote({
+  block,
+  editor,
+  props,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  block?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor?: any;
+  props: { highlightId: string; itemId: string; page: number; text: string; colour: string; source: string };
+}) {
   const { readingId, open } = useContext(QuoteContext);
   const names = useColourNames();
   const here = readingId && props.itemId === readingId;
@@ -43,6 +53,17 @@ function Quote({ props }: { props: { highlightId: string; itemId: string; page: 
           <a href={href(to)} onClick={(e) => { e.preventDefault(); navigate(to); }}>{props.source}, p. {props.page + 1}</a>
         )}
         {named && <span className="quote-tag">{colourLabel(props.colour, names)}</span>}
+        {editor && block && (
+          <button
+            type="button"
+            className="plain quote-delete"
+            aria-label="Delete quotation"
+            title="Delete quotation"
+            onClick={() => editor.removeBlocks([block])}
+          >
+            Delete
+          </button>
+        )}
       </span>
     </div>
   );
@@ -62,7 +83,7 @@ const createHighlight = createReactBlockSpec(
     content: "none",
   },
   {
-    render: ({ block }) => <Quote props={block.props} />,
+    render: ({ block, editor }) => <Quote block={block} editor={editor} props={block.props} />,
   },
 );
 
@@ -188,11 +209,16 @@ function Inner({ target, handle, live, onQuoteRemoved, placeholder, compact, lab
   }, [persist]);
 
   const applyRemote = useCallback(() => {
-    if (!live.rows.length) return;
     applying.current = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.replaceBlocks(editor.document, live.rows.map((r) => r.content) as any);
-    saved.current = snapshot(live.rows);
+    if (live.rows.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.replaceBlocks(editor.document, live.rows.map((r) => r.content) as any);
+      saved.current = snapshot(live.rows);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.replaceBlocks(editor.document, [{ type: "paragraph" } as any]);
+      saved.current = new Map();
+    }
     applying.current = false;
     stale.current = false;
   }, [editor, live]);

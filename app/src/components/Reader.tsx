@@ -879,6 +879,11 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     return map;
   }, [data?.highlights]);
 
+  const onQuoteRemoved = useCallback((hid: string) => {
+    const h = (data?.highlights ?? []).find((x) => x.id === hid);
+    if (h) void withUndo("Highlight removed from the page too.", deleteRows([{ table: "highlights", row: h }]));
+  }, [data?.highlights]);
+
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
 
@@ -1009,10 +1014,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
             itemId={id} highlights={highlights} noteHandle={noteHandle}
             onGoPage={(p) => { goToPage(p); if (narrow) setLeft(false); }}
             onOpenHighlight={(hid) => { const h = highlights.find((x) => x.id === hid); if (h) goTo(h); }}
-            onQuoteRemoved={(hid) => {
-              const h = highlights.find((x) => x.id === hid);
-              if (h) void withUndo("Highlight removed from the page too.", deleteRows([{ table: "highlights", row: h }]));
-            }}
+            onQuoteRemoved={onQuoteRemoved}
             onClose={toggleLeft}
           />
         )}

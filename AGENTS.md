@@ -84,3 +84,4 @@ npm run deploy
 - Use the web-design-guidelines skill when asked to review the interface or its accessibility.
 - Use Context7 for current documentation of BlockNote, pdf.js, Dexie, Hono and Wrangler before relying on memory.
 - At the end of a session, update section 16 (Known limits and next steps) of `DEBRIEF.md` with what was done and what is left.
+- For any change to the interface, use the study-library-design skill. It takes precedence over frontend-design.
