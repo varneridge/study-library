@@ -208,10 +208,69 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     [],
   );
 
+  const applyRemote = useCallback(() => {
+    // Never overwrite unsaved user edits in flight:
+    if (timer.current) {
+      stale.current = true;
+      return;
+    }
+    // Never interrupt the user while writing or interacting with the note editor:
+    if (editor.isFocused() || (container.current && container.current.contains(document.activeElement))) {
+      stale.current = true;
+      return;
+    }
+
+    applying.current = true;
+
+    // Preserve text cursor position across remote block updates
+    let cursor: { blockId: string; placement: "start" | "end" } | null = null;
+    try {
+      const pos = editor.getTextCursorPosition?.();
+      if (pos?.block?.id) {
+        cursor = { blockId: pos.block.id, placement: "end" };
+      }
+    } catch {
+      // ignore
+    }
+
+    if (live.rows.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.replaceBlocks(editor.document, live.rows.map((r) => r.content) as any);
+      saved.current = snapshot(live.rows);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.replaceBlocks(editor.document, [{ type: "paragraph" } as any]);
+      saved.current = new Map();
+    }
+
+    if (cursor) {
+      try {
+        const doc = editor.document;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const target = doc.find((b: any) => b.id === cursor!.blockId);
+        if (target) {
+          editor.setTextCursorPosition(target, cursor.placement);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    applying.current = false;
+    stale.current = false;
+  }, [editor, live]);
+
   const persist = useCallback(async () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
     const id = await saveNote(target, noteId.current, editor.document as unknown as Block[], saved.current);
     if (id) noteId.current = id;
-  }, [editor, target]);
+    if (stale.current && !editor.isFocused() && !(container.current && container.current.contains(document.activeElement))) {
+      applyRemote();
+    }
+  }, [editor, target, applyRemote]);
 
   useEffect(
     () =>
@@ -244,21 +303,6 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     }
   }, [persist]);
 
-  const applyRemote = useCallback(() => {
-    applying.current = true;
-    if (live.rows.length) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.replaceBlocks(editor.document, live.rows.map((r) => r.content) as any);
-      saved.current = snapshot(live.rows);
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      editor.replaceBlocks(editor.document, [{ type: "paragraph" } as any]);
-      saved.current = new Map();
-    }
-    applying.current = false;
-    stale.current = false;
-  }, [editor, live]);
-
   // Edits from other devices arrive here. They wait while you are typing.
   useEffect(() => {
     if (live.note) noteId.current = live.note.id;
@@ -269,8 +313,11 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       if (!entry || entry.position !== row.position || entry.json !== JSON.stringify(row.content)) differs = true;
     }
     if (differs) {
-      if (editor.isFocused()) stale.current = true;
-      else applyRemote();
+      if (editor.isFocused() || timer.current || (container.current && container.current.contains(document.activeElement))) {
+        stale.current = true;
+      } else {
+        applyRemote();
+      }
     }
   }, [live, editor, applyRemote]);
 
@@ -397,7 +444,15 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       className={`note-editor${compact ? " compact" : ""}`}
       onClick={handleContainerClick}
       onBlur={(e) => {
-        if (stale.current && !e.currentTarget.contains(e.relatedTarget as Node)) applyRemote();
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          if (timer.current) {
+            clearTimeout(timer.current);
+            timer.current = null;
+            void persist();
+          } else if (stale.current) {
+            applyRemote();
+          }
+        }
       }}
     >
       <BlockNoteView editor={editor} theme={dark ? "dark" : "light"} slashMenu={false}>

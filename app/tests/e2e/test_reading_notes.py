@@ -158,10 +158,38 @@ with sync_playwright() as p:
     assert "Direct note under quotation." in texts
     print("writing a note from within the notes sidebar places cursor beneath quotation")
 
+    # A background refresh must never move cursor or replace the document while writing in it.
+    page.keyboard.press("Enter")
+    page.keyboard.type("Active drafting in progress...")
+    page.evaluate("""async () => {
+      const j = await (await fetch('/api/sync/pull?since=0')).json();
+      const n = (j.rows.notes || []).find(x => !x.deleted);
+      if (n) {
+        const block = { id: crypto.randomUUID(), note_id: n.id, position: 'z9', type: 'paragraph', content: { id: crypto.randomUUID(), type: 'paragraph', props: {}, content: [{ type: 'text', text: 'Remote note from phone.', styles: {} }], children: [] }, highlight_id: null, modified_at: new Date().toISOString(), deleted: false };
+        await fetch('/api/sync/push', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes: [{ table: 'note_blocks', row: block }] }) });
+        window.dispatchEvent(new Event('online'));
+      }
+    }""")
+    page.wait_for_timeout(300)
+    # The user continues typing uninterrupted: the cursor has not moved
+    page.keyboard.type(" and continued seamlessly.")
+    page.wait_for_timeout(600)
+    texts = page.locator(".reading-notes .bn-editor").inner_text()
+    assert "Active drafting in progress... and continued seamlessly." in texts, f"document was replaced or cursor moved: {texts}"
+    # When leaving the editor, edits are persisted and remote changes integrate safely
+    page.locator(".pdf-page").first.click()
+    page.wait_for_timeout(500)
+    texts = page.locator(".reading-notes .bn-editor").inner_text()
+    assert "Active drafting in progress... and continued seamlessly." in texts
+    assert "Remote note from phone." in texts
+    print("background refresh never moves cursor or replaces document while writing")
+
     # Clicking empty space below all notes allows typing at the end.
+    last_block = page.locator(".reading-notes .bn-block").last
+    last_block.scroll_into_view_if_needed()
     editor_box = page.locator(".reading-notes .note-editor").bounding_box()
-    last_quote_box = page.locator(".reading-notes .note-highlight").last.bounding_box()
-    page.mouse.click(editor_box["x"] + 20, last_quote_box["y"] + last_quote_box["height"] + 40)
+    last_block_box = last_block.bounding_box()
+    page.mouse.click(editor_box["x"] + 20, last_block_box["y"] + last_block_box["height"] + 20)
     page.keyboard.type("Ending thought at the bottom.")
     page.wait_for_timeout(600)
     texts = page.locator(".reading-notes .bn-editor").inner_text()
