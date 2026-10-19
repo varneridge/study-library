@@ -134,6 +134,8 @@ interface Props {
   handle?: Ref<NoteEditorHandle>;
   // Removing a quotation from a reading's notes removes its highlight.
   onQuoteRemoved?: (highlightId: string) => void;
+  // Undoing the deletion of a quotation restores its highlight.
+  onQuoteRestored?: (highlightId: string) => void;
   // What an empty editor says, in place of the general hint.
   placeholder?: string;
   // A short editor, such as a seminar question's answer.
@@ -175,7 +177,7 @@ function snapshot(rows: NoteBlockRow[]): Map<string, Saved> {
   return new Map(rows.map((r) => [r.id, { position: r.position, json: JSON.stringify(r.content), row: r }]));
 }
 
-function Inner({ target, handle, live, onQuoteRemoved, placeholder, compact, label = "Notes" }: Props & { live: Loaded }) {
+function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placeholder, compact, label = "Notes" }: Props & { live: Loaded }) {
   const noteId = useRef<string | null>(live.note?.id ?? null);
   const saved = useRef(snapshot(live.rows));
   const applying = useRef(false);
@@ -215,18 +217,23 @@ function Inner({ target, handle, live, onQuoteRemoved, placeholder, compact, lab
     () =>
       editor.onChange((_editor, { getChanges }) => {
         if (applying.current) return;
-        if (onQuoteRemoved && "item_id" in target) {
+        if ("item_id" in target) {
           for (const change of getChanges()) {
             const block = change.block as unknown as Block;
-            if (change.type === "delete" && block.type === "highlight" && block.props?.itemId === target.item_id) {
-              onQuoteRemoved(String(block.props.highlightId));
+            if (block.type === "highlight" && block.props?.itemId === target.item_id) {
+              const hid = String(block.props.highlightId);
+              if (change.type === "delete") {
+                onQuoteRemoved?.(hid);
+              } else if (change.type === "insert") {
+                onQuoteRestored?.(hid);
+              }
             }
           }
         }
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => void persist(), 400);
       }),
-    [editor, persist, onQuoteRemoved, target],
+    [editor, persist, onQuoteRemoved, onQuoteRestored, target],
   );
 
   // Save straight away when leaving the page.

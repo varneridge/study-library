@@ -10,11 +10,11 @@ import { Link } from "../App";
 import { fileBlob } from "../lib/files";
 import { loadReader } from "../lib/library";
 import { navigate } from "../lib/router";
-import { bumpFile, insert, newId, update } from "../lib/sync";
+import { bumpFile, commit, insert, newId, update } from "../lib/sync";
 import { fullTitle, shortTitle } from "../lib/titles";
 import { COLOURS, colourLabel, useColourNames, type ColourNames } from "../lib/settings";
 import { deleteRows, withUndo } from "../lib/edits";
-import { typing, useNarrow, useTitle } from "../lib/ui";
+import { dismissToast, typing, useNarrow, useTitle } from "../lib/ui";
 import type { HighlightRow, ItemRow, QuestionRow } from "../lib/types";
 import { Menu } from "./Menu";
 import { Icon, IconButton } from "./icons";
@@ -884,6 +884,14 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     if (h) void withUndo("Highlight removed from the page too.", deleteRows([{ table: "highlights", row: h }]));
   }, [data?.highlights]);
 
+  const onQuoteRestored = useCallback(async (hid: string) => {
+    const h = (await db.highlights.get(hid)) as HighlightRow | undefined;
+    if (h?.deleted) {
+      await commit([{ table: "highlights", row: { ...h, deleted: false } }]);
+      dismissToast();
+    }
+  }, []);
+
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
 
@@ -1015,6 +1023,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
             onGoPage={(p) => { goToPage(p); if (narrow) setLeft(false); }}
             onOpenHighlight={(hid) => { const h = highlights.find((x) => x.id === hid); if (h) goTo(h); }}
             onQuoteRemoved={onQuoteRemoved}
+            onQuoteRestored={onQuoteRestored}
             onClose={toggleLeft}
           />
         )}

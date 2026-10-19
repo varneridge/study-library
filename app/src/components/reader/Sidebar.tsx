@@ -64,12 +64,12 @@ const Thumb = memo(function Thumb({ doc, index, size, current, onGo }: {
 });
 
 export function Sidebar({
-  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, onGoPage, onOpenHighlight, onQuoteRemoved, onClose,
+  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, onGoPage, onOpenHighlight, onQuoteRemoved, onQuoteRestored, onClose,
 }: {
   tab: Tab; setTab: (tab: Tab) => void; doc: PDFDocumentProxy | null; sizes: Size[]; current: number;
   headings: Heading[]; itemId: string; highlights: HighlightRow[]; noteHandle: Ref<NoteEditorHandle>;
   onGoPage: (page: number) => void; onOpenHighlight: (highlightId: string, page: number) => void;
-  onQuoteRemoved: (highlightId: string) => void; onClose: () => void;
+  onQuoteRemoved: (highlightId: string) => void; onQuoteRestored?: (highlightId: string) => void; onClose: () => void;
 }) {
   const tabs: { value: Tab; label: string; icon: "notes" | "pages" | "outline"; hidden?: boolean }[] = [
     { value: "notes", label: "Notes", icon: "notes" },
@@ -101,7 +101,7 @@ export function Sidebar({
             </p>
             <QuoteContext.Provider value={{ readingId: itemId, open: onOpenHighlight }}>
               <Suspense fallback={<NotesLoading />}>
-                <NoteEditor target={{ item_id: itemId }} handle={noteHandle} onQuoteRemoved={onQuoteRemoved} label="Reading notes" />
+                <NoteEditor target={{ item_id: itemId }} handle={noteHandle} onQuoteRemoved={onQuoteRemoved} onQuoteRestored={onQuoteRestored} label="Reading notes" />
               </Suspense>
             </QuoteContext.Provider>
           </div>

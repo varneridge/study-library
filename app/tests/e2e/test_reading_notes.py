@@ -115,6 +115,18 @@ with sync_playwright() as p:
     expect(page.locator(".reading-notes .note-highlight")).to_have_count(3, timeout=10000)
     print("deleting a quotation removes its highlight, and undo brings both back")
 
+    # Ctrl+Z in the notes restores the quotation and brings its highlight back on the page.
+    count = page.locator(".pdf-page .hl").count()
+    quote = page.locator(".reading-notes .note-highlight").nth(1)
+    quote.get_by_role("button", name="Delete quotation").click()
+    expect(page.locator(".toast")).to_contain_text("Highlight removed from the page too")
+    expect(page.locator(".pdf-page .hl")).to_have_count(count - 1, timeout=10000)
+    page.locator(".reading-notes .bn-editor").click()
+    page.keyboard.press("ControlOrMeta+z")
+    expect(page.locator(".reading-notes .note-highlight")).to_have_count(3, timeout=10000)
+    expect(page.locator(".pdf-page .hl")).to_have_count(count, timeout=10000)
+    print("Ctrl+Z in notes brings quotation and its highlight back on the page")
+
     # Deleting a highlight on the page takes its quotation out of the notes.
     click_hl(page, 0)
     page.locator(".floating.panel").get_by_role("button", name="Delete").click()
