@@ -43,6 +43,24 @@ function Quote({
   const here = readingId && props.itemId === readingId;
   const to = { view: "reader" as const, id: props.itemId, page: props.page };
   const named = names[props.colour.toLowerCase()];
+  const write = () => {
+    if (!editor || !block) return;
+    const doc = editor.document;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const index = doc.findIndex((b: any) => b.id === block.id);
+    if (index < 0) return;
+    const next = doc[index + 1];
+    const empty = next && next.type === "paragraph" && !blockText(next as unknown as Block).trim();
+    if (empty) {
+      editor.setTextCursorPosition(next, "start");
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const [inserted] = editor.insertBlocks([{ type: "paragraph" } as any], doc[index], "after");
+      editor.setTextCursorPosition(inserted, "start");
+    }
+    editor.focus();
+  };
+
   return (
     <div className="note-highlight" style={{ borderLeftColor: props.colour }} contentEditable={false}>
       <span className="quote">{props.text}</span>
@@ -53,6 +71,17 @@ function Quote({
           <a href={href(to)} onClick={(e) => { e.preventDefault(); navigate(to); }}>{props.source}, p. {props.page + 1}</a>
         )}
         {named && <span className="quote-tag">{colourLabel(props.colour, names)}</span>}
+        {editor && block && (
+          <button
+            type="button"
+            className="plain quote-write"
+            aria-label="Write note"
+            title="Write note"
+            onClick={write}
+          >
+            Write note
+          </button>
+        )}
         {editor && block && (
           <button
             type="button"
@@ -283,10 +312,83 @@ function Inner({ target, handle, live, onQuoteRemoved, placeholder, compact, lab
     },
   }), [editor]);
 
+  // Intercept Backspace and Enter on quotations:
+  // Backspacing does not delete the quotation, and pressing Enter starts a note beneath it.
+  useEffect(() => {
+    const el = container.current;
+    if (!el) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Backspace") {
+        try {
+          const sel = editor.getSelection();
+          if (sel && sel.blocks.length === 1 && sel.blocks[0].type === "highlight") {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        try {
+          const sel = editor.getSelection();
+          if (sel && sel.blocks.length === 1 && sel.blocks[0].type === "highlight") {
+            e.preventDefault();
+            e.stopPropagation();
+            const hl = sel.blocks[0];
+            const doc = editor.document;
+            const index = doc.findIndex((b) => b.id === hl.id);
+            if (index >= 0) {
+              const next = doc[index + 1];
+              const empty = next && next.type === "paragraph" && !blockText(next as unknown as Block).trim();
+              if (empty) editor.setTextCursorPosition(next, "start");
+              else {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const [inserted] = editor.insertBlocks([{ type: "paragraph" } as any], doc[index], "after");
+                editor.setTextCursorPosition(inserted, "start");
+              }
+              editor.focus();
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+    el.addEventListener("keydown", handleKeyDown, true);
+    return () => el.removeEventListener("keydown", handleKeyDown, true);
+  }, [editor]);
+
+  // Clicking empty space below notes allows typing at the end.
+  const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    const doc = editor.document;
+    if (!doc.length) return;
+    const lastBlock = doc[doc.length - 1];
+    const editorDom = container.current?.querySelector(".bn-editor");
+    if (!editorDom) return;
+    const blocks = editorDom.querySelectorAll(".bn-block");
+    const lastEl = blocks[blocks.length - 1];
+    if (lastEl) {
+      const rect = lastEl.getBoundingClientRect();
+      if (e.clientY > rect.bottom) {
+        if (lastBlock.type === "paragraph" && !blockText(lastBlock as unknown as Block).trim()) {
+          editor.setTextCursorPosition(lastBlock, "end");
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const [inserted] = editor.insertBlocks([{ type: "paragraph" } as any], lastBlock, "after");
+          editor.setTextCursorPosition(inserted, "start");
+        }
+        editor.focus();
+      }
+    }
+  };
+
   return (
     <div
       ref={container}
       className={`note-editor${compact ? " compact" : ""}`}
+      onClick={handleContainerClick}
       onBlur={(e) => {
         if (stale.current && !e.currentTarget.contains(e.relatedTarget as Node)) applyRemote();
       }}

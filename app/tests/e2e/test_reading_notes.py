@@ -138,6 +138,32 @@ with sync_playwright() as p:
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.highlights || []).some(h => h.body === 'An older highlight' && !h.comment); }")
     print("an old comment moved into the notes beneath its quotation")
 
+    # Write a note directly from the notes sidebar under a quotation.
+    page.locator(".reading-notes .note-highlight").first.get_by_role("button", name="Write note").click()
+    page.keyboard.type("Direct note under quotation.")
+    page.wait_for_timeout(600)
+    texts = page.locator(".reading-notes .bn-editor").inner_text()
+    assert "Direct note under quotation." in texts
+    print("writing a note from within the notes sidebar places cursor beneath quotation")
+
+    # Clicking empty space below all notes allows typing at the end.
+    editor_box = page.locator(".reading-notes .note-editor").bounding_box()
+    last_quote_box = page.locator(".reading-notes .note-highlight").last.bounding_box()
+    page.mouse.click(editor_box["x"] + 20, last_quote_box["y"] + last_quote_box["height"] + 40)
+    page.keyboard.type("Ending thought at the bottom.")
+    page.wait_for_timeout(600)
+    texts = page.locator(".reading-notes .bn-editor").inner_text()
+    assert "Ending thought at the bottom." in texts
+    assert texts.index("Direct note") < texts.index("Ending thought")
+    print("clicking below notes allows typing at the end")
+
+    # Deleting an empty line does not accidentally delete the preceding quotation.
+    for _ in range(len("Ending thought at the bottom.") + 2):
+        page.keyboard.press("Backspace")
+    page.wait_for_timeout(400)
+    expect(page.locator(".reading-notes .note-highlight")).to_have_count(3)
+    print("deleting an empty line does not delete the preceding quotation")
+
     # The same notes on a phone, as text.
     phone = browser.new_page(viewport={"width": 390, "height": 844})
     phone.goto(page.url)
