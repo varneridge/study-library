@@ -1001,7 +1001,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
   - Make editable titles (week and session headings) and reading highlights focusable and operable from the keyboard.
   - Turn the highlight popover into a sheet on mobile with dialog semantics, focus management and Escape dismissal.
   - Pass the screen-reader label to the note editor DOM and label the session rename input.
-  - Enlarge touch targets below 44 points on phones (the read toggle, sidebar close button, colour swatches and minor links).
+  - Enlarge remaining touch targets below 44 points on phones (the read toggle, sidebar close button, colour swatches and minor links; quotation buttons are now 44 points).
   - Correct the heading order on the home page so the h1 heading precedes subordinate sections.
   - Add arrow navigation to menus and sidebar tabs, give slide canvases an image role, and replace the middle dot in transcript meta.
 
@@ -1040,6 +1040,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 | 0.30 | Every scan read again on request, smooth highlights with no gaps, and evidence removed from questions |
 | 0.31 | Dissertation modules: sections you name, section notes, supervision meetings, key dates counting down on the home page, and Change to a dissertation |
 | 0.31.1 | An accessible h1 heading for the reader in page layout, a relative path for the processor script, and enforced LF line endings for shell scripts |
+| 0.31.2 | Quotation deletion and note editing fixes in the reader: restoring highlights on editor undo (Ctrl+Z), protecting drafted text from background sync replacement, quiet hover-revealed quotation action buttons on laptops with 44-point touch targets on phones, and interactive-widget=resizes-content for virtual keyboards |
 
 ## 18. The job search
 

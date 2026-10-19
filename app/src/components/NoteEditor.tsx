@@ -74,7 +74,7 @@ function Quote({
         {editor && block && (
           <button
             type="button"
-            className="plain quote-write"
+            className="plain quiet quote-write"
             aria-label="Write note"
             title="Write note"
             onClick={write}
@@ -85,7 +85,7 @@ function Quote({
         {editor && block && (
           <button
             type="button"
-            className="plain quote-delete"
+            className="plain quiet quote-delete"
             aria-label="Delete quotation"
             title="Delete quotation"
             onClick={() => editor.removeBlocks([block])}

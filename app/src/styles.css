@@ -826,9 +826,18 @@ kbd { font-family: var(--sans); font-size: var(--fs-xs); border: 1px solid var(-
 .note-highlight .quote-meta button { color: var(--accent); font-size: inherit; }
 .note-highlight .quote-meta button:hover { text-decoration: underline; }
 .note-highlight .quote-tag { text-transform: uppercase; letter-spacing: 0.05em; }
-.note-highlight .quote-write { margin-left: auto; }
-.note-highlight .quote-delete { color: var(--muted) !important; }
+.note-highlight .quote-write { margin-left: auto; color: var(--muted) !important; opacity: 0; transition: opacity 0.12s ease; }
+.note-highlight .quote-write:hover { color: var(--accent) !important; text-decoration: underline; }
+.note-highlight .quote-delete { color: var(--muted) !important; opacity: 0; transition: opacity 0.12s ease; }
 .note-highlight .quote-delete:hover { color: var(--danger) !important; text-decoration: underline; }
+.note-highlight:hover .quote-write,
+.note-highlight:hover .quote-delete,
+.note-highlight:focus-within .quote-write,
+.note-highlight:focus-within .quote-delete,
+.note-highlight .quote-write:focus-visible,
+.note-highlight .quote-delete:focus-visible {
+  opacity: 1;
+}
 .floating.panel .write-note { justify-content: center; }
 /* A selected quotation is outlined in the accent, square, like everything else. */
 .note-editor .bn-block-content.ProseMirror-selectednode > ::after,
@@ -1379,6 +1388,9 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .hit-line, .week-title { display: flex; }
   .menu-button { min-width: 2.75rem; justify-content: center; }
   .reading a.name, .recent .name, .module-row { min-height: 2.75rem; }
+  .note-highlight .quote-meta { flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; }
+  .note-highlight .quote-meta button, .note-highlight .quote-meta a { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .note-highlight .quote-write, .note-highlight .quote-delete { min-width: 2.75rem; padding-inline: 0.35rem; justify-content: center; opacity: 1 !important; }
   button:active, a:active, [role="checkbox"]:active { opacity: 0.6; transition: opacity 0s; }
   .button:active, .tool:active, .icon-button:active { background: var(--wash); opacity: 1; }
   /* Fields at 16px or more, so iOS never zooms in when one is tapped. */
@@ -1390,12 +1402,14 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .question-open { opacity: 1; }
   .slide-arrow { opacity: 0.85; }
   .slide-count { opacity: 1; }
+  .note-highlight .quote-write, .note-highlight .quote-delete { opacity: 1; }
 }
 
 /* On a phone the module page lists weeks only; a week opens to its sessions.
    Forty small Lecture and Seminar links were too small to tap and too many to scan. */
 @media (max-width: 44rem) {
   .week-head .session-link { display: none; }
+  .note-highlight .quote-write, .note-highlight .quote-delete { opacity: 1; }
 }
 
 /* Menus and confirmations rise from the foot of the screen on a phone, with

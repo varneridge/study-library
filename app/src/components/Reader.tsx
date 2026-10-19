@@ -431,6 +431,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     const element = pageElement(spot.page);
     if (!element || !scroller.current) return false;
     scroller.current.scrollTop = element.offsetTop + spot.frac * element.offsetHeight - topInset() - 8;
+    lastTop.current = scroller.current.scrollTop;
     setCurrent(spot.page);
     return true;
   }, []);
@@ -441,7 +442,10 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
       if (marker) { marker.scrollIntoView({ block: "start" }); setCurrent(index); return; }
     }
     const element = pageElement(index);
-    if (element && scroller.current) scroller.current.scrollTop = element.offsetTop - 8;
+    if (element && scroller.current) {
+      scroller.current.scrollTop = element.offsetTop - 8;
+      lastTop.current = scroller.current.scrollTop;
+    }
     setCurrent(index);
   }, []);
 
@@ -463,7 +467,10 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
       goToSpotPages(saved);
       spotRef.current = saved;
     } else goToPage(Math.min(page ?? data.item.last_page ?? 0, sizes.length - 1));
-    restored.current = true;
+    requestAnimationFrame(() => {
+      if (scroller.current) lastTop.current = scroller.current.scrollTop;
+      restored.current = true;
+    });
   }, [doc, sizes, data, page, fit, goToPage, goToSpotPages]);
 
   // Keep exactly the same place when the pages change size: zooming,
@@ -486,7 +493,9 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
       const room = element.scrollHeight - element.clientHeight;
       setProgress(room > 0 ? Math.min(1, Math.max(0, element.scrollTop / room)) : 0);
       const delta = element.scrollTop - lastTop.current;
-      if (Math.abs(delta) > 12) {
+      if (!restored.current) {
+        lastTop.current = element.scrollTop;
+      } else if (Math.abs(delta) > 12) {
         setBarHidden(delta > 0 && element.scrollTop > 80);
         lastTop.current = element.scrollTop;
       }
@@ -1027,7 +1036,12 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
             onClose={toggleLeft}
           />
         )}
-        <div className="scroller" ref={scroller} onScroll={onScroll}>
+        <div
+          className="scroller"
+          ref={scroller}
+          onScroll={onScroll}
+          onClick={() => { if (barHidden) setBarHidden(false); }}
+        >
           {problem && <p className="notice">{problem}</p>}
           {!doc && !problem && <p className="notice">Opening the reading…</p>}
           {doc && layout === "text" && !reflowed && <p className="notice">Setting the text for this screen…</p>}

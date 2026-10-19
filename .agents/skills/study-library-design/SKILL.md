@@ -90,6 +90,18 @@ Always use these variables; never write a colour, radius or size directly. They 
 - **Consistency.** Anything you can do to a thing is offered wherever it appears (section 20 of `DEBRIEF.md`).
 - **One way in.** Each place has one obvious link on any screen, not three.
 - **Undo, not "Are you sure?".** Ask first only when something hard to replace would be lost.
+- **A way out, always.** Every sheet, panel, dialog, menu, form and editing state has a visible Cancel (or Close) button, as well as Escape on a laptop and a tap outside where it makes sense. Cancel leaves everything as it was.
+- **Back closes, then leaves.** On a phone, the back gesture or button closes an open sheet, panel or dialog first, and only then leaves the page.
+- **Focus goes where you'd expect.** Opening a form puts the cursor in its first field. Closing a sheet or dialog returns focus to the button that opened it. While a dialog is open, Tab stays inside it.
+- **No accidental doubles.** A button that saves or creates something is disabled from the first tap until it finishes.
+- **Say what happened.** After any action that changes data, a short notice says what changed, with Undo where possible.
+- **Errors say what to do,** in plain words, never a code.
+- **Nothing lost by leaving.** Typing is saved as you go, or leaving a form with unsaved changes asks first.
+- **Lists remember their place** when you come back to them.
+- **The keyboard never covers what you're typing** on a phone.
+- **Search and filters can be cleared in one tap.**
+- **Dangerous actions look and sit apart.** Delete is red, never the main button, and never beside Save or Done.
+- **Offline is visible,** and changes queue to sync later.
 
 ## Phone (below 44rem wide)
 
@@ -117,3 +129,7 @@ Always use these variables; never write a colour, radius or size directly. They 
 4. Check the words: British English, sentence case, the same names as elsewhere.
 5. Check the same thing behaves the same everywhere it appears.
 6. Run `npm run test:all` and the browser tests the change touches.
+7. Check every sheet, panel, dialog, form and editing state has a visible Cancel.
+8. Check the phone's back gesture closes anything open before leaving the page.
+9. Check a double tap on Save or Add makes only one of anything.
+10. Check the keyboard never covers the field being typed in on a phone.
