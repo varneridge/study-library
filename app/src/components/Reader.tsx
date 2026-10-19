@@ -915,7 +915,11 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
         <div className="group">
           <IconButton icon="back" label={backLabel} onClick={back} />
           <IconButton icon="sidebar" label="Sidebar" pressed={left} onClick={toggleLeft} />
-          {!narrow && <span className="title" title={fullTitle(item)}>{shortTitle(item)}</span>}
+          {layout === "pages" ? (
+            !narrow ? <h1 className="title" title={fullTitle(item)}>{shortTitle(item)}</h1> : <h1 className="sr-only">{fullTitle(item)}</h1>
+          ) : (
+            !narrow && <span className="title" title={fullTitle(item)}>{shortTitle(item)}</span>
+          )}
         </div>
         {!narrow && (
           <div className="group">

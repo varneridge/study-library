@@ -997,6 +997,13 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 - A native Android build, if recording on the phone becomes necessary.
 - Export of notes and answers to Word, for essays and revision.
 - An audit of the empty states once a full term of real data is in.
+- Accessibility and touch improvements from the October 2026 review:
+  - Make editable titles (week and session headings) and reading highlights focusable and operable from the keyboard.
+  - Turn the highlight popover into a sheet on mobile with dialog semantics, focus management and Escape dismissal.
+  - Pass the screen-reader label to the note editor DOM and label the session rename input.
+  - Enlarge touch targets below 44 points on phones (the read toggle, sidebar close button, colour swatches and minor links).
+  - Correct the heading order on the home page so the h1 heading precedes subordinate sections.
+  - Add arrow navigation to menus and sidebar tabs, give slide canvases an image role, and replace the middle dot in transcript meta.
 
 ## 17. Version history
 
@@ -1032,6 +1039,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 | 0.29 | A redesign: display titles, soft surfaces, one look for selection, soft buttons, sentence case, and the reader holding its place through late fonts |
 | 0.30 | Every scan read again on request, smooth highlights with no gaps, and evidence removed from questions |
 | 0.31 | Dissertation modules: sections you name, section notes, supervision meetings, key dates counting down on the home page, and Change to a dissertation |
+| 0.31.1 | An accessible h1 heading for the reader in page layout, a relative path for the processor script, and enforced LF line endings for shell scripts |
 
 ## 18. The job search
 

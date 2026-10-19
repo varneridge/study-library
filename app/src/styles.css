@@ -238,7 +238,7 @@ table.review tr.flag td.file { color: var(--danger); }
 .reader-bar .group { display: flex; align-items: center; gap: 0.1rem; }
 .reader-bar .group:first-child { flex: 1 1 0; min-width: 0; }
 .reader-bar .group.end { flex: 1 1 0; justify-content: flex-end; }
-.reader-bar .title { min-width: 0; margin-left: 0.5rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reader-bar .title { min-width: 0; margin-left: 0.5rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; font-size: inherit; font-weight: normal; line-height: inherit; letter-spacing: normal; }
 .reader-bar .sep { width: 1px; height: 1.25rem; background: var(--rule); margin: 0 0.4rem; }
 .icon-button {
   display: inline-grid; place-items: center; width: 2rem; height: 2rem; padding: 0; flex: none;
