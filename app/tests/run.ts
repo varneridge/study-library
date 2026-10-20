@@ -284,6 +284,19 @@ test("mis-tap rule: progress in one sitting adds a new entry and clears deadline
   assert.equal(plan.appUpdates.next_deadline, null);
   assert.equal((plan.eventChanges[0].row as { cleared_deadline?: string }).cleared_deadline, "2026-10-25");
   assert.equal(plan.notice, "Stage changed to Online test: done, awaiting result.");
+
+  // Undoing the change puts the cleared deadline back on next_deadline.
+  const undoAdd = undoStageChangeChanges(plan.undo);
+  assert.equal((undoAdd[0].row as { next_deadline?: string | null }).next_deadline, "2026-10-25");
+  assert.equal((undoAdd[0].row as { stage?: string }).stage, "oa_todo");
+
+  // Changing back within the window (remove action) restores the cleared deadline.
+  const appAtWait = { ...appWithDeadline, stage: "oa_wait", next_deadline: null };
+  const e2 = ev("e2", "oa_wait", "2026-10-20T10:05:00.000Z", "change", "oa_todo", "2026-10-25");
+  const planBack = evaluateStageChange(appAtWait, [e1, e2], "oa_todo", new Date("2026-10-20T10:07:00.000Z"));
+  assert.equal(planBack.action, "remove");
+  assert.equal(planBack.appUpdates.stage, "oa_todo");
+  assert.equal(planBack.appUpdates.next_deadline, "2026-10-25");
 });
 
 test("mis-tap rule: after window (11 minutes) adds rather than amends", () => {
@@ -347,6 +360,7 @@ test("undo restores application and events after add, amend, and remove", () => 
   const undoAdd = undoStageChangeChanges(planAdd.undo);
   assert.equal(undoAdd[0].table, "applications");
   assert.equal((undoAdd[0].row as { stage: string }).stage, "applied");
+  assert.equal((undoAdd[0].row as { next_deadline?: string | null }).next_deadline, "2026-10-25");
   assert.equal(undoAdd[1].table, "application_events");
   assert.equal((undoAdd[1].row as { deleted?: boolean }).deleted, true);
 
@@ -355,11 +369,13 @@ test("undo restores application and events after add, amend, and remove", () => 
   const planAmend = evaluateStageChange(appAtOa, [e1], "written_todo", new Date("2026-10-20T10:02:00.000Z"));
   const undoAmend = undoStageChangeChanges(planAmend.undo);
   assert.equal((undoAmend[0].row as { stage: string }).stage, "oa_todo");
+  assert.equal((undoAmend[0].row as { next_deadline?: string | null }).next_deadline, "2026-10-25");
   assert.equal((undoAmend[1].row as { stage: string }).stage, "oa_todo");
 
   const planRemove = evaluateStageChange(appAtOa, [e1], "applied", new Date("2026-10-20T10:03:00.000Z"));
   const undoRemove = undoStageChangeChanges(planRemove.undo);
   assert.equal((undoRemove[0].row as { stage: string }).stage, "oa_todo");
+  assert.equal((undoRemove[0].row as { next_deadline?: string | null }).next_deadline, "2026-10-25");
   assert.equal((undoRemove[1].row as { deleted?: boolean }).deleted, false);
 });
 
