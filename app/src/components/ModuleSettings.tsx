@@ -42,13 +42,18 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (!code.trim()) return;
-    await update("modules", module.id, {
-      code: code.trim(),
-      title: title.trim() || null,
-      ...(description !== original ? { description: toBlocks(description) } : {}),
-    });
-    onClose();
+    if (busy || !code.trim()) return;
+    setBusy(true);
+    try {
+      await update("modules", module.id, {
+        code: code.trim(),
+        title: title.trim() || null,
+        ...(description !== original ? { description: toBlocks(description) } : {}),
+      });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function toggleWeek(week: WeekRow) {
@@ -91,8 +96,8 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
           placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
       </label>
       <div className="row">
-        <button className="button primary" disabled={!code.trim()}>Save</button>
-        <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+        <button className="button primary" disabled={busy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
+        <button type="button" className="quiet" onClick={onClose} disabled={busy}>Cancel</button>
       </div>
 
       {module.kind !== "dissertation" && (

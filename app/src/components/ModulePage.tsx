@@ -365,12 +365,18 @@ export function ModulePage({ id }: { id: string }) {
 function KeyDates({ module }: { module: ModuleRow }) {
   const dates = module.key_dates ?? [];
   const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [label, setLabel] = useState("");
   const [date, setDate] = useState("");
   const add = async () => {
-    if (!label.trim() || !date) return;
-    await saveKeyDates(module, [...dates, { id: newId(), label: label.trim(), date }]);
-    setLabel(""); setDate(""); setAdding(false);
+    if (saving || !label.trim() || !date) return;
+    setSaving(true);
+    try {
+      await saveKeyDates(module, [...dates, { id: newId(), label: label.trim(), date }]);
+      setLabel(""); setDate(""); setAdding(false);
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <section className="key-dates section" aria-label="Key dates">
@@ -397,8 +403,8 @@ function KeyDates({ module }: { module: ModuleRow }) {
           <label className="field"><span>When</span>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <button className="button primary" disabled={!label.trim() || !date} onClick={() => void add()}>Add</button>
-          <button className="quiet" onClick={() => setAdding(false)}>Cancel</button>
+          <button className="button primary" disabled={saving || !label.trim() || !date} onClick={() => void add()}>{saving ? "Adding…" : "Add"}</button>
+          <button className="quiet" disabled={saving} onClick={() => setAdding(false)}>Cancel</button>
         </div>
       )}
     </section>

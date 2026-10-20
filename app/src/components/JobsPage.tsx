@@ -477,16 +477,23 @@ export function JobsPage() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const find = useRef<HTMLInputElement>(null);
 
   const add = useCallback(async () => {
-    setFilter("all");
-    setQuery("");
-    const id = await addApplication();
-    setFresh(id);
-    // On a phone the new card opens, with the employer ready to type.
-    if (window.matchMedia?.(NARROW).matches) setOpen((s) => new Set(s).add(id));
-  }, []);
+    if (adding) return;
+    setAdding(true);
+    try {
+      setFilter("all");
+      setQuery("");
+      const id = await addApplication();
+      setFresh(id);
+      // On a phone the new card opens, with the employer ready to type.
+      if (window.matchMedia?.(NARROW).matches) setOpen((s) => new Set(s).add(id));
+    } finally {
+      setAdding(false);
+    }
+  }, [adding]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -525,7 +532,7 @@ export function JobsPage() {
     <div className="page wide jobs">
       <div className="jobs-head">
         <h1>Applications</h1>
-        <button type="button" className="button primary" onClick={() => void add()} title="Add an application (N)">Add application</button>
+        <button type="button" className="button primary" disabled={adding} onClick={() => void add()} title="Add an application (N)">{adding ? "Adding…" : "Add application"}</button>
       </div>
       <SummaryLine apps={all} />
 
