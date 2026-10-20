@@ -113,6 +113,26 @@ export function useOnline(): boolean {
 
 let overlaySeq = 0;
 
+interface OverlayEntry {
+  id: number;
+  close: () => void;
+  pushed: boolean;
+  popped: boolean;
+}
+
+const overlayStack: OverlayEntry[] = [];
+
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", (e) => {
+    if (overlayStack.length === 0) return;
+    const top = overlayStack[overlayStack.length - 1];
+    // If the browser popped back to this overlay from an overlay above it, stay open.
+    if (e.state?.overlay === top.id) return;
+    top.popped = true;
+    top.close();
+  });
+}
+
 // Closes an overlay (sheet, menu, panel or dialog) on the browser back gesture
 // or button before leaving the page. Goes back exactly once when the overlay is
 // closed any other way (Escape, Cancel, click outside). If an action inside
@@ -125,24 +145,35 @@ export function useCloseOnBack(open: boolean, close: () => void): void {
   useEffect(() => {
     if (!open) return;
     const id = ++overlaySeq;
-    let popped = false;
+    const hasExistingOverlay = Boolean(window.history.state?.overlay);
+    let pushed = false;
 
-    window.history.pushState({ overlay: id }, "");
+    if (!hasExistingOverlay || overlayStack.length > 0) {
+      window.history.pushState({ overlay: id }, "");
+      pushed = true;
+    } else {
+      // An overlay was closing and this one is replacing it in the same interaction
+      // (e.g. Menu -> Editor/MovePicker/ReaderSheet). Update the existing entry.
+      window.history.replaceState({ overlay: id }, "");
+      pushed = true;
+    }
 
-    const onPop = (e: PopStateEvent) => {
-      // If the browser popped back to this overlay from an overlay above it, stay open.
-      if (e.state?.overlay === id) return;
-      popped = true;
-      closeRef.current();
-    };
-
-    window.addEventListener("popstate", onPop);
+    const entry: OverlayEntry = { id, close: () => closeRef.current(), pushed, popped: false };
+    overlayStack.push(entry);
 
     return () => {
-      window.removeEventListener("popstate", onPop);
-      if (!popped && window.history.state?.overlay === id) {
-        window.history.back();
-      }
+      const idx = overlayStack.findIndex((e) => e.id === id);
+      if (idx !== -1) overlayStack.splice(idx, 1);
+
+      queueMicrotask(() => {
+        if (entry.popped) return;
+        if (overlayStack.length === 0 && window.history.state?.overlay) {
+          window.history.back();
+        } else if (overlayStack.length > 0 && pushed && hasExistingOverlay) {
+          // If this was a nested overlay that pushed its own entry, retreat its entry.
+          window.history.back();
+        }
+      });
     };
   }, [open]);
 }
