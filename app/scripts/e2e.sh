@@ -11,6 +11,7 @@ set -u
 src="$(cd "$(dirname "$0")/../.." && pwd)"
 dest="$HOME/study-library"
 py="$HOME/.venvs/study/bin/python"
+export PATH="$(dirname "$py"):$PATH"
 port=8790
 
 rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv \
