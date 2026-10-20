@@ -4,7 +4,7 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 
 ## Read first
 
-`DEBRIEF.md` is the full reference: what the app does, how it works, every decision and why, the code map, data model, API, tests and version history. Read it before changing anything. The sections that matter most:
+`DEBRIEF.md` is the full reference: what the app does, how it works, every decision and why, the code map, data model, API, tests and version history. Read it before changing anything, in large sections rather than many small pieces. The sections that matter most:
 
 - 4 (How it works), 10 (Decisions and why), 11 (Code map), 12 (Data model)
 - 14 (Tests), 15 (Design rules), 16 (Known limits and next steps)
@@ -22,13 +22,13 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 - **Scans:** every scan readable and searchable, including JSTOR-style OCR layers, French and German, crooked pages and two-page spreads.
 - **Sessions:** notes for each lecture and seminar, slides added from anywhere, recordings with transcripts, and seminar answers written beneath their questions.
 - **The phone:** it should feel like a real app, with a tab bar, finger-sized controls, sheets instead of small menus, and no dragging by finger.
-- **The whole app:** professional, clean, modern and intuitive, inspired by Notion, Zotero and Word. Consistent: the same actions wherever a thing appears, one obvious way to each place, labels that match what they open.
+- **The whole app:** professional, clean, modern and intuitive, inspired by Notion, Zotero and Word. Consistent: the same actions wherever a thing appears, one obvious way to each place, labels that match what they open, and a visible Cancel on everything that opens or edits.
 
 ## Rules
 
 - **Language:** British English everywhere, in the interface, comments and docs. No em dashes or en dashes.
-- **Design:** follow section 15 of `DEBRIEF.md`. That means quiet chrome, soft surfaces, one accent colour, sentence case, no capitals for labels and no middle dots.
-- **Consistency:** when adding an action to something, offer it everywhere that thing appears (see section 20).
+- **Design:** for any change to the interface, use the study-library-design skill. It covers the tokens, components, behaviour rules and a checklist, and takes precedence over the frontend-design skill.
+- **Consistency:** when adding an action to something, offer it everywhere that thing appears (see section 20 of `DEBRIEF.md`).
 - **Tests:** every change comes with a test, and existing tests must pass. A browser test that fails because the design changed on purpose is updated; one that fails for any other reason is a bug to fix.
 - **Migrations:** never edit an existing one; add a new one. A table rebuild must drop and recreate any trigger on another table that names it (see `0011_dissertations.sql`). Test a migration on a populated local database before calling it done.
 - **Sync:** edits send only the columns that changed, and the server writes only the columns a device sends, so an older device keeps working after a new column is added. Keep it that way.
@@ -37,39 +37,34 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 
 ## Commands
 
-Unit tests and typecheck, in `app/`:
+All of these run from `app/`. Use them rather than working out how to run things another way.
 
-```
-npm test
-npm run typecheck
-```
+| What | Command |
+| --- | --- |
+| Typecheck, unit tests and backend tests together | `npm run test:all` |
+| Typecheck only | `npm run typecheck` |
+| Unit tests only | `npm test` |
+| Backend tests only | `npm run test:backend` |
+| Every browser test, in the order they depend on | `npm run e2e` |
+| Named browser tests | `npm run e2e -- jobs ux` (for `test_jobs.py` and `test_ux.py`) |
+| The layout audit | `npm run e2e -- audit_layout` |
+| Build | `npm run build` |
+| Deploy (ask the user first) | `npm run deploy` |
 
-Backend integration tests, in WSL in `backend/`:
+How they work, so there is no need to investigate:
 
-```
-pip install -r requirements-dev.txt
-pytest
-```
+- `npm run test:backend` and `npm run e2e` run in WSL, from a copy of the project at `~/study-library` that they refresh each time. `npm run e2e` builds the app there, starts and stops the local Worker itself, and waits until every test has finished, printing PASS or FAIL for each. Never start the Worker or run browser tests any other way.
+- Python for tests is `~/.venvs/study/bin/python` in WSL. Don't look for Python on Windows.
+- Never run `npm install` for Linux in the Windows folder.
+- Screenshots from browser tests are copied back to `app/tests/e2e/shots/`.
+- The local development proxy sometimes drops an upload. If a browser test fails while waiting for one, rerun that test before treating it as a bug.
 
-Browser tests, in `app/`. Start the local Worker first:
+## Working efficiently
 
-```
-npm run build
-npx wrangler d1 migrations apply DB --local
-npx wrangler dev --port 8790 --ip 127.0.0.1
-python tests/e2e/make_pdfs.py
-python tests/e2e/test_library.py http://127.0.0.1:8790
-```
-
-Then run the other `tests/e2e/test_*.py` files the same way. `library`, `sessions`, `features`, `usability` and `themes` build on each other's data, so run them in that order. The local development proxy sometimes drops an upload; if a test fails while waiting for one, rerun it before treating it as a bug.
-
-Deploy, in `app/`. This applies any new migrations and publishes the Worker:
-
-```
-npm run deploy
-```
-
-- Backend tests run in WSL from a copy at `~/study-library`, refreshed by `npm run test:backend`. Never run `npm install` for Linux in the Windows folder.
+- Run commands in the foreground and wait for them to finish. Don't start a command in the background and check on it repeatedly.
+- When writing a script or test, get it working on the smallest case first (one page, one width), then run the full version once.
+- Read a file once, in full or in large sections.
+- Plan larger changes before building: say what you will change and wait for the user to agree.
 
 ## Ask the user first
 
@@ -80,8 +75,11 @@ npm run deploy
 
 ## Skills and tools
 
-- Design rules in section 15 of `DEBRIEF.md` take precedence over the frontend-design skill. Use the skill for new screens, not to restyle settled ones.
-- Use the web-design-guidelines skill when asked to review the interface or its accessibility.
-- Use Context7 for current documentation of BlockNote, pdf.js, Dexie, Hono and Wrangler before relying on memory.
-- At the end of a session, update section 16 (Known limits and next steps) of `DEBRIEF.md` with what was done and what is left.
-- For any change to the interface, use the study-library-design skill. It takes precedence over frontend-design.
+- **study-library-design:** for any change to the interface (see Rules).
+- **web-design-guidelines:** when asked to review the interface or its accessibility.
+- **frontend-design:** for new screens only, never to restyle settled ones, and always below study-library-design.
+- **Context7:** for current documentation of BlockNote, pdf.js, Dexie, Hono and Wrangler before relying on memory.
+
+## End of each session
+
+Update section 16 (Known limits and next steps) of `DEBRIEF.md` with what was done and what is left, and section 17 for anything user-visible. Run `npm run test:all`, then commit with a clear message.
