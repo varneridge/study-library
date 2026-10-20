@@ -179,6 +179,24 @@ def check_overlay_back(page, is_phone: bool):
     page.go_back()
     expect(page.get_by_role("heading", name="HY335")).to_be_visible()
 
+    # 3d. Menu survives reload without leaving stale overlay history state
+    page.go_forward()
+    expect(page.get_by_role("heading", name="AT1")).to_be_visible()
+    menu_btn = page.get_by_label("More actions for this week")
+    menu_btn.click()
+    expect(page.locator(".menu-panel")).to_be_visible()
+    page.reload()
+    expect(page.get_by_role("heading", name="AT1")).to_be_visible()
+    menu_btn = page.get_by_label("More actions for this week")
+    menu_btn.click()
+    expect(page.locator(".menu-panel")).to_be_visible()
+    if is_phone:
+        page.get_by_role("menuitem", name="Cancel").click()
+    else:
+        page.keyboard.press("Escape")
+    expect(page.locator(".menu-panel")).to_be_hidden()
+    expect(page.get_by_role("heading", name="AT1")).to_be_visible()
+
 
 with sync_playwright() as p:
     browser = p.chromium.launch()

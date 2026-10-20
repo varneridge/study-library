@@ -123,6 +123,9 @@ interface OverlayEntry {
 const overlayStack: OverlayEntry[] = [];
 
 if (typeof window !== "undefined") {
+  if (window.history.state?.overlay) {
+    window.history.replaceState(null, "");
+  }
   window.addEventListener("popstate", (e) => {
     if (overlayStack.length === 0) return;
     const top = overlayStack[overlayStack.length - 1];
