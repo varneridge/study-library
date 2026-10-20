@@ -65,6 +65,11 @@ How they work, so there is no need to investigate:
 - When writing a script or test, get it working on the smallest case first (one page, one width), then run the full version once.
 - Read a file once, in full or in large sections.
 - Plan larger changes before building: say what you will change and wait for the user to agree.
+- While working, run only the tests that cover what you changed, such as `npm run e2e -- back`. Run `npm run test:all` and the full `npm run e2e` once, at the end. If a test fails in the full run, rerun that test alone before fixing anything.
+- Find code with `git grep -n`, then read each file once. Don't read a file again unless you have changed it.
+- Don't check versions or environments (`node -v`, `wsl -l`, `python --version`). The commands table is correct.
+- If a fix fails its test and needs a different approach, stop and tell me before trying it.
+- Keep reports short: what changed, by commit, then the PASS and FAIL lines.
 
 ## Ask the user first
 
