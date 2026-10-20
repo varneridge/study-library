@@ -1,7 +1,7 @@
 """Version 0.22: dragging slides between a week's sessions, moving a reading
 to another module, the processor's status, and a stale device not undoing
 a name found on the server."""
-import glob, sys, time
+import glob, re, sys, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -23,15 +23,16 @@ def until(page, script, timeout=25):
 
 
 def drag(page, source, target, dy=0):
+    source.scroll_into_view_if_needed()
     a = source.bounding_box()
-    b = target.bounding_box()
     page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
     page.mouse.down()
     page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
+    target.scroll_into_view_if_needed()
+    b = target.bounding_box()
     page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2 + dy, steps=14)
-    page.wait_for_timeout(150)
     page.mouse.up()
-    page.wait_for_timeout(500)
+    expect(page.locator(".drag-card")).to_have_count(0)
 
 
 def drop_files(page, selector, paths):
@@ -100,9 +101,9 @@ with sync_playwright() as p:
     page.screenshot(path=f"{shots}-1-empty-target.png")
     b = target.bounding_box()
     page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, steps=14)
-    page.wait_for_timeout(150)
+    expect(page.locator("section.session").nth(1).locator(".readings")).to_have_class(re.compile(r"over"))
     page.mouse.up()
-    page.wait_for_timeout(500)
+    expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Slides moved to the seminar")
     assert session_titles(page, 1) == [moving], session_titles(page, 1)
     seminar_id = page.locator("section.session").nth(1).get_attribute("data-session")
@@ -153,7 +154,7 @@ with sync_playwright() as p:
     # server found in the meantime survives, because only the place is sent.
     item = page.evaluate("async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows.items.find(i => !i.deleted && i.kind === 'secondary')")
     page.goto(BASE + f"/?v=reader&id={item['id']}")
-    page.wait_for_timeout(2000)
+    until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); const it = (j.rows.items || []).find(i => i.id === '{item['id']}'); return it && it.last_opened_at; }}", 15)
     # From here this device hears nothing from the server, so its copy goes stale.
     page.route("**/api/sync/pull*", lambda route: route.fulfill(json={"cursor": 0, "more": False, "rows": {}}))
     # The rename is stamped a second ahead, so it is newer than anything the

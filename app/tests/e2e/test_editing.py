@@ -95,16 +95,21 @@ with sync_playwright() as p:
     print("module edited, reading week toggled")
 
     # Keyboard: [ goes back a week.
+    expect(page.locator(".menu-panel")).to_have_count(0)
+    expect(page.locator(".week-nav a[title*='Previous week']")).to_be_visible()
     page.keyboard.press("[")
     expect(page.locator(".crumbs")).to_contain_text("AT1")
+    expect(page.locator(".week-nav a[title*='Next week']")).to_be_visible()
     page.keyboard.press("]")
     expect(page.locator(".crumbs")).to_contain_text("AT2")
+    expect(page.locator(".week-nav a[title*='Previous week']")).to_be_visible()
     page.keyboard.press("[")
     expect(page.locator(".crumbs")).to_contain_text("AT1")
-    page.wait_for_timeout(300)
 
     # Add files to AT1.
-    page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(files)
+    file_input = page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first
+    expect(file_input).to_be_attached()
+    file_input.set_input_files(files)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 3; }", 40)
     expect(page.locator("li.reading")).to_have_count(3)
     print("3 readings added to AT1")
@@ -257,7 +262,7 @@ with sync_playwright() as p:
 
     # The skip link is the first thing the keyboard reaches.
     page.goto(BASE + "/?v=settings")
-    page.wait_for_timeout(500)
+    expect(page.get_by_role("heading", name="Settings")).to_be_visible()
     page.keyboard.press("Tab")
     expect(page.get_by_role("link", name="Skip to content")).to_be_focused()
 

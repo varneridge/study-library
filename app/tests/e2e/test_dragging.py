@@ -1,6 +1,6 @@
 """Version 0.7: dragging readings, dropping files where you mean them to go,
 undoing moves, the Go to palette and the uploads panel."""
-import glob, sys, time
+import glob, re, sys, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -23,15 +23,16 @@ def until(page, script, timeout=25):
 
 def drag(page, source, target, dy=0):
     """Picks up with the mouse, moves past the threshold, then drops."""
+    source.scroll_into_view_if_needed()
     a = source.bounding_box()
-    b = target.bounding_box()
     page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
     page.mouse.down()
     page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
+    target.scroll_into_view_if_needed()
+    b = target.bounding_box()
     page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2 + dy, steps=14)
-    page.wait_for_timeout(150)
     page.mouse.up()
-    page.wait_for_timeout(400)
+    expect(page.locator(".drag-card")).to_have_count(0)
 
 
 def drop_files(page, selector, paths, release=True):
@@ -104,8 +105,9 @@ with sync_playwright() as p:
     target = page.locator(".move-dock .dock-grid .target").nth(2)
     t = target.bounding_box()
     page.mouse.move(t["x"] + t["width"] / 2, t["y"] + t["height"] / 2, steps=14)
-    page.wait_for_timeout(150)
+    expect(target).to_have_class(re.compile(r"over"))
     page.mouse.up()
+    expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Moved to AT3")
     expect(page.locator(".week-page .section[data-drop='readings'] li.reading")).to_have_count(1)
     print("dragged to AT3:", moving)
@@ -125,8 +127,9 @@ with sync_playwright() as p:
     expect(empty).to_be_visible()
     e = empty.bounding_box()
     page.mouse.move(e["x"] + 100, e["y"] + e["height"] / 2, steps=14)
-    page.wait_for_timeout(200)
+    expect(page.locator(".week-page .section[data-drop='primary'] li.reading")).to_have_count(1)
     page.mouse.up()
+    expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Now a primary source")
     expect(page.locator(".week-page .group-label", has_text="Primary sources")).to_be_visible()
     page.screenshot(path=f"{shots}-3-primary.png", full_page=True)
@@ -139,15 +142,27 @@ with sync_playwright() as p:
     # Module page: drag a reading from AT1 onto AT5, and one to Unsorted.
     page.locator(".crumbs a").first.click()
     expect(page.locator(".week")).to_have_count(22)
-    # Let the page finish scrolling to the week last opened.
-    page.wait_for_timeout(700)
+    # Wait for the scroll to finish and week to be stable.
+    page.wait_for_function("""() => new Promise(resolve => {
+        let prev = document.getElementById('week-AT1')?.getBoundingClientRect().top;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                let curr = document.getElementById('week-AT1')?.getBoundingClientRect().top;
+                resolve(prev !== undefined && prev === curr);
+            });
+        });
+    })""")
     if page.locator("#week-AT1 .caret").get_attribute("aria-expanded") != "true":
         page.locator("#week-AT1 .caret").click()
     row = page.locator("#week-AT1 li.reading").first
+    expect(row).to_be_visible()
+    row.scroll_into_view_if_needed()
     drag(page, row, page.locator("#week-AT5 .week-head"))
     expect(page.locator(".toast")).to_contain_text("Moved to AT5")
     print("moved on the module page from AT1 to AT5")
     row = page.locator("#week-AT1 li.reading").first
+    expect(row).to_be_visible()
+    row.scroll_into_view_if_needed()
     a = row.bounding_box()
     page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
     page.mouse.down()
@@ -156,8 +171,9 @@ with sync_playwright() as p:
     expect(tray).to_be_visible()
     t = tray.bounding_box()
     page.mouse.move(t["x"] + t["width"] / 2, t["y"] + t["height"] / 2, steps=14)
-    page.wait_for_timeout(200)
+    expect(tray).to_have_class(re.compile(r"over"))
     page.mouse.up()
+    expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Moved to Unsorted")
     expect(page.locator(".section.tray li.reading")).to_have_count(1)
     page.screenshot(path=f"{shots}-4-module.png")
