@@ -517,6 +517,15 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .narrow-only { display: none; }
 .modules-nav { margin-left: auto; }
 .modules-nav + nav { margin-left: 1.25rem; padding-left: 1.25rem; border-left: 1px solid var(--rule); }
+/* Between phone and laptop, condense longer top bar labels and allow wrapping */
+@media (max-width: 56rem) {
+  .wide-only { display: none; }
+  .narrow-only { display: inline; }
+  .topbar { flex-wrap: wrap; }
+}
+@media (min-width: 44.001rem) {
+  .goto-button { display: none !important; }
+}
 /* On a phone the links take a second line of their own. */
 @media (max-width: 44rem) {
   .topbar { flex-wrap: wrap; row-gap: 0.4rem; padding: 0.6rem 1rem; }
