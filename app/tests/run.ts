@@ -13,7 +13,7 @@ import {
   daysSinceApplied, daysInStage, entryTimeText, getTimelineEntries,
   likelyNextStages, matches, normaliseUrl, parseEntryTime,
   sortApplications, sortEvents, STAGE_GRID, STAGES, stageOf, summarise,
-  undoStageChangeChanges,
+  undoStageChangeChanges, stageShort, stepLength, inStageWords, currentStageSince, entryDate,
 } from "../src/lib/jobs";
 import type { ApplicationEventRow, ApplicationRow } from "../src/lib/types";
 import { paragraphs, tidy } from "../src/lib/transcriptImport";
@@ -464,6 +464,48 @@ test("a highlight is drawn as one band per line, the lines meeting", () => {
   // The two bands meet: no stripe between the lines.
   assert.equal(bands[0][1], bands[1][3]);
   assert.equal(bands[0][1], 698);
+});
+
+test("each stage tile in the stage card is named for its step, short enough to fit", () => {
+  assert.equal(stageShort("oa_todo"), "To complete");
+  assert.equal(stageShort("oa_wait"), "Awaiting result");
+  assert.equal(stageShort("interview_todo"), "To attend");
+  assert.equal(stageShort("hirevue_todo"), "To record");
+  assert.equal(stageShort("applied"), "Awaiting response");
+  assert.equal(stageShort("offer"), "To accept or decline");
+  assert.equal(stageShort("accepted"), "Accepted");
+  assert.equal(stageShort("rejected"), "Rejected");
+  // Every stage in the grid has words for its tile.
+  for (const row of STAGE_GRID) for (const key of [row.todo, row.done, ...(row.extra ?? [])].filter(Boolean) as string[]) {
+    assert.ok(stageShort(key).length > 0 && stageShort(key).length <= 22, key);
+  }
+});
+
+test("a step's length counts calendar days when either end is a date alone", () => {
+  // 10 Oct to 17 Oct at 14:30 is a week, not eight days.
+  assert.equal(stepLength("2026-10-10", "2026-10-17T13:30:00.000Z"), "7 days");
+  assert.equal(stepLength("2026-10-10", "2026-10-11"), "1 day");
+  assert.equal(stepLength("2026-10-10", "2026-10-10T09:00:00.000Z"), "same day");
+  // Across the clocks going back on 25 October, still whole days.
+  assert.equal(stepLength("2026-10-24", "2026-10-26"), "2 days");
+  // Between two times, hours on the same day.
+  assert.equal(stepLength("2026-10-20T09:00:00.000Z", "2026-10-20T12:00:00.000Z"), "3 hours");
+});
+
+test("time in the current stage comes from its latest entry, and says nothing without one", () => {
+  const app = { id: "a", employer: "PwC", role: "", applied: "2026-10-01", stage: "oa_todo", next_deadline: null, notes: null,
+    file_cv: null, file_cl: null, file_rd: null, file_qs: null, modified_at: "2026-10-01T00:00:00.000Z", seq: 0, deleted: false };
+  const ev = (id: string, stage: string, at: string) => ({ id, application_id: "a", stage, from_stage: null, at, kind: "change" as const,
+    cleared_deadline: null, modified_at: at, seq: 0, deleted: false });
+  const events = [ev("1", "applied", "2026-10-01"), ev("2", "oa_todo", "2026-10-10T14:30:00.000Z")];
+  assert.equal(currentStageSince(app, events), "2026-10-10T14:30:00.000Z");
+  assert.equal(entryDate("2026-10-10T14:30:00.000Z"), "2026-10-10");
+  assert.equal(inStageWords("2026-10-10T14:30:00.000Z", new Date(2026, 9, 20, 9)), "for 10 days");
+  assert.equal(inStageWords("2026-10-20", new Date(2026, 9, 20, 18)), "since today");
+  assert.equal(inStageWords("2026-10-19", new Date(2026, 9, 20, 18)), "for 1 day");
+  // Changed on a device without the timeline: the latest entry is another stage, so no "since".
+  assert.equal(currentStageSince({ ...app, stage: "oa_wait" }, events), null);
+  assert.equal(inStageWords(null), "");
 });
 
 if (failed) {
