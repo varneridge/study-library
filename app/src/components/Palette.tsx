@@ -117,18 +117,23 @@ export function Palette() {
 
   return (
     <dialog ref={dialog} className="dialog palette" onCancel={(e) => { e.preventDefault(); setOpen(false); }} onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <input
-        type="search" autoFocus value={query} placeholder="Go to notes, a module, week, reading or question" aria-label="Go to"
-        inputMode="search" enterKeyHint="go" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") { e.preventDefault(); setIndex((i) => Math.min(shown.length - 1, i + 1)); }
-          if (e.key === "ArrowUp") { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); }
-          if (e.key === "Enter") { e.preventDefault(); go(shown[index]); }
-          // A search field's first Esc only clears it. Here Esc always closes.
-          if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
-        }}
-      />
+      <div className="palette-head">
+        <div className="palette-input-wrap">
+          <input
+            type="search" autoFocus value={query} placeholder="Go to notes, a module, week, reading or question" aria-label="Go to"
+            inputMode="search" enterKeyHint="go" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") { e.preventDefault(); setIndex((i) => Math.min(shown.length - 1, i + 1)); }
+              if (e.key === "ArrowUp") { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); }
+              if (e.key === "Enter") { e.preventDefault(); go(shown[index]); }
+              // A search field's first Esc only clears it. Here Esc always closes.
+              if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+            }}
+          />
+        </div>
+        <button type="button" className="button quiet palette-close" onClick={() => setOpen(false)}>Close</button>
+      </div>
       <ul ref={list} className="palette-list" role="listbox" aria-label="Places">
         {shown.map((e, i) => (
           <li key={e.key} role="option" aria-selected={i === index} data-index={i} onMouseMove={() => setIndex(i)} onClick={() => go(e)}>

@@ -35,7 +35,7 @@ function NewModule({ onDone }: { onDone?: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="section">
+    <form onSubmit={submit} onKeyDown={(e) => { if (e.key === "Escape" && onDone) { e.preventDefault(); onDone(); } }} className="section">
       <div className="row">
         <label className="field" style={{ flex: "0 0 9rem" }}>
           <span>Code</span>
@@ -84,7 +84,10 @@ function NewModule({ onDone }: { onDone?: () => void }) {
         </label>
       </div>
       </>)}
-      <button className="button primary" disabled={saving || !code.trim()}>Create module</button>
+      <div className="row" style={{ gap: "0.5rem" }}>
+        <button className="button primary" disabled={saving || !code.trim()}>{saving ? "Creating…" : "Create module"}</button>
+        {onDone && <button type="button" className="button" onClick={onDone} disabled={saving}>Cancel</button>}
+      </div>
     </form>
   );
 }
