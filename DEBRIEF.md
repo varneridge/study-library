@@ -46,11 +46,11 @@ It is built for one person. There are no accounts inside the app. Cloudflare Acc
 | Database | Cloudflare D1 database `study-library` | Your Cloudflare account |
 | Files | Cloudflare R2 bucket `study-library` | Your Cloudflare account |
 | Sign-in | Cloudflare Access, with two policies | Zero Trust, attached to the Worker |
-| Processor | Python, running in WSL on your laptop | `D:\Downloads\study-library\backend` |
+| Processor | Python, running in WSL on your laptop | `C:\Users\samue\Documents\Antigravity\study-library\backend` |
 | Processor's Python | A virtual environment on the Linux disk | `~/.venvs/study` inside WSL |
 | Processor start-up | A Task Scheduler task at sign-in | "Study Library processor" |
-| Processor log | Plain text file | `D:\Downloads\study-library\backend\processor.log` |
-| Project code | This folder | `D:\Downloads\study-library` |
+| Processor log | Plain text file | `C:\Users\samue\Documents\Antigravity\study-library\backend\processor.log` |
+| Project code | This folder | `C:\Users\samue\Documents\Antigravity\study-library` |
 
 **Access policies**
 
@@ -574,7 +574,7 @@ Opening a week saves its files, and the next week's, to that device. To keep eve
 
 | Commands | Where to run them |
 | --- | --- |
-| `npx`, `npm`, `wrangler` | PowerShell, in `D:\Downloads\study-library\app` |
+| `npx`, `npm`, `wrangler` | PowerShell, in `C:\Users\samue\Documents\Antigravity\study-library\app` |
 | `python`, the processor, the importer | WSL, in `/mnt/c/Users/samue/Documents/Antigravity/study-library/backend` |
 
 ### The processor
@@ -608,7 +608,7 @@ Each device asks for an emailed code when its Access session ends, seven days by
 
 When you receive new code:
 
-1. Unzip it over `D:\Downloads\study-library`. Your `wrangler.jsonc` and `.env` aren't in the zip, so they stay as they are.
+1. Unzip it over `C:\Users\samue\Documents\Antigravity\study-library`. Your `wrangler.jsonc` and `.env` aren't in the zip, so they stay as they are.
 2. In PowerShell, in `app`:
 
 ```
@@ -660,7 +660,7 @@ You only need to deploy after a code update or a change to `wrangler.jsonc`. Set
 
 ### Rebuilding the processor from scratch
 
-If WSL is reset, the code and `.env` on D: survive. Only the Python environment needs rebuilding. In WSL:
+If WSL is reset, the code and `.env` in `C:\Users\samue\Documents\Antigravity\study-library` survive. Only the Python environment needs rebuilding. In WSL:
 
 ```
 cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
