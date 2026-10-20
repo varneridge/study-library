@@ -358,9 +358,12 @@ export async function loadThisWeek(term: "AT" | "WT", number: number): Promise<W
     const sessions = live(await db.sessions.where("week_id").equals(week.id).toArray()).sort(byPosition);
     const rows = [];
     for (const session of sessions) {
-      const note = (await db.notes.where("session_id").equals(session.id).toArray()).find((n) => !n.deleted);
-      const blocks = note ? live(await db.note_blocks.where("note_id").equals(note.id).toArray()) : [];
-      const words = blocks.reduce((n, b) => n + blockText(b.content).split(/\s+/).filter(Boolean).length, 0);
+      const notes = live(await db.notes.where("session_id").equals(session.id).toArray());
+      let words = 0;
+      for (const note of notes) {
+        const blocks = live(await db.note_blocks.where("note_id").equals(note.id).toArray());
+        words += blocks.reduce((n, b) => n + blockText(b.content).split(/\s+/).filter(Boolean).length, 0);
+      }
       const questions = live(await db.questions.where("session_id").equals(session.id).toArray()).length;
       const recorded = live(await db.recordings.where("session_id").equals(session.id).toArray()).length > 0;
       rows.push({ session, words, questions, recorded });

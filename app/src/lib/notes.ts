@@ -92,8 +92,9 @@ export async function saveNote(
 ): Promise<string | null> {
   if (!noteId && isEmpty(blocks)) return null;
   const changes: Change[] = [];
-  const id = noteId ?? newId();
-  if (!noteId) {
+  const existing = noteId ? await db.notes.get(noteId) : await findNote(target);
+  const id = existing?.id ?? noteId ?? newId();
+  if (!existing) {
     changes.push({
       table: "notes",
       row: {
