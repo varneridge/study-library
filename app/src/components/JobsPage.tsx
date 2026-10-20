@@ -400,7 +400,7 @@ function Card({ app, open, fresh, onToggle, onLeft }: {
       <button type="button" className="card-head" aria-expanded={open} onClick={() => onToggle()}>
         <span className="card-top">
           <span className="card-employer">{app.employer || <span className="muted">New application</span>}</span>
-          <span className={`stage-tag cat-${stage.cat}`}>{stage.label}</span>
+          <span className={`stage-tag cat-${stage.cat}`} title={stage.label}>{stage.label}</span>
         </span>
         {app.role && <span className="card-role">{app.role}</span>}
         <span className="card-meta">
