@@ -473,7 +473,14 @@ ol.questions a:hover { text-decoration: underline; text-underline-offset: 0.18em
 .filed .meta a { color: var(--muted); }
 
 /* Search */
-.search-box { font-size: var(--fs-lg); padding: 0.6rem 0.75rem; border: 1px solid var(--ink); }
+.search-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.search-wrap .search-box { width: 100%; padding-right: 2.5rem; font-size: var(--fs-lg); padding-block: 0.6rem; padding-left: 0.75rem; border: 1px solid var(--ink); }
+.search-wrap .search-clear, .palette-input-wrap .search-clear {
+  position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+  color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: 50%; border: 0; background: none; cursor: pointer; padding: 0;
+}
+.search-wrap .search-clear:hover, .palette-input-wrap .search-clear:hover { background: var(--surface); color: var(--ink); }
 .hits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
 .hits li { border-bottom: 1px solid var(--rule); padding: 0.6rem 0; display: flex; flex-direction: column; gap: 0.2rem; }
 .hits a { font-family: var(--serif); text-decoration: none; }

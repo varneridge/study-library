@@ -10,6 +10,7 @@ import {
 } from "../lib/search";
 import { fullTitle, shortTitle } from "../lib/titles";
 import { useTitle } from "../lib/ui";
+import { Icon } from "./icons";
 
 type Kind = "all" | "readings" | "highlights" | "notes" | "recordings";
 const KINDS: { value: Kind; label: string }[] = [
@@ -110,14 +111,21 @@ export function SearchPage({ q = "" }: { q?: string }) {
   return (
     <div className="page search-page">
       <h1 className="sr-only">Search</h1>
-      <input
-        // On a touch screen the keyboard waits for a tap on the field, as in iOS's own search.
-        type="search" autoFocus={!coarse} value={query} placeholder="Search readings, notes, highlights and transcripts"
-        aria-label="Search" inputMode="search" enterKeyHint="search" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && first.current) navigate(first.current); }}
-        className="search-box"
-      />
+      <div className="search-wrap">
+        <input
+          // On a touch screen the keyboard waits for a tap on the field, as in iOS's own search.
+          type="search" autoFocus={!coarse} value={query} placeholder="Search readings, notes, highlights and transcripts"
+          aria-label="Search" inputMode="search" enterKeyHint="search" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && first.current) navigate(first.current); }}
+          className="search-box"
+        />
+        {query && (
+          <button type="button" className="search-clear icon-button" aria-label="Clear search" onClick={() => setQuery("")}>
+            <Icon name="close" size={16} />
+          </button>
+        )}
+      </div>
       <div className="search-filters">
         <div className="segmented" role="group" aria-label="Show">
           {KINDS.map((k) => (
