@@ -170,6 +170,16 @@ CHECKS = r"""
       let effectiveW = r.width;
       let effectiveH = r.height;
 
+      // Check if enclosing label provides the touch area for checkbox or radio
+      if (el.tagName.toLowerCase() === 'input' && (el.type === 'checkbox' || el.type === 'radio')) {
+        const lbl = el.closest('label') || (el.id ? document.querySelector(`label[for="${el.id}"]`) : null);
+        if (lbl) {
+          const lr = lbl.getBoundingClientRect();
+          effectiveW = Math.max(effectiveW, lr.width);
+          effectiveH = Math.max(effectiveH, lr.height);
+        }
+      }
+
       // Check if pseudo before/after expands touch area
       try {
         const before = window.getComputedStyle(el, '::before');
