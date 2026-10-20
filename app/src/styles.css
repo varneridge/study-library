@@ -221,6 +221,13 @@ table.review tr.flag td.file { color: var(--danger); }
 
 /* Across modules */
 .picker { display: grid; grid-template-columns: auto repeat(11, minmax(0, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 1rem 0 2rem; }
+@media (max-width: 48rem) {
+  .picker {
+    overflow-x: auto;
+    scrollbar-width: none;
+    grid-template-columns: 2.5rem repeat(11, minmax(2.75rem, 1fr));
+  }
+}
 .picker span, .picker button { background: var(--paper); border: 0; padding: 0.35rem 0.2rem; font-size: var(--fs-xs); text-align: center; font-variant-numeric: tabular-nums; }
 .picker span { color: var(--muted); padding: 0.35rem 0.6rem; }
 /* The week you are looking at: accent text and underline, as in the module grid. */
@@ -1113,7 +1120,7 @@ img, canvas, video { max-width: 100%; }
    itself is pointed at or focused. Otherwise the slide is left clear. */
 .slide-box.awake .slide-count, .slide-arrow:hover, .slide-arrow:focus-visible { opacity: 1; }
 .slide-box.awake .slide-arrow { opacity: 0.85; }
-@media (hover: none) { .slide-arrow { width: 2.2rem; height: 3rem; } }
+@media (hover: none), (pointer: coarse), (max-width: 48rem) { .slide-arrow { width: 2.75rem; height: 3rem; } }
 
 /* Seminar questions, typed in place. Each reads as a numbered line of the
    page; the field only shows itself when you are in it. */
@@ -1399,7 +1406,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 .import-bar { bottom: var(--bottom-inset, 0px); }
 
 /* Touch: 44-point targets, a pressed state in place of hover, no tap delay. */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 48rem) {
   a, button, select, summary, [role="checkbox"], [role="menuitem"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .icon-button { min-width: 2.75rem; min-height: 2.75rem; }
   .button, .tool, .nav-button, .menu-button, .quiet:not(.cell-input), .found, .question-open, .where, .week-title, .hit-line, .tw-session {
@@ -1407,7 +1414,9 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   }
   .hit-line, .week-title { display: flex; }
   .menu-button { min-width: 2.75rem; justify-content: center; }
-  .reading a.name, .recent .name, .module-row { min-height: 2.75rem; }
+  .reading a.name, .recent .name, .module-row, .list .name, .session-link, .session-open, .notes-more, .crumbs a, .tw-head {
+    min-height: 2.75rem; display: inline-flex; align-items: center;
+  }
   .note-highlight .quote-meta { flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; }
   .note-highlight .quote-meta button, .note-highlight .quote-meta a { min-height: 2.75rem; display: inline-flex; align-items: center; }
   .note-highlight .quote-write, .note-highlight .quote-delete { min-width: 2.75rem; padding-inline: 0.35rem; justify-content: center; opacity: 1 !important; }
@@ -1415,6 +1424,25 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .button:active, .tool:active, .icon-button:active { background: var(--wash); opacity: 1; }
   /* Fields at 16px or more, so iOS never zooms in when one is tapped. */
   input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea { font-size: max(1rem, 16px); }
+  .caret { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; }
+  .pane-tabs { min-height: 2.75rem; }
+  .pane-tab { height: 2.75rem; min-height: 2.75rem; }
+  .reading .mark { position: relative; }
+  .reading .mark::before {
+    content: "";
+    position: absolute;
+    inset: -0.95rem;
+  }
+  .where, a.where {
+    position: relative;
+  }
+  .where::before, a.where::before {
+    content: "";
+    position: absolute;
+    inset: -0.5rem;
+  }
+  .pages-at input { min-width: 2.75rem; min-height: 2.75rem; }
+  .question-row textarea { min-height: 2.75rem; }
 }
 
 /* Nothing waits for a hover that never comes. */
@@ -1456,7 +1484,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 @media (prefers-reduced-motion: reduce) { .menu-panel, .dialog { animation: none; } }
 
 /* Touch, continued: the rest of the controls the phone audit measured. */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 48rem) {
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) { font-size: max(1rem, 16px); }
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="date"]), select) { min-height: 2.75rem; }
   .topbar .brand, .topbar > .to-jobs, .skip { min-height: 2.75rem; display: inline-flex; align-items: center; }
