@@ -644,14 +644,14 @@ def audit_behaviours(browser):
     p.goto(BASE + "/?v=jobs")
     p.wait_for_selector("h1")
     add_btn = p.get_by_role("button", name="Add application")
-    apps_before = p.locator("tbody.app").count()
+    apps_before = p.locator("li.app-card").count()
     add_btn.click()
     try:
         add_btn.click(timeout=300)
     except Exception:
         pass
     p.wait_for_timeout(600)
-    apps_after = p.locator("tbody.app").count()
+    apps_after = p.locator("li.app-card").count()
     if apps_after > apps_before + 1:
         shot_idx += 1
         shot_path = OUT / f"behaviour_add_not_disabled_{shot_idx}.png"
