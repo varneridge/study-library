@@ -6,6 +6,7 @@ import { byPosition, keysAfter } from "./keys";
 import { parseTitle, stripExtension, type Parsed } from "./parse";
 import { commit, newId, type Change } from "./sync";
 import { mimeFor, queueUpload, sha256 } from "./uploads";
+import { nameForNewSlides } from "./names";
 import type { ItemKind, ModuleRow, WeekRow } from "./types";
 
 export type PlanKind = ItemKind | "week-title" | "skip";
@@ -84,6 +85,8 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
   const changes: Change[] = [];
   const uploads: Parameters<typeof queueUpload>[0][] = [];
   const nextKeys = new Map<string, string[]>();
+  // Names given to slides in this batch, so two decks in one session are numbered.
+  const slideNames = new Map<string, string[]>();
   let count = 0;
 
   const ordered = [...plans].sort(
@@ -110,6 +113,17 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
       sessionId = (sessions.find((s) => s.kind !== "seminar") ?? sessions[0])?.id ?? null;
     }
 
+    // Slides in a week are named for their place, as "HY248 AT4 Lecture slides".
+    let title = plan.title.trim() || plan.file.name;
+    if (plan.kind === "slides" && week) {
+      const scope = `${week.id}:${sessionId ?? ""}`;
+      const name = await nameForNewSlides({ weekId: week.id, sessionId }, slideNames.get(scope));
+      if (name) {
+        title = name;
+        slideNames.set(scope, [...(slideNames.get(scope) ?? []), name]);
+      }
+    }
+
     const itemId = newId();
     const fileId = plan.existingFileId ?? newId();
     changes.push({
@@ -118,7 +132,7 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
         id: itemId,
         kind: plan.kind,
         author: plan.author.trim() || null,
-        title: plan.title.trim() || plan.file.name,
+        title,
         source: plan.source.trim() || null,
         pages: plan.pages.trim() || null,
         year: plan.year ? Number(plan.year) || null : null,

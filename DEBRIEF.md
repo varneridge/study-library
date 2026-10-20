@@ -257,6 +257,8 @@ A question left empty is not kept.
 
 ### Slides beside notes
 
+Each deck is named for its place, as "HY248 AT4 Lecture slides" (see Small things that save steps).
+
 The slide fills its space, with nothing around it. Faint arrows appear on its left and right edges, with the slide number in the corner, whenever the pointer moves over it or it is tapped, and fade away again after a moment of stillness. On a touch screen, a swipe across the slide turns it too. The arrow keys work as before.
 
 ### Keeping your place
@@ -422,6 +424,8 @@ On a session page, recordings become the session's recording and documents becom
 - **Light** is the default theme. Sepia, dark, or following the device, are choices in Settings.
 - **The drag grip** takes no room. It appears in the margin when you point at a row that can be moved.
 - **The keyboard section** of Settings is hidden on touch screens.
+- **Slides name themselves** for where they are: "HY248 AT4 Lecture slides", or "HY300 Literature review Supervision slides" in a dissertation's section. A second deck in the same session is "HY248 AT4 Lecture slides 2", and a gap left by a deleted deck is filled before a new number is used. When a deck moves to another session, week or module, a name the app gave it moves with it, and Undo puts the old name back; a name you typed yourself is never changed. Decks added before this change that still carry their file's name take their place's name once, on each device's first sync after updating. The rules are in `src/lib/names.ts`.
+- **Downloads are named for what they are,** not for the file they came from: a reading by its short reference, as "Chen (2001) 'Introduction'.pdf", slides by their name, and a recording by its session, as "HY248 AT4 Lecture recording.ogg". Characters that Windows or macOS refuse in a file name are left out.
 
 ### Go to
 

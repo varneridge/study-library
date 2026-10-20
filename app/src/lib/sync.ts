@@ -299,7 +299,7 @@ export function startSync(): void {
       void pull();
     }
   }, POLL_MS);
-  void flush().then(pull);
+  void flush().then(pull).then(() => import("./names")).then((names) => names.nameSlidesOnce()).catch(() => undefined);
 }
 
 export function stopSync(): void {

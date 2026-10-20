@@ -1,3 +1,4 @@
+import { readingFileName } from "../lib/names";
 import { combinePhotos, isImage, READING_ACCEPT } from "../lib/photos";
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -202,7 +203,7 @@ export async function download(view: ReadingView) {
   if (!file) return;
   const a = document.createElement("a");
   a.href = `/api/objects/${file.r2_key}`;
-  a.download = file.original_name ?? `${view.item.title}.pdf`;
+  a.download = readingFileName(view.item, file);
   document.body.append(a);
   a.click();
   a.remove();

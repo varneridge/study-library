@@ -7,6 +7,7 @@ import { weekCode, titleAfter } from "./modules";
 import { commit, newId, type Change } from "./sync";
 import type { ItemKind, ItemRow, TableName, Tables, WeekItemRow, WeekRow } from "./types";
 import { showToast } from "./ui";
+import { nameAfterMove } from "./names";
 
 type Row = Tables[TableName];
 
@@ -59,10 +60,11 @@ export async function moveToWeek(item: ItemRow, link: WeekItemRow | null, week: 
   const module = await db.modules.get(week.module_id);
   const from = link ? (await db.weeks.get(link.week_id))?.module_id : item.tray_module_id;
   const where = `${from && from !== week.module_id && module ? `${module.code} ` : ""}${weekCode(week)}${titleAfter(week, ", ")}`;
+  const renamed = await nameAfterMove(item, link ? { weekId: link.week_id, sessionId: link.session_id ?? null } : null, { weekId: week.id, sessionId });
   await undoable(`Moved to ${where}.`, before, [
     ...(link ? [{ table: "week_items" as const, row: { id: link.id, deleted: true }, patch: true as const }] : []),
     { table: "week_items", row: { id: newId(), week_id: week.id, item_id: item.id, session_id: sessionId, position } },
-    { table: "items", row: { id: item.id, tray_module_id: null }, patch: true },
+    { table: "items", row: { id: item.id, tray_module_id: null, ...(renamed ? { title: renamed } : {}) }, patch: true },
   ]);
 }
 
@@ -121,7 +123,10 @@ export async function placeSlides(
     await commit(changes);
     return;
   }
-  await undoable(`Slides moved to the ${sessionName}.`, [{ table: "week_items", row: link }], changes);
+  // A name the app gave the deck follows it to the other session; one you typed stays.
+  const renamed = await nameAfterMove(item, { weekId: link.week_id, sessionId: link.session_id ?? null }, { weekId: link.week_id, sessionId });
+  if (renamed) changes.push({ table: "items", row: { id: item.id, title: renamed }, patch: true });
+  await undoable(`Slides moved to the ${sessionName}.`, [{ table: "week_items", row: link }, ...(renamed ? [{ table: "items" as const, row: item }] : [])], changes);
 }
 
 export function positionsOf(links: (WeekItemRow | null)[]): { id: string; position: string }[] {

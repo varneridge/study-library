@@ -289,6 +289,7 @@ export function SessionPage({ id, t, turn }: { id: string; t?: number; turn?: nu
           register={register}
           focusTurn={turn}
           startAt={recording.id === latest?.id ? t : undefined}
+          title={`${module.code} ${weekCode(week)} ${label}`}
         />
       ))}
 

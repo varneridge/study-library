@@ -3,6 +3,7 @@ process.env.TZ = "Europe/London";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { keyBetween, keysAfter } from "../src/lib/keys";
+import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName } from "../src/lib/names";
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle } from "../src/lib/titles";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
@@ -532,6 +533,45 @@ test("the Applied date and the first Applied entry move together", () => {
   assert.equal(entryEditChanges(app, events, events[0], { stage: "to_apply", at: "2026-09-30" }).length, 1);
   // A deleted entry is never the first.
   assert.equal(firstAppliedEntry([{ ...events[0], deleted: true }, events[1]]), undefined);
+});
+
+test("slides are named for their place, and numbered when a session has more than one", () => {
+  const week = { term: "AT" as const, number: 4, title: "The Anglo-Japanese Alliance" };
+  assert.equal(slidesBase("HY248", week, "lecture"), "HY248 AT4 Lecture slides");
+  assert.equal(slidesBase("HY248", week, "seminar"), "HY248 AT4 Seminar slides");
+  assert.equal(slidesBase("HY248", week, "combined"), "HY248 AT4 slides");
+  assert.equal(slidesBase("HY248", week, null), "HY248 AT4 slides");
+  // A dissertation's section is named by its own name.
+  assert.equal(slidesBase("HY300", { term: "S" as const, number: 2, title: "Literature review" }, "supervision"), "HY300 Literature review Supervision slides");
+  assert.equal(freeName("HY248 AT4 Lecture slides", []), "HY248 AT4 Lecture slides");
+  assert.equal(freeName("HY248 AT4 Lecture slides", ["HY248 AT4 Lecture slides"]), "HY248 AT4 Lecture slides 2");
+  // A gap left by a deleted deck is filled, rather than a name used twice.
+  assert.equal(freeName("B", ["B", "B 3"]), "B 2");
+  assert.ok(isPlaceName("HY248 AT4 Lecture slides 2", "HY248 AT4 Lecture slides"));
+  assert.ok(!isPlaceName("My own name for these", "HY248 AT4 Lecture slides"));
+  // Characters in a module code are taken literally, never as a pattern.
+  assert.ok(!isPlaceName("HY248xAT4 Lecture slides", "HY248.AT4 Lecture slides"));
+});
+
+test("a deck still carrying its file's name is told apart from one you named", () => {
+  const given = fileGivenTitle("lecture-week-3-slides.pptx");
+  assert.ok(given.includes("lecture-week-3-slides"));
+  assert.ok(!given.includes("Week 3, the treaty ports"));
+  assert.deepEqual(fileGivenTitle(null), []);
+});
+
+test("downloads are named for what they are, safely on any computer", () => {
+  assert.equal(safeFileName("HY248 AT4: Lecture / slides?", "pdf"), "HY248 AT4 Lecture slides.pdf");
+  assert.equal(safeFileName("Chen (2001) \u2018Introduction\u2019.", "pdf"), "Chen (2001) 'Introduction'.pdf");
+  assert.equal(safeFileName("   ", "pdf"), "file.pdf");
+  assert.ok(safeFileName("x".repeat(300), "pdf").length <= 124);
+  assert.equal(extensionFor("audio/ogg; codecs=opus", null), "ogg");
+  assert.equal(extensionFor("application/pdf", "Lecture 1.PPTX"), "pptx");
+  assert.equal(extensionFor(null, null), "pdf");
+  const reading = { kind: "secondary" as const, author: "Chen, J.", year: 2001, title: "Introduction", source: "in Mao's China and the Cold War", pages: "1-16", doc_date: null };
+  assert.equal(readingFileName(reading, { mime: "application/pdf", original_name: "(AT1) Chen, J. (2001) 'Introduction', in Mao's China.pdf" }), "Chen (2001) 'Introduction'.pdf");
+  const slides = { ...reading, kind: "slides" as const, title: "HY248 AT4 Lecture slides" };
+  assert.equal(readingFileName(slides, { mime: "application/pdf", original_name: "lecture-week-4.pptx" }), "HY248 AT4 Lecture slides.pptx");
 });
 
 if (failed) {

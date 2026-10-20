@@ -1,3 +1,4 @@
+import { extensionFor, safeFileName } from "../lib/names";
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../lib/router";
 import { clock } from "../lib/recorder";
@@ -52,10 +53,12 @@ export function ImportedPanel({ recording, title, focusTurn }: { recording: Reco
 }
 
 export function RecordingPanel({
-  recording, file, register, startAt, focusTurn,
+  recording, file, register, startAt, focusTurn, title,
 }: {
   recording: RecordingRow;
   file: FileRow | undefined;
+  // The session, as "HY248 AT4 Lecture", which names the downloaded audio.
+  title?: string;
   register: (id: string, audio: HTMLAudioElement | null) => void;
   startAt?: number;
   focusTurn?: number;
@@ -111,7 +114,7 @@ export function RecordingPanel({
               onSelect: () => {
                 const a = document.createElement("a");
                 a.href = `/api/objects/${file!.r2_key}`;
-                a.download = file!.original_name ?? "recording.ogg";
+                a.download = safeFileName(`${title ? `${title} ` : ""}recording`, extensionFor(file!.mime, file!.original_name));
                 document.body.append(a);
                 a.click();
                 a.remove();

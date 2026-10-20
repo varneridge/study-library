@@ -77,6 +77,16 @@ with sync_playwright() as p:
     expect(page.locator("section.session").first.locator("li.reading")).to_have_count(3)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.week_items || []).filter(l => l.session_id).length === 3; }", 40)
     print("three decks on the lecture:", session_titles(page, 0))
+    # Slides are named for their place, and numbered within a session.
+    lecture_names = ["HY335 AT1 Lecture slides", "HY335 AT1 Lecture slides 2", "HY335 AT1 Lecture slides 3"]
+    assert sorted(session_titles(page, 0)) == lecture_names, session_titles(page, 0)
+    # A deck downloads under its own name, not its file's.
+    with page.expect_download() as got:
+        page.locator("section.session").first.locator("li.reading").first.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Download file").click()
+    saved = got.value.suggested_filename
+    assert saved.startswith("HY335 AT1 Lecture slides") and saved.endswith(".pdf"), saved
+    print("decks named for their place and numbered, and one downloads as", saved)
 
     # Reorder within the lecture by dragging.
     before = session_titles(page, 0)
@@ -105,12 +115,63 @@ with sync_playwright() as p:
     page.mouse.up()
     expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Slides moved to the seminar")
-    assert session_titles(page, 1) == [moving], session_titles(page, 1)
+    # The name the app gave the deck follows it to the seminar.
+    assert session_titles(page, 1) == ["HY335 AT1 Seminar slides"], (moving, session_titles(page, 1))
     seminar_id = page.locator("section.session").nth(1).get_attribute("data-session")
     until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.week_items || []).filter(l => !l.deleted && l.session_id === '{seminar_id}').length === 1; }}")
     page.locator(".toast").get_by_role("button", name="Undo").click()
     expect(page.locator("section.session").first.locator("li.reading")).to_have_count(3)
-    print("slides dragged into the empty seminar, then undone")
+    # Undo puts its old name back too.
+    end = time.time() + 10
+    while sorted(session_titles(page, 0)) != lecture_names and time.time() < end:
+        time.sleep(0.2)
+    assert sorted(session_titles(page, 0)) == lecture_names and moving in session_titles(page, 0), (moving, session_titles(page, 0))
+    print("slides dragged into the empty seminar, renamed for it, then undone with the old name back")
+
+    # A deck from before this version still carries its file's name. On a
+    # device's first sync it takes its place's name, once; a name you typed is left alone.
+    # Wait until the deck's upload has finished, so its file and the file's name are on the server.
+    until(page, """async () => { const j = await (await fetch('/api/sync/pull?since=0')).json();
+      const d = (j.rows.items || []).find(i => i.title === 'HY335 AT1 Lecture slides' && !i.deleted);
+      return d && d.file_id && (j.rows.files || []).some(f => f.id === d.file_id && f.original_name); }""", 40)
+    rows = server(page)
+    deck = next(i for i in rows["items"] if i["title"] == "HY335 AT1 Lecture slides" and not i["deleted"])
+    named = next(i for i in rows["items"] if i["title"] == "HY335 AT1 Lecture slides 2" and not i["deleted"])
+    file_name = next(f for f in rows["files"] if f["id"] == deck["file_id"])["original_name"]
+    stem = file_name.rsplit(".", 1)[0]
+    # Later than the decks' own times, to the millisecond, so last-write-wins keeps these.
+    time.sleep(1.2)
+    now = time.time()
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + f".{int(now * 1000) % 1000:03d}Z"
+    page.request.post(BASE + "/api/sync/push", data={"changes": [
+        # Whole rows with the changed column named, as the app sends them.
+        {"table": "items", "row": {**deck, "title": stem, "modified_at": stamp}, "cols": ["title"]},
+        {"table": "items", "row": {**named, "title": "My own name for these", "modified_at": stamp}, "cols": ["title"]},
+    ]})
+    until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).some(i => i.id === '{deck['id']}' && i.title === {stem!r}); }}")
+    fresh = browser.new_context(viewport={"width": 1280, "height": 900})
+    other = fresh.new_page()
+    other.on("pageerror", lambda e: errors.append(str(e)))
+    other.goto(BASE + "/")
+    until(other, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).some(i => i.id === '{deck['id']}' && i.title === 'HY335 AT1 Lecture slides'); }}", 30)
+    other.wait_for_timeout(500)
+    kept = next(i for i in server(other)["items"] if i["id"] == named["id"])["title"]
+    assert kept == "My own name for these", kept
+    fresh.close()
+    page.reload()
+    print("on a new device, a deck still named for its file took its place's name, and one named by hand kept its name")
+
+    # Moving a deck to another module's week gives it that place's name.
+    third = page.locator("section.session").first.locator("li.reading").filter(has=page.locator(".name", has_text=re.compile(r"^HY335 AT1 Lecture slides 3$")))
+    expect(third).to_have_count(1)
+    third.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Move to another week or module").click()
+    picker = page.locator(".move-picker")
+    picker.get_by_label("Module").select_option(label="HY319 Napoleon and Europe")
+    picker.get_by_label("Week").select_option(label="AT5")
+    expect(page.locator(".toast")).to_contain_text("Moved to HY319 AT5")
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).some(i => i.title === 'HY319 AT5 Lecture slides' && !i.deleted); }")
+    print("a deck moved to HY319 AT5 took the name HY319 AT5 Lecture slides")
 
     # Slide canvas has role="img" with an accessible label
     page.locator("section.session").first.locator(".session-title a").click()
