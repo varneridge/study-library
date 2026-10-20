@@ -83,6 +83,16 @@ export function likelyNextStages(key: string): string[] {
   return LIKELY_NEXT[key] ?? [];
 }
 
+// The words on a stage's tile in the stage card, where its row already
+// names the step: "To complete", "Awaiting result", "To attend".
+export function stageShort(key: string): string {
+  const label = stageOf(key).label;
+  const at = label.indexOf(": ");
+  if (at < 0) return label;
+  const rest = label.slice(at + 2).replace(/^done, /, "").replace("prepare and attend", "attend");
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 export const STAGE_ALIASES: Record<string, string[]> = {
   oa_todo: ["oa", "online test"],
   oa_wait: ["oa", "online test"],
@@ -231,6 +241,16 @@ export async function discardIfBlank(id: string): Promise<boolean> {
   return true;
 }
 
+// Cancel on a new application: it goes, with whatever was typed and its
+// first entry, and is not kept in Recently deleted, as it was never added.
+export async function cancelNewApplication(id: string): Promise<void> {
+  const events = await db.application_events.where("application_id").equals(id).toArray();
+  await commit([
+    { table: "applications", row: { id, employer: "", role: "", notes: null, deleted: true }, patch: true },
+    ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: true }, patch: true })),
+  ]);
+}
+
 export async function deleteApplication(id: string): Promise<void> {
   const app = await db.applications.get(id);
   if (!app) return;
@@ -303,7 +323,7 @@ export async function removeEvent(id: string): Promise<void> {
   const event = await db.application_events.get(id);
   if (!event) return;
   await update("application_events", id, { deleted: true });
-  showToast("Timeline entry removed.", {
+  showToast("Timeline entry removed. The current stage is unchanged.", {
     label: "Undo",
     run: () => void update("application_events", id, { deleted: false }),
   });
@@ -699,4 +719,36 @@ export function getTimelineEntries(app: ApplicationRow, events: ApplicationEvent
     return [fallback];
   }
   return live;
+}
+
+// The date an entry happened, as "26 Feb 2026", whether it holds a date or a time.
+export function entryDate(at: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(at) ? at : todayIso(new Date(at));
+}
+
+// When the application reached its current stage, from the latest entry for
+// that stage, or null when no entry says.
+export function currentStageSince(app: ApplicationRow, events: ApplicationEventRow[]): string | null {
+  const entries = getTimelineEntries(app, events);
+  const last = entries[entries.length - 1];
+  return last && last.stage === app.stage ? last.at : null;
+}
+
+// "for 10 days" or "since today", for the stage column and the stage card.
+export function inStageWords(at: string | null, now = new Date()): string {
+  if (!at) return "";
+  const days = daysInStage(at, now);
+  return days === 0 ? "since today" : `for ${days} ${days === 1 ? "day" : "days"}`;
+}
+
+// How long a step of the timeline lasted, from one entry to the next. When
+// either end is a date alone it counts calendar days, so 10 Oct to 17 Oct at
+// 14:30 is 7 days, not 8; between two times it gives hours on the same day.
+export function stepLength(from: string, to: string): string {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+  if (dateOnly.test(from) || dateOnly.test(to)) {
+    const days = Math.round((parseEntryTime(entryDate(to)) - parseEntryTime(entryDate(from))) / 86_400_000);
+    return days <= 0 ? "same day" : `${days} ${days === 1 ? "day" : "days"}`;
+  }
+  return formatDuration(parseEntryTime(from), parseEntryTime(to));
 }

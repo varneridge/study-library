@@ -1716,6 +1716,125 @@ section.session .readings > li.reading:hover { background: var(--surface-hover);
 }
 .stage-chip, .stage-tag { border-radius: var(--r-sm); }
 .stage-tag { border-radius: 999px; padding: 0.15rem 0.6rem; }
+
+/* The job search's choice cards, from 0.32. Each replaces a dropdown: a small
+   panel beside its button on a laptop, a sheet from the foot of the screen on
+   a phone. They are modal dialogs, so they sit above everything. */
+dialog.choice-card {
+  position: fixed; inset: auto; margin: 0; padding: 0.9rem 1rem 0.8rem;
+  width: max-content; max-width: min(32rem, calc(100vw - 1rem)); max-height: calc(100vh - 1rem); overflow: auto;
+  background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow-float);
+  text-align: left;
+}
+dialog.choice-card::backdrop { background: transparent; }
+dialog.choice-card.sheet {
+  inset: auto 0 0 0; width: 100%; max-width: 100%; max-height: 85vh; border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 1.1rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in 0.18s ease-out;
+}
+dialog.choice-card.sheet::backdrop { background: color-mix(in srgb, var(--ink) 30%, transparent); }
+@media (prefers-reduced-motion: reduce) { dialog.choice-card.sheet { animation: none; } }
+.choice-head { margin-bottom: 0.8rem; }
+.choice-title { font-family: var(--sans); font-size: var(--fs-md); font-weight: 600; line-height: 1.3; margin: 0; }
+.choice-now { margin: 0.15rem 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.choice-foot { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
+/* On a phone Cancel stays in view at the foot of the sheet, however long it is. */
+.choice-card.sheet .choice-foot {
+  position: sticky; bottom: calc(-0.75rem - env(safe-area-inset-bottom, 0px)); margin: 0.9rem -1.25rem calc(-0.75rem - env(safe-area-inset-bottom, 0px));
+  padding: 0.6rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--rule);
+}
+.choice-card.sheet .choice-foot .button { flex: 1; justify-content: center; }
+.choice-rows { display: grid; gap: 0.1rem; min-width: 15rem; margin: 0 -0.4rem; }
+.choice-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; min-height: 2.25rem;
+  text-align: left; border: 0; background: none; border-radius: var(--r-sm); padding: 0.45rem 0.6rem; font-size: var(--fs-sm); color: var(--ink);
+}
+.choice-row:hover, .choice-row:focus-visible { background: var(--surface); }
+.choice-row[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.choice-row.danger { color: var(--danger); margin-top: 0.5rem; }
+.choice-link { display: grid; gap: 0.7rem; min-width: 18rem; }
+.choice-link .field { display: grid; gap: 0.3rem; font-size: var(--fs-xs); color: var(--muted); }
+.choice-link input { font-size: var(--fs-sm); }
+
+/* The stage card: each step a row, "to do" beside "done". */
+.stage-card { width: 31rem; }
+.stage-card.sheet { width: 100%; }
+.stage-next { display: grid; gap: 0.35rem; margin-bottom: 1rem; }
+.stage-tiles { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.stage-grid { display: grid; gap: 0.35rem; }
+.stage-row { display: grid; grid-template-columns: 8.75rem minmax(0, 1fr) minmax(0, 1fr); gap: 0.4rem; align-items: center; }
+.stage-row.heads { font-size: var(--fs-xs); color: var(--muted); padding-bottom: 0.1rem; }
+.stage-row-label { font-size: var(--fs-xs); color: var(--muted); }
+.stage-extra { grid-column: 2 / -1; }
+.stage-tile {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 0.4rem; min-height: 2rem;
+  border: 0; border-radius: 1rem; padding: 0.3rem 0.75rem; font-size: var(--fs-sm); line-height: 1.25; text-align: left; cursor: pointer;
+}
+.stage-tile .icon { flex: none; }
+.stage-tile:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent); }
+.stage-tile[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent); font-weight: 600; }
+.stage-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 44rem) {
+  .stage-row { grid-template-columns: 5.75rem minmax(0, 1fr) minmax(0, 1fr); gap: 0.35rem; }
+  .stage-tile { padding: 0.3rem 0.6rem; }
+}
+
+/* The stage, as a chip that opens the stage card. */
+button.stage-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%; text-align: left; cursor: pointer;
+  border-radius: 1rem; padding: 0.3rem 0.55rem 0.3rem 0.7rem;
+}
+button.stage-chip .icon { flex: none; opacity: 0.7; }
+button.stage-chip:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent); }
+button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stage-since { display: block; margin: 0.25rem 0 0 0.7rem; font-size: var(--fs-xs); color: var(--muted); }
+.jobs-tools .order-button { display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: var(--surface); border-radius: var(--r-sm); padding: 0.35rem 0.7rem; }
+.jobs-tools .order-button:hover { background: var(--surface-hover); }
+.order-button .icon { opacity: 0.7; }
+.apps .closed-head th {
+  padding: 1.4rem 0.5rem 0.4rem; text-transform: none; letter-spacing: normal; font-size: var(--fs-sm);
+  color: var(--muted); font-weight: 600; background: var(--paper);
+}
+.new-cancel { color: var(--muted); }
+
+/* Details on a laptop: notes, the timeline and files side by side, with
+   Close and Delete apart at the foot. */
+.app-details.wide { grid-template-columns: minmax(11rem, 1fr) minmax(18rem, 1.35fr) minmax(16rem, 1.1fr); gap: 0.75rem 2rem; }
+/* Details sits on a soft band, so its buttons take the card colour to show. */
+.details-row .button { background: var(--card); }
+.details-row .button:hover { background: var(--surface-hover); }
+.app-details.wide .app-foot { justify-content: space-between; margin: 0.25rem 0 0; }
+.detail-head { font-family: var(--sans); font-size: var(--fs-sm); font-weight: 600; color: var(--ink); margin: 0 0 0.5rem; }
+.slot-list { border-top: 0; }
+.slot-row { grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr) auto; align-items: center; border-bottom: 0; padding: 0.2rem 0; }
+.slot-change { justify-self: end; }
+.app-card .slot-row { grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr) auto; }
+.app-danger { margin-top: 1.25rem; margin-left: -0.4rem; }
+
+/* The timeline */
+.tl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.tl-entry { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto auto; gap: 0.5rem; align-items: center; font-size: var(--fs-sm); }
+.tl-when { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; font-size: var(--fs-xs); line-height: 1.25; }
+.tl-time { display: block; color: var(--faint); }
+.tl-entry .stage-tag { justify-self: start; white-space: normal; max-width: 100%; }
+.tl-lasted { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.tl-edit { font-size: var(--fs-xs); }
+.tl-since { margin: 0.5rem 0 0; }
+.tl-add { margin: 0.3rem 0 0 -0.4rem; }
+.tl-editor { display: grid; gap: 0.7rem; padding: 0.75rem; margin: 0.35rem 0; background: var(--surface); border-radius: var(--r-md); }
+.tl-fields { display: grid; gap: 0.55rem; }
+.tl-fields .field { display: grid; gap: 0.25rem; font-size: var(--fs-xs); color: var(--muted); justify-items: start; }
+.tl-fields input { font-size: var(--fs-sm); }
+.tl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.tl-remove { margin-left: auto; }
+.date-edit { flex-wrap: wrap; }
+
+/* On touch screens and in the card layout, every control in a card is at least 44 pixels. */
+@media (pointer: coarse), (max-width: 60rem) {
+  .choice-row, .stage-tile, button.stage-chip, .choice-card .button { min-height: 2.75rem; }
+  .jobs input[type="time"] { min-height: 2.75rem; }
+  .tl-entry { grid-template-columns: 5.5rem minmax(0, 1fr) auto; }
+  .tl-lasted { grid-column: 2; grid-row: 2; }
+}
 .deadline.state-overdue .deadline-date, .deadline.state-soon .deadline-date { border-radius: var(--r-xs); }
 
 /* Capitals were labels' default; sentence case reads more calmly. */
