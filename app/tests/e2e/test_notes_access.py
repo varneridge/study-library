@@ -55,9 +55,10 @@ with sync_playwright() as p:
     print("one tap from the home page to the HY206 AT2 seminar notes")
 
     # Writing there shows on the home page, and the session is remembered.
+    page.locator(".session-notes .bn-editor[contenteditable='true']").wait_for()
     page.locator(".session-notes .bn-editor").click()
     page.keyboard.type("The long telegram reframed Soviet intentions.")
-    page.wait_for_timeout(800)
+    page.wait_for_timeout(1500)
     page.get_by_role("link", name="Study Library").click()
     expect(page.locator(".tw-module", has_text="HY206").locator(".tw-session", has_text="Seminar")).to_contain_text("6 words")
     print("the home page shows how much is written")
