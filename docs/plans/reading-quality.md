@@ -351,6 +351,7 @@ Each markdown file contains the expected clean text (`Headings`, `Body Paragraph
 1. **Separate columns for Chicago reference fields**: Add individual columns on `items` rather than a JSON blob.
 2. **Client-side text reflow**: Keep reflow in `app/src/lib/reflow.ts` and fix the five deterministic fault causes there.
 3. **Automatic `--redo-ocr` on unhealthy OCR layers**: Have the processor detect existing OCR layers with `< 85%` real words or missing word spaces and run `ocrmypdf --redo-ocr`.
+4. **Headings and body text only in text view**: Detect section headings on both OCR scans and born-digital PDFs using glyph height plus layout geometry (isolation, centring, all-caps, and Roman/Arabic section numbering), and show only headings (`<h2>`) and body paragraphs (`<p>`) in the text view (leaving footnotes out of the text view).
 
 ### Step-by-Step Plan
 
@@ -378,12 +379,13 @@ Each markdown file contains the expected clean text (`Headings`, `Body Paragraph
    - Guard `from_layout()` and `search_crossref()` against generic headings (`"Chapter 1"`, `"Introduction"`) and filter out `type == "book-review"` from Crossref results.
    - Extract printed page ranges from running heads/footers when missing from Crossref or the cover sheet.
 
-3. **Part 3: Client-Side Text Reflow (`app/src/lib/reflow.ts`)**
+3. **Part 3: Client-Side Text Reflow (`app/src/lib/reflow.ts`) and Text View (`TextView.tsx`, `Reader.tsx`)**
    - Filter out rotated text items (`item.transform`) so vertical margin watermarks (`17` readings) never enter lines.
    - Detect `2-up` landscape spreads (`view.width > view.height * 1.2` with a clear centre gutter) and read the left and right pages sequentially while keeping original PDF coordinates on `Piece.rect` so highlights stay aligned.
    - Strip JSTOR Books, Taylor & Francis, and LSE/CLA cover sheets, and strip multi-line ProQuest, Cambridge Core, and Oxford download footers regardless of the `70 / 110` character cap.
    - Fix `joinWords()` on word-per-item OCR layers so overestimated `pdf.js` glyph widths do not suppress spaces between adjacent word items (`#1`, `#9`).
-   - Classify bottom-of-page footnotes using position + footnote-marker patterns (`^\d{1,3}(\.|\s)\s*[A-Z"'\u201c(]`) in addition to font size, preventing `9 pt` footnotes from leaking into body paragraphs across page turns.
+   - Detect bottom-of-page footnotes using position + footnote-marker patterns (`^\d{1,3}(\.|\s)\s*[A-Z"'\u201c(]`) in addition to font size, and drop footnotes from the text view (removing the **Show footnotes** toggle in `Reader.tsx`) so text view shows only headings and body paragraphs.
+   - Detect section headings on both OCR scans and born-digital PDFs using isolation (`gap > body * 1.35`, 1 to 3 short lines after a completed sentence without terminal full stop/semicolon/comma) plus at least one heading signal: taller glyphs (`size > body * (ocrDoc ? 1.22 : 1.15)`), column centring, all-caps text (`>= 4` letters), or standalone Roman/Arabic section numbering (`I.`, `II.`, `1.`, `Chapter ...`, `Part ...`, `Introduction`, `Conclusion`).
    - Use local rolling left-margin baselines on `ocrDoc` pages so jittered scan margins do not cause false paragraph breaks (`#4`).
 
 4. **Part 4: Unhealthy OCR Layer Detection (`backend/study/processor/jobs.py`)**
