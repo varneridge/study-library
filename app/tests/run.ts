@@ -8,10 +8,13 @@ import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
 import {
-  deadlineState, deadlineWords, formatDate, likelyNextStages, matches, normaliseUrl,
-  sortApplications, STAGE_GRID, STAGES, stageOf, summarise,
+  deadlineState, deadlineWords, evaluateStageChange, formatDate, formatDuration,
+  daysSinceApplied, daysInStage, entryTimeText, getTimelineEntries,
+  likelyNextStages, matches, normaliseUrl, parseEntryTime,
+  sortApplications, sortEvents, STAGE_GRID, STAGES, stageOf, summarise,
+  undoStageChangeChanges,
 } from "../src/lib/jobs";
-import type { ApplicationRow } from "../src/lib/types";
+import type { ApplicationEventRow, ApplicationRow } from "../src/lib/types";
 import { paragraphs, tidy } from "../src/lib/transcriptImport";
 
 let failed = 0;
@@ -184,6 +187,173 @@ test("likely next stages match the progression table", () => {
   assert.deepEqual(likelyNextStages("offer"), ["accepted", "declined"]);
   assert.deepEqual(likelyNextStages("accepted"), []);
   assert.deepEqual(likelyNextStages("rejected"), []);
+});
+
+const ev = (
+  id: string, stage: string, at: string, kind: "change" | "manual" = "change",
+  from_stage: string | null = null, cleared_deadline: string | null = null,
+  application_id = "a", deleted = false,
+): ApplicationEventRow => ({
+  id, application_id, stage, from_stage, at, kind, cleared_deadline,
+  modified_at: "", seq: 0, deleted,
+});
+
+test("timeline order sorts by local time, including date-only entries and UTC timestamps", () => {
+  const e1 = ev("e1", "applied", "2026-10-20");
+  const e2 = ev("e2", "oa_todo", "2026-10-20T14:30:00.000Z");
+  const e3 = ev("e3", "oa_wait", "2026-10-21");
+  const e4 = ev("e4", "interview_todo", "2026-10-21T09:00:00.000Z");
+
+  const sorted = sortEvents([e4, e1, e3, e2]);
+  assert.deepEqual(sorted.map((e) => e.id), ["e1", "e2", "e3", "e4"]);
+
+  const deletedEv = ev("e-del", "oa_todo", "2026-10-20T15:00:00.000Z", "change", null, null, "a", true);
+  const testApp = app("a", "oa_wait", null, "2026-10-20");
+  const timeline = getTimelineEntries(testApp, [e1, e2, deletedEv]);
+  assert.deepEqual(timeline.map((e) => e.id), ["e1", "e2"]);
+
+  const emptyApp = app("b", "applied", null, "2026-09-15");
+  const fallback = getTimelineEntries(emptyApp, []);
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0].id, "virtual-applied-b");
+  assert.equal(fallback[0].stage, "applied");
+  assert.equal(fallback[0].at, "2026-09-15");
+});
+
+test("durations format in hours and days, and total days since applied", () => {
+  assert.equal(formatDuration(0, 30 * 60 * 1000), "same day");
+  assert.equal(formatDuration(0, 3 * 3600 * 1000), "3 hours");
+  assert.equal(formatDuration(0, 3600 * 1000), "1 hour");
+  assert.equal(formatDuration(0, 86400 * 1000), "1 day");
+  assert.equal(formatDuration(0, 4 * 86400 * 1000), "4 days");
+  assert.equal(formatDuration(0, 0, true, true), "same day");
+
+  assert.equal(daysSinceApplied("2026-09-01", new Date(2026, 9, 8, 15, 0)), 37);
+  assert.equal(daysSinceApplied(null, new Date(2026, 9, 8)), null);
+  assert.equal(daysInStage("2026-10-01", new Date(2026, 9, 8, 15, 0)), 7);
+});
+
+test("mis-tap rule: first change adds, second within window amends, changing back removes", () => {
+  const baseApp = app("a", "applied", null, "2026-10-01");
+  const t0 = new Date("2026-10-20T10:00:00.000Z");
+
+  const plan1 = evaluateStageChange(baseApp, [], "oa_todo", t0);
+  assert.equal(plan1.action, "add");
+  assert.equal(plan1.appUpdates.stage, "oa_todo");
+  assert.equal(plan1.notice, "Stage changed to Online test: to complete.");
+  assert.equal(plan1.eventChanges[0].table, "application_events");
+
+  const e1 = ev("e1", "oa_todo", "2026-10-20T10:00:00.000Z", "change", "applied");
+  const appAtOa = { ...baseApp, stage: "oa_todo" };
+
+  const t1 = new Date("2026-10-20T10:02:00.000Z");
+  const plan2 = evaluateStageChange(appAtOa, [e1], "written_todo", t1);
+  assert.equal(plan2.action, "amend");
+  assert.equal(plan2.appUpdates.stage, "written_todo");
+  assert.equal((plan2.eventChanges[0].row as { id: string }).id, "e1");
+  assert.equal((plan2.eventChanges[0].row as { stage: string }).stage, "written_todo");
+  assert.ok(plan2.notice.includes("Written assessment: to complete, replacing the change at"));
+
+  const e1Amended = { ...e1, stage: "written_todo" };
+  const appAtWritten = { ...baseApp, stage: "written_todo" };
+
+  const t2 = new Date("2026-10-20T10:03:00.000Z");
+  const plan3 = evaluateStageChange(appAtWritten, [e1Amended], "applied", t2);
+  assert.equal(plan3.action, "remove");
+  assert.equal(plan3.appUpdates.stage, "applied");
+  assert.equal((plan3.eventChanges[0].row as { id: string }).id, "e1");
+  assert.equal((plan3.eventChanges[0].row as { deleted?: boolean }).deleted, true);
+  assert.equal(plan3.notice, "Stage returned to Applied: awaiting response.");
+});
+
+test("mis-tap rule: progress in one sitting adds a new entry and clears deadline", () => {
+  const appWithDeadline = app("a", "oa_todo", "2026-10-25", "2026-10-01");
+  const e1 = ev("e1", "oa_todo", "2026-10-20T10:00:00.000Z", "change", "applied");
+  const tNow = new Date("2026-10-20T10:05:00.000Z");
+
+  const plan = evaluateStageChange(appWithDeadline, [e1], "oa_wait", tNow);
+  assert.equal(plan.action, "add");
+  assert.equal(plan.appUpdates.stage, "oa_wait");
+  assert.equal(plan.appUpdates.next_deadline, null);
+  assert.equal((plan.eventChanges[0].row as { cleared_deadline?: string }).cleared_deadline, "2026-10-25");
+  assert.equal(plan.notice, "Stage changed to Online test: done, awaiting result.");
+});
+
+test("mis-tap rule: after window (11 minutes) adds rather than amends", () => {
+  const appAtOa = app("a", "oa_todo", null, "2026-10-01");
+  const e1 = ev("e1", "oa_todo", "2026-10-20T10:00:00.000Z", "change", "applied");
+  const tLater = new Date("2026-10-20T10:11:00.000Z");
+
+  const plan = evaluateStageChange(appAtOa, [e1], "written_todo", tLater);
+  assert.equal(plan.action, "add");
+});
+
+test("mis-tap rule: manual last entry, stage changed elsewhere, and future time add", () => {
+  const appAtOa = app("a", "oa_todo", null, "2026-10-01");
+
+  const manualEv = ev("m1", "oa_todo", "2026-10-20T10:00:00.000Z", "manual", "applied");
+  const plan1 = evaluateStageChange(appAtOa, [manualEv], "written_todo", new Date("2026-10-20T10:02:00.000Z"));
+  assert.equal(plan1.action, "add");
+
+  const e1 = ev("e1", "oa_todo", "2026-10-20T10:00:00.000Z", "change", "applied");
+  const appMismatch = { ...appAtOa, stage: "interview_todo" };
+  const plan2 = evaluateStageChange(appMismatch, [e1], "interview_wait", new Date("2026-10-20T10:02:00.000Z"));
+  assert.equal(plan2.action, "add");
+
+  const futureEv = ev("f1", "oa_todo", "2026-10-20T10:10:00.000Z", "change", "applied");
+  const plan3 = evaluateStageChange(appAtOa, [futureEv], "written_todo", new Date("2026-10-20T10:00:00.000Z"));
+  assert.equal(plan3.action, "add");
+});
+
+test("to_apply clears applied date, leaving to_apply fills applied date, changing back clears it", () => {
+  const newApp = app("a", "applied", null, "2026-10-20");
+  const e0 = ev("e0", "applied", "2026-10-20T10:00:00.000Z", "change", null);
+
+  const t1 = new Date("2026-10-20T10:01:00.000Z");
+  const plan1 = evaluateStageChange(newApp, [e0], "to_apply", t1);
+  assert.equal(plan1.action, "amend");
+  assert.equal(plan1.appUpdates.stage, "to_apply");
+  assert.equal(plan1.appUpdates.applied, null);
+
+  const appAtToApply = { ...newApp, stage: "to_apply", applied: null };
+  const eToApply = ev("e0", "to_apply", "2026-10-20T10:00:00.000Z", "change", null);
+
+  const t2 = new Date("2026-10-20T10:05:00.000Z");
+  const plan2 = evaluateStageChange(appAtToApply, [eToApply], "applied", t2);
+  assert.equal(plan2.action, "add");
+  assert.equal(plan2.appUpdates.stage, "applied");
+  assert.equal(plan2.appUpdates.applied, "2026-10-20");
+
+  const appBackAtApplied = { ...appAtToApply, stage: "applied", applied: "2026-10-20" };
+  const eApplied = ev("e1", "applied", "2026-10-20T10:05:00.000Z", "change", "to_apply");
+
+  const t3 = new Date("2026-10-20T10:06:00.000Z");
+  const plan3 = evaluateStageChange(appBackAtApplied, [eToApply, eApplied], "to_apply", t3);
+  assert.equal(plan3.action, "remove");
+  assert.equal(plan3.appUpdates.stage, "to_apply");
+  assert.equal(plan3.appUpdates.applied, null);
+});
+
+test("undo restores application and events after add, amend, and remove", () => {
+  const appBefore = app("a", "applied", "2026-10-25", "2026-10-01");
+  const planAdd = evaluateStageChange(appBefore, [], "oa_todo", new Date("2026-10-20T10:00:00.000Z"));
+  const undoAdd = undoStageChangeChanges(planAdd.undo);
+  assert.equal(undoAdd[0].table, "applications");
+  assert.equal((undoAdd[0].row as { stage: string }).stage, "applied");
+  assert.equal(undoAdd[1].table, "application_events");
+  assert.equal((undoAdd[1].row as { deleted?: boolean }).deleted, true);
+
+  const e1 = ev("e1", "oa_todo", "2026-10-20T10:00:00.000Z", "change", "applied");
+  const appAtOa = { ...appBefore, stage: "oa_todo" };
+  const planAmend = evaluateStageChange(appAtOa, [e1], "written_todo", new Date("2026-10-20T10:02:00.000Z"));
+  const undoAmend = undoStageChangeChanges(planAmend.undo);
+  assert.equal((undoAmend[0].row as { stage: string }).stage, "oa_todo");
+  assert.equal((undoAmend[1].row as { stage: string }).stage, "oa_todo");
+
+  const planRemove = evaluateStageChange(appAtOa, [e1], "applied", new Date("2026-10-20T10:03:00.000Z"));
+  const undoRemove = undoStageChangeChanges(planRemove.undo);
+  assert.equal((undoRemove[0].row as { stage: string }).stage, "oa_todo");
+  assert.equal((undoRemove[1].row as { deleted?: boolean }).deleted, false);
 });
 
 test("a page range with no source is read as pages, with a source as both", () => {

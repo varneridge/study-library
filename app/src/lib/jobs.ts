@@ -3,10 +3,11 @@
 // search or the processor.
 
 import { db } from "./db";
-import { api, commit, insert, newId, update } from "./sync";
+import { api, commit, insert, newId, update, type Change, type Fresh } from "./sync";
 import { sha256 } from "./uploads";
 import { shortDate } from "./dates";
-import type { ApplicationRow, FileSlot, SlotName } from "./types";
+import type { ApplicationEventRow, ApplicationRow, FileSlot, SlotName } from "./types";
+import { showToast } from "./ui";
 
 export type Category = "todo" | "waiting" | "offer" | "closed";
 
@@ -274,4 +275,335 @@ export function sizeText(bytes: number | undefined): string {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Timeline and mis-tap rules
+
+export function parseEntryTime(at: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(at)) {
+    const [y, m, d] = at.split("-").map(Number);
+    return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+  }
+  return new Date(at).getTime();
+}
+
+export function sortEvents(events: ApplicationEventRow[]): ApplicationEventRow[] {
+  return [...events].sort((a, b) => (parseEntryTime(a.at) - parseEntryTime(b.at)) || a.id.localeCompare(b.id));
+}
+
+export function formatDuration(fromMs: number, toMs: number, fromDateOnly = false, toDateOnly = false): string {
+  const diffMs = Math.max(0, toMs - fromMs);
+  const diffDays = Math.round(diffMs / 86_400_000);
+  if (fromDateOnly && toDateOnly) {
+    if (diffDays === 0) return "same day";
+    return `${diffDays} ${diffDays === 1 ? "day" : "days"}`;
+  }
+  if (diffMs < 3_600_000) {
+    return diffDays === 0 ? "same day" : `${diffDays} ${diffDays === 1 ? "day" : "days"}`;
+  }
+  const diffHours = Math.round(diffMs / 3_600_000);
+  if (diffHours < 24) {
+    return `${diffHours} ${diffHours === 1 ? "hour" : "hours"}`;
+  }
+  return `${diffDays} ${diffDays === 1 ? "day" : "days"}`;
+}
+
+export function daysSinceApplied(appliedDateIso: string | null, now = new Date()): number | null {
+  if (!appliedDateIso || !/^\d{4}-\d{2}-\d{2}/.test(appliedDateIso)) return null;
+  const [y, m, d] = appliedDateIso.slice(0, 10).split("-").map(Number);
+  const appliedMidnight = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+  return Math.max(0, Math.round((todayMidnight - appliedMidnight) / 86_400_000));
+}
+
+export function daysInStage(eventAt: string, now = new Date()): number {
+  const t = parseEntryTime(eventAt);
+  const eventDate = new Date(t);
+  const eventMidnight = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 0, 0, 0, 0).getTime();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+  return Math.max(0, Math.round((todayMidnight - eventMidnight) / 86_400_000));
+}
+
+export function entryTimeText(at: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(at)) {
+    return formatDate(at);
+  }
+  const d = new Date(at);
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${hours}:${mins}`;
+}
+
+export interface StageChangeUndo {
+  appId: string;
+  previousStage: string;
+  previousDeadline: string | null;
+  previousApplied: string | null;
+  action: "add" | "amend" | "remove";
+  eventId: string;
+  previousEvent?: ApplicationEventRow;
+}
+
+export interface StageChangePlan {
+  action: "add" | "amend" | "remove";
+  appUpdates: Partial<ApplicationRow>;
+  eventChanges: Change[];
+  undo: StageChangeUndo;
+  notice: string;
+}
+
+export function evaluateStageChange(
+  app: ApplicationRow,
+  liveEvents: ApplicationEventRow[],
+  targetStage: string,
+  now = new Date(),
+): StageChangePlan {
+  const currentStage = app.stage;
+  const sorted = sortEvents(liveEvents.filter((e) => !e.deleted && e.application_id === app.id));
+  const lastEntry = sorted.length ? sorted[sorted.length - 1] : undefined;
+
+  const nowMs = now.getTime();
+  const nowIso = now.toISOString();
+
+  let inWindow = false;
+  if (lastEntry && lastEntry.kind === "change" && lastEntry.stage === currentStage) {
+    const entryMs = parseEntryTime(lastEntry.at);
+    const elapsed = nowMs - entryMs;
+    if (elapsed >= -60_000 && elapsed <= 600_000) {
+      inWindow = true;
+    }
+  }
+
+  if (inWindow && lastEntry) {
+    if (targetStage === lastEntry.from_stage) {
+      const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
+      if (lastEntry.cleared_deadline !== null) {
+        appUpdates.next_deadline = lastEntry.cleared_deadline;
+      }
+      if (targetStage === "to_apply") {
+        appUpdates.applied = null;
+      } else if (lastEntry.stage === "to_apply" && !app.applied) {
+        appUpdates.applied = todayIso(now);
+      }
+
+      const eventChanges: Change[] = [
+        { table: "application_events", row: { id: lastEntry.id, deleted: true }, patch: true },
+      ];
+
+      return {
+        action: "remove",
+        appUpdates,
+        eventChanges,
+        undo: {
+          appId: app.id,
+          previousStage: app.stage,
+          previousDeadline: app.next_deadline,
+          previousApplied: app.applied,
+          action: "remove",
+          eventId: lastEntry.id,
+          previousEvent: { ...lastEntry },
+        },
+        notice: `Stage returned to ${stageOf(targetStage).label}.`,
+      };
+    }
+
+    if (likelyNextStages(lastEntry.stage).includes(targetStage)) {
+      const shouldClearDeadline = stageOf(currentStage).cat === "todo" && stageOf(targetStage).cat !== "todo";
+      const clearedDeadline = shouldClearDeadline ? app.next_deadline : null;
+      const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
+      if (shouldClearDeadline) {
+        appUpdates.next_deadline = null;
+      }
+      if (targetStage === "to_apply") {
+        appUpdates.applied = null;
+      } else if (currentStage === "to_apply" && !app.applied) {
+        appUpdates.applied = todayIso(now);
+      }
+
+      const newEventId = newId();
+      const newEvent: Fresh<"application_events"> = {
+        id: newEventId,
+        application_id: app.id,
+        stage: targetStage,
+        from_stage: currentStage,
+        at: nowIso,
+        kind: "change",
+        cleared_deadline: clearedDeadline,
+      };
+
+      const eventChanges: Change[] = [
+        { table: "application_events", row: newEvent },
+      ];
+
+      return {
+        action: "add",
+        appUpdates,
+        eventChanges,
+        undo: {
+          appId: app.id,
+          previousStage: app.stage,
+          previousDeadline: app.next_deadline,
+          previousApplied: app.applied,
+          action: "add",
+          eventId: newEventId,
+        },
+        notice: `Stage changed to ${stageOf(targetStage).label}.`,
+      };
+    }
+
+    const originalFrom = lastEntry.from_stage ?? currentStage;
+    const shouldClearDeadline = stageOf(originalFrom).cat === "todo" && stageOf(targetStage).cat !== "todo";
+    const clearedDeadline = shouldClearDeadline ? (lastEntry.cleared_deadline ?? app.next_deadline) : null;
+    const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
+    if (shouldClearDeadline) {
+      appUpdates.next_deadline = null;
+    } else if (stageOf(targetStage).cat === "todo" && lastEntry.cleared_deadline) {
+      appUpdates.next_deadline = lastEntry.cleared_deadline;
+    }
+    if (targetStage === "to_apply") {
+      appUpdates.applied = null;
+    } else if (originalFrom === "to_apply" && targetStage !== "to_apply" && !app.applied) {
+      appUpdates.applied = todayIso(now);
+    }
+
+    const eventChanges: Change[] = [
+      {
+        table: "application_events",
+        row: {
+          id: lastEntry.id,
+          stage: targetStage,
+          cleared_deadline: clearedDeadline,
+        },
+        patch: true,
+      },
+    ];
+
+    const timeStr = entryTimeText(lastEntry.at);
+    return {
+      action: "amend",
+      appUpdates,
+      eventChanges,
+      undo: {
+        appId: app.id,
+        previousStage: app.stage,
+        previousDeadline: app.next_deadline,
+        previousApplied: app.applied,
+        action: "amend",
+        eventId: lastEntry.id,
+        previousEvent: { ...lastEntry },
+      },
+      notice: `${stageOf(targetStage).label}, replacing the change at ${timeStr}.`,
+    };
+  }
+
+  const shouldClearDeadline = stageOf(currentStage).cat === "todo" && stageOf(targetStage).cat !== "todo";
+  const clearedDeadline = shouldClearDeadline ? app.next_deadline : null;
+  const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
+  if (shouldClearDeadline) {
+    appUpdates.next_deadline = null;
+  }
+  if (targetStage === "to_apply") {
+    appUpdates.applied = null;
+  } else if (currentStage === "to_apply" && !app.applied) {
+    appUpdates.applied = todayIso(now);
+  }
+
+  const newEventId = newId();
+  const newEvent: Fresh<"application_events"> = {
+    id: newEventId,
+    application_id: app.id,
+    stage: targetStage,
+    from_stage: currentStage,
+    at: nowIso,
+    kind: "change",
+    cleared_deadline: clearedDeadline,
+  };
+
+  const eventChanges: Change[] = [
+    { table: "application_events", row: newEvent },
+  ];
+
+  return {
+    action: "add",
+    appUpdates,
+    eventChanges,
+    undo: {
+      appId: app.id,
+      previousStage: app.stage,
+      previousDeadline: app.next_deadline,
+      previousApplied: app.applied,
+      action: "add",
+      eventId: newEventId,
+    },
+    notice: `Stage changed to ${stageOf(targetStage).label}.`,
+  };
+}
+
+export function undoStageChangeChanges(undo: StageChangeUndo): Change[] {
+  const changes: Change[] = [
+    {
+      table: "applications",
+      row: {
+        id: undo.appId,
+        stage: undo.previousStage,
+        next_deadline: undo.previousDeadline,
+        applied: undo.previousApplied,
+      },
+      patch: true,
+    },
+  ];
+
+  if (undo.action === "add") {
+    changes.push({
+      table: "application_events",
+      row: { id: undo.eventId, deleted: true },
+      patch: true,
+    });
+  } else if (undo.action === "amend" && undo.previousEvent) {
+    changes.push({
+      table: "application_events",
+      row: {
+        id: undo.eventId,
+        stage: undo.previousEvent.stage,
+        from_stage: undo.previousEvent.from_stage,
+        cleared_deadline: undo.previousEvent.cleared_deadline,
+      },
+      patch: true,
+    });
+  } else if (undo.action === "remove" && undo.previousEvent) {
+    changes.push({
+      table: "application_events",
+      row: {
+        id: undo.eventId,
+        deleted: false,
+      },
+      patch: true,
+    });
+  }
+
+  return changes;
+}
+
+export async function undoStageChange(undo: StageChangeUndo): Promise<void> {
+  await commit(undoStageChangeChanges(undo));
+}
+
+export function getTimelineEntries(app: ApplicationRow, events: ApplicationEventRow[]): ApplicationEventRow[] {
+  const live = sortEvents(events.filter((e) => !e.deleted && e.application_id === app.id));
+  if (!live.length && app.applied) {
+    const fallback: ApplicationEventRow = {
+      id: `virtual-applied-${app.id}`,
+      application_id: app.id,
+      stage: "applied",
+      from_stage: null,
+      at: app.applied,
+      kind: "manual",
+      cleared_deadline: null,
+      modified_at: app.modified_at,
+      seq: 0,
+      deleted: false,
+    };
+    return [fallback];
+  }
+  return live;
 }

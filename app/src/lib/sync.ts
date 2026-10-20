@@ -45,7 +45,7 @@ export async function api(path: string, init: RequestInit = {}): Promise<Respons
 
 // Writing
 
-type Fresh<T extends TableName> = Omit<Tables[T], "modified_at" | "deleted" | "seq"> & { deleted?: boolean };
+export type Fresh<T extends TableName> = Omit<Tables[T], "modified_at" | "deleted" | "seq"> & { deleted?: boolean };
 
 export type Change<T extends TableName = TableName> =
   | { table: T; row: Fresh<T> | Tables[T]; patch?: false }
