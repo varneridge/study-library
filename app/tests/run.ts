@@ -7,7 +7,10 @@ import { fullTitle, shortTitle } from "../src/lib/titles";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
-import { deadlineState, deadlineWords, formatDate, normaliseUrl, sortApplications, summarise } from "../src/lib/jobs";
+import {
+  deadlineState, deadlineWords, formatDate, likelyNextStages, matches, normaliseUrl,
+  sortApplications, STAGE_GRID, STAGES, stageOf, summarise,
+} from "../src/lib/jobs";
 import type { ApplicationRow } from "../src/lib/types";
 import { paragraphs, tidy } from "../src/lib/transcriptImport";
 
@@ -134,6 +137,53 @@ test("dates show as 26 Feb 2026 and links get a scheme", () => {
   assert.equal(normaliseUrl("javascript:alert(1)"), null);
   const s = summarise([app("a", "oa_todo", "2026-10-07"), app("b", "offer", "2026-10-10"), app("c", "rejected", null)], now);
   assert.deepEqual(s, { open: 2, closed: 1, overdue: 1, soon: 1, offers: 1 });
+});
+
+test("every stage has a label and category, and each appears once in the grid", () => {
+  assert.equal(STAGES.length, 20);
+  for (const s of STAGES) {
+    assert.ok(s.label && s.label.length > 0);
+    assert.ok(["todo", "waiting", "offer", "closed"].includes(s.cat));
+  }
+  const gridKeys = STAGE_GRID.flatMap((row) => [row.todo, row.done, ...(row.extra ?? [])].filter((k): k is string => Boolean(k)));
+  assert.equal(gridKeys.length, 20);
+  const stageKeys = STAGES.map((s) => s.key);
+  assert.deepEqual([...gridKeys].sort(), [...stageKeys].sort());
+
+  assert.equal(stageOf("to_apply").cat, "todo");
+  assert.equal(stageOf("written_todo").cat, "todo");
+  assert.equal(stageOf("written_wait").cat, "waiting");
+  assert.equal(stageOf("declined").cat, "closed");
+
+  assert.equal(deadlineState(app("dec", "declined", "2026-10-01"), now), "none");
+
+  assert.ok(matches(app("v", "hirevue_todo", null), "hirevue"));
+  assert.ok(matches(app("o", "oa_todo", null), "oa"));
+
+  const toApplyApp = app("apply-soon", "to_apply", "2026-10-09");
+  const openApp = app("oa-later", "oa_todo", "2026-10-15");
+  const closedApp = app("closed", "rejected", "2026-10-01");
+  assert.deepEqual(sortApplications([closedApp, openApp, toApplyApp]).map((a) => a.id), ["apply-soon", "oa-later", "closed"]);
+});
+
+test("likely next stages match the progression table", () => {
+  assert.deepEqual(likelyNextStages("to_apply"), ["applied"]);
+  assert.deepEqual(likelyNextStages("applied"), ["oa_todo", "hirevue_todo", "interview_todo", "rejected"]);
+  assert.deepEqual(likelyNextStages("oa_todo"), ["oa_wait"]);
+  assert.deepEqual(likelyNextStages("oa_wait"), ["written_todo", "hirevue_todo", "interview_todo", "rejected"]);
+  assert.deepEqual(likelyNextStages("written_todo"), ["written_wait"]);
+  assert.deepEqual(likelyNextStages("written_wait"), ["hirevue_todo", "interview_todo", "ac_todo", "rejected"]);
+  assert.deepEqual(likelyNextStages("hirevue_todo"), ["hirevue_wait"]);
+  assert.deepEqual(likelyNextStages("hirevue_wait"), ["interview_todo", "ac_todo", "rejected"]);
+  assert.deepEqual(likelyNextStages("interview_todo"), ["interview_wait"]);
+  assert.deepEqual(likelyNextStages("interview_wait"), ["ac_todo", "final_todo", "offer", "rejected"]);
+  assert.deepEqual(likelyNextStages("ac_todo"), ["ac_wait"]);
+  assert.deepEqual(likelyNextStages("ac_wait"), ["final_todo", "offer", "rejected"]);
+  assert.deepEqual(likelyNextStages("final_todo"), ["final_wait"]);
+  assert.deepEqual(likelyNextStages("final_wait"), ["offer", "rejected"]);
+  assert.deepEqual(likelyNextStages("offer"), ["accepted", "declined"]);
+  assert.deepEqual(likelyNextStages("accepted"), []);
+  assert.deepEqual(likelyNextStages("rejected"), []);
 });
 
 test("a page range with no source is read as pages, with a source as both", () => {

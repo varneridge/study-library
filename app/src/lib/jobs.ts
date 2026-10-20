@@ -13,11 +13,14 @@ export type Category = "todo" | "waiting" | "offer" | "closed";
 // Stages are stored by key, so a stage can be reworded without touching
 // the data. The category sets the colour; the wording says what is next.
 export const STAGES: { key: string; label: string; cat: Category }[] = [
+  { key: "to_apply", label: "To apply", cat: "todo" },
   { key: "applied", label: "Applied: awaiting response", cat: "waiting" },
-  { key: "oa_todo", label: "OA: to complete", cat: "todo" },
-  { key: "oa_wait", label: "OA: done, awaiting result", cat: "waiting" },
-  { key: "hirevue_todo", label: "HireVue: to record", cat: "todo" },
-  { key: "hirevue_wait", label: "HireVue: done, awaiting result", cat: "waiting" },
+  { key: "oa_todo", label: "Online test: to complete", cat: "todo" },
+  { key: "oa_wait", label: "Online test: done, awaiting result", cat: "waiting" },
+  { key: "written_todo", label: "Written assessment: to complete", cat: "todo" },
+  { key: "written_wait", label: "Written assessment: done, awaiting result", cat: "waiting" },
+  { key: "hirevue_todo", label: "Video interview: to record", cat: "todo" },
+  { key: "hirevue_wait", label: "Video interview: done, awaiting result", cat: "waiting" },
   { key: "interview_todo", label: "Interview: to prepare and attend", cat: "todo" },
   { key: "interview_wait", label: "Interview: done, awaiting result", cat: "waiting" },
   { key: "ac_todo", label: "Assessment centre: to prepare and attend", cat: "todo" },
@@ -28,6 +31,7 @@ export const STAGES: { key: string; label: string; cat: Category }[] = [
   { key: "accepted", label: "Accepted", cat: "offer" },
   { key: "rejected", label: "Rejected", cat: "closed" },
   { key: "withdrawn", label: "Withdrawn", cat: "closed" },
+  { key: "declined", label: "Offer declined", cat: "closed" },
   { key: "no_response", label: "No response", cat: "closed" },
 ];
 
@@ -36,6 +40,54 @@ export const CATEGORY_LABEL: Record<Category, string> = { todo: "To do", waiting
 export function stageOf(key: string) {
   return STAGES.find((s) => s.key === key) ?? { key, label: key, cat: "waiting" as Category };
 }
+
+export interface StageGridRow {
+  label: string;
+  todo?: string;
+  done?: string;
+  extra?: string[];
+}
+
+export const STAGE_GRID: StageGridRow[] = [
+  { label: "Applying", todo: "to_apply", done: "applied" },
+  { label: "Online test", todo: "oa_todo", done: "oa_wait" },
+  { label: "Written assessment", todo: "written_todo", done: "written_wait" },
+  { label: "Video interview", todo: "hirevue_todo", done: "hirevue_wait" },
+  { label: "Interview", todo: "interview_todo", done: "interview_wait" },
+  { label: "Assessment centre", todo: "ac_todo", done: "ac_wait" },
+  { label: "Final interview", todo: "final_todo", done: "final_wait" },
+  { label: "Offer", todo: "offer", done: "accepted" },
+  { label: "Closed", extra: ["rejected", "withdrawn", "declined", "no_response"] },
+];
+
+const LIKELY_NEXT: Record<string, string[]> = {
+  to_apply: ["applied"],
+  applied: ["oa_todo", "hirevue_todo", "interview_todo", "rejected"],
+  oa_todo: ["oa_wait"],
+  oa_wait: ["written_todo", "hirevue_todo", "interview_todo", "rejected"],
+  written_todo: ["written_wait"],
+  written_wait: ["hirevue_todo", "interview_todo", "ac_todo", "rejected"],
+  hirevue_todo: ["hirevue_wait"],
+  hirevue_wait: ["interview_todo", "ac_todo", "rejected"],
+  interview_todo: ["interview_wait"],
+  interview_wait: ["ac_todo", "final_todo", "offer", "rejected"],
+  ac_todo: ["ac_wait"],
+  ac_wait: ["final_todo", "offer", "rejected"],
+  final_todo: ["final_wait"],
+  final_wait: ["offer", "rejected"],
+  offer: ["accepted", "declined"],
+};
+
+export function likelyNextStages(key: string): string[] {
+  return LIKELY_NEXT[key] ?? [];
+}
+
+export const STAGE_ALIASES: Record<string, string[]> = {
+  oa_todo: ["oa", "online test"],
+  oa_wait: ["oa", "online test"],
+  hirevue_todo: ["hirevue", "video interview"],
+  hirevue_wait: ["hirevue", "video interview"],
+};
 
 export const SLOTS: { name: SlotName; short: string; label: string }[] = [
   { name: "cv", short: "CV", label: "CV" },
@@ -128,7 +180,9 @@ export function summarise(apps: ApplicationRow[], now = new Date()): Summary {
 export function matches(app: ApplicationRow, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [app.employer, app.role, stageOf(app.stage).label, app.notes ?? ""].some((field) => field.toLowerCase().includes(q));
+  const stage = stageOf(app.stage);
+  const aliases = STAGE_ALIASES[app.stage] ?? [];
+  return [app.employer, app.role, stage.label, ...aliases, app.notes ?? ""].some((field) => field.toLowerCase().includes(q));
 }
 
 // Editing

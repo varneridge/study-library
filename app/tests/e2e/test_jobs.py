@@ -114,7 +114,7 @@ with sync_playwright() as p:
 
     # Change its stage and set a deadline five days out.
     dragonfly = row("Dragonfly Intelligence")
-    dragonfly.locator(".stage-chip").select_option(label="HireVue: to record")
+    dragonfly.locator(".stage-chip").select_option(label="Video interview: to record")
     expect(dragonfly.locator(".stage-chip")).to_have_class("stage-chip cat-todo")
     # From the keyboard, the date is typed and Enter keeps it.
     dragonfly.locator(".c-deadline .date-show").focus()
