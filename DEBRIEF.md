@@ -1009,12 +1009,14 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 - Fixed top bar wrapping and sideways scrolling on tablet viewports by condensing navigation labels and wrapping controls.
 - Added visible Cancel and Close controls to module creation and the Go to palette.
 - Added one-tap clear buttons to search inputs on the Search page and in the Go to palette.
-- Prevented duplicate records on Save and Add buttons by disabling buttons immediately on the first tap.
-- Wired mobile back gesture to dismiss open sheets and menus before navigating away.
+- Prevented duplicate records on Save and Add buttons by disabling buttons immediately on the first tap, and verified phone application cards in regression checks.
+- Unified overlay back handling into a single `useCloseOnBack` hook across all menus, dialogs, sheets and panels, preventing duplicate `history.back()` calls and closing overlays cleanly before leaving the page.
+- Ensured navigation from open overlays replaces the top overlay entry, leaving no spare entries in session history.
 - Restored focus to opening triggers when closing dialogs, sheets and menus without interrupting edit triggers.
 - Guaranteed full text availability via title attributes on truncated text elements.
-- Enlarged all interactive controls on touch screens to meet the 44-point minimum hit target.
-- Established an automated layout and behaviour audit test in `app/tests/e2e/audit_layout.py` covering 12 screens across 7 widths (320px to 1440px) in both themes.
+- Enlarged all interactive controls on touch screens to meet the 44-point minimum hit target, replacing input pseudo-elements with enlarged label wrappers for Safari compatibility.
+- Cleaned duplicated opacity rules for quotation action buttons and updated backend WSL paths.
+- Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports and added `test_back.py` to the default e2e suite.
 
 ## 17. Version history
 
@@ -1052,6 +1054,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 | 0.31 | Dissertation modules: sections you name, section notes, supervision meetings, key dates counting down on the home page, and Change to a dissertation |
 | 0.31.1 | An accessible h1 heading for the reader in page layout, a relative path for the processor script, and enforced LF line endings for shell scripts |
 | 0.31.2 | Quotation deletion and note editing fixes in the reader: restoring highlights on editor undo (Ctrl+Z), protecting drafted text from background sync replacement, quiet hover-revealed quotation action buttons on laptops with 44-point touch targets on phones, and interactive-widget=resizes-content for virtual keyboards |
+| 0.31.3 | Layout, behaviour and back-gesture fixes: single useCloseOnBack hook closing menus, dialogs, sheets and panels without duplicate history back calls, navigation from open overlays replacing entries with no spare history, 44-point touch targets for breadcrumbs, week nav and inputs, Safari checkbox label tap enlargement, duplicate item prevention on rapid double tap, and focused layout audit regression tests |
 
 ## 18. The job search
 
