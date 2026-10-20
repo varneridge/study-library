@@ -1,4 +1,5 @@
 // Minimal test runner: npm test
+process.env.TZ = "Europe/London";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { keyBetween, keysAfter } from "../src/lib/keys";
@@ -206,6 +207,12 @@ test("timeline order sorts by local time, including date-only entries and UTC ti
 
   const sorted = sortEvents([e4, e1, e3, e2]);
   assert.deepEqual(sorted.map((e) => e.id), ["e1", "e2", "e3", "e4"]);
+
+  // A UTC change at 23:30 UTC is 00:30 BST on 21 October in London, so a date-only
+  // entry for 21 October (local midnight 00:00) comes first despite stored string prefixes.
+  const dateOnly = ev("date-only", "applied", "2026-10-21");
+  const midnightUtc = ev("midnight-utc", "oa_todo", "2026-10-20T23:30:00.000Z");
+  assert.deepEqual(sortEvents([midnightUtc, dateOnly]).map((e) => e.id), ["date-only", "midnight-utc"]);
 
   const deletedEv = ev("e-del", "oa_todo", "2026-10-20T15:00:00.000Z", "change", null, null, "a", true);
   const testApp = app("a", "oa_wait", null, "2026-10-20");
