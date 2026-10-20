@@ -1,7 +1,7 @@
 // Short-lived interface state shared across screens: the notice at the
 // foot of the screen, with its undo, and the confirmation dialog.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface Toast {
   id: number;
@@ -109,6 +109,42 @@ export function useOnline(): boolean {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
   return online;
+}
+
+let overlaySeq = 0;
+
+// Closes an overlay (sheet, menu, panel or dialog) on the browser back gesture
+// or button before leaving the page. Goes back exactly once when the overlay is
+// closed any other way (Escape, Cancel, click outside). If an action inside
+// navigates, navigate() replaces the overlay entry so one Back returns to the
+// page you were on.
+export function useCloseOnBack(open: boolean, close: () => void): void {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  useEffect(() => {
+    if (!open) return;
+    const id = ++overlaySeq;
+    let popped = false;
+
+    window.history.pushState({ overlay: id }, "");
+
+    const onPop = (e: PopStateEvent) => {
+      // If the browser popped back to this overlay from an overlay above it, stay open.
+      if (e.state?.overlay === id) return;
+      popped = true;
+      closeRef.current();
+    };
+
+    window.addEventListener("popstate", onPop);
+
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (!popped && window.history.state?.overlay === id) {
+        window.history.back();
+      }
+    };
+  }, [open]);
 }
 
 // A sideways swipe, as a shortcut for something the page also offers as a

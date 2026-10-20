@@ -71,7 +71,8 @@ const listeners = new Set<() => void>();
 
 export function navigate(route: Route, replace = false): void {
   const url = href(route);
-  if (replace) history.replaceState(null, "", url);
+  const isOverlay = Boolean(history.state?.overlay);
+  if (replace || isOverlay) history.replaceState(null, "", url);
   else history.pushState(null, "", url);
   listeners.forEach((listener) => listener());
   if (!replace) window.scrollTo(0, 0);
@@ -80,11 +81,21 @@ export function navigate(route: Route, replace = false): void {
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(location.search));
   useEffect(() => {
-    const update = () => setRoute(parseRoute(location.search));
-    listeners.add(update);
+    let currentSearch = location.search;
+    const update = () => {
+      if (location.search !== currentSearch) {
+        currentSearch = location.search;
+        setRoute(parseRoute(location.search));
+      }
+    };
+    const onManual = () => {
+      currentSearch = location.search;
+      setRoute(parseRoute(location.search));
+    };
+    listeners.add(onManual);
     window.addEventListener("popstate", update);
     return () => {
-      listeners.delete(update);
+      listeners.delete(onManual);
       window.removeEventListener("popstate", update);
     };
   }, []);
