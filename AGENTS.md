@@ -4,11 +4,11 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 
 ## Read first
 
-`DEBRIEF.md` is the full reference: what the app does, how it works, every decision and why, the code map, data model, API, tests and version history. Read it before changing anything, in large sections rather than many small pieces. The sections that matter most:
+`DEBRIEF.md` is the full reference: what the app does, how it works, every decision and why, the code map, data model, API, tests and version history. Read the sections listed below and the section for the area you are changing, not the whole file. The sections that matter most:
 
 - 4 (How it works), 10 (Decisions and why), 11 (Code map), 12 (Data model)
 - 14 (Tests), 15 (Design rules), 16 (Known limits and next steps)
-- 17 (Version history): the current version is 0.31.3
+- 17 (Version history): the current version is 0.31.4
 
 ## Layout
 

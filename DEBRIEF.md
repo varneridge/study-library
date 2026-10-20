@@ -972,18 +972,7 @@ The integration and browser tests start the Worker locally with its own empty da
 
 ## 15. Design rules
 
-From version 0.29 the app follows the tools it stands in for: Zotero's library, Notion's notes and Word's page.
-
-- **Quiet chrome, type leads.** The interface recedes. Sections are set apart by their headings and by space, not by ruled lines.
-- **One bold element: page titles.** Titles are set in Literata's display cut ("Literata Display", its optical-size design at large sizes), finer and higher in contrast, as a book sets a chapter opening. Reading text stays in Literata's reading cut, and the interface in IBM Plex Sans.
-- **Soft surfaces, shaped by hierarchy.** Controls are lightly rounded (6 pixels), surfaces such as tiles, session panels and menus a little more (10), sheets and dialogs most (14). Resting surfaces have no shadow; only what floats above the page (menus, dialogs, notices) casts one.
-- **Buttons.** The page's main action is filled with the accent. Other buttons are soft grey surfaces, not outlines. Minor actions are plain text that lifts on hover.
-- **One look for "selected".** A soft accent fill with accent text: the current module or page in the top bar, this week in the week grids, the week chosen in Week across modules. A segmented control shows its choice as a raised white button.
-- **One accent.** The blue marks links, the current choice, focus and primary buttons. Red marks deleting and problems only. The job search's stage chips are the one exception, a set of status colours confined to that part of the app (section 18).
-- **Sentence case, and no middle dots.** No labels in capitals. Details are joined by commas or set apart by space.
-- **Rows lift on hover.** Lists of readings, modules and recent items are flat; the row under the pointer takes a soft surface.
-- **Titles in typographic quotes,** one date style, drawn icons only, and native controls that follow the theme, as before.
-- **Square corners are gone.** Earlier versions used them throughout; they read as a newspaper rather than a desk.
+The app's design system, visual rules, component patterns and checklist are defined in `.agents/skills/study-library-design/SKILL.md`. Refer to that document for all interface design guidance.
 
 ## 16. Known limits and next steps
 
@@ -1003,7 +992,6 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 - Last-write-wins still decides between two edits to the same row. If a phone left offline for a day sends an edit older than one made since on the laptop, the phone's edit is turned down even if it changed a different field. The phone then shows the laptop's version.
 - The microphone warning only notices complete silence. A microphone that works but is pointed the wrong way still records a quiet room without warning.
 - The processor's status is how long since it last asked for work. It cannot tell a processor that is running but failing every job; those jobs show **Retry** as before.
-- The browser tests drive a real mouse and keyboard, so a few steps are sensitive to timing. In the 0.22 runs, `editing` passed eight times in nine on its own, the miss being a week shortcut pressed straight after a menu closed. `dragging` sometimes fails in the full suite and passes alone. The new slides test passed five times in six; the miss was waiting for a notice after a mouse drag.
 
 **Possible next steps**
 
@@ -1012,12 +1000,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 - A native Android build, if recording on the phone becomes necessary.
 - Export of notes and answers to Word, for essays and revision.
 - An audit of the empty states once a full term of real data is in.
-- Accessibility and touch improvements from the October 2026 review:
-  - Make editable titles (week and session headings) and reading highlights focusable and operable from the keyboard.
-  - Turn the highlight popover into a sheet on mobile with dialog semantics, focus management and Escape dismissal.
-  - Pass the screen-reader label to the note editor DOM and label the session rename input.
-  - Correct the heading order on the home page so the h1 heading precedes subordinate sections.
-  - Add arrow navigation to menus and sidebar tabs, give slide canvases an image role, and replace the middle dot in transcript meta.
+- Correct the heading order on the home page so the h1 heading precedes subordinate sections, which the home page redesign will cover.
 
 **Layout and behaviour audit fixes (October 2026)**
 
@@ -1071,6 +1054,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 | 0.31.1 | An accessible h1 heading for the reader in page layout, a relative path for the processor script, and enforced LF line endings for shell scripts |
 | 0.31.2 | Quotation deletion and note editing fixes in the reader: restoring highlights on editor undo (Ctrl+Z), protecting drafted text from background sync replacement, quiet hover-revealed quotation action buttons on laptops with 44-point touch targets on phones, and interactive-widget=resizes-content for virtual keyboards |
 | 0.31.3 | Layout, behaviour and back-gesture fixes: single useCloseOnBack hook closing menus, dialogs, sheets and panels without duplicate history back calls, navigation from open overlays replacing entries with no spare history, 44-point touch targets for breadcrumbs, week nav and inputs, Safari checkbox label tap enlargement, duplicate item prevention on rapid double tap, and focused layout audit regression tests |
+| 0.31.4 | Job search timeline part 1: 20 stages, progression steps, application_events table, migration 0012, mis-tap rules, and Dexie cursor reset; week jump strip paper background and dynamic top bar positioning; layout audit halfway scroll and long title checks; accessibility enhancements for editable titles, reading highlights, mobile highlight popover sheet, note editor and rename labels, arrow navigation for menus and sidebar tabs, slide canvas role, and transcript metadata; and state waits replacing fixed delays in browser tests |
 
 ## 18. The job search
 

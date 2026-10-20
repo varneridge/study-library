@@ -49,6 +49,8 @@ Always use these variables; never write a colour, radius or size directly. They 
 | `--accent-soft` | #E6EFF8 | The fill behind a current choice or a chip |
 | `--danger` | #A33A2A | Deleting and problems only |
 
+**One accent.** Blue (`--accent`) marks links, the current choice, focus and primary buttons. Red (`--danger`) marks deleting and problems only. The job search's stage chips are the one exception, a set of status colours confined to that part of the app (section 18 of `DEBRIEF.md`).
+
 **Type**
 
 - `--display`: Literata Display, for page titles (`h1`, `h2`) and the brand. Weight about 560.
@@ -75,6 +77,7 @@ Always use these variables; never write a colour, radius or size directly. They 
 - **Icons.** Only the drawn set in `icons.tsx`, at the stroke weight of its other icons. Never a typed character (•••, ▸, ⋮⋮) or an emoji.
 - **Dates.** "12 Oct", "12 Oct 2026", "12 to 16 Oct", using `shortDate` in `lib/dates.ts`.
 - **Titles of readings.** In curly quotation marks, from `lib/titles.ts`.
+- **Native controls.** Checkboxes, date pickers and file inputs follow the theme.
 
 ## Writing on screen
 
@@ -120,6 +123,7 @@ Always use these variables; never write a colour, radius or size directly. They 
 - New colours, fonts, shadows or radii outside the tokens.
 - Generic card grids with identical rounded boxes and the same shadow.
 - Cream backgrounds, purple gradients, and default fonts like Inter.
+- Square corners: earlier versions used them throughout, but they read as a newspaper rather than a desk.
 
 ## Before finishing any change to the interface
 
