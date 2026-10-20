@@ -1001,9 +1001,20 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
   - Make editable titles (week and session headings) and reading highlights focusable and operable from the keyboard.
   - Turn the highlight popover into a sheet on mobile with dialog semantics, focus management and Escape dismissal.
   - Pass the screen-reader label to the note editor DOM and label the session rename input.
-  - Enlarge remaining touch targets below 44 points on phones (the read toggle, sidebar close button, colour swatches and minor links; quotation buttons are now 44 points).
   - Correct the heading order on the home page so the h1 heading precedes subordinate sections.
   - Add arrow navigation to menus and sidebar tabs, give slide canvases an image role, and replace the middle dot in transcript meta.
+
+**Layout and behaviour audit fixes (October 2026)**
+
+- Fixed top bar wrapping and sideways scrolling on tablet viewports by condensing navigation labels and wrapping controls.
+- Added visible Cancel and Close controls to module creation and the Go to palette.
+- Added one-tap clear buttons to search inputs on the Search page and in the Go to palette.
+- Prevented duplicate records on Save and Add buttons by disabling buttons immediately on the first tap.
+- Wired mobile back gesture to dismiss open sheets and menus before navigating away.
+- Restored focus to opening triggers when closing dialogs, sheets and menus without interrupting edit triggers.
+- Guaranteed full text availability via title attributes on truncated text elements.
+- Enlarged all interactive controls on touch screens to meet the 44-point minimum hit target.
+- Established an automated layout and behaviour audit test in `app/tests/e2e/audit_layout.py` covering 12 screens across 7 widths (320px to 1440px) in both themes.
 
 ## 17. Version history
 
