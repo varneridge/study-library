@@ -1448,13 +1448,10 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
     position: absolute;
     inset: -0.5rem;
   }
-  input[type="checkbox"] {
-    position: relative;
-  }
-  input[type="checkbox"]::before {
-    content: "";
-    position: absolute;
-    inset: -0.75rem;
+  label:has(input[type="checkbox"]) {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
   }
   .pages-at input { min-width: 2.75rem; min-height: 2.75rem; }
   .colour-names input { min-height: 2.75rem; }
@@ -1466,14 +1463,12 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .question-open { opacity: 1; }
   .slide-arrow { opacity: 0.85; }
   .slide-count { opacity: 1; }
-  .note-highlight .quote-write, .note-highlight .quote-delete { opacity: 1; }
 }
 
 /* On a phone the module page lists weeks only; a week opens to its sessions.
    Forty small Lecture and Seminar links were too small to tap and too many to scan. */
 @media (max-width: 44rem) {
   .week-head .session-link { display: none; }
-  .note-highlight .quote-write, .note-highlight .quote-delete { opacity: 1; }
 }
 
 /* Menus and confirmations rise from the foot of the screen on a phone, with

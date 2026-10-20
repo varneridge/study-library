@@ -533,7 +533,7 @@ Check LSE's rules on recording teaching, and ask before recording seminars where
 The importer works one Zotero collection at a time. Create the module in Study Library first. Close Zotero, then in WSL:
 
 ```
-cd /mnt/d/Downloads/study-library/backend
+cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 . ~/.venvs/study/bin/activate
 set -a; . ./.env; set +a
 python -m study.zotero --zotero-dir "/mnt/c/Users/samue/Zotero" --collection HY335 --module HY335
@@ -575,7 +575,7 @@ Opening a week saves its files, and the next week's, to that device. To keep eve
 | Commands | Where to run them |
 | --- | --- |
 | `npx`, `npm`, `wrangler` | PowerShell, in `D:\Downloads\study-library\app` |
-| `python`, the processor, the importer | WSL, in `/mnt/d/Downloads/study-library/backend` |
+| `python`, the processor, the importer | WSL, in `/mnt/c/Users/samue/Documents/Antigravity/study-library/backend` |
 
 ### The processor
 
@@ -584,13 +584,13 @@ Opening a week saves its files, and the next week's, to that device. To keep eve
 | Start it now | Task Scheduler, right-click the task, **Run** |
 | Stop it until next sign-in | Task Scheduler, right-click the task, **End** |
 | Stop it starting at all | Task Scheduler, right-click the task, **Disable** |
-| Watch what it's doing | In WSL: `tail -f /mnt/d/Downloads/study-library/backend/processor.log` |
-| Run it in a window instead | In WSL: `bash /mnt/d/Downloads/study-library/backend/run-processor.sh`, or run it by hand as below |
+| Watch what it's doing | In WSL: `tail -f /mnt/c/Users/samue/Documents/Antigravity/study-library/backend/processor.log` |
+| Run it in a window instead | In WSL: `bash /mnt/c/Users/samue/Documents/Antigravity/study-library/backend/run-processor.sh`, or run it by hand as below |
 
 To run it by hand, with the output on screen:
 
 ```
-cd /mnt/d/Downloads/study-library/backend
+cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 . ~/.venvs/study/bin/activate
 set -a; . ./.env; set +a
 python -m study.processor
@@ -621,7 +621,7 @@ This builds the app, applies any new database migrations and deploys the Worker.
 3. In WSL, refresh the processor's dependencies:
 
 ```
-cd /mnt/d/Downloads/study-library/backend
+cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 . ~/.venvs/study/bin/activate
 pip install -r requirements.txt
 ```
@@ -663,7 +663,7 @@ You only need to deploy after a code update or a change to `wrangler.jsonc`. Set
 If WSL is reset, the code and `.env` on D: survive. Only the Python environment needs rebuilding. In WSL:
 
 ```
-cd /mnt/d/Downloads/study-library/backend
+cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 bash setup-wsl.sh
 ```
 

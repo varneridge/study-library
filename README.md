@@ -36,7 +36,7 @@ You need Node 20 or later and a Cloudflare account.
 ### The processor, in WSL
 
 ```
-cd /mnt/d/Downloads/study-library/backend
+cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 bash setup-wsl.sh
 nano .env
 bash run-processor.sh
