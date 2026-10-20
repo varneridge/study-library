@@ -194,6 +194,28 @@ with sync_playwright() as p:
     assert saved.strip().endswith((".", "?", "!")) and len(saved) > len(rough) + 10, saved
     print("highlighting by finger: colours docked at the foot, Whole sentence widened", repr(rough), "to", repr(saved[:60] + "..."))
 
+    # Highlight popover on phone is a sheet with dialog semantics, focus management and Escape dismissal
+    sheet = phone.locator(".highlight-sheet[role='dialog']")
+    expect(sheet).to_be_visible()
+    expect(sheet).to_have_attribute("aria-modal", "true")
+    expect(sheet).to_have_attribute("aria-label", "Highlight")
+    in_dialog = phone.evaluate("Boolean(document.activeElement && document.activeElement.closest('.highlight-sheet'))")
+    assert in_dialog, "Focus should move into the highlight sheet"
+    phone.keyboard.press("Escape")
+    expect(sheet).to_have_count(0)
+
+    # Reopening the highlight sheet by tapping the highlight mark; closing restores focus to the mark
+    phone.wait_for_selector(".text-view mark.hl-text")
+    hl_mark = phone.locator(".text-view mark.hl-text").first
+    hl_mark.focus()
+    hl_mark.tap()
+    expect(sheet).to_be_visible()
+    phone.keyboard.press("Escape")
+    expect(sheet).to_have_count(0)
+    focused_is_mark = phone.evaluate("Boolean(document.activeElement && document.activeElement.matches('mark.hl-text'))")
+    assert focused_is_mark, "Focus should return to the highlight mark after Escape"
+    print("mobile highlight popover: sheet with dialog semantics, focus moved in and back, closed with Escape")
+
     # Go to from the top bar, closed with one tap of Cancel or the backdrop.
     phone.goto(BASE + "/")
     phone.locator(".topbar .goto-button").tap()

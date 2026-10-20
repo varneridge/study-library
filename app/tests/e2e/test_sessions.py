@@ -94,6 +94,16 @@ with sync_playwright() as p:
 
     # Session mode with a live recording, from the week page it is already on.
     page.locator(".session").nth(0).locator(".session-title a").click()
+
+    # Session title can be edited from the keyboard
+    session_title = page.locator("h1.editable")
+    expect(session_title).to_be_visible()
+    session_title.focus()
+    page.keyboard.press("Enter")
+    page.locator("input[aria-label='Session name']").fill("Lecture 1: The Revolutionary Legacy")
+    page.keyboard.press("Enter")
+    expect(page.locator("h1")).to_contain_text("Lecture 1: The Revolutionary Legacy")
+
     page.get_by_role("button", name="Record", exact=True).click()
     expect(page.locator(".rec-time")).to_be_visible()
     page.locator(".session-notes .bn-editor").click()

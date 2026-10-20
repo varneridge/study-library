@@ -322,8 +322,9 @@ table.review tr.flag td.file { color: var(--danger); }
 .pdf-page { position: absolute; top: 0; background: #FFFFFF; }
 .pdf-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .pdf-page .hl-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-.hl { position: absolute; mix-blend-mode: multiply; opacity: 0.42; }
+.hl { position: absolute; mix-blend-mode: multiply; opacity: 0.42; border: 0; padding: 0; pointer-events: auto; cursor: pointer; }
 .hl.active { outline: 2px solid var(--accent); opacity: 0.55; }
+.hl:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; opacity: 0.7; }
 /* Sepia multiplies the page onto warm paper: white becomes paper, ink stays dark. */
 .reader.sepia .pdf-page { background: var(--page); }
 .reader.sepia .page-canvas { mix-blend-mode: multiply; filter: sepia(0.25); }
@@ -623,6 +624,7 @@ main:focus { outline: none; }
 /* Click-to-edit text says so on hover. */
 .editable { cursor: text; }
 .editable:hover { text-decoration: underline dotted var(--faint); text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+.editable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
 .week-code-inline { color: var(--muted); }
 
 /* Home */
@@ -835,6 +837,7 @@ kbd { font-family: var(--sans); font-size: var(--fs-xs); border: 1px solid var(-
 }
 .tv-body .pg::before { content: "p. "; }
 .tv-body mark.hl-text { color: inherit; padding: 0.05em 0; cursor: pointer; }
+.tv-body mark.hl-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-xs); }
 .tv-body mark.find-hit { background: rgba(255, 196, 0, 0.45); color: inherit; }
 .tv-body mark.find-hit.current { background: var(--accent); color: var(--accent-ink); }
 .reader.tool-highlight .text-view ::selection { background: color-mix(in srgb, var(--tool) 55%, transparent); }
@@ -1487,6 +1490,11 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .menu-panel button { min-height: 3.25rem; padding: 0 1.25rem; font-size: var(--fs-md); }
   .menu-panel .menu-cancel { display: block; border-top: 1px solid var(--rule); margin-top: 0.3rem; color: var(--muted); }
   .menu-panel.appearance { width: auto; padding: 0.8rem 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px)); }
+  .menu-panel.highlight-sheet {
+    padding: 1rem 1.25rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 0.75rem;
+    background: var(--card);
+  }
   .dialog {
     margin: auto 0 0; width: 100%; max-width: 100%; border-width: 1px 0 0;
     padding: 1.4rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in 0.18s ease-out;

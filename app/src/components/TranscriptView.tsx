@@ -96,7 +96,7 @@ export function TranscriptView({ recordingId, turns, title, focusTurn }: {
     <div className="moodle-transcript">
       <div className="t-head">
         <p className="t-meta small muted">
-          {named && `${speakers.length} ${speakers.length === 1 ? "speaker" : "speakers"}, `}{words.toLocaleString("en-GB")} words · about {Math.max(1, Math.round(words / 230))} minutes to read
+          {named && `${speakers.length} ${speakers.length === 1 ? "speaker" : "speakers"}, `}{words.toLocaleString("en-GB")} words, about {Math.max(1, Math.round(words / 230))} minutes to read
         </p>
         {named && <ul className="t-speakers" aria-label="Speakers">
           {speakers.map((s) => (

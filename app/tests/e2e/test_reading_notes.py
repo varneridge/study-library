@@ -58,6 +58,11 @@ with sync_playwright() as p:
 
     # The Notes tab is open, and says what it does.
     expect(page.get_by_role("tab", name="Notes")).to_have_attribute("aria-selected", "true")
+
+    # Note editor carries screen-reader label
+    expect(page.locator(".note-editor[aria-label='Reading notes']")).to_be_visible()
+    expect(page.locator(".bn-editor[aria-label='Reading notes']")).to_be_visible()
+
     expect(page.locator(".reading-notes .notes-hint")).to_contain_text("Anything you highlight joins these notes")
     page.locator(".reading-notes .bn-editor").click()
     page.keyboard.type("First impressions: a clear introduction.")
@@ -66,6 +71,15 @@ with sync_playwright() as p:
     # Highlights arrive as quotations, in reading order, whatever order they were made in.
     highlight(page, 0, 9)
     expect(page.locator(".reading-notes .note-highlight")).to_have_count(1, timeout=10000)
+
+    # Highlight reached and operable from the keyboard
+    hl_btn = page.locator(".pdf-page .hl[role='button']").first
+    expect(hl_btn).to_be_visible()
+    hl_btn.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("div[role='dialog'][aria-label='Highlight']")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("div[role='dialog'][aria-label='Highlight']")).to_have_count(0)
     highlight(page, 0, 3, "green")
     expect(page.locator(".reading-notes .note-highlight")).to_have_count(2, timeout=10000)
     print("quotations:", quotes(page))
@@ -203,6 +217,18 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)
     expect(page.locator(".reading-notes .note-highlight")).to_have_count(3)
     print("deleting an empty line does not delete the preceding quotation")
+
+    # Sidebar tabs move with the arrow keys.
+    notes_tab = page.get_by_role("tab", name="Notes")
+    notes_tab.focus()
+    expect(notes_tab).to_be_focused()
+    page.keyboard.press("ArrowRight")
+    pages_tab = page.get_by_role("tab", name="Pages")
+    expect(pages_tab).to_be_focused()
+    expect(pages_tab).to_have_attribute("aria-selected", "true")
+    page.keyboard.press("ArrowLeft")
+    expect(notes_tab).to_be_focused()
+    expect(notes_tab).to_have_attribute("aria-selected", "true")
 
     # The same notes on a phone, as text.
     phone = browser.new_page(viewport={"width": 390, "height": 844})

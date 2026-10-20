@@ -203,7 +203,7 @@ function markMatches(container: HTMLElement, needles: string[]): HTMLElement[] {
 }
 
 export const PageView = memo(function PageView({
-  doc, index, size, scale, theme, crop, highlights, activeId, query, currentHit, onViewport,
+  doc, index, size, scale, theme, crop, highlights, activeId, query, currentHit, onViewport, onHighlightClick,
 }: {
   doc: PDFDocumentProxy;
   index: number;
@@ -217,6 +217,7 @@ export const PageView = memo(function PageView({
   // Which match on this page is the current one, if any.
   currentHit: number | null;
   onViewport: (index: number, viewport: PageViewport | null) => void;
+  onHighlightClick?: (id: string, x: number, y: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -345,11 +346,28 @@ export const PageView = memo(function PageView({
           {viewport &&
             highlights.flatMap((h) =>
               smoothRects(h.rects).map((rect, i) => (
-                <div
+                <button
+                  type="button"
                   key={`${h.id}-${i}`}
                   data-id={h.id}
+                  tabIndex={i === 0 ? 0 : -1}
+                  role="button"
+                  aria-label={`Highlight: ${h.body ? h.body.slice(0, 50) : "highlight"}`}
                   className={`hl${h.id === activeId ? " active" : ""}`}
                   style={{ ...screenRect(rect, viewport), background: h.colour }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    onHighlightClick?.(h.id, r.left + r.width / 2, r.bottom);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      onHighlightClick?.(h.id, r.left + r.width / 2, r.bottom);
+                    }
+                  }}
                 />
               )),
             )}

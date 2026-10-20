@@ -83,11 +83,45 @@ async function outline(doc: PDFDocumentProxy): Promise<Heading[]> {
 function Popover({ highlight, at, questions, names, onClose, onWrite }: {
   highlight: HighlightRow; at: Active; questions: QuestionRow[]; names: ColourNames; onClose: () => void; onWrite: () => void;
 }) {
+  const narrow = useNarrow();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const prevActiveRef = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
+
   useCloseOnBack(true, onClose);
+
+  useEffect(() => {
+    if (narrow) {
+      const firstInteractive = panelRef.current?.querySelector<HTMLElement>("button, [tabindex='0']");
+      firstInteractive?.focus();
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (narrow) prevActiveRef.current?.focus();
+    };
+  }, [narrow, onClose]);
+
   const left = Math.max(8, Math.min(at.x - 140, window.innerWidth - 330));
   const top = Math.min(at.y + 12, window.innerHeight - 240);
-  return (
-    <div className="floating panel" style={{ left, top }} onPointerDown={(e) => e.stopPropagation()}>
+
+  const panel = (
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Highlight"
+      className={narrow ? "menu-panel highlight-sheet" : "floating panel"}
+      style={narrow ? undefined : { left, top }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div className="row" style={{ gap: "0.35rem" }}>
         {COLOURS.map((c) => (
           <button
@@ -108,8 +142,22 @@ function Popover({ highlight, at, questions, names, onClose, onWrite }: {
         <span style={{ flex: 1 }} />
         <button className="quiet" onClick={() => { void withUndo("Highlight deleted.", deleteRows([{ table: "highlights", row: highlight }])); onClose(); }}>Delete</button>
       </div>
+      {narrow && <button className="menu-cancel plain" onClick={onClose}>Cancel</button>}
     </div>
   );
+
+  if (narrow) {
+    const host = sheetHost();
+    return host ? createPortal(
+      <>
+        <div className="menu-backdrop" aria-hidden="true" onClick={onClose} />
+        {panel}
+      </>,
+      host,
+    ) : panel;
+  }
+
+  return panel;
 }
 
 // Always an input, as in Zotero: type a page and press Enter.
@@ -1108,6 +1156,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
                   query={finding ? needles : NO_NEEDLES}
                   currentHit={currentHit && currentHit.page === index ? currentHit.n : null}
                   onViewport={onViewport}
+                  onHighlightClick={(hid, x, y) => setActive({ id: hid, x, y })}
                 />
               ))}
             </div>

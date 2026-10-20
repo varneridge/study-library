@@ -57,6 +57,8 @@ with sync_playwright() as p:
     print(f"{blocks} speaker blocks in the file, {turns} turns shown")
     meta = panel.locator(".t-meta").inner_text()
     print("summary line:", meta)
+    assert "·" not in meta, f"Middle dot found in transcript metadata: {meta}"
+    assert ", about" in meta, f"Expected comma before read time estimate: {meta}"
     expect(panel.locator(".t-fold")).to_contain_text("short exchanges before the lecture began")
     longest = page.evaluate("Math.max(...[...document.querySelectorAll('.turn')].map(t => t.querySelectorAll('p').length))")
     print("the longest turn is set as", longest, "paragraphs")

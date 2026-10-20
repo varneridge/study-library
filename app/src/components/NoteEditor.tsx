@@ -323,9 +323,9 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
 
   // The editable area has no name of its own, so give it one.
   useEffect(() => {
-    const area = container.current?.querySelector(".bn-editor");
+    const area = container.current?.querySelector(".bn-editor, [contenteditable='true']");
     area?.setAttribute("aria-label", label);
-  });
+  }, [label]);
 
   useImperativeHandle(handle, () => ({
     focus() {
@@ -442,6 +442,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     <div
       ref={container}
       className={`note-editor${compact ? " compact" : ""}`}
+      aria-label={label}
       onClick={handleContainerClick}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {

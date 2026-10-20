@@ -161,7 +161,15 @@ export function SessionPage({ id, t, turn }: { id: string; t?: number; turn?: nu
             onKeyDown={(e) => { if (e.key === "Enter") saveName(e.currentTarget.value); if (e.key === "Escape") setRenaming(false); }}
           />
         ) : (
-          <h1 className="editable" title="Click to rename this session" onClick={() => setRenaming(true)}>{label}</h1>
+          <h1
+            className="editable"
+            tabIndex={0}
+            title="Click to rename this session"
+            onClick={() => setRenaming(true)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRenaming(true); } }}
+          >
+            {label}
+          </h1>
         )}
         <span className="spacer" />
         {recorder.recording ? (

@@ -111,6 +111,13 @@ with sync_playwright() as p:
     expect(page.locator("section.session").first.locator("li.reading")).to_have_count(3)
     print("slides dragged into the empty seminar, then undone")
 
+    # Slide canvas has role="img" with an accessible label
+    page.locator("section.session").first.locator(".session-title a").click()
+    slide_canvas = page.locator(".slide-box canvas[role='img']")
+    expect(slide_canvas).to_be_visible()
+    expect(slide_canvas).to_have_attribute("aria-label", "Slide 1 of 3")
+    page.locator(".crumbs a").nth(1).click()
+
     # A reading moves to another module, into one of its weeks.
     page.locator(".modules-nav a", has_text="HY335").click()
     page.locator("#week-AT2 .week-title").click()

@@ -12,7 +12,7 @@ export interface TextSelection { page: number; rects: number[][]; text: string; 
 
 interface Mark { start: number; end: number; kind: "hl" | "find"; id?: string; colour?: string }
 
-function Run({ line, marks }: { line: Line; marks: Mark[] }) {
+function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighlight?: (id: string, x: number, y: number) => void }) {
   // The text shown leaves off a line-end hyphen, but offsets stay those of the page.
   const shown = line.hyphen ? line.text.replace(/-\s*$/, "") : line.text.replace(/\s+$/, "");
   const end = line.start + shown.length;
@@ -31,9 +31,32 @@ function Run({ line, marks }: { line: Line; marks: Mark[] }) {
     const hl = marks.find((m) => m.kind === "hl" && m.start <= a && m.end >= b);
     const hit = marks.find((m) => m.kind === "find" && m.start <= a && m.end >= b);
     const props = { "data-p": line.page, "data-o": a, key: a } as const;
-    if (hl) out.push(<mark {...props} className={`hl-text${hit ? " find-hit" : ""}`} data-id={hl.id} style={{ background: `color-mix(in srgb, ${hl.colour} 45%, transparent)` }}>{text}</mark>);
-    else if (hit) out.push(<mark {...props} className="find-hit">{text}</mark>);
-    else out.push(<span {...props}>{text}</span>);
+    if (hl) {
+      out.push(
+        <mark
+          {...props}
+          tabIndex={0}
+          role="button"
+          aria-label={`Highlight: ${text}`}
+          className={`hl-text${hit ? " find-hit" : ""}`}
+          data-id={hl.id}
+          style={{ background: `color-mix(in srgb, ${hl.colour} 45%, transparent)` }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              onHighlight?.(hl.id!, r.left + r.width / 2, r.bottom);
+            }
+          }}
+        >
+          {text}
+        </mark>,
+      );
+    } else if (hit) {
+      out.push(<mark {...props} className="find-hit">{text}</mark>);
+    } else {
+      out.push(<span {...props}>{text}</span>);
+    }
   }
   return <>{out}</>;
 }
@@ -57,7 +80,11 @@ function offsetAt(node: Node, offset: number): { page: number; at: number } | nu
   return { page: Number(el.dataset.p), at: Number(el.dataset.o) + within };
 }
 
-const Body = memo(function Body({ blocks, marksByPage, notes }: { blocks: Block[]; marksByPage: Map<number, Mark[]>; notes: boolean }) {
+const Body = memo(function Body({
+  blocks, marksByPage, notes, onHighlight,
+}: {
+  blocks: Block[]; marksByPage: Map<number, Mark[]>; notes: boolean; onHighlight?: (id: string, x: number, y: number) => void;
+}) {
   let lastPage = -1;
   return (
     <>
@@ -80,7 +107,7 @@ const Body = memo(function Body({ blocks, marksByPage, notes }: { blocks: Block[
               return (
                 <Fragment key={li}>
                   {marker && <span className="pg" data-pg={line.page} aria-label={`Page ${line.page + 1}`}>{line.page + 1}</span>}
-                  <Run line={line} marks={marksByPage.get(line.page) ?? []} />
+                  <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} />
                   {join && <Join line={line} next={block.lines[li + 1]} marks={marksByPage.get(line.page) ?? []} />}
                 </Fragment>
               );
@@ -339,7 +366,7 @@ export function TextView({
         </p>
       </header>
       <div className="tv-body">
-        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} />
+        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} onHighlight={onHighlight} />
       </div>
     </article>
   );

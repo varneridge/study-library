@@ -85,7 +85,12 @@ with sync_playwright() as p:
     page.locator("#week-AT2 .week-title").click()
     expect(page.locator("section.session")).to_have_count(0)
     page.get_by_role("button", name="More actions for this week").click()
-    page.get_by_role("menuitem", name="Make this a teaching week").click()
+    page.keyboard.press("ArrowDown")
+    expect(page.locator(".menu-panel button[role='menuitem']").first).to_be_focused()
+    page.keyboard.press("ArrowDown")
+    expect(page.locator(".menu-panel button[role='menuitem']").nth(1)).to_be_focused()
+    expect(page.locator(".menu-panel button[role='menuitem']").nth(1)).to_have_text("Make this a teaching week")
+    page.keyboard.press("Enter")
     expect(page.locator("section.session")).to_have_count(2)
     print("module edited, reading week toggled")
 
@@ -136,9 +141,21 @@ with sync_playwright() as p:
     # Sessions: rename, add, delete; questions: add, reorder, delete.
     open_module(page, "HY335")
     page.locator("#week-AT1 .week-title").click()
+
+    # Week title can be reached and edited from the keyboard
+    week_heading = page.locator(".week-page h1.editable")
+    expect(week_heading).to_be_visible()
+    week_heading.focus()
+    page.keyboard.press("Enter")
+    page.locator("input[aria-label='Week title']").fill("Sino-Soviet Relations")
+    page.keyboard.press("Enter")
+    expect(page.locator(".week-page h1")).to_contain_text("Sino-Soviet Relations")
+
     page.get_by_role("button", name="More actions for Seminar").click()
     page.get_by_role("menuitem", name="Rename").click()
-    page.locator(".session-head input").fill("Class: Mao and the Three Worlds")
+    rename_input = page.locator("input[aria-label='Session name']")
+    expect(rename_input).to_be_visible()
+    rename_input.fill("Class: Mao and the Three Worlds")
     page.keyboard.press("Enter")
     expect(page.get_by_role("heading", name="Class: Mao and the Three Worlds")).to_be_visible()
 

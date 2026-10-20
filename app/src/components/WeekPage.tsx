@@ -46,11 +46,27 @@ function TitleEditor({ week, editing, setEditing }: { week: WeekRow; editing: bo
   const [value, setValue] = useState(week.title ?? "");
   useEffect(() => setValue(week.title ?? ""), [week.title, editing]);
   if (!editing && isSection(week)) {
-    return <h1 className="editable" onClick={() => setEditing(true)} title="Click to rename this section">{weekCode(week)}</h1>;
+    return (
+      <h1
+        className="editable"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(true); } }}
+        title="Click to rename this section"
+      >
+        {weekCode(week)}
+      </h1>
+    );
   }
   if (!editing) {
     return (
-      <h1 className="editable" onClick={() => setEditing(true)} title="Click to rename this week">
+      <h1
+        className="editable"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(true); } }}
+        title="Click to rename this week"
+      >
         {week.title ? <><span className="week-code-inline">{weekCode(week)}</span>{" "}{week.title}</> : week.is_reading_week ? `${weekCode(week)} reading week` : weekCode(week)}
       </h1>
     );
@@ -149,6 +165,7 @@ function SessionBlock({
         {renaming ? (
           <input
             type="text" value={name} autoFocus placeholder={sessionLabel(session.kind)}
+            aria-label="Session name"
             onChange={(e) => setName(e.target.value)} onBlur={saveName}
             onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") { setName(session.title ?? ""); setRenaming(false); } }}
             style={{ flex: 1, fontFamily: "var(--serif)", fontWeight: 600 }}

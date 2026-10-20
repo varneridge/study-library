@@ -33,7 +33,31 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
       }
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const items = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>("button[role='menuitem']:not([disabled])") || []);
+        if (!items.length) return;
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        if (e.key === "ArrowDown") {
+          const next = index < items.length - 1 ? index + 1 : 0;
+          items[next]?.focus();
+        } else {
+          const prev = index > 0 ? index - 1 : items.length - 1;
+          items[prev]?.focus();
+        }
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        const items = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>("button[role='menuitem']:not([disabled])") || []);
+        items[0]?.focus();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        const items = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>("button[role='menuitem']:not([disabled])") || []);
+        items[items.length - 1]?.focus();
+      }
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", key);

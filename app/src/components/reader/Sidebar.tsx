@@ -77,12 +77,42 @@ export function Sidebar({
     { value: "contents", label: "Contents", icon: "outline", hidden: headings.length === 0 },
   ];
 
+  const visibleTabs = tabs.filter((t) => !t.hidden);
+  const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      nextIndex = (index + 1) % visibleTabs.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      nextIndex = (index - 1 + visibleTabs.length) % visibleTabs.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = visibleTabs.length - 1;
+    }
+    if (nextIndex >= 0) {
+      e.preventDefault();
+      const targetTab = visibleTabs[nextIndex];
+      setTab(targetTab.value);
+      const tabButtons = e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button[role='tab']");
+      tabButtons?.[nextIndex]?.focus();
+    }
+  };
+
   return (
     <aside className="pane left" aria-label="Reading sidebar">
       <div className="pane-tabs">
         <div role="tablist" aria-label="Sidebar" style={{ display: "contents" }}>
-        {tabs.filter((t) => !t.hidden).map((t) => (
-          <button key={t.value} role="tab" aria-selected={tab === t.value} className="pane-tab" title={t.label} onClick={() => setTab(t.value)}>
+        {visibleTabs.map((t, i) => (
+          <button
+            key={t.value}
+            role="tab"
+            aria-selected={tab === t.value}
+            tabIndex={tab === t.value ? 0 : -1}
+            className="pane-tab"
+            title={t.label}
+            onClick={() => setTab(t.value)}
+            onKeyDown={(e) => onTabKeyDown(e, i)}
+          >
             <Icon name={t.icon} size={18} /><span>{t.label}</span>
           </button>
         ))}

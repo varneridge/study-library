@@ -138,7 +138,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         }}
         onFocus={wake}
       >
-        {problem ? <p className="small muted">{problem}</p> : <canvas ref={canvas} />}
+        {problem ? <p className="small muted">{problem}</p> : <canvas ref={canvas} role="img" aria-label={`Slide ${page + 1}${doc ? ` of ${doc.numPages}` : ""}`} />}
         {doc && doc.numPages > 1 && (
           <>
             <button className="slide-arrow prev" aria-label="Previous slide" disabled={page === 0} onClick={() => go(page - 1)}>
