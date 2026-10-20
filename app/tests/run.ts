@@ -9,7 +9,7 @@ import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
 import {
-  deadlineState, deadlineWords, evaluateStageChange, formatDate, formatDuration,
+  deadlineState, deadlineWords, evaluateStageChange, eventsToRestore, formatDate, formatDuration,
   daysSinceApplied, daysInStage, entryTimeText, getTimelineEntries,
   likelyNextStages, matches, normaliseUrl, parseEntryTime,
   sortApplications, sortEvents, STAGE_GRID, STAGES, stageOf, summarise,
@@ -377,6 +377,28 @@ test("undo restores application and events after add, amend, and remove", () => 
   assert.equal((undoRemove[0].row as { stage: string }).stage, "oa_todo");
   assert.equal((undoRemove[0].row as { next_deadline?: string | null }).next_deadline, "2026-10-25");
   assert.equal((undoRemove[1].row as { deleted?: boolean }).deleted, false);
+});
+
+test("events to restore brings back events deleted with the application, not earlier ones", () => {
+  const appModifiedAt = "2026-10-20T10:00:00.000Z";
+  // Event removed earlier by hand (modified before application was deleted).
+  const earlierRemoved = {
+    ...ev("e-earlier", "oa_todo", "2026-10-18T09:00:00.000Z", "change", "applied", null, "a", true),
+    modified_at: "2026-10-18T09:30:00.000Z",
+  };
+  // Event deleted in the same commit as the application (modified_at is >= app.modified_at).
+  const deletedWithApp = {
+    ...ev("e-with-app", "oa_wait", "2026-10-20T09:55:00.000Z", "change", "oa_todo", null, "a", true),
+    modified_at: "2026-10-20T10:00:00.002Z",
+  };
+  // Event that was never deleted.
+  const activeEvent = {
+    ...ev("e-active", "interview_todo", "2026-10-20T10:00:00.000Z", "change", "oa_wait", null, "a", false),
+    modified_at: "2026-10-20T10:00:00.002Z",
+  };
+
+  const toRestore = eventsToRestore([earlierRemoved, deletedWithApp, activeEvent], appModifiedAt);
+  assert.deepEqual(toRestore.map((e) => e.id), ["e-with-app"]);
 });
 
 test("a page range with no source is read as pages, with a source as both", () => {

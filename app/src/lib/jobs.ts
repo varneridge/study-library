@@ -235,6 +235,8 @@ export async function deleteApplication(id: string): Promise<void> {
   const app = await db.applications.get(id);
   if (!app) return;
   const events = (await db.application_events.where("application_id").equals(id).toArray()).filter((e) => !e.deleted);
+  // The application must stay first in the list so commit() stamps it before its
+  // events, ensuring its modified_at is earlier than or equal to the events' modified_at.
   const changes: Change[] = [
     { table: "applications", row: { id, deleted: true }, patch: true },
     ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: true }, patch: true })),
@@ -242,12 +244,17 @@ export async function deleteApplication(id: string): Promise<void> {
   await commit(changes);
 }
 
+// Only events deleted with or after the application are brought back; any
+// event removed earlier stays deleted.
+export function eventsToRestore(events: ApplicationEventRow[], appModifiedAt: string): ApplicationEventRow[] {
+  return events.filter((e) => e.deleted && e.modified_at >= appModifiedAt);
+}
+
 export async function restoreApplication(id: string): Promise<void> {
   const app = await db.applications.get(id);
   if (!app) return;
-  const since = app.modified_at;
-  const events = (await db.application_events.where("application_id").equals(id).toArray())
-    .filter((e) => e.deleted && e.modified_at >= since);
+  const allEvents = await db.application_events.where("application_id").equals(id).toArray();
+  const events = eventsToRestore(allEvents, app.modified_at);
   const changes: Change[] = [
     { table: "applications", row: { id, deleted: false }, patch: true },
     ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: false }, patch: true })),

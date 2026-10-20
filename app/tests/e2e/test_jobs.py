@@ -34,8 +34,11 @@ def stamp():
     return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
 
-def push(page, rows):
-    page.request.post(BASE + "/api/sync/push", data={"changes": [{"table": "applications", "row": r} for r in rows]})
+def push(page, rows, events=None):
+    changes = [{"table": "applications", "row": r} for r in rows]
+    if events:
+        changes.extend([{"table": "application_events", "row": e} for e in events])
+    page.request.post(BASE + "/api/sync/push", data={"changes": changes})
 
 
 def application(id, employer, role, stage, applied, deadline=None, **slots):
@@ -43,6 +46,12 @@ def application(id, employer, role, stage, applied, deadline=None, **slots):
            "notes": None, "file_cv": None, "file_cl": None, "file_rd": None, "file_qs": None, "modified_at": stamp(), "deleted": False}
     row.update(slots)
     return row
+
+
+def app_event(id, app_id, stage, at, from_stage=None, kind="change", cleared_deadline=None):
+    return {"id": id, "application_id": app_id, "stage": stage, "from_stage": from_stage,
+            "at": at, "kind": kind, "cleared_deadline": cleared_deadline,
+            "modified_at": stamp(), "deleted": False}
 
 
 with sync_playwright() as p:
@@ -60,6 +69,11 @@ with sync_playwright() as p:
         application("pwc", "PwC", "Graduate Strategy", "oa_todo", iso(today - timedelta(days=10)), iso(today + timedelta(days=2))),
         application("castore", "Castore", "Consulting Analyst", "interview_todo", iso(today - timedelta(days=20)), iso(today - timedelta(days=1))),
         application("fast", "Civil Service", "Fast Stream", "applied", iso(today - timedelta(days=5))),
+    ], events=[
+        app_event("ev-kekst", "kekst", "rejected", "2026-02-26"),
+        app_event("ev-pwc", "pwc", "oa_todo", iso(today - timedelta(days=10))),
+        app_event("ev-castore", "castore", "interview_todo", iso(today - timedelta(days=20)), from_stage="applied"),
+        app_event("ev-fast", "fast", "applied", iso(today - timedelta(days=5))),
     ])
 
     # The study side, before: its top bar and pages are unchanged but for one link.
@@ -193,15 +207,35 @@ with sync_playwright() as p:
     castore.get_by_role("button", name="Delete application").click()
     expect(page.locator(".toast")).to_contain_text("Castore deleted.")
     expect(row("Castore")).to_have_count(0)
+    until(page, """async () => {
+        const j = await (await fetch('/api/sync/pull?since=0')).json();
+        const evs = (j.rows.application_events || []).filter(e => e.application_id === 'castore');
+        return evs.length > 0 && evs.every(e => e.deleted);
+    }""")
     page.locator(".toast").get_by_role("button", name="Undo").click()
     expect(row("Castore")).to_have_count(1)
     # Undo brings it back as it was, with its Details still open.
     expect(row("Castore").locator(".details-toggle")).to_have_attribute("aria-expanded", "true")
+    until(page, """async () => {
+        const j = await (await fetch('/api/sync/pull?since=0')).json();
+        const evs = (j.rows.application_events || []).filter(e => e.application_id === 'castore');
+        return evs.length > 0 && evs.every(e => !e.deleted);
+    }""")
     row("Castore").get_by_role("button", name="Delete application").click()
     expect(page.locator(".jobs-bin")).to_contain_text("Castore")
+    until(page, """async () => {
+        const j = await (await fetch('/api/sync/pull?since=0')).json();
+        const evs = (j.rows.application_events || []).filter(e => e.application_id === 'castore');
+        return evs.length > 0 && evs.every(e => e.deleted);
+    }""")
     page.locator(".jobs-bin").get_by_role("button", name="Restore").click()
     expect(row("Castore")).to_have_count(1)
     expect(page.locator(".jobs-bin")).to_have_count(0)
+    until(page, """async () => {
+        const j = await (await fetch('/api/sync/pull?since=0')).json();
+        const evs = (j.rows.application_events || []).filter(e => e.application_id === 'castore');
+        return evs.length > 0 && evs.every(e => !e.deleted);
+    }""")
     print("delete, undo and restore work")
 
     # The N key adds one, and dropping a file elsewhere on the page adds nothing to the library.
