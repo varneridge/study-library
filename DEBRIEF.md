@@ -994,6 +994,7 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 **Possible next steps**
 
 - Move the processor to a small server, so recordings are processed while the laptop is off.
+- Job search redesign: Part 1 done (20 stages, progression steps, search aliases, `application_events` table, migration 0012, Dexie version 7 with cursor reset, mis-tap rules and wiring with Undo). Parts 2 and 3 remain (ChoiceCard, stage card, slot card, cell editing, laptop details timeline, and phone redesigned cards and sheets).
 - A native Android build, if recording on the phone becomes necessary.
 - Export of notes and answers to Word, for essays and revision.
 - An audit of the empty states once a full term of real data is in.
@@ -1071,7 +1072,7 @@ A separate part of the app for managing job applications. It shares the app's si
 | --- | --- |
 | Employer and Role | Required. A new application left with neither is let go when you leave it |
 | Applied | The date you submitted. A new one starts today |
-| Stage | One of 16 stages, each in one of four categories |
+| Stage | One of 20 stages, each in one of four categories |
 | Next deadline | Optional. Whatever is due next: an online test, a HireVue, an interview |
 | Notes | Contacts, interview times, what they asked. Not in the spreadsheet; added because there was nowhere else for it |
 | Files | Four slots: CV, cover letter, role description, and answers to questions |
@@ -1084,10 +1085,22 @@ Stages are stored by key, such as `oa_todo`, with the wording in `src/lib/jobs.t
 
 | Category | Colour | Stages |
 | --- | --- | --- |
-| To do | Amber | OA: to complete; HireVue: to record; Interview, Assessment centre and Final interview: to prepare and attend |
+| To do | Amber | To apply; Online test, Written assessment and Video interview (each to complete or record); Interview, Assessment centre and Final interview: to prepare and attend |
 | Waiting | Blue | Applied: awaiting response; each "done, awaiting result" |
 | Offer | Green | Offer: to accept or decline; Accepted |
-| Closed | Grey | Rejected; Withdrawn; No response |
+| Closed | Grey | Rejected; Withdrawn; Offer declined; No response |
+
+### Timeline and mis-tap protection
+
+Every change of stage is recorded in `application_events`, with the application, the stage entered, the previous stage, the time, and any cleared deadline.
+
+A 10-minute window protects against mis-taps:
+- Changing back to where an entry came from within 10 minutes removes that entry and restores any cleared deadline.
+- Progress to a likely next stage adds a new entry, clearing the deadline when a to-do stage is marked done.
+- Changing to any other stage amends the entry, keeping its original time and previous stage.
+- Undo reverses any change, restoring the previous stage, deadline and applied date.
+
+Entries sort by local time so UTC timestamps around midnight stay on their correct local calendar day. Deleting an application carries its timeline entries with it, and restoring or undoing a deletion restores them.
 
 ### Deadlines
 
@@ -1145,7 +1158,7 @@ The job search uses the same type, rules, spacing and theme tokens as the rest o
 
 ### Code
 
-`src/lib/jobs.ts` holds the stages, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` is the screen. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the only changes are the `applications` table in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check.
+`src/lib/jobs.ts` holds the stages, the progression grid, timeline rules, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` is the screen. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the changes are the `applications` and `application_events` tables in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check. Migration `0012_application_events.sql` adds the events table with starting entry backfill, and Dexie version 7 upgrades the local database and resets the pull cursor.
 
 ## 19. On a phone
 
