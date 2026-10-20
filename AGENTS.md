@@ -34,7 +34,7 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 - **Sync:** edits send only the columns that changed, and the server writes only the columns a device sends, so an older device keeps working after a new column is added. Keep it that way.
 - **Limits:** the Worker runs on Cloudflare's free plan, with 10 ms of CPU per request. Do heavy work on the device or in the processor.
 - **Docs:** update `DEBRIEF.md` and the version in `app/package.json` with each release, including any deployment steps.
-- **Branches:** agents work on main and never push to, merge into or change the production branch, because pushing to production is how I deploy.
+- **Branches:** agents work on main. Never push to, merge into or change the production branch unless my prompt asks you to deploy. Pushing to production is how the app is deployed.
 
 ## Commands
 
