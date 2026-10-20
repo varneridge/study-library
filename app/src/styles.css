@@ -135,7 +135,7 @@ label.field > span { display: block; font-size: var(--fs-sm); color: var(--muted
 .jump { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 1px; margin: 1.25rem 0 1.5rem; background: var(--rule); border: 1px solid var(--rule); }
 .jump button { border: 0; background: var(--paper); padding: 0.35rem 0; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .jump button:hover { color: var(--ink); background: var(--wash); }
-.week { border-bottom: 1px solid var(--rule); scroll-margin-top: 4rem; }
+.week { border-bottom: 1px solid var(--rule); scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 0.5rem); }
 .week-head { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.8rem 0; }
 .caret { display: inline-block; flex: none; border: 0; background: none; padding: 0; width: 1.1rem; color: var(--faint); }
 .week-code { display: inline-block; font-family: var(--sans); font-weight: 600; min-width: 2.8rem; margin-right: 0.6rem; font-variant-numeric: tabular-nums; }
@@ -563,12 +563,15 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 /* Reading weeks read as quieter, not as selected; this week carries the accent. */
 .jump button.is-reading-week { background: var(--paper); font-style: italic; }
 .jump button.is-this-week { color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
-/* The week grid stays in view while scrolling a long module. */
 /* The week grid stays in view while scrolling a long module, on a band of
    paper so rows passing beneath it are hidden cleanly. */
 @media (min-width: 34rem) {
-  .jump { position: sticky; top: 3.1rem; z-index: 5; box-shadow: 0 -0.75rem 0 var(--paper), 0 0.75rem 0 var(--paper); }
-  .week { scroll-margin-top: 8.5rem; }
+  .jump {
+    position: sticky; top: var(--topbar-h, 3.25rem); z-index: 5;
+    background: var(--paper); padding: 0.4rem 0;
+    box-shadow: 0 -0.4rem 0 var(--paper), 0 0.4rem 0 var(--paper);
+  }
+  .week { scroll-margin-top: calc(var(--topbar-h, 3.25rem) + var(--jump-h, 5.5rem) + 0.5rem); }
 }
 .week-gist { margin: -0.45rem 0 0.7rem 1.85rem; }
 
@@ -1575,6 +1578,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   --card: #FFFFFF; --chrome: #F7F7F5; --reader-bg: #E9EAE7;
   --shadow-float: 0 1px 2px rgba(29, 32, 36, 0.06), 0 8px 24px rgba(29, 32, 36, 0.10);
   --fs-display: 2.25rem; --fs-2xl: 1.875rem; --fs-xl: 1.3rem; --fs-lg: 1.125rem; --fs-md: 1rem; --fs-sm: 0.875rem; --fs-xs: 0.78rem;
+  --topbar-h: 3.25rem; --jump-h: 5.5rem;
 }
 :root[data-theme="sepia"] {
   --paper: #FBF2E8; --ink: #332E2A; --muted: #6B625B; --faint: #A1968C;
@@ -1654,13 +1658,14 @@ input[type="text"]:focus, input[type="search"]:focus, input[type="url"]:focus, i
 .segmented .tool { border: 0 !important; background: transparent; border-radius: var(--r-xs); color: var(--muted); padding: 0.3rem 0.7rem; }
 .segmented .tool:hover { color: var(--ink); }
 .segmented .tool[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(29, 32, 36, 0.10); }
-.jump, .picker { background: none; border: 0; gap: 4px; }
+.jump { background: var(--paper); border: 0; gap: 4px; padding: 0.4rem 0; }
+.picker { background: none; border: 0; gap: 4px; }
 .jump button, .picker button {
   border-radius: var(--r-xs); background: var(--surface); color: var(--muted); border: 0; box-shadow: none;
 }
 .jump button:hover, .picker button:hover { background: var(--surface-hover); color: var(--ink); }
 .jump button.is-this-week, .picker button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: none; font-weight: 600; }
-.jump button.is-reading-week { background: transparent; font-style: italic; }
+.jump button.is-reading-week { background: var(--paper); font-style: italic; }
 
 /* Lists: rows lift on hover instead of sitting between rules. */
 .readings { border-top: 0 !important; }

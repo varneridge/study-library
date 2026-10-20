@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AcrossPage } from "./components/AcrossPage";
 import { Home } from "./components/Home";
 import { ImportPage } from "./components/ImportPage";
@@ -250,6 +250,19 @@ export function App() {
       window.removeEventListener("online", online);
     };
   }, []);
+
+  // Keep --topbar-h in sync with the top bar's actual height (including when wrapped).
+  useLayoutEffect(() => {
+    const bar = document.querySelector<HTMLElement>(".topbar");
+    if (!bar) return;
+    const update = () => {
+      document.documentElement.style.setProperty("--topbar-h", `${bar.offsetHeight}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [route.view]);
 
   if (route.view === "reader") {
     return <><main id="main"><ErrorBoundary key={route.id} label="reading"><Suspense fallback={opening}><Reader key={route.id} id={route.id} page={route.page} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><DropAnywhere route={route} /><RecorderPill route={route} /></>;

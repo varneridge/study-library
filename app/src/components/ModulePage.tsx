@@ -5,7 +5,7 @@ import { moveSection, addSection, isDissertation, saveKeyDates, countdown } from
 import { Menu } from "./Menu";
 import { useDragSensors } from "../lib/drag";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { fullTitle } from "../lib/titles";
 import { keepMine, pending, viaLabel } from "../lib/citations";
 import { update, newId } from "../lib/sync";
@@ -251,6 +251,18 @@ export function ModulePage({ id }: { id: string }) {
     }
   }, [data, seeded]);
 
+  useLayoutEffect(() => {
+    const el = document.querySelector<HTMLElement>(".jump");
+    if (!el) return;
+    const update = () => {
+      document.documentElement.style.setProperty("--jump-h", `${el.offsetHeight}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [data]);
+
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
 
@@ -260,6 +272,7 @@ export function ModulePage({ id }: { id: string }) {
   const found = [...weeks.flatMap((w) => [...w.readings, ...w.primaries]), ...tray].filter((v) => pending(v.item));
   // A module with nothing in it yet makes importing its main action.
   const empty = !tray.length && weeks.every((w) => !w.readings.length && !w.primaries.length && !w.sessions.some((x) => x.slides.length));
+
   const toggle = (weekId: string) => {
     const next = new Set(open);
     if (next.has(weekId)) next.delete(weekId);
