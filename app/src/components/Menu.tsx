@@ -17,12 +17,14 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const poppedRef = useRef(false);
+  const actionSelectedRef = useRef(false);
   const [shift, setShift] = useState(0);
   const shown = items.filter((i) => !i.hidden);
 
   useEffect(() => {
     if (!open) return;
     poppedRef.current = false;
+    actionSelectedRef.current = false;
     window.history.pushState({ overlayOpen: true }, "");
 
     const onPop = () => {
@@ -57,7 +59,9 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
       if (!poppedRef.current && window.history.state?.overlayOpen) {
         window.history.back();
       }
-      buttonRef.current?.focus();
+      if (!actionSelectedRef.current) {
+        buttonRef.current?.focus();
+      }
     };
   }, [open]);
 
@@ -69,6 +73,7 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
   };
 
   const selectItem = (item: MenuItem) => {
+    actionSelectedRef.current = true;
     window.history.replaceState(null, "");
     setOpen(false);
     item.onSelect();
