@@ -208,21 +208,58 @@ function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, canTrim, s
   const ref = useRef<HTMLDivElement>(null);
   // The sheet may be drawn into the body on a phone, so a tap in it counts as inside.
   const sheet = useRef<HTMLDivElement>(null);
+  const poppedRef = useRef(false);
+
   useEffect(() => {
     if (!open) return;
+    poppedRef.current = false;
+    window.history.pushState({ overlayOpen: true }, "");
+
+    const onPop = () => {
+      poppedRef.current = true;
+      setOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+
     const close = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (!ref.current?.contains(target) && !sheet.current?.contains(target)) setOpen(false);
+      if (!ref.current?.contains(target) && !sheet.current?.contains(target)) {
+        if (!poppedRef.current && window.history.state?.overlayOpen) {
+          window.history.back();
+        }
+        setOpen(false);
+      }
     };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (!poppedRef.current && window.history.state?.overlayOpen) {
+          window.history.back();
+        }
+        setOpen(false);
+      }
+    };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", key); };
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", key);
+      if (!poppedRef.current && window.history.state?.overlayOpen) {
+        window.history.back();
+      }
+    };
   }, [open]);
+
+  const dismiss = () => {
+    if (!poppedRef.current && window.history.state?.overlayOpen) {
+      window.history.back();
+    }
+    setOpen(false);
+  };
   return (
     <div className="menu" ref={ref}>
       <IconButton icon="appearance" label="Appearance" pressed={open} onClick={() => setOpen(!open)} />
-      {open && sheetHost() && createPortal(<div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />, sheetHost()!)}
+      {open && sheetHost() && createPortal(<div className="menu-backdrop" aria-hidden="true" onClick={dismiss} />, sheetHost()!)}
       {open && portalTo(sheetHost(),
         <div ref={sheet} className="menu-panel appearance" role="dialog" aria-label="Appearance">
           <p className="panel-label">Theme</p>
