@@ -7,7 +7,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
 import {
-  addApplication, ATTACH_ACCEPT, attachFile, CATEGORY_LABEL, deadlineState, deadlineWords, deleteApplication, discardIfBlank,
+  addApplication, ATTACH_ACCEPT, attachFile, CATEGORY_LABEL, changeStage, deadlineState, deadlineWords, deleteApplication, discardIfBlank,
   formatDate, isOpen, matches, normaliseUrl, restoreApplication, saveApplication, setSlot, sizeText, slotColumn, slotHref,
   SLOTS, sortApplications, STAGES, stageOf, summarise, type Order,
 } from "../lib/jobs";
@@ -133,7 +133,7 @@ function StageSelect({ app, label = "Stage" }: { app: ApplicationRow; label?: st
       value={app.stage}
       aria-label={label}
       title={CATEGORY_LABEL[stage.cat]}
-      onChange={(e) => void saveApplication(app.id, { stage: e.target.value })}
+      onChange={(e) => void changeStage(app, e.target.value)}
     >
       {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
       {!STAGES.some((s) => s.key === app.stage) && <option value={app.stage}>{app.stage}</option>}

@@ -237,22 +237,22 @@ with sync_playwright() as p:
     phone.goto(BASE + "/?v=jobs")
     expect(phone.locator(".app-card")).to_have_count(5)
     assert phone.locator(".topbar nav a").inner_text() == "Study Library"
-    first_card = phone.locator(".app-card").first
     # Castore is overdue, so it comes first.
-    expect(first_card.locator(".card-employer")).to_have_text("Castore")
+    expect(phone.locator(".app-card").first.locator(".card-employer")).to_have_text("Castore")
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)
-    first_card.locator(".card-head").tap()
-    expect(first_card.locator(".app-fields")).to_be_visible()
-    first_card.get_by_label("Role", exact=True).fill("Consulting Analyst, Retail")
-    first_card.locator(".app-fields").get_by_label("Stage").select_option(label="Interview: done, awaiting result")
+    castore_card = phone.locator(".app-card[data-app='castore']")
+    castore_card.locator(".card-head").tap()
+    expect(castore_card.locator(".app-fields")).to_be_visible()
+    castore_card.get_by_label("Role", exact=True).fill("Consulting Analyst, Retail")
+    castore_card.locator(".app-fields").get_by_label("Stage").select_option(label="Interview: done, awaiting result")
     phone.locator(".jobs-summary").tap()
     until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.role === 'Consulting Analyst, Retail' && a.stage === 'interview_wait'); }")
     phone.screenshot(path=f"{shots}-5-phone-open.png", full_page=True)
     # An open card does not repeat itself: the summary lines give way to the form.
-    expect(first_card.locator(".card-meta")).to_be_hidden()
-    expect(first_card.locator(".card-slots")).to_be_hidden()
+    expect(castore_card.locator(".card-meta")).to_be_hidden()
+    expect(castore_card.locator(".card-slots")).to_be_hidden()
     # Each file slot has one menu, a sheet on a phone, in place of a row of small buttons.
-    cv = first_card.locator(".slot-row").first
+    cv = castore_card.locator(".slot-row").first
     expect(cv.locator(".slot-actions > button.quiet")).to_have_count(0)
     cv.get_by_role("button", name="Change the cv").tap()
     sheet = phone.locator(".menu-panel")
@@ -261,9 +261,9 @@ with sync_playwright() as p:
     expect(cv.locator(".slot-status")).to_have_text("Not required")
     until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.file_cv && a.file_cv.state === 'na'); }")
     # Done, at the foot of the card, closes it.
-    first_card.get_by_role("button", name="Done", exact=True).tap()
-    expect(first_card.locator(".app-fields")).to_have_count(0)
-    expect(first_card.locator(".card-meta")).to_be_visible()
+    castore_card.get_by_role("button", name="Done", exact=True).tap()
+    expect(castore_card.locator(".app-fields")).to_have_count(0)
+    expect(castore_card.locator(".card-meta")).to_be_visible()
     print("phone card: no repetition, one sheet per file slot, Done at the foot")
     small = phone.evaluate("""() => [...document.querySelectorAll('.jobs button, .jobs a[href], .jobs select, .jobs input')]
       .filter(e => e.offsetParent && e.type !== 'file').map(e => [e.className || e.tagName, e.getBoundingClientRect()])

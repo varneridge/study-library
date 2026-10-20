@@ -190,10 +190,28 @@ export function matches(app: ApplicationRow, query: string): boolean {
 
 export async function addApplication(): Promise<string> {
   const id = newId();
-  await insert("applications", {
-    id, employer: "", role: "", applied: todayIso(), stage: "applied", next_deadline: null, notes: null,
-    file_cv: null, file_cl: null, file_rd: null, file_qs: null,
-  });
+  const eventId = newId();
+  await commit([
+    {
+      table: "applications",
+      row: {
+        id, employer: "", role: "", applied: todayIso(), stage: "applied", next_deadline: null, notes: null,
+        file_cv: null, file_cl: null, file_rd: null, file_qs: null,
+      },
+    },
+    {
+      table: "application_events",
+      row: {
+        id: eventId,
+        application_id: id,
+        stage: "applied",
+        from_stage: null,
+        at: new Date().toISOString(),
+        kind: "change" as const,
+        cleared_deadline: null,
+      },
+    },
+  ]);
   return id;
 }
 
@@ -204,16 +222,84 @@ export async function discardIfBlank(id: string): Promise<boolean> {
   const app = await db.applications.get(id);
   if (!app || app.deleted || app.employer.trim() || app.role.trim() || app.notes?.trim()) return false;
   if (SLOTS.some((s) => app[slotColumn(s.name)])) return false;
-  await commit([{ table: "applications", row: { id, deleted: true }, patch: true }]);
+  const events = await db.application_events.where("application_id").equals(id).toArray();
+  const changes: Change[] = [
+    { table: "applications", row: { id, deleted: true }, patch: true },
+    ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: true }, patch: true })),
+  ];
+  await commit(changes);
   return true;
 }
 
 export async function deleteApplication(id: string): Promise<void> {
-  await commit([{ table: "applications", row: { id, deleted: true }, patch: true }]);
+  const app = await db.applications.get(id);
+  if (!app) return;
+  const events = (await db.application_events.where("application_id").equals(id).toArray()).filter((e) => !e.deleted);
+  const changes: Change[] = [
+    { table: "applications", row: { id, deleted: true }, patch: true },
+    ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: true }, patch: true })),
+  ];
+  await commit(changes);
 }
 
 export async function restoreApplication(id: string): Promise<void> {
-  await commit([{ table: "applications", row: { id, deleted: false }, patch: true }]);
+  const app = await db.applications.get(id);
+  if (!app) return;
+  const since = app.modified_at;
+  const events = (await db.application_events.where("application_id").equals(id).toArray())
+    .filter((e) => e.deleted && e.modified_at >= since);
+  const changes: Change[] = [
+    { table: "applications", row: { id, deleted: false }, patch: true },
+    ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: false }, patch: true })),
+  ];
+  await commit(changes);
+}
+
+export async function changeStage(app: ApplicationRow, targetStage: string): Promise<StageChangePlan | null> {
+  if (app.stage === targetStage) return null;
+  const events = await db.application_events.where("application_id").equals(app.id).toArray();
+  const plan = evaluateStageChange(app, events, targetStage);
+  await commit([
+    ...plan.eventChanges,
+    { table: "applications", row: { ...plan.appUpdates, id: app.id }, patch: true },
+  ]);
+  showToast(plan.notice, {
+    label: "Undo",
+    run: () => void undoStageChange(plan.undo),
+  });
+  return plan;
+}
+
+export async function addManualEvent(appId: string, stage: string, at: string): Promise<string> {
+  const id = newId();
+  await insert("application_events", {
+    id,
+    application_id: appId,
+    stage,
+    from_stage: null,
+    at,
+    kind: "manual",
+    cleared_deadline: null,
+  });
+  showToast(`Event added for ${formatDate(at) || at}.`);
+  return id;
+}
+
+export async function updateManualEvent(id: string, changes: { stage?: string; at?: string }): Promise<void> {
+  await update("application_events", id, {
+    ...changes,
+    kind: "manual",
+  });
+}
+
+export async function removeEvent(id: string): Promise<void> {
+  const event = await db.application_events.get(id);
+  if (!event) return;
+  await update("application_events", id, { deleted: true });
+  showToast("Timeline entry removed.", {
+    label: "Undo",
+    run: () => void update("application_events", id, { deleted: false }),
+  });
 }
 
 export function setSlot(id: string, slot: SlotName, value: FileSlot | null): Promise<void> {
