@@ -1807,7 +1807,10 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .slot-list { border-top: 0; }
 .slot-row { grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr) auto; align-items: center; border-bottom: 0; padding: 0.2rem 0; }
 .slot-change { justify-self: end; }
-.app-card .slot-row { grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr) auto; }
+/* On a phone each file is its label over what was sent, with Change to the right of both. */
+.app-card .slot-row { grid-template-columns: minmax(0, 1fr) auto; }
+.app-card .slot-row .slot-change { grid-area: 1 / 2 / span 2 / 3; }
+.app-fields .stage-chip { justify-self: start; }
 .app-danger { margin-top: 1.25rem; margin-left: -0.4rem; }
 
 /* The timeline */

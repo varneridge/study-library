@@ -752,3 +752,38 @@ export function stepLength(from: string, to: string): string {
   }
   return formatDuration(parseEntryTime(from), parseEntryTime(to));
 }
+
+// The Applied date and the first Applied entry are one fact, so changing
+// either changes the other, in the same commit.
+export function firstAppliedEntry(events: ApplicationEventRow[]): ApplicationEventRow | undefined {
+  return sortEvents(events.filter((e) => !e.deleted)).find((e) => e.stage === "applied");
+}
+
+export function appliedDateChanges(app: ApplicationRow, events: ApplicationEventRow[], value: string | null): Change[] {
+  const changes: Change[] = [{ table: "applications", row: { id: app.id, applied: value }, patch: true }];
+  const first = firstAppliedEntry(events.filter((e) => e.application_id === app.id));
+  // An entry edited by hand counts as one added by hand, so the protection against mis-taps leaves it alone.
+  if (first && value && entryDate(first.at) !== value) changes.push({ table: "application_events", row: { id: first.id, at: value, kind: "manual" }, patch: true });
+  return changes;
+}
+
+export function entryEditChanges(
+  app: ApplicationRow, events: ApplicationEventRow[], entry: ApplicationEventRow, edit: { stage: string; at: string },
+): Change[] {
+  const changes: Change[] = [{ table: "application_events", row: { id: entry.id, stage: edit.stage, at: edit.at, kind: "manual" }, patch: true }];
+  const first = firstAppliedEntry(events.filter((e) => e.application_id === app.id));
+  if (first?.id === entry.id && edit.stage === "applied" && entryDate(edit.at) !== app.applied) {
+    changes.push({ table: "applications", row: { id: app.id, applied: entryDate(edit.at) }, patch: true });
+  }
+  return changes;
+}
+
+export async function saveAppliedDate(app: ApplicationRow, value: string | null): Promise<void> {
+  const events = await db.application_events.where("application_id").equals(app.id).toArray();
+  await commit(appliedDateChanges(app, events, value));
+}
+
+export async function saveEntry(app: ApplicationRow, entry: ApplicationEventRow, edit: { stage: string; at: string }): Promise<void> {
+  const events = await db.application_events.where("application_id").equals(app.id).toArray();
+  await commit(entryEditChanges(app, events, entry, edit));
+}

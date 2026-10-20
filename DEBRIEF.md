@@ -1075,7 +1075,7 @@ A separate part of the app for managing job applications. It shares the app's si
 | Notes | Contacts, interview times, what they asked. Not in the spreadsheet; added because there was nowhere else for it |
 | Files | Four slots: CV, cover letter, role description, and answers to questions |
 
-Dates are stored as YYYY-MM-DD and shown as "26 Feb 2026". Deadlines compare dates, not times, so one due today never turns overdue in the afternoon.
+Dates are stored as YYYY-MM-DD and shown as "26 Feb 2026". Deadlines compare dates, not times, so one due today never turns overdue in the afternoon. A closed application shows no deadline at all.
 
 ### Stages
 
@@ -1110,7 +1110,7 @@ The page opens in this order: open applications by next deadline, soonest first;
 
 ### On a wide screen and on a phone
 
-On a screen wider than 60rem, the job search is a table you edit in place. Its two-row header, with **Files** over CV, CL, RD and Qs, stays in view under the top bar as you scroll, as the frozen panes did in the spreadsheet. Employer and role wrap rather than being cut off, save on Enter or on leaving them, and Escape puts back what was there, even after a pause has saved part of the change. A date opens the browser's own picker when clicked, or can be typed from the keyboard; a typed date is kept on Enter or on leaving the field, never on each key, and Escape or **Cancel** beside it puts back what was there. The stage is a chip in its colour, with how long it has been at that stage beneath it, which opens the stage card. In the default order, closed applications sit under a quiet **Closed** heading. While a new row is being filled in, the cross in its last cell cancels it: it goes, with whatever was typed, and is not kept in **Recently deleted**.
+On a screen wider than 60rem, the job search is a table you edit in place. Its two-row header, with **Files** over CV, CL, RD and Qs, stays in view under the top bar as you scroll, as the frozen panes did in the spreadsheet. Employer and role wrap rather than being cut off. They save after a pause in typing and on Enter or leaving them, and Escape puts back what was there when you started, undoing a save the pause has already made. A date opens the browser's own picker when clicked, or can be typed from the keyboard; a typed date is kept on Enter or on leaving the field, never on each key, and Escape or **Cancel** beside it puts back what was there. The stage is a chip in its colour, with how long it has been at that stage beneath it, which opens the stage card. In the default order, closed applications sit under a quiet **Closed** heading. While a new row is being filled in, the cross in its last cell cancels it: it goes, with whatever was typed, and is not kept in **Recently deleted**.
 
 **Details**, opened by the arrow at the end of a row, sets out the notes, the timeline and the four files side by side, with **Close** at the foot and **Delete application**, in red, at the other end.
 

@@ -11,8 +11,8 @@ import { db } from "../lib/db";
 import {
   addApplication, addManualEvent, ATTACH_ACCEPT, cancelNewApplication, attachFile, CATEGORY_LABEL, changeStage, currentStageSince, daysInStage, daysSinceApplied,
   deadlineState, deadlineWords, deleteApplication, discardIfBlank, entryDate, entryTimeText, formatDate, getTimelineEntries,
-  inStageWords, isOpen, likelyNextStages, matches, normaliseUrl, removeEvent, restoreApplication, saveApplication, setSlot,
-  sizeText, slotColumn, slotHref, SLOTS, sortApplications, STAGE_GRID, stageOf, stageShort, stepLength, summarise, todayIso, updateManualEvent, type Order,
+  inStageWords, isOpen, likelyNextStages, matches, normaliseUrl, removeEvent, restoreApplication, saveApplication, saveAppliedDate, saveEntry, setSlot,
+  sizeText, slotColumn, slotHref, SLOTS, sortApplications, STAGE_GRID, stageOf, stageShort, stepLength, summarise, todayIso, type Order,
 } from "../lib/jobs";
 import type { ApplicationEventRow, ApplicationRow, FileSlot, SlotName } from "../lib/types";
 import { showToast, typing, useCloseOnBack, useNarrow, useTitle } from "../lib/ui";
@@ -179,11 +179,15 @@ function StageCard({ open, onClose, anchor, app, current, since, onPick, title, 
 }) {
   const heading = title ?? `Stage for ${app.employer || "this application"}`;
   const next = showNext ? likelyNextStages(current).filter((k) => k !== current) : [];
+  // One choice per opening, so a double tap never changes the stage twice.
+  const chosen = useRef(false);
+  useEffect(() => { if (open) chosen.current = false; }, [open]);
+  const choose = (key: string) => { if (chosen.current) return; chosen.current = true; onPick(key); };
   const tile = (key: string, words: string) => {
     const stage = stageOf(key);
     const on = key === current;
     return (
-      <button key={key} type="button" className={`stage-tile cat-${stage.cat}`} aria-pressed={on} aria-label={stage.label} title={stage.label} onClick={() => onPick(key)}>
+      <button key={key} type="button" className={`stage-tile cat-${stage.cat}`} aria-pressed={on} aria-label={stage.label} title={stage.label} onClick={() => choose(key)}>
         <span>{words}</span>{on && <Icon name="check" size={14} />}
       </button>
     );
@@ -271,6 +275,8 @@ function OrderButton({ order, onChange }: { order: Order; onChange: (order: Orde
 }
 
 function Deadline({ app, editable = true }: { app: ApplicationRow; editable?: boolean }) {
+  // A closed application shows no deadline at all, so a stale date never sits beside a rejection.
+  if (!isOpen(app)) return <span className="deadline state-none" aria-label="No deadline, as the application is closed" />;
   const state = deadlineState(app);
   const words = deadlineWords(app);
   return (
@@ -318,7 +324,15 @@ function SlotCard({ open, onClose, anchor, app, slot }: {
   const attached = value?.state === "saved" && Boolean(value.key || value.url);
   const link = slotHref(value);
   const who = app.employer || "this application";
-  const act = (next: FileSlot | null, message: string) => { onClose(); void changeSlot(app, slot, next, message); };
+  // One change per opening, so a double tap never gives two notices.
+  const acted = useRef(false);
+  useEffect(() => { if (open) acted.current = false; }, [open]);
+  const act = (next: FileSlot | null, message: string) => {
+    if (acted.current) return;
+    acted.current = true;
+    onClose();
+    void changeSlot(app, slot, next, message);
+  };
   const saveLink = () => {
     const clean = normaliseUrl(url);
     if (!clean) { showToast("That doesn't look like a web address."); return; }
@@ -471,23 +485,27 @@ function EntryEditor({ app, entry, onDone }: { app: ApplicationRow; entry?: Appl
   const [day, setDay] = useState(entry ? entryDate(entry.at) : today);
   const [time, setTime] = useState(timed && entry ? entryTimeText(entry.at) : "");
   const [saving, setSaving] = useState(false);
+  // A ref, not state, so a second tap in the same moment is turned away too.
+  const busy = useRef(false);
   const [picking, setPicking] = useState(false);
   const stageButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { stageButton.current?.focus(); }, []);
   const valid = DATE_ONLY.test(day) && day <= today;
   const save = async () => {
-    if (!valid || saving) return;
+    if (!valid || busy.current) return;
+    busy.current = true;
     setSaving(true);
     const at = time ? new Date(`${day}T${time}`).toISOString() : day;
     try {
       if (entry) {
-        await updateManualEvent(entry.id, { stage, at });
+        await saveEntry(app, entry, { stage, at });
         showToast("Timeline entry changed.");
       } else {
         await addManualEvent(app.id, stage, at);
       }
       onDone();
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   };
@@ -600,7 +618,7 @@ function Details({ app, events, narrow, focusEmployer, onDone }: {
           <label>Employer<TextField value={app.employer} label="Employer" placeholder="Required" autoFocus={focusEmployer} onSave={(v) => void saveApplication(app.id, { employer: v })} /></label>
           <label>Role<TextField value={app.role} label="Role" placeholder="Required" onSave={(v) => void saveApplication(app.id, { role: v })} /></label>
           <div className="field-pair">
-            <span className="field"><span className="field-label">Applied</span><DateField value={app.applied} label="Applied" onSave={(v) => void saveApplication(app.id, { applied: v })} /></span>
+            <span className="field"><span className="field-label">Applied</span><DateField value={app.applied} label="Applied" onSave={(v) => void saveAppliedDate(app, v)} /></span>
             <span className="field"><span className="field-label">Next deadline</span><Deadline app={app} /></span>
           </div>
           <span className="field"><span className="field-label">Stage</span><StageButton app={app} since={currentStageSince(app, events)} /></span>
@@ -676,7 +694,7 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
         <td className="c-role">
           <TextField wrap className="cell-input" value={app.role} label="Role" placeholder="Role" onSave={(v) => void saveApplication(app.id, { role: v })} />
         </td>
-        <td className="c-applied"><DateField value={app.applied} label="Applied" onSave={(v) => void saveApplication(app.id, { applied: v })} /></td>
+        <td className="c-applied"><DateField value={app.applied} label="Applied" onSave={(v) => void saveAppliedDate(app, v)} /></td>
         <td className="c-stage">
           <StageButton app={app} since={since} />
           {since && isOpen(app) && <span className="stage-since">{inStageWords(since)}</span>}
@@ -719,7 +737,7 @@ function Card({ app, events, open, fresh, onToggle, onLeft }: {
         {app.role && <span className="card-role">{app.role}</span>}
         <span className="card-meta">
           {app.applied && <span>Applied {formatDate(app.applied)}</span>}
-          {app.next_deadline && <span className="card-due">Due <Deadline app={app} editable={false} /></span>}
+          {app.next_deadline && isOpen(app) && <span className="card-due">Due <Deadline app={app} editable={false} /></span>}
         </span>
         <span className="card-slots" aria-label="Files">
           {SLOTS.map((slot) => {

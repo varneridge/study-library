@@ -128,6 +128,8 @@ with sync_playwright() as p:
     expect(row("Civil Service").locator(".stage-chip")).to_have_class("stage-chip cat-waiting")
     # Kekst is closed, so its past deadline is not shown as overdue.
     expect(row("Kekst CNC").locator(".deadline")).to_have_class("deadline state-none")
+    # A closed application shows no deadline at all, not a stale date beside a rejection.
+    expect(row("Kekst CNC").locator(".deadline-date")).to_have_count(0)
     expect(row("Kekst CNC").locator(".stage-chip")).to_have_class("stage-chip cat-closed")
     expect(row("Kekst CNC").locator(".c-applied .date-show")).to_have_text("26 Feb 2026")
     page.screenshot(path=f"{shots}-1-table.png", full_page=True)
@@ -199,9 +201,32 @@ with sync_playwright() as p:
     expect(stage_card).to_be_visible()
     page.mouse.click(12, 880)
     expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(chip).to_be_focused()
     expect(chip).to_contain_text("Video interview: to record")
     until_stages(page, "Dragonfly Intelligence", ["applied", "hirevue_todo"])
     print("Cancel, Escape and a click outside change nothing and give focus back")
+
+    # Two taps on a tile in the same moment change the stage once. Marking a step
+    # done clears its deadline, and Undo brings the deadline back.
+    chip.click()
+    stage_card.locator(".stage-grid").get_by_role("button", name="Video interview: done, awaiting result", exact=True).evaluate("el => { el.click(); el.click(); }")
+    until_stages(page, "Dragonfly Intelligence", ["applied", "hirevue_todo", "hirevue_wait"])
+    page.wait_for_timeout(800)
+    assert stages_on_server(page, "Dragonfly Intelligence") == ["applied", "hirevue_todo", "hirevue_wait"], stages_on_server(page, "Dragonfly Intelligence")
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Dragonfly Intelligence' && a.stage === 'hirevue_wait' && !a.next_deadline); }")
+    page.locator(".toast").get_by_role("button", name="Undo").click()
+    until_stages(page, "Dragonfly Intelligence", ["applied", "hirevue_todo"])
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Dragonfly Intelligence' && a.stage === 'hirevue_todo' && a.next_deadline); }")
+    expect(dragonfly.locator(".deadline-words")).to_have_text("in 5 days")
+    print("a double tap changed the stage once, and Undo brought back the deadline that marking it done had cleared")
+
+    # While a card is open, the page's shortcuts do nothing: N adds no application.
+    count = page.locator("tbody.app").count()
+    page.get_by_role("button", name="Order: Next deadline. Change").click()
+    page.keyboard.press("n")
+    page.keyboard.press("Escape")
+    expect(page.locator("dialog[open]")).to_have_count(0)
+    expect(page.locator("tbody.app")).to_have_count(count)
 
     # An application added and left empty is not kept.
     page.get_by_role("button", name="Add application").click()
@@ -321,11 +346,20 @@ with sync_playwright() as p:
     expect(order_card).to_have_count(0)
     print("filter, find and order work")
 
-    # The timeline in Details: add a past event, cancel another, edit one, remove one and Undo.
+    # The Applied date and the first Applied entry are one fact: changing the date moves the entry.
     fast = page.locator("tbody.app[data-app='fast']")
+    fast.locator(".c-applied .date-show").focus()
+    page.keyboard.press("Enter")
+    fast.locator(".c-applied input[type=date]").fill(iso(today - timedelta(days=7)))
+    page.keyboard.press("Enter")
+    until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.application_events || []).some(e => e.id === 'ev-fast' && e.at === '{iso(today - timedelta(days=7))}') && (j.rows.applications || []).some(a => a.id === 'fast' && a.applied === '{iso(today - timedelta(days=7))}'); }}")
+    print("changing the Applied date moved the first Applied entry with it")
+
+    # The timeline in Details: add a past event, cancel another, edit one, remove one and Undo.
     fast.locator(".details-toggle").click()
     tl = fast.locator(".timeline")
     expect(tl.locator(".tl-entry")).to_have_count(1)
+    expect(tl.locator(".tl-entry .tl-when").first).to_have_text(f"{(today - timedelta(days=7)).day} {(today - timedelta(days=7)).strftime('%b %Y')}")
     tl.get_by_role("button", name="Add a past event").click()
     editor = tl.locator(".tl-editor")
     editor.get_by_role("button", name=re.compile(r"^Stage for this entry")).click()
@@ -442,6 +476,9 @@ with sync_playwright() as p:
       .map(([c, r]) => c + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))""")
     assert not small_in_sheet, small_in_sheet
     phone.screenshot(path=f"{shots}-9-phone-stage-sheet.png")
+    # Cancel stays on screen at the foot of the sheet, however long the sheet is.
+    cancel_box = phone_sheet.get_by_role("button", name="Cancel").bounding_box()
+    assert cancel_box and cancel_box["y"] + cancel_box["height"] <= 844, cancel_box
     # Back closes the sheet first and leaves the card open.
     phone.go_back()
     expect(phone_sheet).to_have_count(0)

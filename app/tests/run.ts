@@ -14,6 +14,7 @@ import {
   likelyNextStages, matches, normaliseUrl, parseEntryTime,
   sortApplications, sortEvents, STAGE_GRID, STAGES, stageOf, summarise,
   undoStageChangeChanges, stageShort, stepLength, inStageWords, currentStageSince, entryDate,
+  appliedDateChanges, entryEditChanges, firstAppliedEntry,
 } from "../src/lib/jobs";
 import type { ApplicationEventRow, ApplicationRow } from "../src/lib/types";
 import { paragraphs, tidy } from "../src/lib/transcriptImport";
@@ -506,6 +507,31 @@ test("time in the current stage comes from its latest entry, and says nothing wi
   // Changed on a device without the timeline: the latest entry is another stage, so no "since".
   assert.equal(currentStageSince({ ...app, stage: "oa_wait" }, events), null);
   assert.equal(inStageWords(null), "");
+});
+
+test("the Applied date and the first Applied entry move together", () => {
+  const app = { id: "a", employer: "PwC", role: "", applied: "2026-10-01", stage: "oa_todo", next_deadline: null, notes: null,
+    file_cv: null, file_cl: null, file_rd: null, file_qs: null, modified_at: "2026-10-01T00:00:00.000Z", seq: 0, deleted: false };
+  const ev = (id: string, stage: string, at: string, kind: "change" | "manual" = "change") => ({ id, application_id: "a", stage, from_stage: null, at, kind,
+    cleared_deadline: null, modified_at: at, seq: 0, deleted: false });
+  const events = [ev("first", "applied", "2026-10-01T10:00:00.000Z"), ev("oa", "oa_todo", "2026-10-08")];
+  assert.equal(firstAppliedEntry(events)?.id, "first");
+  // Changing the Applied date moves the first Applied entry, which then counts as edited by hand.
+  const moved = appliedDateChanges(app, events, "2026-09-28");
+  assert.equal(moved.length, 2);
+  assert.deepEqual(moved[1].row, { id: "first", at: "2026-09-28", kind: "manual" });
+  // The same day changes only the application, and clearing the date leaves the entry alone.
+  assert.equal(appliedDateChanges(app, events, "2026-10-01").length, 1);
+  assert.equal(appliedDateChanges(app, events, null).length, 1);
+  // Editing the first Applied entry's date changes the Applied date; editing any other entry does not.
+  const edited = entryEditChanges(app, events, events[0], { stage: "applied", at: "2026-09-30" });
+  assert.deepEqual(edited.map((c) => c.table), ["application_events", "applications"]);
+  assert.deepEqual(edited[1].row, { id: "a", applied: "2026-09-30" });
+  assert.equal(entryEditChanges(app, events, events[1], { stage: "oa_todo", at: "2026-10-09" }).length, 1);
+  // Turning the first entry into another stage leaves the Applied date as it was.
+  assert.equal(entryEditChanges(app, events, events[0], { stage: "to_apply", at: "2026-09-30" }).length, 1);
+  // A deleted entry is never the first.
+  assert.equal(firstAppliedEntry([{ ...events[0], deleted: true }, events[1]]), undefined);
 });
 
 if (failed) {
