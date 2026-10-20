@@ -31,7 +31,7 @@ trap 'kill -- -"$worker" 2>/dev/null' EXIT
 for _ in $(seq 1 90); do curl -s -m 2 "http://127.0.0.1:$port/api/ping" >/dev/null && break; sleep 1; done
 curl -s -m 2 "http://127.0.0.1:$port/api/ping" >/dev/null || { echo "The local Worker did not start:"; tail -20 /tmp/e2e-worker.log; exit 1; }
 
-order="library sessions features usability themes editing dragging transcripts citations textview reading_notes recording_bar reading_place paragraphs notes_access slides_and_modules jobs ux answers mobile photos consistency dissertation back"
+order="library sessions features usability themes editing dragging transcripts citations textview reading_notes recording_bar reading_place paragraphs notes_access slides_and_modules jobs ux answers mobile photos consistency dissertation back audit_layout"
 names="${*:-$order}"
 failed=0
 for name in $names; do

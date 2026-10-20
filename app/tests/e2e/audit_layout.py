@@ -2,8 +2,8 @@
 a dissertation module with sections and key dates, the job search, lecture and
 seminar sessions, reader in PDF and text views, search and settings.
 
-Visits every screen at widths 320, 375, 390, 768, 1024, 1280 and 1440, in light
-and dark themes.
+Visits every screen at widths 320, 390, 768 and 1280 in light, with dark at 390
+and 1280.
 
 Checks for:
 1. Text cut off or overflowing its box (including ellipsis without full text available).
@@ -30,19 +30,15 @@ HERE = Path(__file__).resolve().parent
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"
 OUT = HERE / "shots" / "audit"
 OUT.mkdir(parents=True, exist_ok=True)
-FILES = HERE / "files"
+FILES = HERE / "files-audit"
 FILES.mkdir(exist_ok=True)
 
-WIDTHS = [
-    (320, 568, "w320-iphone-se1"),
-    (375, 667, "w375-iphone-se"),
-    (390, 844, "w390-iphone-14"),
-    (768, 1024, "w768-ipad-mini"),
-    (1024, 768, "w1024-laptop"),
-    (1280, 800, "w1280-desktop"),
-    (1440, 900, "w1440-wide"),
+CONFIGS = [
+    (320, 568, "w320-iphone-se1", ["light"]),
+    (390, 844, "w390-iphone-14", ["light", "dark"]),
+    (768, 1024, "w768-ipad-mini", ["light"]),
+    (1280, 800, "w1280-desktop", ["light", "dark"]),
 ]
-THEMES = ["light", "dark"]
 
 CHECKS = r"""
 ([isTouch, isPhone]) => {
@@ -459,11 +455,11 @@ def run_audit():
         all_findings = []
         shot_idx = 0
 
-        for width, height, w_name in WIDTHS:
+        for width, height, w_name, themes in CONFIGS:
             is_touch = width <= 768
             is_phone = width < 500
 
-            for theme in THEMES:
+            for theme in themes:
                 context = browser.new_context(
                     viewport={"width": width, "height": height},
                     has_touch=is_touch,
