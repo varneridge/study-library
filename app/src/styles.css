@@ -1412,11 +1412,17 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .button, .tool, .nav-button, .menu-button, .quiet:not(.cell-input), .found, .question-open, .where, .week-title, .hit-line, .tw-session {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
-  .hit-line, .week-title { display: flex; }
+  .hit-line { display: flex; }
+  .week-title { display: flex; min-height: 2.75rem; }
   .menu-button { min-width: 2.75rem; justify-content: center; }
-  .reading a.name, .recent .name, .module-row, .list .name, .session-link, .session-open, .notes-more, .crumbs a, .tw-head {
+  .reading a.name, .recent .name, .module-row, .list .name, .list li > a, .session-link, .session-open, .notes-more, .crumbs a, .topbar nav a, .week-nav a, .across-session a {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
+  .session-link { min-width: 2.75rem; padding-inline: 0.5rem; justify-content: center; }
+  .modules-nav a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.4rem; }
+  .crumbs a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.4rem; }
+  .week-nav a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.5rem; }
+  .tw-head { min-height: 2.75rem; display: flex; flex-direction: column; justify-content: center; }
   .note-highlight .quote-meta { flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; }
   .note-highlight .quote-meta button, .note-highlight .quote-meta a { min-height: 2.75rem; display: inline-flex; align-items: center; }
   .note-highlight .quote-write, .note-highlight .quote-delete { min-width: 2.75rem; padding-inline: 0.35rem; justify-content: center; opacity: 1 !important; }
@@ -1424,6 +1430,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .button:active, .tool:active, .icon-button:active { background: var(--wash); opacity: 1; }
   /* Fields at 16px or more, so iOS never zooms in when one is tapped. */
   input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea { font-size: max(1rem, 16px); }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select { min-height: 2.75rem; }
   .caret { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; }
   .pane-tabs { min-height: 2.75rem; }
   .pane-tab { height: 2.75rem; min-height: 2.75rem; }
@@ -1441,7 +1448,16 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
     position: absolute;
     inset: -0.5rem;
   }
+  input[type="checkbox"] {
+    position: relative;
+  }
+  input[type="checkbox"]::before {
+    content: "";
+    position: absolute;
+    inset: -0.75rem;
+  }
   .pages-at input { min-width: 2.75rem; min-height: 2.75rem; }
+  .colour-names input { min-height: 2.75rem; }
   .question-row textarea { min-height: 2.75rem; }
 }
 
