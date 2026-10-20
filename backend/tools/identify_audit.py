@@ -136,6 +136,14 @@ def main() -> None:
         fields = compare(current, found) if found else None
         unnamed = item.get("kind") == "secondary" and not item.get("author") and not item.get("year")
         suggested = item.get("suggested") or None
+        if isinstance(suggested, str):
+            try:
+                suggested = json.loads(suggested)
+            except ValueError:
+                suggested = None
+        # The Worker never raises a suggestion you have already dismissed.
+        dismissed_same = bool(found and suggested and suggested.get("dismissed")
+                              and all(plain(suggested.get(f)) == plain(found.get(f)) for f in FIELDS))
         results.append({
             "id": item["id"],
             "kind": item.get("kind"),
@@ -146,6 +154,7 @@ def main() -> None:
             "fields": fields,
             "would_apply_without_asking": bool(found and unnamed and via in APPLIED_ROUTES),
             "pending_suggestion": bool(suggested and not suggested.get("applied") and not suggested.get("dismissed")),
+            "dismissed_same": dismissed_same,
             "text_status": file.get("text_status"),
             "first_pages_text": len(text.strip()),
             "doi_on_page": doi_page,
@@ -194,11 +203,12 @@ def summarise(results: list[dict]) -> None:
     print("\nRoute and verdict together:")
     for (via, v), count in sorted(Counter((r["via"] or "none", r["verdict"]) for r in results).items()):
         print(f"  {count:4}  {via:15} {v}")
-    raised = [r for r in results if r["found"] and r["verdict"] != "same as now"]
+    raised = [r for r in results if r["found"] and r["verdict"] != "same as now" and not r["dismissed_same"]]
     print("\nThe suspicions:")
-    print(f"  {len(raised):4}  would raise Details found (anything differs)")
-    print(f"  {sum(r['verdict'] == 'worse: has less than now' for r in results):4}  of those have less than the current name")
-    print(f"  {sum(r['verdict'] == 'a different work' for r in results):4}  of those look like a different work")
+    print(f"  {len(raised):4}  would raise Details found (anything differs, and not already dismissed)")
+    print(f"  {sum(r['dismissed_same'] for r in results):4}  would find again a suggestion you already dismissed")
+    print(f"  {sum(r['verdict'] == 'worse: has less than now' for r in raised):4}  of those have less than the current name")
+    print(f"  {sum(r['verdict'] == 'a different work' for r in raised):4}  of those look like a different work")
     print(f"  {sum(r['would_apply_without_asking'] for r in results):4}  would be applied without asking (no author or year yet)")
     print(f"  {sum(r['would_apply_without_asking'] and r['verdict'] == 'a different work' for r in results):4}  of those look like a different work")
     print(f"  {sum(r['pending_suggestion'] for r in results):4}  have a suggestion waiting now")
