@@ -18,6 +18,7 @@ const DEFAULTS: Record<string, unknown> = {
   employer: "",
   role: "",
   stage: "applied",
+  kind: "change",
 };
 
 const BASE = ["id", "modified_at", "deleted"] as const;
@@ -45,6 +46,9 @@ export const TABLES = {
   applications: spec(
     ["employer", "role", "applied", "stage", "next_deadline", "notes", "file_cv", "file_cl", "file_rd", "file_qs"],
     ["file_cv", "file_cl", "file_rd", "file_qs"],
+  ),
+  application_events: spec(
+    ["application_id", "stage", "from_stage", "at", "kind", "cleared_deadline"],
   ),
   highlights: spec(
     ["item_id", "page", "rects", "body", "colour", "comment", "question_id", "zotero_key"],

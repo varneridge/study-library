@@ -176,6 +176,17 @@ export interface ApplicationRow extends SyncedRow {
   file_qs: FileSlot | null;
 }
 
+export type ApplicationEventKind = "change" | "manual";
+
+export interface ApplicationEventRow extends SyncedRow {
+  application_id: string;
+  stage: string;
+  from_stage: string | null;
+  at: string;
+  kind: ApplicationEventKind;
+  cleared_deadline: string | null;
+}
+
 // BlockNote's block format, kept loose so later editor versions still load.
 export interface InlineText {
   type: "text";
@@ -209,6 +220,7 @@ export interface Tables {
   note_blocks: NoteBlockRow;
   settings: SettingRow;
   applications: ApplicationRow;
+  application_events: ApplicationEventRow;
 }
 
 export type TableName = keyof Tables;
@@ -227,4 +239,5 @@ export const SYNCED_TABLES: TableName[] = [
   "note_blocks",
   "settings",
   "applications",
+  "application_events",
 ];

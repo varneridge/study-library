@@ -73,6 +73,7 @@ class StudyDB extends Dexie {
   note_blocks!: Table<Tables["note_blocks"], string>;
   settings!: Table<Tables["settings"], string>;
   applications!: Table<Tables["applications"], string>;
+  application_events!: Table<Tables["application_events"], string>;
   outbox!: Table<OutboxEntry, number>;
   failed!: Table<FailedChange, number>;
   meta!: Table<MetaEntry, string>;
@@ -116,6 +117,10 @@ class StudyDB extends Dexie {
     this.version(5).stores({ applications: "id" });
     // A dissertation section's own notes, from 0.31.
     this.version(6).stores({ notes: "id, session_id, item_id, question_id, week_id" });
+    // The job search timeline events, from 0.32.
+    this.version(7).stores({ application_events: "id, application_id" }).upgrade(async (tx) => {
+      await tx.table("meta").put({ key: "cursor", value: 0 });
+    });
   }
 }
 

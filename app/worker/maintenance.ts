@@ -37,9 +37,10 @@ export async function purge(env: Env): Promise<void> {
     env.DB.prepare(
       `DELETE FROM jobs WHERE status = 'done' AND finished_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')`,
     ),
-    // Search text for files and recordings that no longer exist.
+    // Search text for files and recordings that no longer exist, and orphaned timeline events.
     env.DB.prepare("DELETE FROM page_text WHERE file_id NOT IN (SELECT id FROM files)"),
     env.DB.prepare("DELETE FROM transcript_text WHERE recording_id NOT IN (SELECT id FROM recordings)"),
+    env.DB.prepare("DELETE FROM application_events WHERE application_id NOT IN (SELECT id FROM applications)"),
   ]);
   await releaseUnusedFiles(env);
 
