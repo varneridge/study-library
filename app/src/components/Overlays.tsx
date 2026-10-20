@@ -18,11 +18,19 @@ const SHORTCUTS: { group: string; keys: [string, string][] }[] = [
 function Shortcuts() {
   const { shortcuts } = useOverlays();
   const ref = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (shortcuts && !dialog.open) dialog.showModal();
-    if (!shortcuts && dialog.open) dialog.close();
+    if (shortcuts && !dialog.open) {
+      triggerRef.current = document.activeElement as HTMLElement | null;
+      dialog.showModal();
+    }
+    if (!shortcuts && dialog.open) {
+      dialog.close();
+      triggerRef.current?.focus();
+    }
   }, [shortcuts]);
   return (
     <dialog ref={ref} className="dialog shortcuts" onCancel={(e) => { e.preventDefault(); closeShortcuts(); }} onClick={(e) => { if (e.target === e.currentTarget) closeShortcuts(); }}>
@@ -47,16 +55,21 @@ function Shortcuts() {
 function Dialog() {
   const { ask } = useOverlays();
   const ref = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const [typed, setTyped] = useState("");
 
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (ask && !dialog.open) {
+      triggerRef.current = document.activeElement as HTMLElement | null;
       setTyped("");
       dialog.showModal();
     }
-    if (!ask && dialog.open) dialog.close();
+    if (!ask && dialog.open) {
+      dialog.close();
+      triggerRef.current?.focus();
+    }
   }, [ask]);
 
   const ready = !ask?.typed || typed.trim() === ask.typed;

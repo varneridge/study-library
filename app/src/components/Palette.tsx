@@ -87,15 +87,21 @@ export function Palette() {
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("open-palette", openIt); };
   }, []);
 
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     const d = dialog.current;
     if (!d) return;
     if (open) {
+      triggerRef.current = document.activeElement as HTMLElement | null;
       setQuery("");
       setIndex(0);
       void entries().then(setAll);
       if (!d.open) d.showModal();
-    } else if (d.open) d.close();
+    } else if (d.open) {
+      d.close();
+      triggerRef.current?.focus();
+    }
   }, [open]);
 
   const shown = useMemo(() => {
