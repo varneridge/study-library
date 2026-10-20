@@ -12,7 +12,7 @@ import {
   SLOTS, sortApplications, STAGES, stageOf, summarise, type Order,
 } from "../lib/jobs";
 import type { ApplicationRow, FileSlot, SlotName } from "../lib/types";
-import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
+import { showToast, typing, useCloseOnBack, useNarrow, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
 import { Menu } from "./Menu";
 import { shortDate } from "../lib/dates";
@@ -393,6 +393,7 @@ function TableRow({ app, open, fresh, onToggle, onLeft }: {
 function Card({ app, open, fresh, onToggle, onLeft }: {
   app: ApplicationRow; open: boolean; fresh: boolean; onToggle: (to?: boolean) => void; onLeft: (gone: boolean) => void;
 }) {
+  useCloseOnBack(open, () => onToggle(false));
   const leave = useDiscardWhenLeft(app.id, fresh, onLeft);
   const stage = stageOf(app.stage);
   return (

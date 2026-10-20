@@ -14,7 +14,7 @@ import { byWeek, weekCode, titleAfter } from "../lib/modules";
 import { parseTitle, stripExtension } from "../lib/parse";
 import { navigate, type Route } from "../lib/router";
 import { mimeFor } from "../lib/uploads";
-import { showToast } from "../lib/ui";
+import { showToast, useCloseOnBack } from "../lib/ui";
 import type { ModuleRow, WeekRow } from "../lib/types";
 import { addRecordingFile } from "./SessionPage";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
@@ -43,6 +43,7 @@ const isMedia = (file: File) => /^(audio|video)\//.test(mimeFor(file) ?? file.ty
 function Sheet({ files, initial, onClose }: {
   files: File[]; initial: { moduleId: string | null; weekId: string | null }; onClose: () => void;
 }) {
+  useCloseOnBack(true, onClose);
   const ref = useRef<HTMLDialogElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   // Live, so a device still fetching the library fills the list in as it arrives.

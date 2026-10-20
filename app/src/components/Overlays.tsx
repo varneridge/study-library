@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { closeShortcuts, dismissToast, useOverlays } from "../lib/ui";
+import { closeShortcuts, dismissToast, useCloseOnBack, useOverlays } from "../lib/ui";
 
 const SHORTCUTS: { group: string; keys: [string, string][] }[] = [
   { group: "Anywhere", keys: [["Ctrl K", "Go to a module, week, reading or question"], ["/", "Search"], ["?", "These shortcuts"]] },
@@ -19,6 +19,8 @@ function Shortcuts() {
   const { shortcuts } = useOverlays();
   const ref = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+
+  useCloseOnBack(shortcuts, closeShortcuts);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -60,6 +62,8 @@ function Dialog() {
   const ref = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const [typed, setTyped] = useState("");
+
+  useCloseOnBack(Boolean(ask), () => ask?.resolve(false));
 
   useEffect(() => {
     const dialog = ref.current;

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AcrossPage } from "./components/AcrossPage";
 import { Home } from "./components/Home";
 import { ImportPage } from "./components/ImportPage";
@@ -13,7 +13,7 @@ import { resumeUploads } from "./lib/uploads";
 import { pumpChunks, recoverRecordings } from "./lib/recorder";
 import { db } from "./lib/db";
 import { byPosition } from "./lib/keys";
-import { openShortcuts, typing } from "./lib/ui";
+import { openShortcuts, typing, useCloseOnBack } from "./lib/ui";
 import { Overlays } from "./components/Overlays";
 import { DropAnywhere } from "./components/DropAnywhere";
 import { Palette } from "./components/Palette";
@@ -58,12 +58,29 @@ export function Link({ to, children, className, current, title, label }: {
 function SyncStatus() {
   const [state, setState] = useState<SyncState | null>(null);
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
   const [, tick] = useState(0);
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
   const uploads = useLiveQuery(() => db.uploads.toArray(), [], []);
+  useCloseOnBack(open, () => setOpen(false));
   useEffect(() => subscribeSync(setState), []);
   useEffect(() => onUploadProgress(() => tick((n) => n + 1)), []);
   useEffect(() => { if (!uploads.length) setOpen(false); }, [uploads.length]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
   let text = "";
   let problem: string | null = null;
   if (state && !state.online) text = uploads.length ? `Offline, ${uploads.length} to upload` : "Offline";
@@ -74,7 +91,7 @@ function SyncStatus() {
     return <span className={`sync${problem ? " problem" : ""}`} title={problem ?? undefined} aria-live="polite">{text}</span>;
   }
   return (
-    <span className="sync menu">
+    <span className="sync menu" ref={ref}>
       <button className={`sync-button${uploads.some((u) => u.status === "failed") ? " problem" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>{text}</button>
       {open && (
         <div className="menu-panel uploads-panel" role="dialog" aria-label="Uploads">

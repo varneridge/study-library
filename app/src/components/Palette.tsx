@@ -6,6 +6,7 @@ import { db } from "../lib/db";
 import { placesOf } from "../lib/library";
 import { sessionLabel, weekCode, titleAfter } from "../lib/modules";
 import { navigate, type Route } from "../lib/router";
+import { useCloseOnBack } from "../lib/ui";
 // Go to matches loosely: every word typed appears somewhere, so "319 at4
 // sem" finds the HY319 AT4 seminar. Search proper stays strict.
 // Curly quotes match straight ones, so "napoleon's" finds "Napoleon’s".
@@ -73,6 +74,8 @@ export function Palette() {
   const [index, setIndex] = useState(0);
   const dialog = useRef<HTMLDialogElement>(null);
   const list = useRef<HTMLUListElement>(null);
+
+  useCloseOnBack(open, () => setOpen(false));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

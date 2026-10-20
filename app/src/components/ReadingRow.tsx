@@ -9,7 +9,7 @@ import { fullTitle, shortTitle, titleParts } from "../lib/titles";
 import { mimeFor, onUploadProgress, queueUpload, retryUpload, sha256, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
 import { moveToTray, moveToWeek, nudge } from "../lib/moves";
-import { confirmAction, showToast, useOnline } from "../lib/ui";
+import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
 import { keepMine, lookAgain, pending, putBack, applySuggestion, viaLabel } from "../lib/citations";
@@ -94,6 +94,7 @@ export function ReadMark({ view }: { view: ReadingView }) {
 }
 
 export function Editor({ view, onClose, start }: { view: ReadingView; onClose: () => void; start?: Suggestion | null }) {
+  useCloseOnBack(true, onClose);
   const from = start ?? view.item;
   const [draft, setDraft] = useState({
     kind: view.item.kind,
@@ -250,6 +251,7 @@ export function MoveSelect({ view, weeks, label = "Move to week", onMoved }: {
 // Chooses where a reading goes: a week or Unsorted, in its own module or
 // another. The module defaults to the one the reading is in.
 export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () => void }) {
+  useCloseOnBack(true, onMoved);
   const here = useLiveQuery(() => moduleOfItem(view.item), [view.item.id, view.item.tray_module_id, view.link?.week_id], null);
   const [chosen, setChosen] = useState<string | null>(null);
   const moduleId = chosen ?? here;

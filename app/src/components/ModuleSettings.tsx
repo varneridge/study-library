@@ -6,7 +6,7 @@ import { TERMS, WEEK_NUMBERS, weekCode } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { newId, update } from "../lib/sync";
 import type { Block, ModuleRow, WeekRow } from "../lib/types";
-import { confirmAction, showToast } from "../lib/ui";
+import { confirmAction, showToast, useCloseOnBack } from "../lib/ui";
 
 function toText(blocks: Block[] | null): string {
   return (blocks ?? []).map(blockText).join("\n\n");
@@ -24,6 +24,7 @@ function toBlocks(text: string): Block[] | null {
 // Editing a module: its code, title, description and reading weeks, and
 // deleting it.
 export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; weeks: WeekRow[]; onClose: () => void }) {
+  useCloseOnBack(true, onClose);
   const convert = async () => {
     const ok = await confirmAction({
       title: `Change ${module.code} to a dissertation?`,

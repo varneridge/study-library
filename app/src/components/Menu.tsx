@@ -1,7 +1,7 @@
 import { Icon } from "./icons";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { sheetHost } from "../lib/ui";
+import { sheetHost, useCloseOnBack } from "../lib/ui";
 
 export interface MenuItem {
   label: string;
@@ -16,65 +16,38 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const poppedRef = useRef(false);
   const actionSelectedRef = useRef(false);
   const [shift, setShift] = useState(0);
   const shown = items.filter((i) => !i.hidden);
 
+  useCloseOnBack(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) return;
-    poppedRef.current = false;
     actionSelectedRef.current = false;
-    window.history.pushState({ overlayOpen: true }, "");
-
-    const onPop = () => {
-      poppedRef.current = true;
-      setOpen(false);
-    };
-    window.addEventListener("popstate", onPop);
 
     const close = (e: MouseEvent) => {
       const target = e.target as Node;
       if (!ref.current?.contains(target) && !panel.current?.contains(target)) {
-        if (!poppedRef.current && window.history.state?.overlayOpen) {
-          window.history.back();
-        }
         setOpen(false);
       }
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (!poppedRef.current && window.history.state?.overlayOpen) {
-          window.history.back();
-        }
-        setOpen(false);
-      }
+      if (e.key === "Escape") setOpen(false);
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", key);
     return () => {
-      window.removeEventListener("popstate", onPop);
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", key);
-      if (!poppedRef.current && window.history.state?.overlayOpen) {
-        window.history.back();
-      }
       if (!actionSelectedRef.current) {
         buttonRef.current?.focus();
       }
     };
   }, [open]);
 
-  const dismiss = () => {
-    if (!poppedRef.current && window.history.state?.overlayOpen) {
-      window.history.back();
-    }
-    setOpen(false);
-  };
-
   const selectItem = (item: MenuItem) => {
     actionSelectedRef.current = true;
-    window.history.replaceState(null, "");
     setOpen(false);
     item.onSelect();
   };
@@ -95,7 +68,7 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
     <div className="menu" ref={ref}>
       <button ref={buttonRef} className="quiet menu-button" aria-label={label} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name="more" size={18} /></button>
       {/* On a phone the menu is a sheet over a dimmed page; tapping the page closes it. */}
-      {open && portal(<div className="menu-backdrop" aria-hidden="true" onClick={dismiss} />)}
+      {open && portal(<div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />)}
       {open && portal(
         <div className="menu-panel" role="menu" ref={panel} style={shift ? { transform: `translateX(${shift}px)` } : undefined}>
           {shown.map((item) => (
@@ -108,7 +81,7 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
               {item.label}
             </button>
           ))}
-          <button role="menuitem" className="menu-cancel" onClick={dismiss}>Cancel</button>
+          <button role="menuitem" className="menu-cancel" onClick={() => setOpen(false)}>Cancel</button>
         </div>,
       )}
     </div>

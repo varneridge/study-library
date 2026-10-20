@@ -17,7 +17,7 @@ import { db } from "../lib/db";
 import { applyPlans, planFile } from "../lib/importing";
 import { moveToTray, moveToWeek } from "../lib/moves";
 import { shortTitle } from "../lib/titles";
-import { showToast } from "../lib/ui";
+import { showToast, useCloseOnBack } from "../lib/ui";
 import type { ReadingView } from "../lib/library";
 import type { ModuleRow, WeekRow } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
@@ -57,6 +57,7 @@ function sessionSummary(view: WeekView): string | null {
 
 // Details found in PDFs, all in one place: tick the ones to use.
 function CitationReview({ views, onClose }: { views: ReadingView[]; onClose: () => void }) {
+  useCloseOnBack(true, onClose);
   const ref = useRef<HTMLDialogElement>(null);
   const [chosen, setChosen] = useState(() => new Set(views.map((v) => v.item.id)));
   useEffect(() => { ref.current?.showModal(); }, []);
