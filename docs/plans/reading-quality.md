@@ -344,13 +344,47 @@ Each markdown file contains the expected clean text (`Headings`, `Body Paragraph
 
 ---
 
-## 7. Decisions Needed Before Implementation
+## 7. Agreed Decisions and Implementation Plan
 
-1. **Where to store the extra Chicago reference fields (`work_kind`, full `authors`, `editors`, `container_title`, `publisher`, `volume`, `issue`, `doi`, `url`, `date`, `archive`)**:
-   - **Option A (Recommended)**: Keep the existing 5 columns (`author`, `year`, `title`, `source`, `pages`) for cards, lists, and sorting (storing full given names in `author`), and add a single JSON column `reference_json` (or `citation`) on `items` to hold the full structured Chicago fields without schema churn.
-   - **Option B**: Add individual SQLite/D1 columns for every Chicago field.
-2. **Where text reflow should run**:
-   - **Option A (Recommended)**: Keep reflow in `app/src/lib/reflow.ts` on the device (so it works offline with zero extra storage), fixing its five root causes directly (rotated watermark filtering, cover-sheet detectors for CLA / T&F / JSTOR Books, provider stamp stripping for ProQuest / Cambridge / Oxford, position + marker footnote detection, 2-up landscape page splitting, and character-aware word spacing). Pair this with re-OCRing the `7` unhealthy pre-existing scans in the processor when `real_word_ratio < 0.85`.
-   - **Option B**: Run `pymupdf-layout` + heuristic post-processing in the Python processor and sync a precomputed layout JSON for every PDF.
-3. **Rescanning the `7` unhealthy OCR layers (`real_word_ratio < 0.85`)**:
-   - Should the processor automatically re-run `OCRmyPDF --redo-ocr` on the `7` readings whose existing publisher/archive OCR layer has missing word spaces or `< 85%` real words?
+### Decisions Confirmed
+
+1. **Separate columns for Chicago reference fields**: Add individual columns on `items` rather than a JSON blob.
+2. **Client-side text reflow**: Keep reflow in `app/src/lib/reflow.ts` and fix the five deterministic fault causes there.
+3. **Automatic `--redo-ocr` on unhealthy OCR layers**: Have the processor detect existing OCR layers with `< 85%` real words or missing word spaces and run `ocrmypdf --redo-ocr`.
+
+### Step-by-Step Plan
+
+1. **Part 1: Schema, Sync, and UI for Chicago 18th Edition References**
+   - Add migration `app/migrations/0013_chicago_references.sql` adding six nullable `TEXT` columns to `items`:
+     - `work_kind` (`'article' | 'chapter' | 'book' | 'primary'`)
+     - `editor` (volume editors in `"Surname, Given Name"` form, joined by commas and `"and"`)
+     - `publisher` (publisher name for books and chapters; Chicago 18th edition omits city of publication)
+     - `volume` (journal or multi-volume number)
+     - `issue` (journal issue number)
+     - `doi` (DOI or stable URL)
+   - Keep `author` (now storing full given names when known), `year`, `title`, `source` (journal title, book title, or archive/collection), `pages`, and `doc_date`.
+   - Update `app/worker/schema.ts`, `app/worker/processor.ts` (`/files/:id/identified`), `app/src/lib/types.ts` (`ItemRow` and `Suggestion`), `app/src/lib/db.ts` (Dexie version 8 with cursor reset), `app/src/lib/citations.ts`, `app/src/lib/titles.ts`, `app/src/components/ReadingRow.tsx`, `app/src/components/ModulePage.tsx`, and `app/src/components/Reader.tsx`.
+   - Add `chicagoBibliography(item)` and `chicagoNote(item, page?)` in `app/src/lib/titles.ts`, offer **Copy reference** in the reading menu everywhere a reading appears, and expose the new fields in `Edit details`.
+
+2. **Part 2: Reference Finder (`backend/study/processor/identify.py`)**
+   - Preserve full given names in `format_authors()` (using initials only when the source itself provides only initials).
+   - Scan the first 3 pages and last 2 pages for DOIs, ISBNs, and JSTOR stable URLs.
+   - Add structured cover and header parsers for:
+     - JSTOR journal articles and JSTOR Books chapters (`Book Title:`, `Chapter Title:`, `Author(s):`, `Source:`)
+     - LSE / CLA digitisation sheets (`Extract title:`, `Book title:`, `Extract author:`, `Publisher:`, `ISBN:`, `Page range:`)
+     - Taylor & Francis cover sheets (`To cite this article:`)
+     - Oxford Scholarship Online, Cambridge Core, and ProQuest Ebook Central headers/footers
+     - Wilson Center Digital Archive (CWIHP) and FRUS primary source headers
+   - Guard `from_layout()` and `search_crossref()` against generic headings (`"Chapter 1"`, `"Introduction"`) and filter out `type == "book-review"` from Crossref results.
+   - Extract printed page ranges from running heads/footers when missing from Crossref or the cover sheet.
+
+3. **Part 3: Client-Side Text Reflow (`app/src/lib/reflow.ts`)**
+   - Filter out rotated text items (`item.transform`) so vertical margin watermarks (`17` readings) never enter lines.
+   - Detect `2-up` landscape spreads (`view.width > view.height * 1.2` with a clear centre gutter) and read the left and right pages sequentially while keeping original PDF coordinates on `Piece.rect` so highlights stay aligned.
+   - Strip JSTOR Books, Taylor & Francis, and LSE/CLA cover sheets, and strip multi-line ProQuest, Cambridge Core, and Oxford download footers regardless of the `70 / 110` character cap.
+   - Fix `joinWords()` on word-per-item OCR layers so overestimated `pdf.js` glyph widths do not suppress spaces between adjacent word items (`#1`, `#9`).
+   - Classify bottom-of-page footnotes using position + footnote-marker patterns (`^\d{1,3}(\.|\s)\s*[A-Z"'\u201c(]`) in addition to font size, preventing `9 pt` footnotes from leaking into body paragraphs across page turns.
+   - Use local rolling left-margin baselines on `ocrDoc` pages so jittered scan margins do not cause false paragraph breaks (`#4`).
+
+4. **Part 4: Unhealthy OCR Layer Detection (`backend/study/processor/jobs.py`)**
+   - Update `garbled(pages)` in `backend/study/processor/jobs.py` to check real-word ratio (`< 0.85`) and missing word spaces (high mean token length / joined tokens), triggering `needs_ocr(..., redo=True, mode="redo")` (`ocrmypdf --redo-ocr`) on the `7` unhealthy scans while leaving all `101` healthy readings untouched.
