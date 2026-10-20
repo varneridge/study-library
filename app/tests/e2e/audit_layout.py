@@ -215,10 +215,100 @@ CHECKS = r"""
 }
 """
 
+CHECK_HALFWAY_BARS = r"""
+() => {
+  const faults = [];
+  const topbar = document.querySelector('.topbar');
+  const topbarRect = topbar ? topbar.getBoundingClientRect() : null;
+  const topbarBottom = topbarRect ? Math.round(topbarRect.bottom) : 0;
+
+  const vis = (el) => {
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.05;
+  };
+
+  const layered = (el) => el.closest('dialog, .menu-panel, .toast, .rec-pill, .floating, .drop-banner, .move-dock, .bn-suggestion-menu, .bn-toolbar, [data-floating-ui-portal], .mantine-Popover-dropdown, .reader-progress, .highlight-bar');
+
+  const name = (el) => {
+    const tag = el.tagName.toLowerCase();
+    const cls = el.className && typeof el.className === 'string'
+      ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.')
+      : '';
+    return `${tag}${cls}`;
+  };
+
+  const hasBackdropBlur = (el) => {
+    const s = getComputedStyle(el);
+    const filter = s.backdropFilter || s.webkitBackdropFilter || '';
+    return /blur\(/i.test(filter);
+  };
+
+  const hasOpaqueBg = (el) => {
+    const s = getComputedStyle(el);
+    const bg = s.backgroundColor;
+    if (!bg || bg === 'transparent') return false;
+    const m = bg.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)/);
+    if (m) {
+      const alpha = m[4] !== undefined ? parseFloat(m[4]) : 1;
+      return alpha >= 0.95;
+    }
+    return false;
+  };
+
+  // Find sticky or fixed bars: horizontal structural bars spanning across the content or viewport
+  const candidates = [...document.querySelectorAll('body *')].filter((el) => {
+    if (!vis(el) || layered(el)) return false;
+    const s = getComputedStyle(el);
+    if (s.position !== 'sticky' && s.position !== 'fixed') return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 200 || r.height > 160) return false;
+    return true;
+  });
+
+  // Only take top-level pinned bar containers, not their children
+  const bars = candidates.filter((el) => !candidates.some((other) => other !== el && other.contains(el)));
+
+  for (const bar of bars) {
+    const r = bar.getBoundingClientRect();
+    const isTopBar = bar === topbar || bar.classList.contains('topbar');
+
+    // 1. Check background: opaque background or backdrop blur
+    if (!hasOpaqueBg(bar) && !hasBackdropBlur(bar)) {
+      faults.push({
+        type: "sticky_bar_not_opaque",
+        msg: `Sticky or fixed bar lacks opaque background or backdrop blur: ${name(bar)} (background: ${getComputedStyle(bar).backgroundColor})`,
+        selector: name(bar)
+      });
+    }
+
+    // 2. Position check: starts at or below bottom of top bar
+    if (!isTopBar && r.top < window.innerHeight / 2) {
+      if (Math.round(r.top) < topbarBottom - 1) {
+        faults.push({
+          type: "sticky_bar_slides_under_topbar",
+          msg: `Sticky or fixed bar starts above bottom of top bar: ${name(bar)} (top: ${Math.round(r.top)}px < top bar bottom: ${topbarBottom}px)`,
+          selector: name(bar)
+        });
+      }
+    }
+  }
+
+  return faults;
+};
+"""
+
 
 def create_files():
     """Create realistic PDFs with long titles and multi-page texts."""
-    f1 = FILES / "(AT1) Chen, J. (2001) 'Introduction', in Mao's China and the Cold War, pp. 1-16.pdf"
+    for old_pdf in FILES.glob("*.pdf"):
+        try:
+            old_pdf.unlink()
+        except OSError:
+            pass
+
+    f1 = FILES / "(AT1) Chen, J. (2001) 'Introduction: The Sino-Soviet Alliance and the Cold War in Comparative International History Perspective', in Mao's China and the Cold War, pp. 1-16.pdf"
     if not f1.exists():
         doc = pymupdf.open()
         for p in range(3):
@@ -226,7 +316,7 @@ def create_files():
             page.insert_text((72, 80), f"Page {p+1}. Cold War studies and comparative perspectives.", fontsize=11)
         doc.save(f1)
 
-    f2 = FILES / "(AT1) P1 Mao Zedong, 'On the Question of the Differentiation of the Three Worlds: Archive of the Central Committee', 22 Feb 1974.pdf"
+    f2 = FILES / "(AT1) P1 Mao Zedong, 'On the Question of the Differentiation of the Three Worlds: Diplomatic Memoranda and Records', 22 Feb 1974.pdf"
     if not f2.exists():
         doc = pymupdf.open()
         for p in range(3):
@@ -254,7 +344,7 @@ def create_files():
         doc.save(slides_path)
 
     # Long text for textview
-    tv_path = FILES / "(AT1) Long Text Containment.pdf"
+    tv_path = FILES / "(AT1) Gaddis, J. L. (1982) 'Strategies of Containment: A Critical Appraisal of Postwar American National Security Policy', Foreign Affairs, pp. 1-45.pdf"
     if not tv_path.exists():
         doc = pymupdf.open()
         for n in range(3):
@@ -285,12 +375,19 @@ def seed_database(browser):
     # 1. Taught Module: SP335 with long title
     page.goto(BASE + "/")
     page.get_by_label("Code").fill("SP335")
-    page.get_by_label("Title").fill("Migration, Citizenship and the Politics of Belonging in Comparative Perspective: Global Historical Frameworks")
+    page.get_by_label("Title").fill("Migration, Citizenship and the Politics of Belonging: Global Comparative Perspectives")
     page.get_by_role("button", name="Create module").click()
     page.wait_for_selector("#week-AT1", timeout=20000)
 
-    # Upload readings to AT1
+    # Upload readings to AT1 and seed long week title
     page.locator("#week-AT1 .week-title").click()
+    page.wait_for_selector("h1.editable", timeout=10000)
+    page.locator("h1.editable").click()
+    page.locator("input[aria-label='Week title']").fill(
+        "Citizenship, Denizenship and the Legal Boundaries of Imperial Belonging in the Atlantic World"
+    )
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(400)
     readings = [str(FILES / f) for f in os.listdir(FILES) if f.endswith(".pdf") and f.startswith("(AT")]
     page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(readings)
 
@@ -338,17 +435,17 @@ def seed_database(browser):
     page.get_by_role("button", name="Create module").click()
     expect(page.get_by_role("heading", name="HY300", exact=True)).to_be_visible()
 
-    # Rename section 1 and add section 2
+    # Rename section 1 and add section 2 with 80-100 character titles
     page.get_by_role("button", name="More actions for Section 1").click()
     page.get_by_role("menuitem", name="Rename").click()
-    page.get_by_label("Section name").fill("Chapter 1: The Historiographical Debate Concerning Continental Imperialism")
+    page.get_by_label("Section name").fill("Chapter 1: The Historiographical Debate Concerning Continental Imperialism and Naval Supremacy")
     page.keyboard.press("Enter")
     page.wait_for_timeout(500)
 
     page.get_by_role("button", name="Add a section").click()
     page.wait_for_timeout(500)
     page.get_by_role("heading", name="Section 2").click()
-    page.get_by_label("Section name").fill("Primary Archival Records: Foreign Office Correspondence")
+    page.get_by_label("Section name").fill("Primary Archival Records: Foreign Office Correspondence and Diplomatic Dispatches, 1823-1895")
     page.keyboard.press("Enter")
     page.wait_for_timeout(500)
 
@@ -523,6 +620,39 @@ def run_audit():
                                 "selector": f.get("selector", ""),
                                 "screenshot": f"app/tests/e2e/shots/audit/{shot_name}",
                             })
+
+                    # On each long page, scroll halfway and check that every sticky or fixed bar
+                    # has an opaque background, or a backdrop blur, and starts at or below the bottom of the top bar.
+                    is_long = page.evaluate("""() => {
+                        const root = document.scrollingElement || document.documentElement;
+                        return (root.scrollHeight - window.innerHeight) > 60;
+                    }""")
+
+                    if is_long:
+                        page.evaluate("""() => {
+                            const root = document.scrollingElement || document.documentElement;
+                            window.scrollTo(0, (root.scrollHeight - window.innerHeight) / 2);
+                        }""")
+                        page.wait_for_timeout(200)
+
+                        halfway_faults = page.evaluate(CHECK_HALFWAY_BARS)
+                        if halfway_faults:
+                            shot_idx += 1
+                            shot_name = f"{case_tag}_halfway_fault_{shot_idx}.png"
+                            shot_path = OUT / shot_name
+                            page.screenshot(path=str(shot_path), full_page=False)
+
+                            for f in halfway_faults:
+                                all_findings.append({
+                                    "group": f["type"],
+                                    "message": f["msg"],
+                                    "viewport": f"{width}x{height} ({w_name})",
+                                    "theme": theme,
+                                    "page": page_label,
+                                    "url": url,
+                                    "selector": f.get("selector", ""),
+                                    "screenshot": f"app/tests/e2e/shots/audit/{shot_name}",
+                                })
 
                 context.close()
 
