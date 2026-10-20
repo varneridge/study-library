@@ -996,7 +996,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 **Possible next steps**
 
 - Move the processor to a small server, so recordings are processed while the laptop is off.
-- Job search redesign: Part 1 done (20 stages, progression steps, search aliases, `application_events` table, migration 0012, Dexie version 7 with cursor reset, mis-tap rules and wiring with Undo). Parts 2 and 3 remain (ChoiceCard, stage card, slot card, cell editing, laptop details timeline, and phone redesigned cards and sheets).
+- Job search redesign: Part 1 done (20 stages, progression steps, search aliases, `application_events` table, migration 0012, Dexie version 7 with cursor reset, mis-tap rules and wiring with Undo). Part 2 done (choice cards for the stage, the order and each file, dates and cells that Escape puts back, Cancel on a new row, and laptop Details with the timeline). Part 3 remains: the phone list, the application sheet, and the Edit, New application and entry sheets.
 - A native Android build, if recording on the phone becomes necessary.
 - Export of notes and answers to Word, for essays and revision.
 - An audit of the empty states once a full term of real data is in.
@@ -1110,9 +1110,25 @@ The page opens in this order: open applications by next deadline, soonest first;
 
 ### On a wide screen and on a phone
 
-On a screen wider than 60rem, the job search is a table you edit in place. Its two-row header, with **Files** over CV, CL, RD and Qs, stays in view under the top bar as you scroll, as the frozen panes did in the spreadsheet. Employer and role wrap rather than being cut off. A date opens the browser's own picker when clicked, or can be typed from the keyboard. The stage is a menu of all 16.
+On a screen wider than 60rem, the job search is a table you edit in place. Its two-row header, with **Files** over CV, CL, RD and Qs, stays in view under the top bar as you scroll, as the frozen panes did in the spreadsheet. Employer and role wrap rather than being cut off, save on Enter or on leaving them, and Escape puts back what was there, even after a pause has saved part of the change. A date opens the browser's own picker when clicked, or can be typed from the keyboard; a typed date is kept on Enter or on leaving the field, never on each key, and Escape or **Cancel** beside it puts back what was there. The stage is a chip in its colour, with how long it has been at that stage beneath it, which opens the stage card. In the default order, closed applications sit under a quiet **Closed** heading. While a new row is being filled in, the cross in its last cell cancels it: it goes, with whatever was typed, and is not kept in **Recently deleted**.
 
-On a phone, each application is a card showing the employer, stage, role, date applied, deadline and the four file marks. Tapping a card opens it to edit everything; the summary lines step aside so nothing shows twice. Each file slot is one line with its state and a single menu, which rises as a sheet. **Done**, at the foot of the card beside **Delete application**, closes it. In the card layout, and on any touch screen, every control is at least 44 pixels tall.
+**Details**, opened by the arrow at the end of a row, sets out the notes, the timeline and the four files side by side, with **Close** at the foot and **Delete application**, in red, at the other end.
+
+On a phone, each application is a card showing the employer, stage, role, date applied, deadline and the four file marks. Tapping a card opens it to edit everything; the summary lines step aside so nothing shows twice. The stage, the timeline and each file work as on a laptop, with every card rising as a sheet. **Done**, at the foot of the card, closes it, and **Delete application** stands on its own below it. In the card layout, and on any touch screen, every control is at least 44 pixels tall.
+
+### Choice cards
+
+Nothing in the job search is a dropdown. Each choice opens a choice card (`src/components/ChoiceCard.tsx`): on a laptop a small panel beside the button that opened it, on a phone a sheet from the foot of the screen. It is a modal dialog, so Tab stays inside it. **Cancel** is always visible, and Escape, a click outside and the back gesture close it too, changing nothing; focus then goes back to the button that opened it. Keys typed while one is open never reach the page's shortcuts.
+
+- **The stage card** lays out every stage by step, "to do" beside "done", in its category colour, with the likely next stages first, so the usual move is one tap. The current stage has an accent ring and a tick. Choosing records the change in the timeline, under the protection against mis-taps, and the notice offers **Undo**.
+- **The Order card** offers Next deadline, Date applied and Employer.
+- **The slot card** holds everything that can be done to one of the four files: open it, attach or replace a file, add or change a link, sent with no file, remove the file or link, not required, and clear. A link is typed in the card and saved with **Save link** or Enter; **Cancel** leaves the slot as it was. Every change gives a notice with **Undo**.
+
+### The timeline in Details
+
+Each application's entries are listed oldest first: the date (and the time, for one made by changing the stage), the stage, and how long that step lasted. When either end of a step is a date alone, the length counts calendar days, so 10 Oct to 17 Oct at 14:30 is 7 days. The current step says how long so far, and a line beneath says how many days since you applied. If the stage was changed on a device without the timeline, the current stage shows as **Now**, with its date not recorded.
+
+**Add a past event** opens a short form: the stage (from the stage card), the date, no later than today, and the time if you know it, with **Add event** and **Cancel**. **Edit** on an entry opens the same form with **Save entry** and **Remove entry**, in red and apart; an entry edited by hand counts as one added by hand, so the protection against mis-taps never changes it. Removing an entry offers **Undo** and says the current stage is unchanged. Adding, editing or removing entries never moves the current stage.
 
 ### Files
 
@@ -1125,7 +1141,7 @@ Each slot is one of:
 | ✓ | Sent, with nothing attached, as a tick in the spreadsheet meant |
 | N/A | Not required |
 
-Clicking any other mark, or the arrow at the end of the row, opens Details. There each slot can take an attached file, a link, "Sent, no file", or "Not required", and can be cleared. A file dropped on a mark in the table is attached to that slot. PDFs, Word documents, plain text and pictures are accepted, up to 50 MB each. Attaching needs a connection; everything else works offline.
+Clicking any other mark opens the slot card beside it. In Details, each file has one line, with what was sent and **Change**, which opens the same card. A file dropped on a mark in the table is attached to that slot. PDFs, Word documents, plain text and pictures are accepted, up to 50 MB each. Attaching needs a connection; everything else works offline.
 
 Files are stored the way pictures in notes are: in R2 by their contents, with no file row. So the processor never converts or reads them, study search never sees them, and the storage sweep leaves them alone. The nightly purge also checks the applications before deleting any stored copy, so a PDF that was once a reading and is also a role description is kept. A file opens under its own name, not the hash it is stored under.
 
@@ -1156,7 +1172,7 @@ The job search uses the same type, rules, spacing and theme tokens as the rest o
 
 ### Code
 
-`src/lib/jobs.ts` holds the stages, the progression grid, timeline rules, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` is the screen. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the changes are the `applications` and `application_events` tables in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check. Migration `0012_application_events.sql` adds the events table with starting entry backfill, and Dexie version 7 upgrades the local database and resets the pull cursor.
+`src/lib/jobs.ts` holds the stages, the progression grid, timeline rules, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` is the screen, and `src/components/ChoiceCard.tsx` the choice card it opens for every choice. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the changes are the `applications` and `application_events` tables in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check. Migration `0012_application_events.sql` adds the events table with starting entry backfill, and Dexie version 7 upgrades the local database and resets the pull cursor.
 
 ## 19. On a phone
 

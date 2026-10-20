@@ -74,6 +74,7 @@ Always use these variables; never write a colour, radius or size directly. They 
 - **Chips and tags.** Sentence case, a soft fill (`--accent-soft` with accent text), fully rounded, never outlined. Small chips keep a larger invisible tap area.
 - **Selected and current.** One look everywhere: an `--accent-soft` fill with accent text. A segmented control shows its choice as a raised white button.
 - **Menus.** Every "more" menu is the drawn ••• icon (`Menu` in `Menu.tsx`). On a phone it becomes a sheet from the foot of the screen, with Cancel.
+- **Choices.** A choice from a set, such as a stage or an order, is a choice card (`ChoiceCard.tsx`), never a dropdown: a small panel beside its button on a laptop, a sheet from the foot of the screen on a phone, with the options laid out and chosen in one tap.
 - **Icons.** Only the drawn set in `icons.tsx`, at the stroke weight of its other icons. Never a typed character (•••, ▸, ⋮⋮) or an emoji.
 - **Dates.** "12 Oct", "12 Oct 2026", "12 to 16 Oct", using `shortDate` in `lib/dates.ts`.
 - **Titles of readings.** In curly quotation marks, from `lib/titles.ts`.
@@ -93,7 +94,7 @@ Always use these variables; never write a colour, radius or size directly. They 
 - **Consistency.** Anything you can do to a thing is offered wherever it appears (section 20 of `DEBRIEF.md`).
 - **One way in.** Each place has one obvious link on any screen, not three.
 - **Undo, not "Are you sure?".** Ask first only when something hard to replace would be lost.
-- **A way out, always.** Every sheet, panel, dialog, menu, form and editing state has a visible Cancel (or Close) button, as well as Escape on a laptop and a tap outside where it makes sense. Cancel leaves everything as it was.
+- **A way out, always.** Every sheet, panel, dialog, menu, form and editing state has a visible Cancel (or Close) button, as well as Escape on a laptop and a tap outside where it makes sense. Cancel leaves everything as it was. The one exception is a single cell edited in place in a table, such as an employer or role in the job search on a laptop: Escape puts it back, as in a spreadsheet, since a Cancel beside every cell would crowd the table.
 - **Back closes, then leaves.** On a phone, the back gesture or button closes an open sheet, panel or dialog first, and only then leaves the page.
 - **Focus goes where you'd expect.** Opening a form puts the cursor in its first field. Closing a sheet or dialog returns focus to the button that opened it. While a dialog is open, Tab stays inside it.
 - **No accidental doubles.** A button that saves or creates something is disabled from the first tap until it finishes.
