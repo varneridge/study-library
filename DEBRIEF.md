@@ -85,7 +85,7 @@ These settings are not secret, but you need them to redeploy:
 | D1 `database_id` | `app/wrangler.jsonc` |
 | `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` | `app/wrangler.jsonc` |
 
-Your own `app/wrangler.jsonc` is never included in the zip. The zip has `app/wrangler.example.jsonc` instead, so unzipping an update cannot overwrite your settings. Keep a copy of your real `wrangler.jsonc` somewhere safe.
+`app/wrangler.jsonc` is tracked in Git (without secrets), so Cloudflare Workers Builds reads it directly. Keep a copy of your real `wrangler.jsonc` somewhere safe.
 
 ---
 
@@ -574,6 +574,7 @@ Opening a week saves its files, and the next week's, to that device. To keep eve
 
 | Commands | Where to run them |
 | --- | --- |
+| `git push origin main:production` | Terminal, in the project root (deploys to Cloudflare) |
 | `npx`, `npm`, `wrangler` | PowerShell, in `C:\Users\samue\Documents\Antigravity\study-library\app` |
 | `python`, the processor, the importer | WSL, in `/mnt/c/Users/samue/Documents/Antigravity/study-library/backend` |
 
@@ -604,23 +605,36 @@ Add `--once` to the last line to work through the queue and stop.
 
 Each device asks for an emailed code when its Access session ends, seven days by default. Access allows up to a month. To change it, in the Cloudflare dashboard go to **Zero Trust**, then **Access controls**, then **Applications** (older dashboards call it **Access**, then **Applications**). Open the `study-library` application, and on its **Overview** tab choose a **Session Duration** of 1 month. A policy can set its own session duration, which wins over the application's, so open the **Cloudflare account** policy and check it is left at the application's value. A longer session means a lost or stolen device stays signed in for longer. If that happens, revoke its session under **Zero Trust**, then **My Team**, then **Users**.
 
-### Updating the code
+### Deploying and updating the code
 
-When you receive new code:
+Deploying is now:
 
-1. Unzip it over `C:\Users\samue\Documents\Antigravity\study-library`. Your `wrangler.jsonc` and `.env` aren't in the zip, so they stay as they are.
-2. In PowerShell, in `app`:
-
-```
-npm install
-npm run deploy
+```bash
+git push origin main:production
 ```
 
-This builds the app, applies any new database migrations and deploys the Worker.
+Cloudflare then runs the unit tests and the build, applies any new migrations and deploys, and each build is listed against its commit under the Worker's Deployments. `npm run deploy` remains the fallback. `npm run test:all` and `npm run e2e` still need running first, because the build cannot run them.
 
-3. In WSL, refresh the processor's dependencies:
+When updating the code or deploying changes:
 
+1. In `app`, run the tests:
+
+```bash
+npm run test:all
+npm run e2e
 ```
+
+2. Deploy by pushing `main` to `production`:
+
+```bash
+git push origin main:production
+```
+
+`npm run deploy` (from `app`) remains the fallback if you ever need to deploy directly from PowerShell.
+
+3. In WSL, refresh the processor's dependencies if `requirements.txt` changed:
+
+```bash
 cd /mnt/c/Users/samue/Documents/Antigravity/study-library/backend
 . ~/.venvs/study/bin/activate
 pip install -r requirements.txt
@@ -628,7 +642,7 @@ pip install -r requirements.txt
 
 4. In Task Scheduler, **End** the task, then **Run** it.
 
-**Version 0.31 has a migration, 0011.** `npm run deploy` applies it. It rebuilds three tables (weeks, sessions and notes) so they accept sections, supervision meetings and section notes, copying every row with its data unchanged; modules gain a kind and key dates. Existing modules stay taught. A device still on an older version keeps working: the server now writes only the columns a device sends, so a column a device does not know about takes its default.
+**Version 0.31 has a migration, 0011.** Cloudflare applies it on deploy (or `npm run deploy` as a fallback). It rebuilds three tables (weeks, sessions and notes) so they accept sections, supervision meetings and section notes, copying every row with its data unchanged; modules gain a kind and key dates. Existing modules stay taught. A device still on an older version keeps working: the server now writes only the columns a device sends, so a column a device does not know about takes its default.
 
 **Version 0.30 needs no migration, and removes one file.** Delete `app\src\components\QuestionPage.tsx` before deploying, then restart the processor's task, as its OCR changed. To read your existing scans again with the new OCR, choose **Read every scan again** under **Processor** in Settings (section 19 explains).
 
@@ -718,7 +732,7 @@ Every problem met during setup, and its fix.
 | Processor log shows 401 "Processor key missing or wrong" | `.env` and the Worker secret don't match | Set a fresh key in both places |
 | `cd D:\...` fails in WSL | A Windows path typed into Linux | Use `/mnt/d/...` in WSL, or run the command in PowerShell |
 | `chmod` refused on the start script | Files on D: don't support Linux permissions | Skip it. Run the script with `bash` |
-| "Sync problem" in the app | Usually the Access values in `wrangler.jsonc` are wrong, or weren't deployed | Check `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN`, then `npm run deploy` |
+| "Sync problem" in the app | Usually the Access values in `wrangler.jsonc` are wrong, or weren't deployed | Check `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN`, then redeploy (`git push origin main:production` or `npm run deploy`) |
 | "Your Cloudflare Access session has ended" | The 7-day session ran out | Press **Reload** and enter the emailed code. Unsent edits are kept |
 | Readings stay at "Adding text" or "Converting" | The processor isn't running | Check the task, and `processor.log` |
 | "Waiting for the processor, last seen ..." | The processor has not asked for work for 15 minutes or more | Start the task, or open the laptop. **Settings**, under **Processor**, shows how much is waiting |
@@ -784,8 +798,8 @@ study-library/
   shared/title-fixtures.json   test cases shared by both title parsers
 
   app/                         the app and the Worker
-    wrangler.example.jsonc     copy to wrangler.jsonc and fill in
-    migrations/                D1 schema, applied in order by npm run deploy
+    wrangler.jsonc             Worker and D1 configuration, tracked in Git
+    migrations/                D1 schema, applied in order on deploy
     worker/                    the Cloudflare Worker
       index.ts                 routes
       auth.ts                  Access token and processor key checks
