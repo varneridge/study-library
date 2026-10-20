@@ -89,6 +89,12 @@ function Dialog() {
       ref={ref}
       className="dialog"
       onCancel={(e) => { e.preventDefault(); ask?.resolve(false); }}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+          ask?.resolve(false);
+        }
+      }}
     >
       {ask && (
         <form method="dialog" onSubmit={(e) => { e.preventDefault(); if (ready) ask.resolve(true); }}>

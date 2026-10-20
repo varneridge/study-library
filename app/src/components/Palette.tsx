@@ -129,7 +129,17 @@ export function Palette() {
   };
 
   return (
-    <dialog ref={dialog} className="dialog palette" onCancel={(e) => { e.preventDefault(); setOpen(false); }} onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+    <dialog
+      ref={dialog}
+      className="dialog palette"
+      onCancel={(e) => { e.preventDefault(); setOpen(false); }}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+          setOpen(false);
+        }
+      }}
+    >
       <div className="palette-head">
         <div className="palette-input-wrap">
           <input
