@@ -1011,12 +1011,13 @@ From version 0.29 the app follows the tools it stands in for: Zotero's library, 
 - Added one-tap clear buttons to search inputs on the Search page and in the Go to palette.
 - Prevented duplicate records on Save and Add buttons by disabling buttons immediately on the first tap, and verified phone application cards in regression checks.
 - Unified overlay back handling into a single `useCloseOnBack` hook across all menus, dialogs, sheets and panels, preventing duplicate `history.back()` calls and closing overlays cleanly before leaving the page.
+- Coordinated overlay transitions so opening an editor, picker or dialog directly from a menu hands over the overlay history entry without collision.
 - Ensured navigation from open overlays replaces the top overlay entry, leaving no spare entries in session history.
 - Restored focus to opening triggers when closing dialogs, sheets and menus without interrupting edit triggers.
 - Guaranteed full text availability via title attributes on truncated text elements.
 - Enlarged all interactive controls on touch screens to meet the 44-point minimum hit target, replacing input pseudo-elements with enlarged label wrappers for Safari compatibility.
 - Cleaned duplicated opacity rules for quotation action buttons and updated backend WSL paths.
-- Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports and added `test_back.py` to the default e2e suite.
+- Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports, added virtualenv binaries to the test runner PATH, and added `test_back.py` and `audit_layout` to the default e2e suite.
 
 ## 17. Version history
 
