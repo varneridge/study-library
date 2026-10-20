@@ -29,7 +29,10 @@ function Shortcuts() {
     }
     if (!shortcuts && dialog.open) {
       dialog.close();
-      triggerRef.current?.focus();
+      const trigger = triggerRef.current;
+      setTimeout(() => {
+        trigger?.focus();
+      }, 50);
     }
   }, [shortcuts]);
   return (
@@ -68,7 +71,10 @@ function Dialog() {
     }
     if (!ask && dialog.open) {
       dialog.close();
-      triggerRef.current?.focus();
+      const trigger = triggerRef.current;
+      setTimeout(() => {
+        trigger?.focus();
+      }, 50);
     }
   }, [ask]);
 

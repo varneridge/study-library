@@ -100,7 +100,10 @@ export function Palette() {
       if (!d.open) d.showModal();
     } else if (d.open) {
       d.close();
-      triggerRef.current?.focus();
+      const trigger = triggerRef.current;
+      setTimeout(() => {
+        trigger?.focus();
+      }, 50);
     }
   }, [open]);
 
