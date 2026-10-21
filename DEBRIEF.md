@@ -1,6 +1,6 @@
 # Study Library: debrief
 
-A complete record of what was built, how your installation is set up, how it works, and how to run it. Written on 7 October 2026 and updated for version 0.31 on 15 October 2026. Section 17 lists what each version changed.
+A complete record of what was built, how your installation is set up, how it works, and how to run it. Written on 7 October 2026 and updated for version 0.32 on 21 October 2026. Section 17 lists what each version changed.
 
 ## Contents
 
@@ -999,6 +999,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Reading quality and Chicago reference overhaul completed in 0.32.0 (migration 0013, Dexie version 8, Chicago 18th edition citations and Copy reference action, cover sheet reference finder, ocrmypdf --redo-ocr on unhealthy scans, text reflow watermark and spread improvements, heading detection, and footnotes excluded from text view).
 - Move the processor to a small server, so recordings are processed while the laptop is off.
 - Job search redesign: Part 1 done (20 stages, progression steps, search aliases, `application_events` table, migration 0012, Dexie version 7 with cursor reset, mis-tap rules and wiring with Undo). Part 2 done (choice cards for the stage, the order and each file, dates and cells that Escape puts back, Cancel on a new row, and laptop Details with the timeline). Part 3 remains: the phone list, the application sheet, and the Edit, New application and entry sheets.
 - A native Android build, if recording on the phone becomes necessary.
@@ -1059,6 +1060,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.31.2 | Quotation deletion and note editing fixes in the reader: restoring highlights on editor undo (Ctrl+Z), protecting drafted text from background sync replacement, quiet hover-revealed quotation action buttons on laptops with 44-point touch targets on phones, and interactive-widget=resizes-content for virtual keyboards |
 | 0.31.3 | Layout, behaviour and back-gesture fixes: single useCloseOnBack hook closing menus, dialogs, sheets and panels without duplicate history back calls, navigation from open overlays replacing entries with no spare history, 44-point touch targets for breadcrumbs, week nav and inputs, Safari checkbox label tap enlargement, duplicate item prevention on rapid double tap, and focused layout audit regression tests |
 | 0.31.4 | Job search timeline part 1: 20 stages, progression steps, application_events table, migration 0012, mis-tap rules, and Dexie cursor reset; week jump strip paper background and dynamic top bar positioning; layout audit halfway scroll and long title checks; accessibility enhancements for editable titles, reading highlights, mobile highlight popover sheet, note editor and rename labels, arrow navigation for menus and sidebar tabs, slide canvas role, and transcript metadata; and state waits replacing fixed delays in browser tests |
+| 0.32.0 | Reading quality overhaul: Chicago 18th edition reference fields (work_kind, editor, publisher, volume, issue, doi), Copy reference menu action across the app, enhanced reference finder with cover sheet parsing (JSTOR books, CLA/LSE, Taylor & Francis, Wilson Center, FRUS) and full given names, automatic detection and ocrmypdf --redo-ocr for unhealthy OCR layers, and text reflow with rotated watermark filtering, landscape spread handling, section heading detection, and footnotes excluded from text view |
 
 ## 18. The job search
 

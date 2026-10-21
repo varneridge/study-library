@@ -8,7 +8,7 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 
 - 4 (How it works), 10 (Decisions and why), 11 (Code map), 12 (Data model)
 - 14 (Tests), 15 (Design rules), 16 (Known limits and next steps)
-- 17 (Version history): the current version is 0.31.4
+- 17 (Version history): the current version is 0.32.0
 
 ## Layout
 
