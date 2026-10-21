@@ -108,7 +108,20 @@ processor.delete("/objects/*", async (c) => {
 // Stores extracted text for search and marks the file ready.
 // A citation the processor found for a PDF. Readings with nothing to go on
 // take it at once. Others keep what they have, with this as a suggestion.
-interface Citation { author: string | null; year: number | null; title: string; source: string | null; pages: string | null }
+interface Citation {
+  work_kind?: string | null;
+  author: string | null;
+  editor?: string | null;
+  year: number | null;
+  title: string;
+  source: string | null;
+  publisher?: string | null;
+  volume?: string | null;
+  issue?: string | null;
+  pages: string | null;
+  doc_date?: string | null;
+  doi?: string | null;
+}
 const same = (a: unknown, b: unknown) => String(a ?? "").toLowerCase().replace(/[^a-z0-9]/g, "") === String(b ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 processor.post("/files/:id/identified", async (c) => {
@@ -123,6 +136,7 @@ processor.post("/files/:id/identified", async (c) => {
     const item = decode("items", raw) as Record<string, unknown> & { suggested?: Record<string, unknown> | null };
     if (item.kind === "slides") continue;
     const fields = ["author", "year", "title", "source", "pages"] as const;
+    const allFields = ["work_kind", "author", "editor", "year", "title", "source", "publisher", "volume", "issue", "pages", "doc_date", "doi"] as const;
     if (fields.every((f) => same(item[f], citation[f]))) continue;
     // The same suggestion, already dismissed, is not raised again.
     const previous = item.suggested;
@@ -130,11 +144,25 @@ processor.post("/files/:id/identified", async (c) => {
     // Only records that state their citation outright fill a reading in by themselves.
     const unnamed = item.kind === "secondary" && !item.author && !item.year && ["crossref", "crossref-title", "jstor"].includes(via);
     if (unnamed) {
-      const before = Object.fromEntries(fields.map((f) => [f, item[f] ?? null]));
+      const before = Object.fromEntries(allFields.map((f) => [f, item[f] ?? null]));
       statements.push(c.env.DB.prepare(
-        `UPDATE items SET author = ?2, year = ?3, title = ?4, source = ?5, pages = ?6, suggested = ?7, ${TOUCH} WHERE id = ?1`,
-      ).bind(item.id, citation.author, citation.year, citation.title, citation.source, citation.pages,
-        JSON.stringify({ ...citation, via, applied: true, previous: before })));
+        `UPDATE items SET work_kind = ?2, author = ?3, editor = ?4, year = ?5, title = ?6, source = ?7, publisher = ?8, volume = ?9, issue = ?10, pages = ?11, doc_date = ?12, doi = ?13, suggested = ?14, ${TOUCH} WHERE id = ?1`,
+      ).bind(
+        item.id,
+        citation.work_kind ?? null,
+        citation.author ?? null,
+        citation.editor ?? null,
+        citation.year ?? null,
+        citation.title,
+        citation.source ?? null,
+        citation.publisher ?? null,
+        citation.volume ?? null,
+        citation.issue ?? null,
+        citation.pages ?? null,
+        citation.doc_date ?? null,
+        citation.doi ?? null,
+        JSON.stringify({ ...citation, via, applied: true, previous: before }),
+      ));
       applied += 1;
     } else {
       statements.push(c.env.DB.prepare(`UPDATE items SET suggested = ?2, ${TOUCH} WHERE id = ?1`)

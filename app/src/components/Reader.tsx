@@ -1,5 +1,5 @@
 import { sessionLabel } from "../lib/modules";
-import { deleteReading, download, Editor, MovePicker, replaceFile } from "./ReadingRow";
+import { copyReference, deleteReading, download, Editor, MovePicker, replaceFile } from "./ReadingRow";
 import { READING_ACCEPT } from "../lib/photos";
 import type { ReadingView } from "../lib/library";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -1057,6 +1057,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
               { label: `Next: ${next ? shortTitle(next) : ""}`, onSelect: () => next && navigate({ view: "reader", id: next.id }), hidden: !next },
               // What a reading's row offers on the week page, here as well.
               { label: "Edit details", onSelect: () => setSheet("edit") },
+              { label: "Copy reference", onSelect: () => void copyReference(item), hidden: item.kind === "slides" },
               { label: "Move to another week or module", onSelect: () => setSheet("move") },
               { label: "Download file", onSelect: () => void download(asView), hidden: !file },
               { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(upload) },

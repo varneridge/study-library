@@ -21,12 +21,38 @@ export function pending(item: ItemRow): Suggestion | null {
   return s && !s.applied && !s.dismissed ? s : null;
 }
 
-const fieldsOf = (s: Suggestion) => ({ author: s.author, year: s.year, title: s.title, source: s.source, pages: s.pages });
+const fieldsOf = (s: Suggestion) => ({
+  work_kind: s.work_kind ?? null,
+  author: s.author ?? null,
+  editor: s.editor ?? null,
+  year: s.year ?? null,
+  title: s.title,
+  source: s.source ?? null,
+  publisher: s.publisher ?? null,
+  volume: s.volume ?? null,
+  issue: s.issue ?? null,
+  pages: s.pages ?? null,
+  doc_date: s.doc_date ?? null,
+  doi: s.doi ?? null,
+});
 
 export async function applySuggestion(item: ItemRow): Promise<void> {
   const s = item.suggested;
   if (!s) return;
-  const previous = { author: item.author, year: item.year, title: item.title, source: item.source, pages: item.pages };
+  const previous = {
+    work_kind: item.work_kind ?? null,
+    author: item.author ?? null,
+    editor: item.editor ?? null,
+    year: item.year ?? null,
+    title: item.title,
+    source: item.source ?? null,
+    publisher: item.publisher ?? null,
+    volume: item.volume ?? null,
+    issue: item.issue ?? null,
+    pages: item.pages ?? null,
+    doc_date: item.doc_date ?? null,
+    doi: item.doi ?? null,
+  };
   await update("items", item.id, { ...fieldsOf(s), suggested: { ...s, applied: true, previous } });
   showToast("Details updated.", { label: "Undo", run: () => update("items", item.id, { ...previous, suggested: { ...s, applied: false } }) });
 }

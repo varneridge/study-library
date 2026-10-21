@@ -36,7 +36,7 @@ export const TABLES = {
   sessions: spec(["week_id", "kind", "title", "position"]),
   files: spec(["sha256", "r2_key", "mime", "bytes", "original_name", "page_count", "text_status"]),
   items: spec([
-    "kind", "author", "title", "source", "pages", "year", "doc_date", "file_id",
+    "kind", "work_kind", "author", "editor", "title", "source", "publisher", "volume", "issue", "pages", "year", "doc_date", "doi", "file_id",
     "original_file_id", "tray_module_id", "zotero_key", "last_page", "read_status", "last_opened_at", "suggested", "last_spot",
   ], ["suggested", "last_spot"]),
   week_items: spec(["week_id", "item_id", "session_id", "position"]),

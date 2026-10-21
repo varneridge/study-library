@@ -54,14 +54,22 @@ export interface FileRow extends SyncedRow {
   text_status: TextStatus;
 }
 
+export type WorkKind = "article" | "chapter" | "book" | "primary";
+
 export interface ItemRow extends SyncedRow {
   kind: ItemKind;
+  work_kind?: WorkKind | null;
   author: string | null;
+  editor?: string | null;
   title: string;
   source: string | null;
+  publisher?: string | null;
+  volume?: string | null;
+  issue?: string | null;
   pages: string | null;
   year: number | null;
   doc_date: string | null;
+  doi?: string | null;
   file_id: string | null;
   original_file_id: string | null;
   tray_module_id: string | null;
@@ -80,15 +88,35 @@ export interface ItemRow extends SyncedRow {
 export interface Spot { page: number; frac: number; at?: number | null; quote?: string | null }
 
 export interface Suggestion {
+  work_kind?: WorkKind | null;
   author: string | null;
+  editor?: string | null;
   year: number | null;
   title: string;
   source: string | null;
+  publisher?: string | null;
+  volume?: string | null;
+  issue?: string | null;
   pages: string | null;
+  doc_date?: string | null;
+  doi?: string | null;
   via: "crossref" | "crossref-title" | "jstor" | "layout" | "metadata" | string;
   applied?: boolean;
   dismissed?: boolean;
-  previous?: { author: string | null; year: number | null; title: string; source: string | null; pages: string | null };
+  previous?: {
+    work_kind?: WorkKind | null;
+    author: string | null;
+    editor?: string | null;
+    year: number | null;
+    title: string;
+    source: string | null;
+    publisher?: string | null;
+    volume?: string | null;
+    issue?: string | null;
+    pages: string | null;
+    doc_date?: string | null;
+    doi?: string | null;
+  };
 }
 
 export interface WeekItemRow extends SyncedRow {

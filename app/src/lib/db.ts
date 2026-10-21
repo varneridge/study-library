@@ -121,6 +121,10 @@ class StudyDB extends Dexie {
     this.version(7).stores({ application_events: "id, application_id" }).upgrade(async (tx) => {
       await tx.table("meta").put({ key: "cursor", value: 0 });
     });
+    // Chicago 18th edition reference fields on items, from 0.33.
+    this.version(8).stores({}).upgrade(async (tx) => {
+      await tx.table("meta").put({ key: "cursor", value: 0 });
+    });
   }
 }
 

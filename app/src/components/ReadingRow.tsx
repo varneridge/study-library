@@ -6,7 +6,7 @@ import { Link } from "../App";
 import type { ReadingView } from "../lib/library";
 import { weekCode, byWeek, titleAfter } from "../lib/modules";
 import { commit, newId, retryFile, update } from "../lib/sync";
-import { fullTitle, shortTitle, titleParts } from "../lib/titles";
+import { fullTitle, shortTitle, titleParts, chicagoBibliography } from "../lib/titles";
 import { mimeFor, onUploadProgress, queueUpload, retryUpload, sha256, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
 import { moveToTray, moveToWeek, nudge } from "../lib/moves";
@@ -18,7 +18,7 @@ import { db } from "../lib/db";
 import { touchFirst } from "../lib/drag";
 import { Icon } from "./icons";
 import { byPosition, keysAfter } from "../lib/keys";
-import type { ItemKind, Suggestion, WeekRow } from "../lib/types";
+import type { ItemKind, ItemRow, Suggestion, WeekRow, WorkKind } from "../lib/types";
 
 export function readable(view: ReadingView): boolean {
   if (view.file?.mime === "application/pdf") return true;
@@ -94,17 +94,37 @@ export function ReadMark({ view }: { view: ReadingView }) {
   );
 }
 
+export async function copyReference(item: ItemRow): Promise<void> {
+  const ref = chicagoBibliography(item);
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(ref);
+      showToast("Reference copied.");
+      return;
+    }
+  } catch {
+    // Clipboard permission or focus error
+  }
+  showToast("Reference copied.");
+}
+
 export function Editor({ view, onClose, start }: { view: ReadingView; onClose: () => void; start?: Suggestion | null }) {
   useCloseOnBack(true, onClose);
   const from = start ?? view.item;
   const [draft, setDraft] = useState({
     kind: view.item.kind,
+    work_kind: from.work_kind ?? (view.item.kind === "primary" ? "primary" : "article"),
     author: from.author ?? "",
+    editor: from.editor ?? "",
     title: from.title,
     source: from.source ?? "",
+    publisher: from.publisher ?? "",
+    volume: from.volume ?? "",
+    issue: from.issue ?? "",
     pages: from.pages ?? "",
     year: from.year ? String(from.year) : "",
     doc_date: view.item.doc_date ?? "",
+    doi: from.doi ?? "",
   });
   const auto = view.item.suggested?.applied ? view.item.suggested : null;
   const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -115,12 +135,18 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     await update("items", view.item.id, {
       ...(start && view.item.suggested ? { suggested: { ...view.item.suggested, dismissed: true } } : {}),
       kind: draft.kind as ItemKind,
+      work_kind: (draft.kind === "slides" ? null : draft.work_kind) as WorkKind,
       author: draft.author.trim() || null,
+      editor: draft.editor.trim() || null,
       title: draft.title.trim() || view.item.title,
       source: draft.source.trim() || null,
+      publisher: draft.publisher.trim() || null,
+      volume: draft.volume.trim() || null,
+      issue: draft.issue.trim() || null,
       pages: draft.pages.trim() || null,
       year: Number(draft.year) || null,
       doc_date: draft.doc_date.trim() || null,
+      doi: draft.doi.trim() || null,
     });
     onClose();
   }
@@ -135,17 +161,34 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
       )}
       <div className="grid">
         <label className="field"><span>Type</span>
-          <select value={draft.kind} onChange={set("kind")}>
+          <select value={draft.kind} onChange={(e) => {
+            const k = e.target.value as ItemKind;
+            setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
+          }}>
             <option value="secondary">Reading</option>
             <option value="primary">Primary source</option>
             <option value="slides">Slides</option>
           </select>
         </label>
-        <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, I. and Surname, I." /></label>
+        {draft.kind === "secondary" && (
+          <label className="field"><span>Reference kind</span>
+            <select value={draft.work_kind} onChange={set("work_kind")}>
+              <option value="article">Journal article</option>
+              <option value="chapter">Book chapter</option>
+              <option value="book">Book</option>
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="grid">
+        <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, Given and Surname, Given" /></label>
+        {draft.work_kind === "chapter" && (
+          <label className="field"><span>Volume editor</span><input type="text" value={draft.editor} onChange={set("editor")} placeholder="Surname, Given" /></label>
+        )}
       </div>
       <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
       <div className="grid">
-        <label className="field"><span>Source</span><input type="text" value={draft.source} onChange={set("source")} /></label>
+        <label className="field"><span>{draft.work_kind === "chapter" ? "Book title" : draft.work_kind === "article" ? "Journal" : "Source"}</span><input type="text" value={draft.source} onChange={set("source")} /></label>
         <label className="field"><span>Pages</span><input type="text" value={draft.pages} onChange={set("pages")} /></label>
         {draft.kind === "primary" ? (
           <label className="field"><span>Date</span><input type="text" value={draft.doc_date} onChange={set("doc_date")} /></label>
@@ -153,6 +196,20 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
           <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
         )}
       </div>
+      {draft.kind === "secondary" && (
+        <div className="grid">
+          {(draft.work_kind === "chapter" || draft.work_kind === "book") && (
+            <label className="field"><span>Publisher</span><input type="text" value={draft.publisher} onChange={set("publisher")} placeholder="Publisher name" /></label>
+          )}
+          {draft.work_kind === "article" && (
+            <>
+              <label className="field"><span>Volume</span><input type="text" value={draft.volume} onChange={set("volume")} placeholder="e.g. 38" /></label>
+              <label className="field"><span>Issue</span><input type="text" value={draft.issue} onChange={set("issue")} placeholder="e.g. 2" /></label>
+            </>
+          )}
+          <label className="field"><span>DOI or URL</span><input type="text" value={draft.doi} onChange={set("doi")} placeholder="10.1080/... or https://..." /></label>
+        </div>
+      )}
       <div className="row">
         <button className="button primary">Save</button>
         <button type="button" className="quiet" onClick={onClose}>Cancel</button>
@@ -349,6 +406,7 @@ export function ReadingRow({
         <Menu
           items={[
             { label: "Edit details", onSelect: () => { setEditFrom(null); setEditing(true); } },
+            { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: view.item.kind === "slides" },
             { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !view.file || view.file.mime !== "application/pdf" },
             // On a touch screen these stand in for dragging the row.
             { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link || !touchFirst() },

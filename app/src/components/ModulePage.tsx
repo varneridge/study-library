@@ -84,12 +84,43 @@ function CitationReview({ views, onClose }: { views: ReadingView[]; onClose: () 
         <button className="quiet" onClick={async () => { for (const v of views) await keepMine(v.item); onClose(); }}>Keep all as they are</button>
         <button className="button primary" disabled={!chosen.size} onClick={async () => {
           for (const v of views) {
-            if (chosen.has(v.item.id)) await update("items", v.item.id, {
-              author: v.item.suggested!.author, year: v.item.suggested!.year, title: v.item.suggested!.title,
-              source: v.item.suggested!.source, pages: v.item.suggested!.pages,
-              suggested: { ...v.item.suggested!, applied: true, previous: { author: v.item.author, year: v.item.year, title: v.item.title, source: v.item.source, pages: v.item.pages } },
-            });
-            else await keepMine(v.item);
+            if (chosen.has(v.item.id)) {
+              const s = v.item.suggested!;
+              await update("items", v.item.id, {
+                work_kind: s.work_kind ?? null,
+                author: s.author,
+                editor: s.editor ?? null,
+                year: s.year,
+                title: s.title,
+                source: s.source,
+                publisher: s.publisher ?? null,
+                volume: s.volume ?? null,
+                issue: s.issue ?? null,
+                pages: s.pages,
+                doc_date: s.doc_date ?? null,
+                doi: s.doi ?? null,
+                suggested: {
+                  ...s,
+                  applied: true,
+                  previous: {
+                    work_kind: v.item.work_kind ?? null,
+                    author: v.item.author,
+                    editor: v.item.editor ?? null,
+                    year: v.item.year,
+                    title: v.item.title,
+                    source: v.item.source,
+                    publisher: v.item.publisher ?? null,
+                    volume: v.item.volume ?? null,
+                    issue: v.item.issue ?? null,
+                    pages: v.item.pages,
+                    doc_date: v.item.doc_date ?? null,
+                    doi: v.item.doi ?? null,
+                  },
+                },
+              });
+            } else {
+              await keepMine(v.item);
+            }
           }
           showToast(`${chosen.size} ${chosen.size === 1 ? "reading" : "readings"} updated.`);
           onClose();

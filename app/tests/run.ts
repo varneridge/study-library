@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { keyBetween, keysAfter } from "../src/lib/keys";
 import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName } from "../src/lib/names";
 import { parseTitle } from "../src/lib/parse";
-import { fullTitle, shortTitle } from "../src/lib/titles";
+import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
@@ -55,6 +55,85 @@ test("primary titles", () => {
   assert.equal(fullTitle(primary), "Mao Zedong, \u2018On the Question of the Differentiation of the Three Worlds\u2019, 22 Feb 1974");
   assert.equal(fullTitle({ ...primary, author: null, title: "Memorandum of Conversation between Mikoyan and Mao", doc_date: "30 Jan 1949" }),
     "Memorandum of Conversation between Mikoyan and Mao, 30 Jan 1949");
+});
+
+test("Chicago 18th edition citations for articles, chapters, books and primary sources", () => {
+  const article = {
+    kind: "secondary" as const,
+    work_kind: "article" as const,
+    author: "Mombauer, Annika",
+    year: 2016,
+    title: "Sir Edward Grey, Germany, and the Outbreak of the First World War: A Re-Evaluation",
+    source: "The International History Review",
+    volume: "38",
+    issue: "2",
+    pages: "301-25",
+    doi: "https://doi.org/10.1080/07075332.2015.1134622",
+  };
+  assert.equal(
+    chicagoBibliography(article),
+    "Mombauer, Annika. \u201cSir Edward Grey, Germany, and the Outbreak of the First World War: A Re-Evaluation.\u201d The International History Review 38, no. 2 (2016): 301-25. https://doi.org/10.1080/07075332.2015.1134622.",
+  );
+  assert.equal(
+    chicagoNote(article, "305"),
+    "Annika Mombauer, \u201cSir Edward Grey, Germany, and the Outbreak of the First World War: A Re-Evaluation,\u201d The International History Review 38, no. 2 (2016): 305, https://doi.org/10.1080/07075332.2015.1134622.",
+  );
+
+  const chapter = {
+    kind: "secondary" as const,
+    work_kind: "chapter" as const,
+    author: "Beloff, Max",
+    editor: "Blake, Robert and Louis, Wm. Roger",
+    year: 1993,
+    title: "Churchill and Europe",
+    source: "Churchill",
+    publisher: "Oxford University Press",
+    pages: "443-56",
+    doi: "10.1093/acprof:oso/9780198206262.001.0001",
+  };
+  assert.equal(
+    chicagoBibliography(chapter),
+    "Beloff, Max. \u201cChurchill and Europe.\u201d In Churchill, edited by Robert Blake and Wm. Roger Louis, 443-56. Oxford University Press, 1993. https://doi.org/10.1093/acprof:oso/9780198206262.001.0001.",
+  );
+  assert.equal(
+    chicagoNote(chapter, "448"),
+    "Max Beloff, \u201cChurchill and Europe,\u201d in Churchill, ed. Robert Blake and Wm. Roger Louis (Oxford University Press, 1993), 448, https://doi.org/10.1093/acprof:oso/9780198206262.001.0001.",
+  );
+
+  const book = {
+    kind: "secondary" as const,
+    work_kind: "book" as const,
+    author: "Lüthi, Lorenz M.",
+    year: 2008,
+    title: "The Sino-Soviet Split: Cold War in the Communist World",
+    source: null,
+    publisher: "Princeton University Press",
+  };
+  assert.equal(
+    chicagoBibliography(book),
+    "Lüthi, Lorenz M. The Sino-Soviet Split: Cold War in the Communist World. Princeton University Press, 2008.",
+  );
+  assert.equal(
+    chicagoNote(book, "246"),
+    "Lorenz M. Lüthi, The Sino-Soviet Split: Cold War in the Communist World (Princeton University Press, 2008), 246.",
+  );
+
+  const primary = {
+    kind: "primary" as const,
+    work_kind: "primary" as const,
+    author: "Mao Zedong",
+    title: "On the Question of the Differentiation of the Three Worlds",
+    source: "History and Public Policy Program Digital Archive, Woodrow Wilson International Center for Scholars",
+    doc_date: "22 Feb 1974",
+  };
+  assert.equal(
+    chicagoBibliography(primary),
+    "Mao Zedong. \u201cOn the Question of the Differentiation of the Three Worlds.\u201d 22 Feb 1974. History and Public Policy Program Digital Archive, Woodrow Wilson International Center for Scholars.",
+  );
+  assert.equal(
+    chicagoNote(primary),
+    "Mao Zedong, \u201cOn the Question of the Differentiation of the Three Worlds,\u201d 22 Feb 1974, History and Public Policy Program Digital Archive, Woodrow Wilson International Center for Scholars.",
+  );
 });
 
 test("keys from the Python importer work with the JS library", () => {
