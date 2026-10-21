@@ -36,7 +36,7 @@ OCR_LANGUAGES = os.environ.get("OCR_LANGUAGES", "eng+fra+deu")
 # Two-page book spreads are split into single pages before OCR.
 SPLIT_SPREADS = os.environ.get("SPLIT_SPREADS", "true").lower() != "false"
 # Below this share of real words, a page's text layer is scanner rubbish.
-GARBLED_SHARE = 0.45
+GARBLED_SHARE = 0.85
 CONVERT_TIMEOUT = 10 * 60
 
 OFFICE_EXTENSIONS = {
@@ -110,14 +110,19 @@ _WORD = re.compile(r"^[^\W\d_][^\W\d_'\u2019-]*[^\W\d_]$|^[^\W\d_]{1}$")
 
 
 def garbled(pages: list[str]) -> bool:
-    """True when a text layer is mostly not words: the output of a poor
-    scanner OCR, which leaves the page searchable in name only."""
+    """True when a text layer is mostly not words or lacks word spaces:
+    the output of a poor scanner OCR, which leaves the page searchable in name only."""
     tokens = [t.strip(".,;:!?()[]\"'\u2018\u2019\u201c\u201d") for page in pages for t in page.split()]
     tokens = [t for t in tokens if t and not t.isdigit()]
-    if len(tokens) < 200:
+    chars = sum(len(t) for t in tokens)
+    if chars < 300 and len(tokens) < 30:
         return False
+    mean_len = chars / max(1, len(tokens))
+    long_tokens = sum(1 for t in tokens if len(t) > 20)
+    if mean_len > 11.0 or (long_tokens / max(1, len(tokens)) > 0.08):
+        return True
     words = sum(1 for t in tokens if _WORD.match(t) and any(ch in "aeiouyàâäéèêëîïôöûüAEIOUY" for ch in t))
-    return words / len(tokens) < GARBLED_SHARE
+    return words / max(1, len(tokens)) < GARBLED_SHARE
 
 
 def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
@@ -423,7 +428,7 @@ def transcribe(ctx: Context, job: dict) -> None:
 
 
 def identify(ctx: Context, job: dict) -> None:
-    """Works out a reading's citation from its first pages."""
+    """Works out a reading's citation from its first and last pages."""
     import pymupdf
 
     file = _live_file(ctx, job)
@@ -434,9 +439,14 @@ def identify(ctx: Context, job: dict) -> None:
         ctx.api.download(file["r2_key"], path)
         with pymupdf.open(path) as doc:
             meta = doc.metadata or {}
-            text = "\n".join(doc[i].get_text("text") for i in range(min(3, len(doc))))
+            n = len(doc)
+            page_indices = list(range(min(3, n)))
+            for idx in [n - 2, n - 1]:
+                if idx >= 0 and idx not in page_indices:
+                    page_indices.append(idx)
+            text = "\n".join(doc[i].get_text("text") for i in page_indices)
             lines = finder.first_page_lines(doc)
-    citation, via = finder.identify(text, meta, lines, ctx.online)
+            citation, via = finder.identify(text, meta, lines, ctx.online, doc=doc)
     if citation:
         ctx.api.identified(file["id"], citation, via)
     log.info("file %s identified %s", file["id"], f"by {via}" if via else "as unknown")

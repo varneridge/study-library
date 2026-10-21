@@ -73,8 +73,10 @@ def test_languages_are_those_installed():
 def test_garbled_text_is_told_apart_from_prose():
     prose = ["The Concordat of 1801 restored the Church in France, but on terms the First Consul set. " * 12]
     rubbish = ["Tlie C0nc0rdat 0f l80l r3st0r3d tbe Cbnrcb ~~ ,,, iii ll1l 3e4t ^^ %% {} ;; lI| " * 20]
+    fused = ["TheConcordatof1801restoredtheChurchinFrancebutontermostheFirstConsulset " * 20]
     assert not garbled(prose)
     assert garbled(rubbish)
+    assert garbled(fused)
     assert not garbled(["Too short to judge."])
 
 
