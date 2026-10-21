@@ -534,6 +534,55 @@ test("pasted questions lose every kind of numbering, but not a year", () => {
   }
 }
 
+{
+  const name = "reflow strips rotated watermarks, publisher footers and detects section headings";
+  try {
+    const { reflow } = await import("../src/lib/reflow");
+    const mockDoc = {
+      numPages: 1,
+      getPage: async () => ({
+        getViewport: () => ({ width: 600, height: 800 }),
+        getTextContent: async () => ({
+          items: [
+            // Rotated watermark (should be filtered out)
+            { str: "WATERMARK_SPURIOUS", transform: [0, 10, -10, 0, 10, 400], width: 100, height: 10 },
+            // Section heading (all-caps, isolated)
+            { str: "I. INTRODUCTION", transform: [14, 0, 0, 14, 200, 720], width: 150, height: 14 },
+            // Body text lines
+            { str: "This is the first sentence of the article.", transform: [10, 0, 0, 10, 50, 680], width: 200, height: 10 },
+            { str: "And here is the second sentence that completes the paragraph.", transform: [10, 0, 0, 10, 50, 668], width: 300, height: 10 },
+            // Footnote at bottom of page
+            { str: "1. See Edward Grey, Speeches (London, 1915).", transform: [8, 0, 0, 8, 50, 100], width: 250, height: 8 },
+            // Multi-line publisher footer
+            { str: "Downloaded from https://academic.oup.com/terms by LSE Library", transform: [8, 0, 0, 8, 50, 40], width: 300, height: 8 },
+          ],
+        }),
+      }),
+    };
+    const out = await reflow(mockDoc as never);
+    const headings = out.blocks.filter((b) => b.kind === "heading");
+    const paras = out.blocks.filter((b) => b.kind === "para");
+    const notes = out.blocks.filter((b) => b.kind === "note");
+
+    assert.equal(headings.length, 1);
+    assert.ok(headings[0].lines[0].text.includes("I. INTRODUCTION"));
+    assert.equal(paras.length, 1);
+    assert.ok(paras[0].lines[0].text.includes("This is the first sentence"));
+    assert.equal(notes.length, 1);
+    assert.ok(notes[0].lines[0].text.includes("1. See Edward Grey"));
+
+    // Watermark and download footer should be completely dropped
+    const allText = out.blocks.map((b) => b.lines.map((l) => l.text).join(" ")).join(" ");
+    assert.ok(!allText.includes("WATERMARK_SPURIOUS"));
+    assert.ok(!allText.includes("Downloaded from https://academic.oup.com"));
+
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
+
 test("a highlight is drawn as one band per line, the lines meeting", () => {
   // Two lines of three words each, with OCR-wide gaps between the words and
   // leading between the lines.

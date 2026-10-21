@@ -89,8 +89,8 @@ const Body = memo(function Body({
   return (
     <>
       {blocks.map((block, bi) => {
-        // Footnotes are left out unless asked for: on a phone they break up the text.
-        if (block.kind === "note" && !notes) return null;
+        // Footnotes are excluded from text view: on a phone they break up the text.
+        if (block.kind === "note") return null;
         const Tag = block.kind === "heading" ? "h2" : "p";
         // A heading that opens a page has its page number above it, not inside it.
         const opens = block.kind === "heading" && block.lines[0].page !== lastPage;
@@ -98,7 +98,7 @@ const Body = memo(function Body({
         return (
           <Fragment key={bi}>
           {opens && <div className="pg-line"><span className="pg" data-pg={block.lines[0].page} aria-label={`Page ${block.lines[0].page + 1}`}>{block.lines[0].page + 1}</span></div>}
-          <Tag className={block.kind === "note" ? "note" : undefined}>
+          <Tag>
             {block.lines.map((line, li) => {
               const marker = line.page !== lastPage;
               lastPage = line.page;

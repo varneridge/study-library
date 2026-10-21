@@ -257,9 +257,8 @@ function ColourPicker({ value, names, onChoose }: { value: string; names: Colour
 }
 
 // Page colour, zoom and margins, behind one button, as Zotero's Aa.
-function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, canTrim, setTrim, layout, setLayout, textSize, setTextSize, footnotes, setFootnotes }: {
+function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, canTrim, setTrim, layout, setLayout, textSize, setTextSize }: {
   layout: "pages" | "text"; setLayout: (l: "pages" | "text") => void; textSize: number; setTextSize: (n: number) => void;
-  footnotes: boolean; setFootnotes: (on: boolean) => void;
   theme: Theme; setTheme: (t: Theme) => void; zoom: number | null; scale: number; changeZoom: (z: number | null) => void;
   trim: boolean; canTrim: boolean; setTrim: (on: boolean) => void;
 }) {
@@ -324,12 +323,6 @@ function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, canTrim, s
             <button className="tool" aria-pressed={zoom === null} onClick={() => changeZoom(null)}>Fit to width</button>
           </div>
           )}
-          {layout === "text" && (
-            <label className="choices panel-check">
-              <input type="checkbox" checked={footnotes} onChange={(e) => setFootnotes(e.target.checked)} />
-              Show footnotes
-            </label>
-          )}
           {canTrim && layout === "pages" && (
             <label className="choices panel-check">
               <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
@@ -377,7 +370,6 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     return window.matchMedia?.("(max-width: 34rem)").matches ? "text" : "pages";
   });
   const [textSize, setTextSize] = useState(() => Number(localStorage.getItem("reader-text-size")) || 1);
-  const [footnotes, setFootnotes] = useState(() => localStorage.getItem("reader-footnotes") === "on");
   const [progress, setProgress] = useState(0);
   const [reflowed, setReflowed] = useState<Reflowed | null>(null);
   const [reflowing, setReflowing] = useState(false);
@@ -1035,8 +1027,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
         )}
         <div className="group end">
           <Appearance theme={theme} setTheme={setTheme} zoom={zoom} scale={scale} changeZoom={changeZoom} trim={trim} canTrim={Boolean(column)} setTrim={chooseTrim}
-            layout={layout} setLayout={chooseLayout} textSize={textSize} setTextSize={chooseTextSize}
-            footnotes={footnotes} setFootnotes={(on) => { setFootnotes(on); localStorage.setItem("reader-footnotes", on ? "on" : "off"); }} />
+            layout={layout} setLayout={chooseLayout} textSize={textSize} setTextSize={chooseTextSize} />
           {narrow && (
             <IconButton icon={layout === "text" ? "pages" : "outline"} label={layout === "text" ? "Show the pages" : "Show as text"}
               onClick={() => chooseLayout(layout === "text" ? "pages" : "text")} />
@@ -1137,7 +1128,6 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
                 onSpot={onTextSpot}
                 onSelect={onTextSelect}
                 onHighlight={(hid, x, y) => setActive({ id: hid, x, y })}
-                notes={footnotes}
               />
             </div>
           )}
