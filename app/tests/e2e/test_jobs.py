@@ -100,9 +100,9 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     assert page.locator(".topbar a.to-jobs").inner_text() == "Job search"
     expect(page.locator(".topbar a.topbar-across")).to_have_text("This week")
-    expect(page.locator(".topbar button[aria-label='Go to']")).to_be_visible()
-    expect(page.locator(".topbar a[aria-label='Search']")).to_be_visible()
-    expect(page.locator(".topbar a[aria-label='Settings']")).to_be_visible()
+    expect(page.get_by_role("button", name="Go to", exact=True)).to_be_visible()
+    expect(page.get_by_role("link", name="Search", exact=True)).to_be_visible()
+    expect(page.get_by_role("link", name="Settings", exact=True)).to_be_visible()
 
     # Into the job search.
     page.locator(".topbar a.to-jobs").click()

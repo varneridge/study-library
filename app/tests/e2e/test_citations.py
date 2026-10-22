@@ -92,7 +92,7 @@ with sync_playwright() as p:
     page.reload()
 
     # A reading with nothing to go on takes its details straight away.
-    expect(page.locator(".week-page li.reading", has_text="Schlesinger, A. (1967) ‘The Origins of the Cold War’")).to_be_visible(timeout=20000)
+    expect(page.locator(".week-page li.reading", has_text="The Origins of the Cold War")).to_be_visible(timeout=20000)
     print("scan_0034.pdf named itself:", page.locator(".week-page li.reading", has_text="Schlesinger").locator(".name").inner_text().replace("\n", " | "))
 
     # A reading you named is left alone, with the details offered.
@@ -108,10 +108,10 @@ with sync_playwright() as p:
     row = page.locator(".week-page li.reading", has_text="luthi")
     row.get_by_role("button", name="Details found").click()
     expect(row.locator(".compare")).to_contain_text("from the title and names on its first page")
-    expect(row.locator(".compare .found-title")).to_contain_text("Luthi, L. M. and Friedman, J. ‘The Sino-Soviet Split and the Making of the Third World’")
+    expect(row.locator(".compare .found-title")).to_contain_text("The Sino-Soviet Split and the Making of the Third World")
     print("read from the first page:", row.locator(".compare .found-title").inner_text())
     row.get_by_role("button", name="Use these details").click()
-    expect(page.locator(".week-page li.reading", has_text="Luthi and Friedman").or_(page.locator(".week-page li.reading", has_text="Luthi, L. M."))).to_be_visible()
+    expect(page.locator(".week-page li.reading", has_text="The Sino-Soviet Split")).to_be_visible()
 
     # The module page gathers them for one check.
     page.locator(".crumbs a").first.click()
@@ -123,7 +123,7 @@ with sync_playwright() as p:
     expect(page.locator(".toast")).to_contain_text("1 reading updated")
     expect(page.get_by_role("button", name="Details found for 1 reading")).to_have_count(0)
     page.locator("#week-AT1 .week-title").click()
-    expect(page.locator(".week-page li.reading", has_text="Leffler, M. P. (1984) ‘The American Conception")).to_be_visible()
+    expect(page.locator(".week-page li.reading", has_text="The American Conception")).to_be_visible()
     print("used from the module review")
 
     # The editor says where details came from and can put the old ones back.

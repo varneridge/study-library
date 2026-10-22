@@ -315,13 +315,16 @@ export function App() {
           <ModuleLinks route={route} />
           <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"} title="This week">This week</Link>
           <nav className="topbar-tools" aria-label="Tools">
-            <button type="button" className="topbar-btn" aria-label="Go to" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+            <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+              <span className="sr-only">Go to</span>
               <Icon name="goto" size={18} />
             </button>
-            <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} label="Search" title="Search (/)">
+            <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
+              <span className="sr-only">Search</span>
               <Icon name="search" size={18} />
             </Link>
-            <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} label="Settings" title="Settings">
+            <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
+              <span className="sr-only">Settings</span>
               <Icon name="settings" size={18} />
             </Link>
           </nav>
