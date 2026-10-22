@@ -87,6 +87,9 @@ function SyncStatus() {
   else if (state?.error) { text = "Sync problem"; problem = state.error; }
   else if (uploads.length) text = `Uploading ${uploads.length}`;
   else if (pending) text = "Saving";
+  if (!text && !uploads.length) {
+    return <span className="sync" aria-live="polite" />;
+  }
   if (!uploads.length) {
     return <span className={`sync${problem ? " problem" : ""}`} title={problem ?? undefined} aria-live="polite">{text}</span>;
   }
@@ -143,11 +146,14 @@ function ModuleLinks({ route }: { route: Route }) {
   // The home page lists every module itself, so the bar does not repeat them there.
   if (modules.length < 2 || route.view === "home") return null;
   return (
-    <nav className="modules-nav" aria-label="Modules">
-      {modules.map((m) => (
-        <Link key={m.id} to={{ view: "module", id: m.id }} current={currentModule === m.id} title={m.title ?? undefined}>{m.code}</Link>
-      ))}
-    </nav>
+    <>
+      <span className="topbar-sep" aria-hidden="true" />
+      <nav className="modules-nav" aria-label="Modules">
+        {modules.map((m) => (
+          <Link key={m.id} to={{ view: "module", id: m.id }} current={currentModule === m.id} title={m.title ?? undefined}>{m.code}</Link>
+        ))}
+      </nav>
+    </>
   );
 }
 
@@ -272,16 +278,14 @@ export function App() {
     return (
       <>
         <a className="skip" href="#main">Skip to content</a>
-        <header className="topbar jobs-bar">
-          <Link to={{ view: "jobs" }} className="brand">Job search</Link>
+        <header className="topbar jobs-bar wide">
+          <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
           <SyncStatus />
-          <div className="navs">
-            <nav aria-label="Leave the job search">
-              <Link to={{ view: "home" }} title="Back to your modules, readings and notes">
-                <span className="wide-only">Back to Study Library</span><span className="narrow-only">Study Library</span>
-              </Link>
-            </nav>
-          </div>
+          <nav className="topbar-nav" aria-label="Leave the job search">
+            <Link to={{ view: "home" }} title="Back to your modules, readings and notes">
+              <span className="wide-only">Back to Study Library</span><span className="narrow-only">Study Library</span>
+            </Link>
+          </nav>
         </header>
         <ExpiredBanner />
         <main id="main" tabIndex={-1}>
@@ -301,25 +305,29 @@ export function App() {
     <>
       <a className="skip" href="#main">Skip to content</a>
       <header className="topbar">
-        <Link to={{ view: "home" }} className="brand">Study Library</Link>
+        <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>
         <SyncStatus />
         {/* On a phone the tab bar does the navigating; Go to stays up here. */}
         <button className="icon-button narrow-only goto-button" aria-label="Go to a module, week or reading" title="Go to" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
           <Icon name="goto" size={22} />
         </button>
         <div className="navs">
-        <ModuleLinks route={route} />
-        <nav>
-          <button className="nav-button" title="Go to a module, week or reading (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>Go to</button>
-          <Link to={{ view: "search" }} current={route.view === "search"} title="Search (press /)">Search</Link>
-          <Link to={{ view: "across" }} current={route.view === "across"}>
-            <span className="wide-only">Week across modules</span><span className="narrow-only">Across</span>
-          </Link>
-          <Link to={{ view: "settings" }} current={route.view === "settings"}>Settings</Link>
-        </nav>
+          <ModuleLinks route={route} />
+          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"} title="This week">This week</Link>
+          <nav className="topbar-tools" aria-label="Tools">
+            <button type="button" className="topbar-btn" aria-label="Go to" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+              <Icon name="goto" size={18} />
+            </button>
+            <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} label="Search" title="Search (/)">
+              <Icon name="search" size={18} />
+            </Link>
+            <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} label="Settings" title="Settings">
+              <Icon name="settings" size={18} />
+            </Link>
+          </nav>
         </div>
         {/* Outside the scrolling row of links, so a phone always shows it. */}
-        <Link to={{ view: "jobs" }} className="to-jobs" title="Your job applications, kept apart from your studies">
+        <Link to={{ view: "jobs" }} className="to-jobs" title="Job search">
           <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
         </Link>
       </header>

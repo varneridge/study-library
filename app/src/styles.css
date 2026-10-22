@@ -66,19 +66,80 @@ button { cursor: pointer; }
 
 /* Shell */
 .topbar {
+  --bar-max: 46rem;
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: baseline; gap: 1.25rem;
-  /* On a wide screen the bar's ends line up with the widest pages beneath. */
-  padding: 0.7rem max(1.25rem, calc((100vw - 72rem) / 2 + 1.25rem));
-  background: var(--paper);
+  display: flex; align-items: center; gap: var(--s-2);
+  height: 3.25rem;
+  box-sizing: border-box;
+  padding-inline: max(var(--s-5), calc((100% - var(--bar-max, 46rem)) / 2 + var(--s-5)));
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: saturate(1.2) blur(8px);
   border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
 }
-.brand { font-family: var(--serif); font-weight: 600; font-size: var(--fs-lg); text-decoration: none; }
-.topbar nav { display: flex; gap: 1rem; margin-left: auto; font-size: var(--fs-sm); }
-.topbar nav a { text-decoration: none; color: var(--muted); }
-.topbar nav a:hover, .topbar nav a[aria-current="page"] { color: var(--ink); }
-.sync { font-size: var(--fs-sm); color: var(--muted); min-width: 7.5rem; white-space: nowrap; }
+.topbar.wide {
+  --bar-max: 72rem;
+}
+.brand {
+  font-family: var(--serif); font-weight: 600; font-size: 1.15rem; letter-spacing: -0.01em; text-decoration: none;
+  color: var(--ink); height: 2rem; padding: 0 var(--s-2); border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; flex-shrink: 0;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.brand:hover { background: var(--surface); color: var(--ink); }
+.topbar-sep {
+  width: 1px; height: 1rem; background: var(--rule); margin: 0 var(--s-1); flex-shrink: 0;
+}
+.modules-nav {
+  display: flex; align-items: center; gap: 0.2rem;
+  overflow-x: auto; scrollbar-width: none; min-width: 0; flex-shrink: 1;
+}
+.modules-nav a {
+  text-decoration: none; color: var(--muted); font-variant-numeric: tabular-nums;
+  height: 2rem; padding: 0 var(--s-2); border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; font-size: var(--fs-sm);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.modules-nav a:hover { background: var(--surface); color: var(--ink); }
+.topbar-across {
+  text-decoration: none; color: var(--muted); height: 2rem; padding: 0 var(--s-2);
+  border-radius: var(--r-sm); display: inline-flex; align-items: center; font-size: var(--fs-sm);
+  margin-left: auto; order: 5;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.topbar-across:hover { background: var(--surface); color: var(--ink); }
+.topbar-tools {
+  display: flex; align-items: center; gap: var(--s-1); order: 7;
+}
+.topbar-btn {
+  width: 2rem; height: 2rem; border-radius: var(--r-sm); border: 0; background: transparent;
+  color: var(--muted); padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; text-decoration: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.topbar-btn:hover { background: var(--surface); color: var(--ink); }
+.topbar > .to-jobs {
+  text-decoration: none; color: var(--muted); height: 2rem; padding: 0 var(--s-2);
+  border-radius: var(--r-sm); display: inline-flex; align-items: center; font-size: var(--fs-sm);
+  order: 6; flex-shrink: 0;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.topbar > .to-jobs:hover { background: var(--surface); color: var(--ink); }
+.topbar a[aria-current="page"], .topbar button[aria-current="page"] {
+  background: var(--accent-soft); color: var(--accent); font-weight: 500;
+}
+.topbar a[aria-current="page"] svg, .topbar button[aria-current="page"] svg {
+  color: var(--accent);
+}
+.sync { font-size: var(--fs-xs); color: var(--muted); min-width: 0; white-space: nowrap; flex-shrink: 0; }
 .sync.problem { color: var(--danger); }
+.jobs-bar nav { margin-left: auto; display: flex; align-items: center; }
+.jobs-bar nav a {
+  text-decoration: none; color: var(--muted); height: 2rem; padding: 0 var(--s-2);
+  border-radius: var(--r-sm); display: inline-flex; align-items: center; font-size: var(--fs-sm);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.jobs-bar nav a:hover { background: var(--surface); color: var(--ink); }
 .banner {
   display: flex; gap: 1rem; align-items: center; justify-content: space-between;
   padding: 0.6rem 1.25rem; background: var(--wash); border-bottom: 1px solid var(--rule); font-size: var(--fs-sm);
@@ -523,32 +584,15 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .menu-panel button.danger { color: var(--danger); border-top: 1px solid var(--rule); }
 .quiet[aria-pressed="true"] { color: var(--accent); }
 
-.modules-nav { display: flex; gap: 0.9rem; font-size: var(--fs-sm); }
-.modules-nav a { text-decoration: none; color: var(--muted); font-variant-numeric: tabular-nums; }
-.modules-nav a:hover { color: var(--ink); }
-.modules-nav a[aria-current="page"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
-.topbar nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
 .navs { display: contents; }
 .narrow-only { display: none; }
-.modules-nav { margin-left: auto; }
-.modules-nav + nav { margin-left: 1.25rem; padding-left: 1.25rem; border-left: 1px solid var(--rule); }
-/* Between phone and laptop, condense longer top bar labels and allow wrapping */
-@media (max-width: 56rem) {
-  .wide-only { display: none; }
-  .narrow-only { display: inline; }
-  .topbar { flex-wrap: wrap; }
-}
 @media (min-width: 44.001rem) {
   .goto-button { display: none !important; }
 }
-/* On a phone the links take a second line of their own. */
+/* On a phone the top bar keeps brand, sync, Go to and Jobs. */
 @media (max-width: 44rem) {
-  .topbar { flex-wrap: wrap; row-gap: 0.4rem; padding: 0.6rem 1rem; }
-  .navs { display: flex; flex-basis: 100%; gap: 0.8rem; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
-  .navs nav, .navs .modules-nav { gap: 0.8rem; }
+  .topbar { flex-wrap: wrap; row-gap: 0.4rem; padding: 0.6rem 1rem; height: auto; min-height: 3.25rem; }
   .sync { min-width: 0; margin-left: auto; }
-  .navs .modules-nav, .navs nav { margin-left: 0; }
-  .modules-nav + nav { margin-left: 0; padding-left: 0.8rem; }
   .wide-only { display: none; }
   .narrow-only { display: inline; }
 }
@@ -1030,11 +1074,6 @@ label.field > span { display: block; margin-bottom: 0.3rem; font-size: var(--fs-
 /* Notices */
 .toast { box-shadow: 0 10px 28px var(--shadow); border-radius: 0; }
 
-/* The top bar: a hairline, a soft blur on scroll, and an accent under the page you are on. */
-.topbar { background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: saturate(1.2) blur(8px); align-items: center; }
-.topbar nav { align-items: center; }
-.topbar nav a, .topbar nav .nav-button { padding: 0.2rem 0; border-bottom: 2px solid transparent; }
-.topbar nav a[aria-current="page"] { border-bottom-color: var(--accent); color: var(--ink); }
 
 /* Lists of readings: a soft wash on the row under the pointer, so it is
    clear what a click or drag will act on. */
@@ -1157,11 +1196,6 @@ img, canvas, video { max-width: 100%; }
    rest. Stage colours come from the applications spreadsheet, as square chips
    rather than filled cells, so the table still reads as a page. */
 .jobs-bar .brand { letter-spacing: 0.01em; }
-.topbar > .to-jobs {
-  font-size: var(--fs-sm); color: var(--muted); text-decoration: none; white-space: nowrap;
-  margin-left: 1rem; padding-left: 1rem; border-left: 1px solid var(--rule);
-}
-.topbar > .to-jobs:hover { color: var(--ink); }
 @media (max-width: 44rem) {
   /* On a phone it sits opposite the brand; the other links take the next row. */
   .topbar > .to-jobs { order: 1; margin-left: 0.75rem; padding-left: 0; border-left: 0; display: inline-flex; align-items: center; min-height: 1.75rem; }
@@ -1421,9 +1455,10 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .hit-line { display: flex; }
   .week-title { display: flex; min-height: 2.75rem; }
   .menu-button { min-width: 2.75rem; justify-content: center; }
-  .reading a.name, .recent .name, .module-row, .list .name, .list li > a, .session-link, .session-open, .notes-more, .crumbs a, .topbar nav a, .week-nav a, .across-session a {
+  .reading a.name, .recent .name, .module-row, .list .name, .list li > a, .session-link, .session-open, .notes-more, .crumbs a, .topbar nav a, .topbar-across, .topbar > .to-jobs, .week-nav a, .across-session a {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
+  .topbar-btn, .topbar > .to-jobs { min-width: 2.75rem; min-height: 2.75rem; justify-content: center; }
   .session-link { min-width: 2.75rem; padding-inline: 0.5rem; justify-content: center; }
   .modules-nav a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.4rem; }
   .crumbs a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.4rem; }
@@ -1623,18 +1658,6 @@ h3 { font-size: var(--fs-lg); font-weight: 600; }
 .crumbs a:hover { color: var(--ink); }
 .week-when { margin-left: 0.6rem; color: var(--faint); }
 
-/* The top bar: quiet, a hairline below, links that light up softly. */
-.topbar { border-bottom: 1px solid var(--rule); min-height: 3.25rem; }
-.brand { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; font-variation-settings: "opsz" 36; }
-.topbar nav { gap: 0.15rem; }
-.topbar nav a, .topbar nav button.nav-button, .topbar > .to-jobs {
-  padding: 0.35rem 0.6rem; border-radius: var(--r-sm); color: var(--muted); border: 0; background: none;
-}
-.topbar nav a:hover, .topbar nav button.nav-button:hover, .topbar > .to-jobs:hover { background: var(--surface); color: var(--ink); }
-.topbar nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); box-shadow: none; }
-.topbar nav a[aria-current="page"]::after { display: none; }
-.topbar > .to-jobs { border-left: 0; margin-left: 0.5rem; }
-.topbar .modules-nav { padding-right: 0.5rem; margin-right: 0.35rem; }
 
 /* Buttons. Primary is filled; the rest are soft surfaces, not outlines. */
 .button {

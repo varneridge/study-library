@@ -194,7 +194,7 @@ Your own highlights and notes are listed first. Page hits are grouped by reading
 ### Finish and resilience
 
 - **One set of rules for shared parts.** Buttons come in three kinds with one height: bordered for actions, filled for the main action on a screen, quiet for the rest. Each has the same hover, pressed and keyboard focus states. Fields, menus, popovers, dialogs and notices share one card tone, one hairline and one shadow, in every theme.
-- **Feedback under the pointer.** The reading row under the pointer takes a soft wash, so it is clear what a click or drag will act on. The top bar underlines the page you are on.
+- **Feedback under the pointer.** The reading row under the pointer takes a soft wash, so it is clear what a click or drag will act on. The top bar highlights the active page with a soft accent pill.
 - **Nothing looks empty while loading.** A notes editor that is still opening shows quiet placeholder bars, not a blank space that looks broken.
 - **A failed page says so.** If a page hits an error, it says so plainly, with Reload, and reassures you that notes are saved on the device. It no longer leaves a screen that looks fine but does nothing.
 - **Updates are picked up.** After a deploy, a tab opened earlier can ask for parts of the app that no longer exist, which used to stop notes from opening until a reload. The app now reloads itself once when that happens.
@@ -429,7 +429,7 @@ On a session page, recordings become the session's recording and documents becom
 
 ### Go to
 
-Ctrl K, or **Go to** in the top bar, opens a box for jumping to any module, week, reading or question. Type a few letters, choose with the arrow keys and press Enter. The last line always offers to search everything for what you typed.
+Ctrl K, or the **Go to** icon in the top bar, opens a box for jumping to any module, week, reading or question. Type a few letters, choose with the arrow keys and press Enter. The last line always offers to search everything for what you typed.
 
 ### Uploads
 
@@ -497,7 +497,7 @@ A Cron Trigger runs every 15 minutes. It puts back any job left "running" for ov
 
 - Module codes sit in the top bar on every page.
 - The module page keeps its week grid in view, and each week says in words what its sessions hold.
-- **Week across modules** shows sessions, questions and recordings as well as readings. Opened from the top bar or the phone's **This week** tab, it shows this week while term runs, and says so in its heading; in the vacations it opens at the week you last chose.
+- **This week** shows sessions, questions and recordings as well as readings across modules. Opened from the top bar or the phone's **This week** tab, it shows this week while term runs, and says so in its heading; in the vacations it opens at the week you last chose.
 - `/` opens search, or find when you're reading. On a week, `[` and `]` go to the previous and next week, and links at the foot of the page do the same.
 - Each browser tab is titled with the page it shows.
 
@@ -1062,6 +1062,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.31.4 | Job search timeline part 1: 20 stages, progression steps, application_events table, migration 0012, mis-tap rules, and Dexie cursor reset; week jump strip paper background and dynamic top bar positioning; layout audit halfway scroll and long title checks; accessibility enhancements for editable titles, reading highlights, mobile highlight popover sheet, note editor and rename labels, arrow navigation for menus and sidebar tabs, slide canvas role, and transcript metadata; and state waits replacing fixed delays in browser tests |
 | 0.32.0 | Reading quality overhaul: Chicago 18th edition reference fields (work_kind, editor, publisher, volume, issue, doi), Copy reference menu action across the app, enhanced reference finder with cover sheet parsing (JSTOR books, CLA/LSE, Taylor & Francis, Wilson Center, FRUS) and full given names, automatic detection and ocrmypdf --redo-ocr for unhealthy OCR layers, and text reflow with rotated watermark filtering, landscape spread handling, section heading detection, and footnotes excluded from text view |
 | 0.32.1 | Text reflow margin preservation and paragraph breaking: text sitting near top and bottom page margins preserved when contiguous with body leading; page-turn paragraph breaking with OCR baseline column-edge seeding; mid-sentence paragraph split prevention on capitalized abbreviations and lowercase continuation lines; unicode and soft hyphen support; and section heading distinction from numbered list items |
+| 0.33.0 | Unified laptop top bar: single row at all widths above phone layout, column alignment matching the page content column using bar width percentages, icon controls for Go to, Search and Settings with accessible names and shortcut tooltips, unified This week naming across navigation, unified accent-pill active page marking, and the job search bar built on the same structure |
 
 ## 18. The job search
 

@@ -99,9 +99,10 @@ with sync_playwright() as p:
     # The study side, before: its top bar and pages are unchanged but for one link.
     page.goto(BASE + "/")
     assert page.locator(".topbar a.to-jobs").inner_text() == "Job search"
-    study_links = [t.strip() for t in page.locator(".topbar nav a, .topbar nav button").all_inner_texts()]
-    print("study top bar:", study_links)
-    assert study_links[:4] == ["Go to", "Search", "Week across modules", "Settings"], study_links
+    expect(page.locator(".topbar a.topbar-across")).to_have_text("This week")
+    expect(page.locator(".topbar button[aria-label='Go to']")).to_be_visible()
+    expect(page.locator(".topbar a[aria-label='Search']")).to_be_visible()
+    expect(page.locator(".topbar a[aria-label='Settings']")).to_be_visible()
 
     # Into the job search.
     page.locator(".topbar a.to-jobs").click()

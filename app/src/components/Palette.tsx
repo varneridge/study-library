@@ -61,7 +61,7 @@ async function entries(): Promise<Entry[]> {
   }
   out.push(
     { key: "a-search", kind: "Go to", label: "Search", route: { view: "search" }, text: "search find", rank: 5 },
-    { key: "a-across", kind: "Go to", label: "Week across modules", route: { view: "across" }, text: "week across modules", rank: 5 },
+    { key: "a-across", kind: "Go to", label: "This week", route: { view: "across" }, text: "this week across modules", rank: 5 },
     { key: "a-settings", kind: "Go to", label: "Settings", route: { view: "settings" }, text: "settings appearance light dark", rank: 5 },
   );
   return out;
