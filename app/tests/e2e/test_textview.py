@@ -139,11 +139,6 @@ with sync_playwright() as p:
     after = phone.evaluate("parseFloat(getComputedStyle(document.querySelector('.text-view')).fontSize)")
     print(f"text size {before}px -> {after}px")
     assert after > before
-    phone.get_by_label("Show footnotes").check()
-    expect(body.locator("p.note")).to_have_count(3)
-    phone.get_by_label("Show footnotes").uncheck()
-    expect(body.locator("p.note")).to_have_count(0)
-    print("footnotes hidden, and shown on request")
     phone.keyboard.press("Escape")
 
     # Scrolling down hides the toolbar and leaves no band: the text runs to

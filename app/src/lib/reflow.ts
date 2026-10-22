@@ -32,6 +32,10 @@ interface RawLine { y: number; size: number; x0: number; x1: number; parts: RawP
 const JUNK = /^(this content downloaded from|all use subject to|jstor is a not-for-profit|your use of the jstor archive|stable url:|contact\s+\S+.*@\S+|\u00a9\s?\d{4}\b.{0,60}$|to cite this article:|published online:|submit your article|view related articles|view crossmark|full terms & conditions|https?:\/\/\S+$)/i;
 const PUBLISHER_FOOTER = /(?:created from lse on|downloaded from https?:\/\/|cambridge core|oxford scholarship online|proquest ebook central|terms of use|all rights reserved\.? may not be reproduced|all use subject to https?:\/\/)/i;
 
+const HYPHEN_END = /[a-z\u00e0-\u024f][-\u00ad\u2010\u2011\u2013]$/i;
+const ABBREV = /\b(?:[A-Z]\.|[A-Z][a-z]{1,4}\.|e\.g\.|i\.e\.|cf\.|viz\.|al\.|etc\.|vs\.|vols?\.|nos?\.|pp?\.|\bsec\.|eds?\.|figs?\.)[)'"\u201d\u2019\]]*$/;
+const LIST_ITEM = /^(?:(?:\d{1,2}|[a-z]|[ivx]{1,4})[.)]\s+|[•\u2022\u2023\u25e6\u2043\u2219-]\s+)/i;
+
 function median(values: number[]): number {
   const v = [...values].sort((a, b) => a - b);
   return v.length ? v[Math.floor(v.length / 2)] : 0;
@@ -283,7 +287,17 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       pages.push({ page, text: "", pieces: [], height });
       return;
     }
-    for (const l of readingOrder(pageLines, width, height)) {
+    const order = readingOrder(pageLines, width, height);
+    const lineGaps: number[] = [];
+    for (let i = 0; i < order.length - 1; i += 1) {
+      const cur = order[i], nxt = order[i + 1];
+      if (cur.y > nxt.y && Math.abs(cur.x0 - nxt.x0) < body * 4) {
+        lineGaps.push(cur.y - nxt.y);
+      }
+    }
+    const pageLeading = median(lineGaps) || body * 1.3;
+
+    for (const l of order) {
       let lineText = "";
       const start = text.length;
       // Footnote numbers set small and raised in the text are left out:
@@ -310,24 +324,41 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       const clean = lineText.replace(/\s+/g, " ").trim();
       if (!clean) continue;
       if (JUNK.test(clean) || PUBLISHER_FOOTER.test(clean)) continue;
-      // Running heads are short. A long line near the edge is text, even if
-      // other pages begin in a similar way.
+
+      const startsLower = /^[a-z\u00e0-\u024f]/.test(clean);
+      const isHyphen = HYPHEN_END.test(clean);
+      const isSentenceContinuation = startsLower || isHyphen || /(?:,|;|:|\b(?:and|or|but|the|of|in|to|that|with|for))\s*$/i.test(clean);
+
       const nearEdge = l.y > height * 0.88 || l.y < height * 0.12;
-      if (nearEdge && (
-        ((edgeCounts.get(signature(clean)) ?? 0) >= repeats && clean.length < 180)
-        || /^\d{1,4}$/.test(clean)
-        || clean.length < 4
-      )) continue;
-      // Anything else in the top or bottom margin that is not a heading is a
-      // running head, a footer or a publisher's line, and is left out.
-      // An OCR layer's guessed sizes put more of the margin's furniture in doubt.
-      const band = l.y > height * (ocrDoc ? 0.9 : 0.915) || l.y < height * 0.07;
-      if (band && l.size < body * 1.15 && clean.length < 110) continue;
+      const isPageNum = /^(?:page\s+)?\d{1,4}(?:\s+(?:of|\/)\s+\d{1,4})?$/i.test(clean)
+        || /^[ivxlcdm]{1,8}$/i.test(clean)
+        || /^[-—–\s]*\d{1,4}[-—–\s]*$/.test(clean)
+        || /^\[\s*\d{1,4}\s*\]$/.test(clean)
+        || /^\d{1,4}\s*\|\s*.{2,60}$/.test(clean)
+        || /^.{2,60}\s*\|\s*\d{1,4}$/.test(clean);
+
+      if (nearEdge && isPageNum) continue;
+
+      const isRepeatedEdge = (edgeCounts.get(signature(clean)) ?? 0) >= repeats && clean.length < 180;
+      if (nearEdge && isRepeatedEdge && !isSentenceContinuation) continue;
+
+      const below = order.find((other) => other !== l && other.y < l.y && Math.abs(other.x0 - l.x0) < body * 4);
+      const isolatedTop = !below || (l.y - below.y > pageLeading * 1.6);
+      const above = [...order].reverse().find((other) => other !== l && other.y > l.y && Math.abs(other.x0 - l.x0) < body * 4);
+      const isolatedBottom = !above || (above.y - l.y > pageLeading * 1.6);
+      const isolated = (l.y > height * 0.88 && isolatedTop) || (l.y < height * 0.12 && isolatedBottom);
+
+      if (isolated && !isSentenceContinuation) {
+        if (clean.length < 4 && !/[a-z]{2,}/i.test(clean)) continue;
+        const marginBand = l.y > height * (ocrDoc ? 0.89 : 0.915) || l.y < height * 0.075;
+        if (marginBand && l.size < body * 1.15 && clean.length < 110) continue;
+      }
+
       // A line of nothing but small numbers is a stray footnote marker.
       if (/^[\d\s*\u2020\u2021.,]+$/.test(clean) && l.size < body * 0.9) continue;
       chars += clean.length;
       lines.push({
-        page, start, end: start + lineText.length, text: lineText, hyphen: /[a-z]-$/.test(clean), x0: l.x0, x1: l.x1, y: l.y, size: l.size, aside: l.aside,
+        page, start, end: start + lineText.length, text: lineText, hyphen: isHyphen, x0: l.x0, x1: l.x1, y: l.y, size: l.size, aside: l.aside,
         colLeft: l.colLeft ?? l.x0, colRight: l.colRight ?? l.x1,
       });
     }
@@ -341,7 +372,12 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
   const blocks: Block[] = [];
   const low = ocrDoc ? 0.78 : 0.86, high = ocrDoc ? 1.3 : 1.18;
   const paraLines = lines.filter((l) => l.size >= body * low && l.size <= body * high);
-  const ends = (l: Line) => /[.?!:"'\u201d\u2019)\]]$/.test(l.text.trim()) && !l.hyphen;
+  const ends = (l: Line) => {
+    const t = l.text.trim();
+    if (l.hyphen) return false;
+    if (ABBREV.test(t)) return false;
+    return /[.?!:"'\u201d\u2019)\]]$/.test(t);
+  };
   const shortShare = paraLines.filter((l) => l.x1 < l.colRight - l.size * 2.5).length / Math.max(1, paraLines.length);
   const ragged = shortShare > 0.35;
 
@@ -378,8 +414,10 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
     const shortLine = t.length < 120 && !/[,;]$/.test(t);
     const centred = Math.abs((line.x0 + line.x1) / 2 - (line.colLeft + line.colRight) / 2) < line.size * 2 && (line.x1 - line.x0 < (line.colRight - line.colLeft) * 0.75);
     const allCaps = t.length >= 4 && t === t.toUpperCase() && /[A-Z]/.test(t);
+    const titleWithoutNum = t.replace(/^(?:[IVXLCDM]+\.?|\d{1,2}\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+)\s*/i, "");
+    const isSectionHeading = SECTION_NUM.test(t) && (!/[.?!]$/.test(titleWithoutNum) || titleWithoutNum.length === 0);
     const isHeading = !line.aside && !isNote && shortLine && completed && isolated && (
-      line.size > body * (ocrDoc ? 1.22 : 1.15) || centred || allCaps || SECTION_NUM.test(t)
+      line.size > body * (ocrDoc ? 1.22 : 1.15) || centred || allCaps || isSectionHeading
     );
 
     let kind: Block["kind"] = line.aside ? "para" : isHeading ? "heading" : isNote ? "note" : "para";
@@ -405,29 +443,36 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
     }
     heading = null;
 
-    // Rolling left margin for jittered OCR scan baselines
-    if (lastPara && lastPara.page !== line.page) rollingLeft = [];
-    rollingLeft.push(line.x0);
-    if (rollingLeft.length > 5) rollingLeft.shift();
-    const localBaseline = median(rollingLeft);
+    // Rolling left margin for jittered OCR scan baselines: seed with column edge
+    if (lastPara && lastPara.page !== line.page) rollingLeft = [line.colLeft];
+    if (!rollingLeft.length) rollingLeft.push(line.colLeft);
+    if (Math.abs(line.x0 - line.colLeft) < line.size * 1.5) {
+      rollingLeft.push(line.x0);
+      if (rollingLeft.length > 5) rollingLeft.shift();
+    }
+    const localBaseline = median(rollingLeft) || line.colLeft;
 
+    const startsLower = /^[a-z\u00e0-\u024f]/.test(t);
     let breakHere = !open || Boolean(line.aside) !== Boolean(lastPara?.aside);
     if (open && lastPara && Boolean(line.aside) === Boolean(lastPara.aside)) {
-      if (!ends(lastPara)) {
+      if (startsLower) {
+        breakHere = false;
+      } else if (!ends(lastPara)) {
         const sameP = lastPara.page === line.page;
         const narrow = lastPara.x1 - lastPara.x0 < (lastPara.colRight - lastPara.colLeft) * 0.6;
         breakHere = sameP && narrow && lastPara.y - line.y > line.size * 2.2;
       } else {
         const samePage = lastPara.page === line.page;
         const gap = samePage ? lastPara.y - line.y : 0;
-        const indentThreshold = ocrDoc ? localBaseline + line.size * 1.25 : line.colLeft + line.size * 0.9;
+        const indentThreshold = ocrDoc ? localBaseline + line.size * 1.1 : line.colLeft + line.size * 0.85;
         const indent = line.x0 > indentThreshold && line.x0 < line.colLeft + line.size * 4;
         const short = lastPara.x1 < lastPara.colRight - line.size * 2.5;
         const wideGap = samePage && gap > line.size * 1.75;
         const newColumn = samePage && gap < 0;
+        const isList = LIST_ITEM.test(t);
         breakHere = samePage
-          ? wideGap || indent || (!ragged && short && !newColumn)
-          : /^[A-Z\u201c"'\d]/.test(t) && (indent || short);
+          ? wideGap || indent || isList || (!ragged && short && !newColumn)
+          : /^[A-Z\u201c"'\d]/.test(t) && (indent || short || isList);
       }
     }
     if (breakHere) { open = { kind: "para", lines: [] }; blocks.push(open); }

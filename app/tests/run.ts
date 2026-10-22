@@ -583,6 +583,136 @@ test("pasted questions lose every kind of numbering, but not a year", () => {
   }
 }
 
+{
+  const name = "reflow preserves margin text with body spacing, joins sentences across page turns, and respects abbreviations";
+  try {
+    const { reflow } = await import("../src/lib/reflow");
+    const mockDoc = {
+      numPages: 2,
+      getPage: async (n: number) => {
+        if (n === 1) {
+          return {
+            getViewport: () => ({ width: 600, height: 800 }),
+            getTextContent: async () => ({
+              items: [
+                // Isolated running head at y=760 (height=800, gap to text is 25pt > 1.6*13)
+                { str: "THE JULY CRISIS OF 1914", transform: [10, 0, 0, 10, 200, 760], width: 160, height: 10 },
+                // First line of body at y=735 (91.8% of page height, short opening line < 110 chars)
+                { str: "In July 1914, tensions grew across Europe as", transform: [10, 0, 0, 10, 50, 735], width: 280, height: 10 },
+                // Second line at normal leading (y=722, gap 13pt)
+                { str: "The foreign minister consulted Dr.", transform: [10, 0, 0, 10, 50, 722], width: 220, height: 10 },
+                // Third line: abbreviation Dr. at end of line 2 must not break paragraph
+                { str: "Smith regarding the ultimatum and", transform: [10, 0, 0, 10, 50, 709], width: 200, height: 10 },
+                // Fourth line ending with hyphen
+                { str: "the response was immediate and unprec-", transform: [10, 0, 0, 10, 50, 696], width: 260, height: 10 },
+                // Fifth line
+                { str: "edented in scale, and diplomatic", transform: [10, 0, 0, 10, 50, 683], width: 240, height: 10 },
+                // Sixth line continuing across page turn
+                { str: "Negotiations continued throughout the week without pause.", transform: [10, 0, 0, 10, 50, 670], width: 340, height: 10 },
+                // Isolated page number at bottom y=20 (isolated by 650pt gap)
+                { str: "1", transform: [10, 0, 0, 10, 300, 20], width: 10, height: 10 },
+              ],
+            }),
+          };
+        } else {
+          return {
+            getViewport: () => ({ width: 600, height: 800 }),
+            getTextContent: async () => ({
+              items: [
+                // Top margin body line on page 2 at y=735 (91.8% of height) continuing paragraph
+                { str: "Eventually, the final decision was reached.", transform: [10, 0, 0, 10, 50, 735], width: 270, height: 10 },
+                { str: "Peace was preserved for the moment.", transform: [10, 0, 0, 10, 50, 722], width: 250, height: 10 },
+                // Indented new paragraph on page 2 at x=75 (colLeft is 50, so indented by 25pt)
+                { str: "A new era began immediately after the treaty.", transform: [10, 0, 0, 10, 75, 71], width: 300, height: 10 },
+                { str: "The concluding sentence was brief and", transform: [10, 0, 0, 10, 50, 58], width: 240, height: 10 },
+                // Bottom margin line on page 2 at y=45 (5.6% of page height, short line < 40 chars)
+                { str: "decisive in tone.", transform: [10, 0, 0, 10, 50, 45], width: 110, height: 10 },
+                // Isolated page number
+                { str: "2", transform: [10, 0, 0, 10, 300, 20], width: 10, height: 10 },
+              ],
+            }),
+          };
+        }
+      },
+    };
+
+    const out = await reflow(mockDoc as never);
+    const paras = out.blocks.filter((b) => b.kind === "para");
+    const allText = paras.map((p) => p.lines.map((l) => l.text).join(" ")).join("\n");
+
+    // Running head and page numbers must be stripped
+    assert.ok(!allText.includes("THE JULY CRISIS"));
+    assert.ok(!allText.includes("\n1\n") && !allText.includes("\n2\n"));
+
+    // Margin text must be preserved
+    assert.ok(allText.includes("In July 1914, tensions grew across Europe as"), "top margin opening line preserved");
+    assert.ok(allText.includes("edented in scale, and diplomatic"), "bottom margin concluding line preserved");
+    assert.ok(allText.includes("Negotiations continued"), "top margin line on page 2 preserved");
+
+    // Abbreviation Dr. must not break paragraph
+    assert.ok(paras[0].lines.some((l) => l.text.includes("Dr.")) && paras[0].lines.some((l) => l.text.includes("Smith regarding")), "abbreviation keeps sentence in same paragraph");
+
+    // Hyphenation: line with unprec- must have hyphen flag
+    const hyphenLine = paras[0].lines.find((l) => l.text.includes("unprec-"));
+    assert.ok(hyphenLine && hyphenLine.hyphen, "line ending in hyphen is flagged");
+
+    // New indented paragraph on page 2 must be a separate block
+    assert.equal(paras.length, 2, "indented paragraph on page 2 starts a new paragraph block");
+    assert.ok(paras[1].lines[0].text.includes("A new era began"), "second paragraph content matches");
+
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
+
+{
+  const name = "reflow handles soft hyphens, avoids breaks before lowercase lines, and separates list items";
+  try {
+    const { reflow } = await import("../src/lib/reflow");
+    const mockDoc = {
+      numPages: 1,
+      getPage: async () => ({
+        getViewport: () => ({ width: 600, height: 800 }),
+        getTextContent: async () => ({
+          items: [
+            // Soft hyphen at end of line
+            { str: "The cabinet reached an agree\u00ad", transform: [10, 0, 0, 10, 50, 700], width: 220, height: 10 },
+            // Lowercase continuation
+            { str: "ment after lengthy debate.", transform: [10, 0, 0, 10, 50, 687], width: 180, height: 10 },
+            // Stray period at end of line followed by lowercase word
+            { str: "The treaty was ratified in June .", transform: [10, 0, 0, 10, 50, 674], width: 200, height: 10 },
+            { str: "and welcomed by the citizens.", transform: [10, 0, 0, 10, 50, 661], width: 190, height: 10 },
+            // List items
+            { str: "1. The first resolution called for disarmament.", transform: [10, 0, 0, 10, 50, 630], width: 280, height: 10 },
+            { str: "2. The second resolution established borders.", transform: [10, 0, 0, 10, 50, 600], width: 270, height: 10 },
+          ],
+        }),
+      }),
+    };
+    const out = await reflow(mockDoc as never);
+    const paras = out.blocks.filter((b) => b.kind === "para");
+
+    // Soft hyphen flagged
+    const softHyphenLine = paras[0].lines.find((l) => l.text.includes("agree"));
+    assert.ok(softHyphenLine && softHyphenLine.hyphen, "soft hyphen is flagged");
+
+    // Lowercase line continuation after stray period must not split paragraph
+    assert.ok(paras[0].lines.some((l) => l.text.includes("ratified")) && paras[0].lines.some((l) => l.text.includes("welcomed by")), "lowercase start keeps sentence in same paragraph");
+
+    // List items are separate paragraphs
+    assert.ok(paras.some((p) => p.lines[0].text.startsWith("1.")), "item 1 is a block");
+    assert.ok(paras.some((p) => p.lines[0].text.startsWith("2.")), "item 2 is a block");
+    assert.equal(paras.length, 3, "body text plus 2 list items equals 3 paragraphs");
+
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
+
 test("a highlight is drawn as one band per line, the lines meeting", () => {
   // Two lines of three words each, with OCR-wide gaps between the words and
   // leading between the lines.

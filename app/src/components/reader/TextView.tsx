@@ -14,7 +14,7 @@ interface Mark { start: number; end: number; kind: "hl" | "find"; id?: string; c
 
 function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighlight?: (id: string, x: number, y: number) => void }) {
   // The text shown leaves off a line-end hyphen, but offsets stay those of the page.
-  const shown = line.hyphen ? line.text.replace(/-\s*$/, "") : line.text.replace(/\s+$/, "");
+  const shown = line.hyphen ? line.text.replace(/[-\u00ad\u2010\u2011\u2013]\s*$/, "") : line.text.replace(/\s+$/, "");
   const end = line.start + shown.length;
   const cuts = new Set<number>([line.start, end]);
   for (const m of marks) {
@@ -64,7 +64,7 @@ function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighli
 // The space between two lines. Inside a highlight that runs on from one line
 // to the next, it is highlighted too, so the highlight has no gap in it.
 function Join({ line, next, marks }: { line: Line; next: Line | undefined; marks: Mark[] }) {
-  const shownEnd = line.start + (line.hyphen ? line.text.replace(/-\s*$/, "") : line.text.replace(/\s+$/, "")).length;
+  const shownEnd = line.start + (line.hyphen ? line.text.replace(/[-\u00ad\u2010\u2011\u2013]\s*$/, "") : line.text.replace(/\s+$/, "")).length;
   const hl = next && next.page === line.page
     ? marks.find((m) => m.kind === "hl" && m.start < shownEnd && m.end >= shownEnd && m.end > next.start && m.start <= next.start)
     : undefined;
