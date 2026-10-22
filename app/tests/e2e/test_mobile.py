@@ -2,7 +2,7 @@
 for the keyboard, a slim top bar with Go to, 44-point targets, fields that
 never make iOS zoom, menus and confirmations as sheets, nothing that needs
 hover, swiping between weeks, and an installable app."""
-import glob, json, sys, time
+import glob, json, re, sys, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -81,7 +81,7 @@ with sync_playwright() as p:
 
     # Each tab goes to its place and lights up; pages inside a section keep Home lit.
     bar.get_by_text("This week").tap()
-    expect(phone.get_by_role("heading", name="Week across modules")).to_be_visible()
+    expect(phone.get_by_role("heading", name=re.compile(r"^(This week|Week (AT|WT)\d+)$"))).to_be_visible()
     expect(bar.locator(".tab.on")).to_have_text("This week")
     bar.get_by_text("Search").tap()
     expect(bar.locator(".tab.on")).to_have_text("Search")

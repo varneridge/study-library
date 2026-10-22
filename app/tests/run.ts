@@ -19,6 +19,7 @@ import {
 } from "../src/lib/jobs";
 import type { ApplicationEventRow, ApplicationRow } from "../src/lib/types";
 import { paragraphs, tidy } from "../src/lib/transcriptImport";
+import { registerCssVarTests } from "./test_css_vars";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -32,6 +33,7 @@ function test(name: string, fn: () => void) {
 }
 
 const fixtures = JSON.parse(readFileSync(new URL("../../shared/title-fixtures.json", import.meta.url), "utf8"));
+registerCssVarTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);
