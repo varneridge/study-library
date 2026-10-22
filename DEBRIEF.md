@@ -945,11 +945,12 @@ Every route sits behind Cloudflare Access. Processor routes also need the `X-Pro
 
 | Suite | Covers | How to run |
 | --- | --- | --- |
-| App unit tests | Title parsing, display titles, position keys, question splitting, which columns an edit sends, transcript paragraphs and tidying | In `app`: `npm test` |
+| App unit tests | Title parsing, display titles, position keys, question splitting, which columns an edit sends, transcript paragraphs and tidying, and CSS custom property definitions | In `app`: `npm test` |
 | Backend integration tests (70) | Sync rules and patches, job order, OCR, conversion, recordings, transcription that resumes, heartbeats, the storage sweep, multipart uploads, range requests, search, the Zotero importer | In `backend`: `pip install -r requirements-dev.txt`, then `pytest` |
 | Phone browser test | The tab bar and its sections, the slim top bar, the tab bar stepping aside while typing, 16px fields, the Evidence link without hover, menus as sheets, swiping between weeks, the reader's toolbar at 44 points, highlighting by finger with Whole sentence, a low selection kept in view, and the installable app | `python tests/e2e/test_mobile.py http://127.0.0.1:8790` |
 | Photos browser test | Two pictures added together become one two-page PDF reading on the device, and OCR reads both, one taken sideways | `python tests/e2e/test_photos.py http://127.0.0.1:8790` |
 | Job search browser test | Getting there and back, the default order, stage colours and deadline words, adding and editing in the table, an empty new application let go, attaching, linking and dropping files, filter, find and order, delete with Undo and restore, the phone cards with 44-pixel targets, and the study side unchanged | `python tests/e2e/test_jobs.py http://127.0.0.1:8790` |
+| Top bar browser test | The unified top bar above the phone layout: alignment with page columns, single-row layout without wrapping, minimum item gaps, natural DOM tab order, accent pill rules, and responsive verification | `python tests/e2e/test_topbar.py http://127.0.0.1:8790` |
 | Slides and modules browser test | Slides reordered and dragged between sessions with Undo, a reading moved to another module, the processor's status in Settings, a stale device saving its place without undoing a name found on the server | `python tests/e2e/test_slides_and_modules.py http://127.0.0.1:8790` |
 | Browser tests | The whole app in Chromium, including a live recording with a fake microphone | See `app/tests/e2e/README.md` |
 | Features browser test | Find, search, recently opened, page colours, contents, recordings, the notes menus, colour names and the phone reader. Run after the sessions test | `python tests/e2e/test_features.py http://127.0.0.1:8790` |
@@ -991,6 +992,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Leaving out repeats also joins words that were meant twice, such as "had had". Untick the box to read every word.
 - Text layout works from the PDF's own text. Unusual layouts, such as three columns, sidebars or text set in boxes, may come out in an odd order. Page layout always shows the original.
 - Settings may show "Nothing deleted" for a moment on a new device, until the first sync finishes.
+- The home page shows "Add your first module" until the first sync finishes, so a new device briefly invites a duplicate module.
 - Find can't mark a match that is split across two runs of text in the PDF. It still counts and jumps to it.
 - Trimmed margins use the text on the first six pages. A reading whose layout changes later may lose a little at the edges. Zooming turns trimming off.
 - Last-write-wins still decides between two edits to the same row. If a phone left offline for a day sends an edit older than one made since on the laptop, the phone's edit is turned down even if it changed a different field. The phone then shows the laptop's version.
@@ -1021,6 +1023,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Enlarged all interactive controls on touch screens to meet the 44-point minimum hit target, replacing input pseudo-elements with enlarged label wrappers for Safari compatibility.
 - Cleaned duplicated opacity rules for quotation action buttons and updated backend WSL paths.
 - Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports, added virtualenv binaries to the test runner PATH, and added `test_back.py` and `audit_layout` to the default e2e suite.
+- Unified the laptop top bar across tablet and desktop viewports (768px to 1440px) into a single row at height --topbar-h with no wrapping, matching the page content column within 2px using bar width percentages, maintaining natural DOM tab order without CSS flex order, drawing accent pills on navigation links while keeping brand elements transparent, collapsing idle sync notices to zero layout space as live regions, standardising This week naming across navigation and document titles, and building the job search bar on the same structure.
 
 ## 17. Version history
 
@@ -1063,6 +1066,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.32.0 | Reading quality overhaul: Chicago 18th edition reference fields (work_kind, editor, publisher, volume, issue, doi), Copy reference menu action across the app, enhanced reference finder with cover sheet parsing (JSTOR books, CLA/LSE, Taylor & Francis, Wilson Center, FRUS) and full given names, automatic detection and ocrmypdf --redo-ocr for unhealthy OCR layers, and text reflow with rotated watermark filtering, landscape spread handling, section heading detection, and footnotes excluded from text view |
 | 0.32.1 | Text reflow margin preservation and paragraph breaking: text sitting near top and bottom page margins preserved when contiguous with body leading; page-turn paragraph breaking with OCR baseline column-edge seeding; mid-sentence paragraph split prevention on capitalized abbreviations and lowercase continuation lines; unicode and soft hyphen support; and section heading distinction from numbered list items |
 | 0.33.0 | Unified laptop top bar: single row at all widths above phone layout, column alignment matching the page content column using bar width percentages, icon controls for Go to, Search and Settings with accessible names and shortcut tooltips, unified This week naming across navigation, unified accent-pill active page marking, and the job search bar built on the same structure |
+| 0.33.1 | Top bar fixes: plain rem spacing and --topbar-h height, 2px column alignment of the brand's first letter and the last icon's drawn glyph across 768 to 1440, natural DOM tab order without CSS order, This week and Week {code} headings and tab titles on AcrossPage, no accent pill on brands, zero-width live SyncStatus when idle, redundant text tooltips removed, top bar browser test and CSS variable unit test |
 
 ## 18. The job search
 
