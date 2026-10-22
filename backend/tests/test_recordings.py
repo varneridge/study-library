@@ -189,3 +189,71 @@ def test_a_heartbeat_keeps_a_long_job_alive(api, module):
     assert api.heartbeat(job["id"]) is True
     api.complete(job["id"])
     assert api.heartbeat(job["id"]) is False
+
+
+def test_recording_is_not_processed_while_still_recording(api, module, tmp_path):
+    """If prepare_audio is queued early while the recording is still live, it must not process or delete chunks."""
+    audio = tmp_path / "live.webm"
+    _tone(audio)
+    _recording(api, "r1", "recording")
+    api._json("PUT", "/api/recordings/r1/chunks/0", data=audio.read_bytes(), headers={"Content-Type": "audio/webm"})
+    # A second device prematurely marks the recording uploaded, queueing prepare_audio,
+    # while the recording device is still recording.
+    row = api.pull_all()["recordings"]["r1"]
+    api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
+    api.push([{"table": "recordings", "row": {**row, "status": "recording", "modified_at": stamp()}}])
+
+    _processor(api).drain()
+
+    state = api.pull_all()
+    assert state["recordings"]["r1"]["status"] == "recording"
+    assert state["recordings"]["r1"]["file_id"] is None
+    assert api.recording("r1")["chunks"] == ["recordings/r1/chunk-00000.webm"]
+
+
+def test_chunks_not_starting_at_zero_are_rejected_without_deleting_chunks(api, module, tmp_path):
+    """If chunk 0 was already deleted by an earlier run, later chunks must not be processed or wiped."""
+    audio = tmp_path / "live.webm"
+    _tone(audio)
+    _recording(api, "r1", "recording")
+    api._json("PUT", "/api/recordings/r1/chunks/1", data=audio.read_bytes(), headers={"Content-Type": "audio/webm"})
+    row = api.pull_all()["recordings"]["r1"]
+    api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
+
+    _processor(api).drain()
+
+    state = api.pull_all()
+    assert state["recordings"]["r1"]["file_id"] is None
+    assert api.recording("r1")["chunks"] == ["recordings/r1/chunk-00001.webm"]
+
+
+def test_same_audio_is_not_transcribed_twice(api, module, tmp_path):
+    """Re-running prepare_audio on the same audio must not call the transcriber a second time."""
+    class CountingTranscriber(FakeTranscriber):
+        def __init__(self):
+            self.calls = 0
+
+        def transcribe(self, path, prompt="", keywords=None):
+            self.calls += 1
+            return super().transcribe(path, prompt=prompt, keywords=keywords)
+
+    audio = tmp_path / "live.webm"
+    _tone(audio)
+    _recording(api, "r1", "recording")
+    api._json("PUT", "/api/recordings/r1/chunks/0", data=audio.read_bytes(), headers={"Content-Type": "audio/webm"})
+    row = api.pull_all()["recordings"]["r1"]
+    api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
+
+    transcriber = CountingTranscriber()
+    processor = Processor(api, transcriber=transcriber)
+    assert processor.drain() == 2
+    assert transcriber.calls == 1
+
+    # If the recording is marked uploading -> uploaded again for the same audio,
+    # it must not be paid for and transcribed a second time.
+    row = api.pull_all()["recordings"]["r1"]
+    api.push([{"table": "recordings", "row": {**row, "status": "uploading", "modified_at": stamp()}}])
+    api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
+    processor.drain()
+    assert transcriber.calls == 1
+

@@ -114,8 +114,72 @@ with sync_playwright() as p:
     phone.get_by_role("link", name="Study Library").click()
     expect(phone.locator(".rec-pill")).to_be_visible()
     phone.screenshot(path=f"{shots}-4-phone.png")
+
+    # Opening the app on a second device while the phone is recording must not
+    # recover or finish the live recording, or queue any processing jobs.
+    live_id = until(
+        phone,
+        "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.status === 'recording'); return r ? r.id : null; }",
+    )
+    before_status = phone.evaluate("async () => (await (await fetch('/api/status')).json())")
+    second_ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    second = second_ctx.new_page()
+    second.goto(BASE + "/")
+    until(
+        second,
+        f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.recordings || []).some(r => r.id === {live_id!r}); }}",
+    )
+    second.wait_for_timeout(1200)
+    second.reload()
+    second.wait_for_timeout(1500)
+    second_device_state = phone.evaluate(
+        f"""async () => {{
+            const pull = await (await fetch('/api/sync/pull?since=0')).json();
+            const rec = (pull.rows.recordings || []).find(r => r.id === {live_id!r});
+            const status = await (await fetch('/api/status')).json();
+            return {{
+                status: rec && rec.status,
+                new_jobs: (status.queued + status.running) - {before_status['queued'] + before_status['running']},
+            }};
+        }}"""
+    )
+    print("cause 1 (second device opens while phone records):", second_device_state)
+    second_ctx.close()
+
+    # Stop the phone recording cleanly, then start another recording on the phone
+    # and reload mid-lecture to check what happens when a phone tab reloads early.
     phone.locator(".rec-pill").get_by_role("button", name="Stop recording").click()
     phone.locator(".rec-pill").get_by_role("button", name="Tap again to stop recording").click()
+    expect(phone.locator(".rec-pill")).to_have_count(0)
+
+    phone.locator(".module-row").first.click()
+    phone.locator("#week-AT1 .week-title").click()
+    phone.locator("section.session").nth(1).locator(".session-title a").click()
+    phone.get_by_role("button", name="Record", exact=True).click()
+    reload_id = until(
+        phone,
+        "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.status === 'recording'); return r ? r.id : null; }",
+    )
+    phone.wait_for_timeout(2500)
+    before_reload_status = phone.evaluate("async () => (await (await fetch('/api/status')).json())")
+    phone.reload()
+    phone.wait_for_timeout(1500)
+    reload_state = phone.evaluate(
+        f"""async () => {{
+            const pull = await (await fetch('/api/sync/pull?since=0')).json();
+            const rec = (pull.rows.recordings || []).find(r => r.id === {reload_id!r});
+            const status = await (await fetch('/api/status')).json();
+            return {{
+                status: rec && rec.status,
+                duration: rec && rec.duration_seconds,
+                new_jobs: (status.queued + status.running) - {before_reload_status['queued'] + before_reload_status['running']},
+            }};
+        }}"""
+    )
+    print("cause 2 (phone reloads mid-lecture):", reload_state)
+
+    assert second_device_state["status"] == "recording", f"second device changed status to {second_device_state['status']}"
+    assert second_device_state["new_jobs"] == 0, f"jobs queued while still recording: {second_device_state}"
 
     print("page errors:", errors[:5])
     assert not errors
