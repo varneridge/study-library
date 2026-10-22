@@ -53,7 +53,7 @@ export function Link({ to, children, className, current, title, label }: {
   );
 }
 
-// Always takes the same space, so the bar does not shift as edits save.
+// Takes no space when idle, while staying a live region so changes are announced.
 // While files upload, it opens a list of them with their progress.
 function SyncStatus() {
   const [state, setState] = useState<SyncState | null>(null);
@@ -132,8 +132,7 @@ function ExpiredBanner() {
 // The modules, always one click away.
 function ModuleLinks({ route }: { route: Route }) {
   const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), [], []);
-  const currentModule = useLiveQuery(async () => {
-    if (route.view === "module" || route.view === "import") return route.id;
+  const lookedUpModule = useLiveQuery(async () => {
     if (route.view === "week") return (await db.weeks.get(route.id))?.module_id ?? null;
     let sessionId = route.view === "session" ? route.id : null;
     if (route.view === "question") sessionId = (await db.questions.get(route.id))?.session_id ?? null;
@@ -143,6 +142,12 @@ function ModuleLinks({ route }: { route: Route }) {
     }
     return null;
   }, [route]);
+  const currentModule =
+    route.view === "module" || route.view === "import"
+      ? route.id
+      : route.view === "week" || route.view === "session" || route.view === "question"
+        ? lookedUpModule
+        : null;
   // The home page lists every module itself, so the bar does not repeat them there.
   if (modules.length < 2 || route.view === "home") return null;
   return (
@@ -313,26 +318,25 @@ export function App() {
         </button>
         <div className="navs">
           <ModuleLinks route={route} />
-          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"} title="This week">This week</Link>
-          <nav className="topbar-tools" aria-label="Tools">
-            <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
-              <span className="sr-only">Go to</span>
-              <Icon name="goto" size={18} />
-            </button>
-            <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
-              <span className="sr-only">Search</span>
-              <Icon name="search" size={18} />
-            </Link>
-            <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
-              <span className="sr-only">Settings</span>
-              <Icon name="settings" size={18} />
-            </Link>
-          </nav>
+          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
         </div>
-        {/* Outside the scrolling row of links, so a phone always shows it. */}
-        <Link to={{ view: "jobs" }} className="to-jobs" title="Job search">
+        <Link to={{ view: "jobs" }} className="to-jobs">
           <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
         </Link>
+        <nav className="topbar-tools" aria-label="Tools">
+          <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+            <span className="sr-only">Go to</span>
+            <Icon name="goto" size={18} />
+          </button>
+          <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
+            <span className="sr-only">Search</span>
+            <Icon name="search" size={18} />
+          </Link>
+          <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
+            <span className="sr-only">Settings</span>
+            <Icon name="settings" size={18} />
+          </Link>
+        </nav>
       </header>
       <ExpiredBanner />
       <main id="main" tabIndex={-1}>

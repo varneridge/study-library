@@ -26,12 +26,13 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
     if (term && number) localStorage.setItem(KEY, `${term}${number}`);
   }, [term, number]);
   const data = useLiveQuery(() => loadAcross(t, n), [t, n]);
-  useTitle(`${t}${n} across modules`);
+  const isCurrentWeek = Boolean(now && !now.upcoming && now.term === t && now.number === n);
+  const title = isCurrentWeek ? "This week" : `Week ${t}${n}`;
+  useTitle(title);
 
   return (
     <div className="page">
-      {/* The phone's tab calls it "This week", so this week is named as such. */}
-      <h1>{now && !now.upcoming && now.term === t && now.number === n ? "This week across modules" : "Week across modules"}</h1>
+      <h1>{title}</h1>
       <div className="picker" role="group" aria-label="Choose a week">
         {(["AT", "WT"] as const).map((x) => (
           <div key={x} style={{ display: "contents" }}>
