@@ -1,10 +1,10 @@
 import { extensionFor, safeFileName } from "../lib/names";
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../lib/router";
-import { clock } from "../lib/recorder";
+import { clock, finishRecording, useRecordingNow } from "../lib/recorder";
 import { api } from "../lib/sync";
 import { deleteRecording, withUndo } from "../lib/edits";
-import { confirmAction } from "../lib/ui";
+import { confirmAction, showToast } from "../lib/ui";
 import { Menu } from "./Menu";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { TranscriptView } from "./TranscriptView";
@@ -67,6 +67,8 @@ export function RecordingPanel({
   const [open, setOpen] = useState(focusTurn !== undefined);
   const [rate, setRate] = useState(() => Number(localStorage.getItem("playback-rate")) || 1);
   const audio = useRef<HTMLAudioElement | null>(null);
+  const now = useRecordingNow();
+  const activeHere = now?.recordingId === recording.id;
   const playable = Boolean(file && file.mime.startsWith("audio/"));
   const turns = recording.turns ?? [];
   const skip = (seconds: number) => {
@@ -109,6 +111,21 @@ export function RecordingPanel({
           label="More actions for this recording"
           items={[
             {
+              label: "Finish recording",
+              hidden: activeHere || recording.source !== "live" || !["recording", "uploading"].includes(recording.status),
+              onSelect: async () => {
+                const ok = await confirmAction({
+                  title: "Finish this recording?",
+                  body: "Only do this if the device that started it is no longer recording. Any audio already uploaded will be processed.",
+                  confirm: "Finish recording",
+                });
+                if (ok) {
+                  await finishRecording(recording.id);
+                  showToast("Recording finished.");
+                }
+              },
+            },
+            {
               label: "Download audio",
               hidden: !playable,
               onSelect: () => {
@@ -123,7 +140,7 @@ export function RecordingPanel({
             {
               label: "Delete recording",
               danger: true,
-              hidden: recording.status === "recording",
+              hidden: activeHere,
               onSelect: async () => {
                 const ok = await confirmAction({
                   title: "Delete this recording?",

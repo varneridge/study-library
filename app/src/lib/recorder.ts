@@ -12,6 +12,51 @@ const CHUNK_MS = 20_000;
 const SILENT_MS = 30_000;
 // Below this level the input is digital silence, not a quiet room.
 const SILENT_LEVEL = 0.02;
+const OWNED_KEY = "owned-recordings";
+// A tab that is still recording updates its timestamp every second. Another tab
+// in the same browser leaves the recording alone while that timestamp is fresh.
+const LIVE_HEARTBEAT_MS = 15_000;
+
+interface OwnedRecording {
+  chunks: number;
+  seenAt: number;
+}
+
+function readOwned(): Record<string, OwnedRecording> {
+  try {
+    const raw = localStorage.getItem(OWNED_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, OwnedRecording>;
+  } catch {
+    return {};
+  }
+}
+
+function writeOwned(owned: Record<string, OwnedRecording>): void {
+  try {
+    localStorage.setItem(OWNED_KEY, JSON.stringify(owned));
+  } catch {
+    // Storage unavailable; in-memory active state still works.
+  }
+}
+
+function noteOwned(recordingId: string, chunks: number, seenAt = Date.now()): void {
+  const owned = readOwned();
+  const prev = owned[recordingId];
+  owned[recordingId] = {
+    chunks: Math.max(prev?.chunks ?? 0, chunks),
+    seenAt,
+  };
+  writeOwned(owned);
+}
+
+function forgetOwned(recordingId: string): void {
+  const owned = readOwned();
+  if (!(recordingId in owned)) return;
+  delete owned[recordingId];
+  writeOwned(owned);
+}
 
 export type MicProblem = "silent" | null;
 
@@ -61,6 +106,7 @@ export async function startRecording(sessionId: string): Promise<void> {
   const mime = pickMime();
   const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48_000 } : undefined);
   const recordingId = newId();
+  noteOwned(recordingId, 0);
   await insert("recordings", {
     id: recordingId, session_id: sessionId, source: "live", file_id: null, duration_seconds: null,
     status: "recording",
@@ -101,11 +147,14 @@ export async function startRecording(sessionId: string): Promise<void> {
   }
   recorder.addEventListener("error", () => void microphoneLost(current));
   window.addEventListener("beforeunload", guard);
+  window.addEventListener("pagehide", onUnload);
   document.addEventListener("visibilitychange", relock);
   recorder.ondataavailable = (event) => {
     if (!event.data.size || !active) return;
     const chunkMime = (recorder.mimeType || "audio/webm").split(";")[0];
-    void db.chunks.add({ recording_id: recordingId, index: active.index++, mime: chunkMime, blob: event.data }).then(() => pumpChunks());
+    const index = active.index++;
+    noteOwned(recordingId, index + 1);
+    void db.chunks.add({ recording_id: recordingId, index, mime: chunkMime, blob: event.data }).then(() => pumpChunks());
   };
   recorder.start(CHUNK_MS);
   notify();
@@ -113,7 +162,9 @@ export async function startRecording(sessionId: string): Promise<void> {
 
 // Notices a silent input while recording, and clears the notice once sound returns.
 function watchLevel(current: Active): void {
-  if (active !== current || current.pausedAt !== null || !current.analyser) {
+  if (active !== current) return;
+  noteOwned(current.recordingId, current.index);
+  if (current.pausedAt !== null || !current.analyser) {
     current.quietSince = null;
     return;
   }
@@ -155,6 +206,7 @@ export async function stopRecording(): Promise<void> {
   void current.wakeLock?.release().catch(() => undefined);
   void current.audio?.close().catch(() => undefined);
   window.removeEventListener("beforeunload", guard);
+  window.removeEventListener("pagehide", onUnload);
   document.removeEventListener("visibilitychange", relock);
   const duration = Math.round(elapsedOf(current) * 10) / 10;
   active = null;
@@ -167,6 +219,11 @@ export async function stopRecording(): Promise<void> {
 function guard(event: BeforeUnloadEvent) {
   event.preventDefault();
   event.returnValue = "";
+}
+
+function onUnload() {
+  if (!active) return;
+  noteOwned(active.recordingId, active.index, 0);
 }
 
 // The screen lock is let go when the tab is hidden; it is taken again on return.
@@ -238,10 +295,14 @@ export async function pumpChunks(): Promise<void> {
       });
       await db.chunks.delete(chunk.id!);
     }
-    const waiting = (await db.recordings.toArray()).filter((r) => !r.deleted && r.status === "uploading" && r.source === "live");
+    const owned = readOwned();
+    const waiting = (await db.recordings.toArray()).filter(
+      (r) => !r.deleted && r.status === "uploading" && r.source === "live" && r.id in owned,
+    );
     for (const recording of waiting) {
       if ((await db.chunks.where("recording_id").equals(recording.id).count()) === 0) {
         await update("recordings", recording.id, { status: "uploaded" });
+        forgetOwned(recording.id);
       }
     }
   } catch {
@@ -251,13 +312,38 @@ export async function pumpChunks(): Promise<void> {
   }
 }
 
-// A recording left running when the page closed is treated as stopped.
+// A recording left running on this device when its tab closed is treated as stopped.
+// Recordings started on another device, or still live in another tab, are left alone.
 export async function recoverRecordings(): Promise<void> {
-  const stale = (await db.recordings.toArray()).filter((r) => !r.deleted && r.status === "recording" && r.source === "live");
+  const owned = readOwned();
+  const now = Date.now();
+  const stale = (await db.recordings.toArray()).filter(
+    (r) => !r.deleted && r.status === "recording" && r.source === "live" && r.id in owned,
+  );
   for (const recording of stale) {
-    if (active?.recordingId !== recording.id) await update("recordings", recording.id, { status: "uploading" });
+    if (active?.recordingId === recording.id) continue;
+    const entry = owned[recording.id];
+    if (entry && entry.seenAt > 0 && now - entry.seenAt < LIVE_HEARTBEAT_MS) continue;
+    const localChunks = await db.chunks.where("recording_id").equals(recording.id).count();
+    if ((entry?.chunks ?? 0) === 0 && localChunks === 0) {
+      await update("recordings", recording.id, { deleted: true });
+      forgetOwned(recording.id);
+    } else {
+      await update("recordings", recording.id, { status: "uploading" });
+    }
   }
   void pumpChunks();
+}
+
+// Finishes a recording left behind on a device that never comes back.
+export async function finishRecording(recordingId: string): Promise<void> {
+  if (active?.recordingId === recordingId) {
+    await stopRecording();
+    return;
+  }
+  await pumpChunks();
+  await update("recordings", recordingId, { status: "uploaded" });
+  forgetOwned(recordingId);
 }
 
 export function useRecorder(sessionId: string) {

@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { requireProcessor } from "./auth";
 import { NOW, TOUCH, type Env } from "./env";
 import { serveObject, queueRescan } from "./files";
-import { listChunks } from "./recordings";
+import { chunkPrefix, listChunks } from "./recordings";
 import { decode } from "./schema";
 
 const MAX_ATTEMPTS = 5;
@@ -292,31 +292,57 @@ processor.post("/recordings/:id/status", async (c) => {
 // The processed audio replaces the chunks or the uploaded original.
 processor.post("/recordings/:id/audio", async (c) => {
   const id = c.req.param("id");
-  const body = await c.req.json<{ r2_key: string; bytes: number; duration: number; mime: string; delete_source: boolean }>();
-  const recording = await c.env.DB.prepare("SELECT file_id FROM recordings WHERE id = ?1").bind(id).first<{ file_id: string | null }>();
+  const body = await c.req.json<{
+    r2_key: string;
+    bytes: number;
+    duration: number;
+    mime: string;
+    delete_source: boolean;
+    sha256?: string;
+    chunks?: string[];
+  }>();
+  const recording = await c.env.DB.prepare("SELECT file_id, status, turns FROM recordings WHERE id = ?1")
+    .bind(id)
+    .first<{ file_id: string | null; status: string; turns: string | null }>();
   if (!recording) return c.json({ error: "no such recording" }, 404);
+  if (recording.status === "recording") return c.json({ error: "recording is still live" }, 409);
   const audioId = `${id}:audio`;
+  const existingAudio = await c.env.DB.prepare("SELECT sha256 FROM files WHERE id = ?1")
+    .bind(audioId)
+    .first<{ sha256: string }>();
+  const sha256 = body.sha256 ?? "";
+  const alreadyTranscribed = Boolean(
+    recording.turns && recording.turns !== "[]" && sha256 && existingAudio?.sha256 === sha256,
+  );
   const source = recording.file_id && recording.file_id !== audioId
     ? await c.env.DB.prepare("SELECT id, r2_key FROM files WHERE id = ?1").bind(recording.file_id).first<{ id: string; r2_key: string }>()
     : null;
 
+  const nextStatus = alreadyTranscribed ? "done" : "transcribing";
   const statements = [
     c.env.DB.prepare(
       `INSERT INTO files (id, sha256, r2_key, mime, bytes, original_name, text_status, modified_at)
-       VALUES (?1, '', ?2, ?3, ?4, 'recording', 'ready', ${NOW})
-       ON CONFLICT (id) DO UPDATE SET r2_key = excluded.r2_key, mime = excluded.mime, bytes = excluded.bytes, ${TOUCH}`,
-    ).bind(audioId, body.r2_key, body.mime, body.bytes),
+       VALUES (?1, ?2, ?3, ?4, ?5, 'recording', 'ready', ${NOW})
+       ON CONFLICT (id) DO UPDATE SET sha256 = excluded.sha256, r2_key = excluded.r2_key, mime = excluded.mime, bytes = excluded.bytes, ${TOUCH}`,
+    ).bind(audioId, sha256, body.r2_key, body.mime, body.bytes),
     c.env.DB.prepare(
-      `UPDATE recordings SET file_id = ?2, duration_seconds = ?3, status = 'transcribing', ${TOUCH} WHERE id = ?1`,
-    ).bind(id, audioId, body.duration),
-    c.env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('transcribe', json_object('recording_id', ?1), -1)").bind(id),
+      `UPDATE recordings SET file_id = ?2, duration_seconds = ?3, status = ?4, ${TOUCH} WHERE id = ?1`,
+    ).bind(id, audioId, body.duration, nextStatus),
   ];
+  if (!alreadyTranscribed) {
+    statements.push(
+      c.env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('transcribe', json_object('recording_id', ?1), -1)").bind(id),
+    );
+  }
   if (source && body.delete_source) {
     statements.push(c.env.DB.prepare(`UPDATE files SET deleted = 1, ${TOUCH} WHERE id = ?1`).bind(source.id));
   }
   await c.env.DB.batch(statements);
 
-  const chunks = await listChunks(c.env, id);
+  const prefix = chunkPrefix(id);
+  const chunks = Array.isArray(body.chunks)
+    ? body.chunks.filter((k) => typeof k === "string" && k.startsWith(prefix))
+    : await listChunks(c.env, id);
   if (chunks.length) await c.env.BUCKET.delete(chunks);
   if (source && body.delete_source) {
     const used = await c.env.DB.prepare("SELECT 1 FROM files WHERE r2_key = ?1 AND deleted = 0 LIMIT 1").bind(source.r2_key).first();

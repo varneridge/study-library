@@ -155,7 +155,7 @@ A running job reports in every five minutes from a second thread. The 15-minute 
 
 ### Recordings
 
-A live recording is captured in 20-second chunks. Each chunk is saved on the device before it uploads, so a crash loses seconds at most.
+A live recording is captured in 20-second chunks. Each chunk is saved on the device before it uploads, so a crash loses seconds at most. Only the device that started a live recording recovers or finishes it automatically when the app opens, while a recording left behind on a device that never comes back can be finished from its menu with **Finish recording**. On the server, a recording is never processed while still recording, never built from chunks that do not start at chunk 0 without gaps, and never transcribed twice for the same audio.
 
 **The microphone is watched.** After 30 seconds of complete silence, the recording bar and the session page say "No sound for 30 seconds", which usually means the microphone is muted, unplugged or the wrong one is chosen. The warning clears as soon as sound returns. If the microphone goes away altogether, as when a headset runs out of charge, the recording stops cleanly. What was captured is kept and uploaded, and a notice offers **Record again**.
 
@@ -1024,6 +1024,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Cleaned duplicated opacity rules for quotation action buttons and updated backend WSL paths.
 - Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports, added virtualenv binaries to the test runner PATH, and added `test_back.py` and `audit_layout` to the default e2e suite.
 - Unified the laptop top bar across tablet and desktop viewports (768px to 1440px) into a single row at height --topbar-h with no wrapping, matching the page content column within 2px using bar width percentages, maintaining natural DOM tab order without CSS flex order, drawing accent pills on navigation links while keeping brand elements transparent, collapsing idle sync notices to zero layout space as live regions, standardising This week naming across navigation and document titles, and building the job search bar on the same structure.
+- Fixed live recordings being recovered and processed early when another device or tab opened the app mid-lecture: restricted automatic recovery and chunk completion to the device that started the recording (with a live tab heartbeat so other tabs in the same browser leave it alone), discarded 0-chunk recordings if reloaded before the first chunk, added **Finish recording** to the recording menu for recordings left behind on a device that never comes back, and added server-side guards in the Worker and processor so a recording is never processed while still recording, never built from chunks that do not start at chunk 0 without gaps, only deletes the specific chunks consumed, and never transcribes the same audio twice.
 
 ## 17. Version history
 
@@ -1067,6 +1068,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.32.1 | Text reflow margin preservation and paragraph breaking: text sitting near top and bottom page margins preserved when contiguous with body leading; page-turn paragraph breaking with OCR baseline column-edge seeding; mid-sentence paragraph split prevention on capitalized abbreviations and lowercase continuation lines; unicode and soft hyphen support; and section heading distinction from numbered list items |
 | 0.33.0 | Unified laptop top bar: single row at all widths above phone layout, column alignment matching the page content column using bar width percentages, icon controls for Go to, Search and Settings with accessible names and shortcut tooltips, unified This week naming across navigation, unified accent-pill active page marking, and the job search bar built on the same structure |
 | 0.33.1 | Top bar fixes: plain rem spacing and --topbar-h height, 2px column alignment of the brand's first letter and the last icon's drawn glyph across 768 to 1440, natural DOM tab order without CSS order, This week and Week {code} headings and tab titles on AcrossPage, no accent pill on brands, zero-width live SyncStatus when idle, redundant text tooltips removed, top bar browser test and CSS variable unit test |
+| 0.33.2 | Live recording recovery and processing guards: only the device that started a recording recovers or finishes it automatically, Finish recording menu action for recordings left on a lost device, and server-side guards against processing live recordings, chunks not starting at 0, or transcribing the same audio twice |
 
 ## 18. The job search
 

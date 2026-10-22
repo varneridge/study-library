@@ -318,45 +318,61 @@ def _duration(path: str) -> float:
         return 0.0
 
 
+def _chunk_index(key: str) -> int | None:
+    match = re.search(r"/chunk-(\d+)\.[a-z0-9]+$", key)
+    return int(match.group(1)) if match else None
+
+
 def prepare_audio(ctx: Context, job: dict) -> None:
     recording_id = job["payload"]["recording_id"]
     info = ctx.api.recording(recording_id)
     recording = info["recording"]
-    if recording["deleted"]:
+    if recording["deleted"] or recording["status"] == "recording":
         return
+    chunks: list[str] = info["chunks"]
+    if chunks:
+        indices = [_chunk_index(key) for key in chunks]
+        if indices != list(range(len(chunks))):
+            raise JobError(f"recording chunks must start at 0 without gaps (got {indices})")
+    elif info.get("file") and info["file"]["id"] == f"{recording_id}:audio" and recording.get("turns"):
+        ctx.api.recording_status(recording_id, "done")
+        return
+    elif not info.get("file"):
+        raise JobError("recording has no audio yet")
+
     ctx.api.recording_status(recording_id, "processing")
 
     with tempfile.TemporaryDirectory() as tmp:
         source = os.path.join(tmp, "source")
-        if info["chunks"]:
+        if chunks:
             # Chunks from one MediaRecorder session join into a single valid stream.
-            extension = info["chunks"][0].rsplit(".", 1)[-1]
+            extension = chunks[0].rsplit(".", 1)[-1]
             source += "." + extension
             with open(source, "wb") as out:
-                for index, key in enumerate(info["chunks"]):
+                for index, key in enumerate(chunks):
                     part = os.path.join(tmp, f"part{index}")
                     ctx.api.download(key, part)
                     with open(part, "rb") as handle:
                         out.write(handle.read())
                     os.remove(part)
             delete_source = False
-        elif info.get("file"):
+        else:
             source += os.path.splitext(info["file"]["r2_key"])[1]
             ctx.api.download(info["file"]["r2_key"], source)
             delete_source = not ctx.keep_original_video
-        else:
-            raise JobError("recording has no audio yet")
 
         output = os.path.join(tmp, "audio.ogg")
         # Mono speech at 24 kbps keeps an hour near 11 MB with clear voices.
         _run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", source, "-vn", "-ac", "1",
-              "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", "-application", "voip", output])
+              "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", "-application", "voip", "-bitexact", output])
         duration = _duration(output)
+        sha256 = _sha256(output)
         key = f"recordings/{recording_id}/audio.ogg"
         ctx.api.put_object(output, f"files/{key}", "audio/ogg")
         size = os.path.getsize(output)
 
-    ctx.api.recording_audio(recording_id, f"files/{key}", size, duration, "audio/ogg", delete_source)
+    ctx.api.recording_audio(recording_id, f"files/{key}", size, duration, "audio/ogg", delete_source,
+                            sha256=sha256, chunks=chunks)
     log.info("recording %s audio ready, %.0f seconds", recording_id, duration)
 
 
@@ -383,7 +399,10 @@ def transcribe(ctx: Context, job: dict) -> None:
     so a retry after a failure only pays for the pieces still to do."""
     recording_id = job["payload"]["recording_id"]
     info = ctx.api.recording(recording_id)
-    if info["recording"]["deleted"] or not info.get("file"):
+    recording = info["recording"]
+    if recording["deleted"] or recording["status"] == "recording" or not info.get("file"):
+        return
+    if recording["status"] == "done" and recording.get("turns"):
         return
     context = info.get("context") or {}
     prompt, keywords = context.get("prompt", ""), context.get("keywords", [])

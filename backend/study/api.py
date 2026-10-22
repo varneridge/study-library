@@ -182,10 +182,10 @@ class Api:
         self._json("POST", f"/api/processor/recordings/{recording_id}/status", json={"status": status})
 
     def recording_audio(self, recording_id: str, r2_key: str, size: int, duration: float, mime: str,
-                        delete_source: bool) -> None:
+                        delete_source: bool, sha256: str = "", chunks: list[str] | None = None) -> None:
         self._json("POST", f"/api/processor/recordings/{recording_id}/audio", json={
             "r2_key": r2_key, "bytes": size, "duration": duration, "mime": mime,
-            "delete_source": delete_source})
+            "delete_source": delete_source, "sha256": sha256, "chunks": chunks})
 
     def save_transcript(self, recording_id: str, text: str) -> None:
         self._json("POST", f"/api/processor/recordings/{recording_id}/transcript", json={"text": text})

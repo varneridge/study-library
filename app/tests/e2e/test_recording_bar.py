@@ -105,7 +105,8 @@ with sync_playwright() as p:
     assert rec["duration_seconds"] < later + 25
 
     # Phone: the bar spans the foot of the screen.
-    phone = browser.new_page(viewport={"width": 390, "height": 844})
+    phone_ctx = browser.new_context(viewport={"width": 390, "height": 844})
+    phone = phone_ctx.new_page()
     phone.goto(BASE + "/")
     phone.locator(".module-row").first.click()
     phone.locator("#week-AT1 .week-title").click()
@@ -144,14 +145,20 @@ with sync_playwright() as p:
         }}"""
     )
     print("cause 1 (second device opens while phone records):", second_device_state)
-    second_ctx.close()
+    assert second_device_state["status"] == "recording", f"second device changed status to {second_device_state['status']}"
+    assert second_device_state["new_jobs"] == 0, f"jobs queued while still recording: {second_device_state}"
 
-    # Stop the phone recording cleanly, then start another recording on the phone
-    # and reload mid-lecture to check what happens when a phone tab reloads early.
+    # Stopping on the phone that started the recording finishes it and queues prepare_audio.
     phone.locator(".rec-pill").get_by_role("button", name="Stop recording").click()
     phone.locator(".rec-pill").get_by_role("button", name="Tap again to stop recording").click()
     expect(phone.locator(".rec-pill")).to_have_count(0)
+    until(
+        phone,
+        f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.id === {live_id!r}); return r && r.status === 'uploaded'; }}",
+    )
 
+    # Reloading the phone before the first chunk is written discards the empty
+    # recording rather than queueing prepare_audio with 0 chunks.
     phone.locator(".module-row").first.click()
     phone.locator("#week-AT1 .week-title").click()
     phone.locator("section.session").nth(1).locator(".session-title a").click()
@@ -160,7 +167,7 @@ with sync_playwright() as p:
         phone,
         "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.status === 'recording'); return r ? r.id : null; }",
     )
-    phone.wait_for_timeout(2500)
+    phone.wait_for_timeout(1500)
     before_reload_status = phone.evaluate("async () => (await (await fetch('/api/status')).json())")
     phone.reload()
     phone.wait_for_timeout(1500)
@@ -170,16 +177,37 @@ with sync_playwright() as p:
             const rec = (pull.rows.recordings || []).find(r => r.id === {reload_id!r});
             const status = await (await fetch('/api/status')).json();
             return {{
-                status: rec && rec.status,
-                duration: rec && rec.duration_seconds,
+                deleted: Boolean(rec && rec.deleted),
                 new_jobs: (status.queued + status.running) - {before_reload_status['queued'] + before_reload_status['running']},
             }};
         }}"""
     )
-    print("cause 2 (phone reloads mid-lecture):", reload_state)
+    print("cause 2 (phone reloads before first chunk):", reload_state)
+    assert reload_state["deleted"] is True and reload_state["new_jobs"] == 0, reload_state
 
-    assert second_device_state["status"] == "recording", f"second device changed status to {second_device_state['status']}"
-    assert second_device_state["new_jobs"] == 0, f"jobs queued while still recording: {second_device_state}"
+    # A recording left behind on a device that never comes back can be finished
+    # explicitly from another device.
+    phone.get_by_role("button", name="Record", exact=True).click()
+    abandoned_id = until(
+        phone,
+        "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.status === 'recording' && !r.deleted); return r ? r.id : null; }",
+    )
+    phone_ctx.close()
+
+    second.goto(BASE + "/")
+    second.locator(".module-row").first.click()
+    second.locator("#week-AT1 .week-title").click()
+    second.locator("section.session").nth(1).locator(".session-title a").click()
+    expect(second.locator("section.recording")).to_contain_text("Recording")
+    second.get_by_role("button", name="More actions for this recording").click()
+    second.get_by_role("menuitem", name="Finish recording").click()
+    second.get_by_role("dialog").get_by_role("button", name="Finish recording").click()
+    until(
+        second,
+        f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.recordings || []).find(r => r.id === {abandoned_id!r}); return r && r.status === 'uploaded'; }}",
+    )
+    print("abandoned recording finished from second device")
+    second_ctx.close()
 
     print("page errors:", errors[:5])
     assert not errors

@@ -256,4 +256,14 @@ def test_same_audio_is_not_transcribed_twice(api, module, tmp_path):
     api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
     processor.drain()
     assert transcriber.calls == 1
+    assert api.pull_all()["recordings"]["r1"]["status"] == "done"
 
+    # Even if chunk 0 is uploaded again with the same audio, prepare_audio sees
+    # the same sha256 and does not queue a second transcription.
+    api._json("PUT", "/api/recordings/r1/chunks/0", data=audio.read_bytes(), headers={"Content-Type": "audio/webm"})
+    row = api.pull_all()["recordings"]["r1"]
+    api.push([{"table": "recordings", "row": {**row, "status": "uploading", "modified_at": stamp()}}])
+    api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
+    processor.drain()
+    assert transcriber.calls == 1
+    assert api.pull_all()["recordings"]["r1"]["status"] == "done"
