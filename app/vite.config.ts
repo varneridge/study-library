@@ -30,5 +30,5 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   plugins: [react(), serviceWorker()],
   server: { proxy: { "/api": "http://localhost:8787" } },
-  build: { outDir: "dist", sourcemap: true, chunkSizeWarningLimit: 1500 },
+  build: { outDir: "dist", sourcemap: false, chunkSizeWarningLimit: 1500 },
 });
