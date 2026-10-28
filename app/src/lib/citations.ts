@@ -21,7 +21,7 @@ export function pending(item: ItemRow): Suggestion | null {
   return s && !s.applied && !s.dismissed ? s : null;
 }
 
-const fieldsOf = (s: Suggestion) => ({
+const fieldsOf = (s: Pick<Suggestion, "work_kind" | "author" | "editor" | "year" | "title" | "source" | "publisher" | "volume" | "issue" | "pages" | "doc_date" | "doi">) => ({
   work_kind: s.work_kind ?? null,
   author: s.author ?? null,
   editor: s.editor ?? null,
@@ -36,25 +36,14 @@ const fieldsOf = (s: Suggestion) => ({
   doi: s.doi ?? null,
 });
 
-export async function applySuggestion(item: ItemRow): Promise<void> {
+export async function applySuggestion(item: ItemRow, quiet = false): Promise<void> {
   const s = item.suggested;
   if (!s) return;
-  const previous = {
-    work_kind: item.work_kind ?? null,
-    author: item.author ?? null,
-    editor: item.editor ?? null,
-    year: item.year ?? null,
-    title: item.title,
-    source: item.source ?? null,
-    publisher: item.publisher ?? null,
-    volume: item.volume ?? null,
-    issue: item.issue ?? null,
-    pages: item.pages ?? null,
-    doc_date: item.doc_date ?? null,
-    doi: item.doi ?? null,
-  };
+  const previous = fieldsOf(item);
   await update("items", item.id, { ...fieldsOf(s), suggested: { ...s, applied: true, previous } });
-  showToast("Details updated.", { label: "Undo", run: () => update("items", item.id, { ...previous, suggested: { ...s, applied: false } }) });
+  if (!quiet) {
+    showToast("Details updated.", { label: "Undo", run: () => update("items", item.id, { ...previous, suggested: { ...s, applied: false } }) });
+  }
 }
 
 export async function keepMine(item: ItemRow): Promise<void> {

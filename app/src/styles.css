@@ -445,9 +445,6 @@ button.plain { border: 0; background: none; padding: 0; color: inherit; cursor: 
 .side { width: 20rem; flex: none; overflow: auto; background: var(--paper); border-left: 1px solid var(--rule); padding: 0.75rem 1rem 3rem; }
 @media (max-width: 48rem) { .side { position: absolute; right: 0; top: 0; bottom: 0; width: min(22rem, 88vw); z-index: 5; } .reader-body { position: relative; } }
 .side h3 { margin-bottom: 0.5rem; }
-.hl-item { border-bottom: 1px solid var(--rule); padding: 0.6rem 0; }
-.hl-item blockquote { margin: 0; font-family: var(--serif); font-size: var(--fs-sm); border-left: 3px solid; padding-left: 0.6rem; }
-.hl-item .meta { font-size: var(--fs-xs); color: var(--muted); display: flex; gap: 0.6rem; margin-top: 0.3rem; }
 .floating {
   position: fixed; z-index: 40; background: var(--paper); border: 1px solid var(--ink);
   padding: 0.4rem; display: flex; gap: 0.35rem; align-items: center; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
@@ -543,13 +540,6 @@ ol.questions { margin: 0.75rem 0 0; padding-left: 1.4rem; font-family: var(--ser
 ol.questions li { margin-bottom: 0.4rem; }
 ol.questions a { text-decoration: none; }
 ol.questions a:hover { text-decoration: underline; text-underline-offset: 0.18em; }
-.question-text { font-size: var(--fs-xl); cursor: text; margin: 0.2rem 0 0; }
-.question-page textarea { font-family: var(--serif); font-size: var(--fs-xl); }
-.filed-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
-.filed { border-bottom: 1px solid var(--rule); padding: 0.7rem 0; }
-.filed blockquote { margin: 0; font-family: var(--serif); border-left: 3px solid; padding-left: 0.7rem; }
-.filed .meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: baseline; margin-top: 0.35rem; font-size: var(--fs-sm); }
-.filed .meta a { color: var(--muted); }
 
 /* Search */
 .search-wrap { position: relative; display: flex; align-items: center; width: 100%; }
@@ -637,8 +627,6 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 }
 .week-nav a { text-decoration: none; color: var(--muted); }
 .week-nav a:hover { color: var(--ink); }
-
-.questions.editing { list-style: none; padding: 0; }
 
 .bin > li { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.55rem 0; }
 .bin .kind { font-size: var(--fs-xs); color: var(--muted); min-width: 5.5rem; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -766,8 +754,6 @@ kbd { font-family: var(--sans); font-size: var(--fs-xs); border: 1px solid var(-
 .week.drag-over { background: var(--wash); box-shadow: inset 3px 0 0 var(--accent); }
 
 /* Go to */
-.nav-button { border: 0; background: none; padding: 0; color: var(--muted); font-size: inherit; }
-.nav-button:hover { color: var(--ink); }
 .palette { width: min(36rem, calc(100vw - 2rem)); padding: 0; margin-top: 12vh; }
 .palette-head { display: flex; align-items: center; border-bottom: 1px solid var(--rule); background: var(--paper); }
 .palette-input-wrap { flex: 1; position: relative; display: flex; align-items: center; min-width: 0; }
@@ -811,10 +797,6 @@ kbd { font-family: var(--sans); font-size: var(--fs-xs); border: 1px solid var(-
 .first-steps { margin: 0 0 1.5rem; padding: 1rem 1.1rem; border: 1px solid var(--rule); background: var(--paper); }
 .first-steps p { margin: 0 0 0.4rem; }
 .first-steps .button { margin-top: 0.5rem; }
-/* An answer is written in a box, so an empty one still looks like a place to write. */
-/* The answer on a question's own page has the same ruled shape as in the list. */
-.question-answer.solo { margin: 0.6rem 0 0; }
-.question-answer.solo .note-editor.compact .bn-editor[contenteditable="true"] { min-height: 4rem; }
 
 /* Imported transcripts: a turn per speaker, set like a printed interview.
    Each speaker keeps one colour, used only for their name and rule. */
@@ -981,7 +963,7 @@ body.recording-active .move-dock { bottom: calc(5rem + env(safe-area-inset-botto
   .reading .mark { position: relative; }
   .crumbs a, .where, a.where, .across-session a, .session-page .crumbs a, section.session > p.small a { display: inline-block; padding-block: 0.3rem; min-width: 1.75rem; }
   .caret { min-width: 2rem; min-height: 2rem; }
-  .topbar nav a, .nav-button, .week-nav a, .t-speakers button, .recent a, .side-readings .name, .next-up a, .notes-more {
+  .topbar nav a, .week-nav a, .t-speakers button, .recent a, .side-readings .name, .next-up a, .notes-more {
     display: inline-flex; align-items: center; min-height: 1.75rem;
   }
   .colour-names input, input[type="checkbox"] { min-width: 1.25rem; min-height: 1.25rem; }
@@ -1137,7 +1119,6 @@ img, canvas, video { max-width: 100%; }
 .tw-readings { max-width: 16rem; }
 .tw-next { font-size: var(--fs-xs); color: var(--ink); margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tw-readings.done .tw-state { color: var(--ink); }
-.tw-earlier { margin: 0.75rem 0 0; }
 @media (max-width: 34rem) {
   .tw-module { grid-template-columns: 1fr; }
   /* Readings, lecture and seminar side by side, even on a phone. */
@@ -1191,13 +1172,6 @@ img, canvas, video { max-width: 100%; }
 .question-row textarea:hover { border-color: color-mix(in srgb, var(--rule) 70%, transparent); }
 .question-row textarea:focus { border-color: var(--accent); background: var(--card); box-shadow: none; }
 .question-row.adder textarea::placeholder { color: var(--faint); font-style: italic; }
-.question-meta { flex: none; display: inline-flex; gap: 0.6rem; align-items: baseline; font-size: var(--fs-xs); }
-.question-open { color: var(--muted); text-decoration: none; opacity: 0; transition: opacity 0.12s ease; }
-/* A question with filed evidence always says so. */
-.question-open.has-evidence { opacity: 1; }
-.question-row:hover .question-open, .question-row:focus-within .question-open, .question-open:focus-visible { opacity: 1; }
-.question-row:hover .question-open:hover { color: var(--accent); text-decoration: underline; }
-@media (hover: none) { .question-open { opacity: 1; } }
 .questions-hint { margin: 0; }
 @media (max-width: 34rem) { .questions-hint { display: none; } }
 .slide-loading { aspect-ratio: 4 / 3; background: var(--card); }
@@ -1215,8 +1189,6 @@ img, canvas, video { max-width: 100%; }
 .jobs-summary { margin: 0.35rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .jobs-tools { display: flex; align-items: center; gap: 0.75rem 1.25rem; flex-wrap: wrap; margin: 1.5rem 0 0.9rem; }
 .jobs-tools .seg-count { font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 0.2rem; }
-.jobs-order { display: inline-flex; align-items: center; gap: 0.5rem; }
-.jobs-order select { width: auto; font-size: var(--fs-sm); padding: 0.3rem 0.45rem; }
 .jobs-find { flex: 1 1 14rem; max-width: 22rem; margin-left: auto; font-size: var(--fs-sm); }
 .jobs-empty { margin-top: 2rem; padding: 1.25rem 0; border-top: 1px solid var(--ink); max-width: 36rem; }
 .jobs-empty p { margin: 0 0 0.4rem; }
@@ -1315,10 +1287,6 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .slot-row { display: grid; grid-template-columns: 9.5rem 1fr; gap: 0.15rem 0.75rem; padding: 0.45rem 0; border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); }
 .slot-label { font-weight: 600; }
 .slot-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slot-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 0.1rem; margin-left: -0.4rem; }
-.slot-actions .quiet { font-size: var(--fs-xs); }
-.link-edit { display: inline-flex; gap: 0.25rem; align-items: center; width: 100%; margin-left: 0.4rem; }
-.link-edit input { font-size: var(--fs-sm); padding: 0.2rem 0.4rem; }
 .app-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-right: -0.4rem; }
 .quiet.danger { color: var(--danger); }
 
@@ -1349,7 +1317,6 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .app-fields .date-show, .app-fields .deadline { text-transform: none; letter-spacing: normal; font-size: var(--fs-md); color: var(--ink); }
 .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .app-card .slot-row { grid-template-columns: 1fr; }
-.app-card .slot-actions { grid-column: 1; }
 .app-card .app-foot { justify-content: flex-start; margin-left: -0.4rem; }
 
 @media (max-width: 60rem) {
@@ -1459,7 +1426,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 @media (pointer: coarse), (max-width: 48rem) {
   a, button, select, summary, [role="checkbox"], [role="menuitem"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .icon-button { min-width: 2.75rem; min-height: 2.75rem; }
-  .button, .tool, .nav-button, .menu-button, .quiet:not(.cell-input), .found, .question-open, .where, .week-title, .hit-line, .tw-session {
+  .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title, .hit-line, .tw-session {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
   .hit-line { display: flex; }
@@ -1512,7 +1479,6 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 
 /* Nothing waits for a hover that never comes. */
 @media (hover: none) {
-  .question-open { opacity: 1; }
   .slide-arrow { opacity: 0.85; }
   .slide-count { opacity: 1; }
 }
@@ -1564,8 +1530,6 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 @media (pointer: coarse) {
   .reading .handle, .drop-hint, .touch-hide { display: none !important; }
 }
-.touch-only { display: none; }
-@media (pointer: coarse) { .touch-only { display: revert; } }
 
 /* The highlight bar on a touch screen: docked at the foot, big colours with
    their names, and buttons to take the whole sentence or paragraph. */
@@ -1592,8 +1556,6 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 .app-card .slot-row { grid-template-columns: 1fr auto; align-items: center; }
 .app-card .slot-row .slot-label { grid-column: 1; }
 .app-card .slot-row .slot-status { grid-column: 1; }
-.app-card .slot-row .slot-actions { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
-.app-card .slot-actions .link-edit { flex-wrap: wrap; }
 .app-card .app-foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-left: 0; }
 
 /* The Dark theme button keeps its light label wherever it sits. */
@@ -1900,7 +1862,7 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .pdf-page { border-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06); }
 .touch-bar { border-radius: var(--r-lg) var(--r-lg) 0 0; }
 .touch-swatch .dot { border-radius: 999px; }
-.swatch, .colour-dot { border-radius: 999px; }
+.swatch { border-radius: 999px; }
 
 /* The job search follows the same rules. */
 .apps-wrap { border-top: 0; }

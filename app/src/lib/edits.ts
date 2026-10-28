@@ -269,44 +269,33 @@ export async function moduleOfItem(item: ItemRow): Promise<string | null> {
 
 // Modules
 
-export async function moveModule(id: string, direction: -1 | 1): Promise<void> {
-  const modules = (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition);
-  const index = modules.findIndex((m) => m.id === id);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= modules.length) return;
-  // Swapping positions keeps every other key as it is.
-  const a = modules[index];
-  const b = modules[target];
+// Swaps a row's position with its neighbour, keeping every other key as it is.
+async function swapPosition<T extends { id: string; position: string; deleted: boolean }>(
+  table: "modules" | "questions" | "sessions",
+  rows: T[],
+  id: string,
+  direction: -1 | 1,
+): Promise<void> {
+  const siblings = rows.filter((r) => !r.deleted).sort(byPosition);
+  const index = siblings.findIndex((r) => r.id === id);
+  const other = siblings[index + direction];
+  if (index < 0 || !other) return;
   await commit([
-    { table: "modules", row: { id: a.id, position: b.position }, patch: true },
-    { table: "modules", row: { id: b.id, position: a.position }, patch: true },
+    { table, row: { id: siblings[index].id, position: other.position }, patch: true },
+    { table, row: { id: other.id, position: siblings[index].position }, patch: true },
   ]);
+}
+
+export async function moveModule(id: string, direction: -1 | 1): Promise<void> {
+  await swapPosition("modules", await db.modules.toArray(), id, direction);
 }
 
 export async function moveQuestion(question: QuestionRow, direction: -1 | 1): Promise<void> {
-  const siblings = (await db.questions.where("session_id").equals(question.session_id).toArray())
-    .filter((q) => !q.deleted).sort(byPosition);
-  const index = siblings.findIndex((q) => q.id === question.id);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= siblings.length) return;
-  const other = siblings[target];
-  await commit([
-    { table: "questions", row: { id: question.id, position: other.position }, patch: true },
-    { table: "questions", row: { id: other.id, position: siblings[index].position }, patch: true },
-  ]);
+  await swapPosition("questions", await db.questions.where("session_id").equals(question.session_id).toArray(), question.id, direction);
 }
 
 export async function moveSession(session: SessionRow, direction: -1 | 1): Promise<void> {
-  const siblings = (await db.sessions.where("week_id").equals(session.week_id).toArray())
-    .filter((s) => !s.deleted).sort(byPosition);
-  const index = siblings.findIndex((s) => s.id === session.id);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= siblings.length) return;
-  const other = siblings[target];
-  await commit([
-    { table: "sessions", row: { id: session.id, position: other.position }, patch: true },
-    { table: "sessions", row: { id: other.id, position: siblings[index].position }, patch: true },
-  ]);
+  await swapPosition("sessions", await db.sessions.where("week_id").equals(session.week_id).toArray(), session.id, direction);
 }
 
 // Deletes, then offers to undo at the foot of the screen.

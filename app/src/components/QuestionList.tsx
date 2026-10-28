@@ -84,7 +84,7 @@ function Row({ view, index, count, move, register, hold }: {
   // While a new question is on its way, keys typed go to it, not here.
   hold: { start: (id: string, where: Where) => void; active: () => boolean; type: (key: string) => void };
 }) {
-  const { question, filed, answered } = view;
+  const { question, answered } = view;
   const [text, setText] = useState(question.body);
   const answer = useRef<NoteEditorHandle>(null);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -133,8 +133,8 @@ function Row({ view, index, count, move, register, hold }: {
         onFocus={() => { focused.current = true; }}
         onBlur={() => {
           focused.current = false;
-          // A question left empty, with nothing filed under it, is not kept.
-          if (!text.trim() && !filed && !answered) void deleteQuestion(question);
+          // A question left empty, with no answer, is not kept.
+          if (!text.trim() && !answered) void deleteQuestion(question);
           else save();
         }}
         onChange={(e) => {
@@ -176,8 +176,8 @@ function Row({ view, index, count, move, register, hold }: {
           } else if (e.key === "Backspace" && el.selectionStart === 0 && el.selectionEnd === 0 && !el.value.trim()) {
             e.preventDefault();
             move(index > 0 ? "prev" : "next", "end");
-            // A question with evidence or an answer goes with an undo.
-            if (filed > 0 || answered) await withUndo("Question deleted.", deleteQuestion(question));
+            // A question with an answer goes with an undo.
+            if (answered) await withUndo("Question deleted.", deleteQuestion(question));
             else await deleteQuestion(question);
           } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
             e.preventDefault();

@@ -4,7 +4,6 @@
 // transaction. The outbox is pushed to the Worker, which keeps the newest
 // version of each row. Pulling asks for every row written since a cursor.
 
-import { v7 as uuidv7 } from "uuid";
 import { db, getMeta, setMeta } from "./db";
 import { SYNCED_TABLES, type TableName, type Tables } from "./types";
 
@@ -13,8 +12,20 @@ const POLL_MS = 30_000;
 
 let lastStamp = 0;
 
+// RFC 9562 time-ordered UUID v7, using the browser's CSPRNG.
 export function newId(): string {
-  return uuidv7();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const now = BigInt(Date.now());
+  bytes[0] = Number((now >> 40n) & 0xffn);
+  bytes[1] = Number((now >> 32n) & 0xffn);
+  bytes[2] = Number((now >> 24n) & 0xffn);
+  bytes[3] = Number((now >> 16n) & 0xffn);
+  bytes[4] = Number((now >> 8n) & 0xffn);
+  bytes[5] = Number(now & 0xffn);
+  bytes[6] = (bytes[6] & 0x0f) | 0x70;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 // Timestamps never repeat on one device, so two quick edits keep their order.

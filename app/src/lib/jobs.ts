@@ -312,13 +312,6 @@ export async function addManualEvent(appId: string, stage: string, at: string): 
   return id;
 }
 
-export async function updateManualEvent(id: string, changes: { stage?: string; at?: string }): Promise<void> {
-  await update("application_events", id, {
-    ...changes,
-    kind: "manual",
-  });
-}
-
 export async function removeEvent(id: string): Promise<void> {
   const event = await db.application_events.get(id);
   if (!event) return;
@@ -423,18 +416,11 @@ export function formatDuration(fromMs: number, toMs: number, fromDateOnly = fals
 
 export function daysSinceApplied(appliedDateIso: string | null, now = new Date()): number | null {
   if (!appliedDateIso || !/^\d{4}-\d{2}-\d{2}/.test(appliedDateIso)) return null;
-  const [y, m, d] = appliedDateIso.slice(0, 10).split("-").map(Number);
-  const appliedMidnight = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
-  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
-  return Math.max(0, Math.round((todayMidnight - appliedMidnight) / 86_400_000));
+  return Math.max(0, -daysUntil(appliedDateIso.slice(0, 10), now));
 }
 
 export function daysInStage(eventAt: string, now = new Date()): number {
-  const t = parseEntryTime(eventAt);
-  const eventDate = new Date(t);
-  const eventMidnight = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 0, 0, 0, 0).getTime();
-  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
-  return Math.max(0, Math.round((todayMidnight - eventMidnight) / 86_400_000));
+  return Math.max(0, -daysUntil(entryDate(eventAt), now));
 }
 
 export function entryTimeText(at: string): string {
@@ -520,36 +506,37 @@ export function evaluateStageChange(
       };
     }
 
-    if (likelyNextStages(lastEntry.stage).includes(targetStage)) {
-      const shouldClearDeadline = stageOf(currentStage).cat === "todo" && stageOf(targetStage).cat !== "todo";
-      const clearedDeadline = shouldClearDeadline ? app.next_deadline : null;
+    if (!likelyNextStages(lastEntry.stage).includes(targetStage)) {
+      const originalFrom = lastEntry.from_stage ?? currentStage;
+      const shouldClearDeadline = stageOf(originalFrom).cat === "todo" && stageOf(targetStage).cat !== "todo";
+      const clearedDeadline = shouldClearDeadline ? (lastEntry.cleared_deadline ?? app.next_deadline) : null;
       const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
       if (shouldClearDeadline) {
         appUpdates.next_deadline = null;
+      } else if (stageOf(targetStage).cat === "todo" && lastEntry.cleared_deadline) {
+        appUpdates.next_deadline = lastEntry.cleared_deadline;
       }
       if (targetStage === "to_apply") {
         appUpdates.applied = null;
-      } else if (currentStage === "to_apply" && !app.applied) {
+      } else if (originalFrom === "to_apply" && targetStage !== "to_apply" && !app.applied) {
         appUpdates.applied = todayIso(now);
       }
 
-      const newEventId = newId();
-      const newEvent: Fresh<"application_events"> = {
-        id: newEventId,
-        application_id: app.id,
-        stage: targetStage,
-        from_stage: currentStage,
-        at: nowIso,
-        kind: "change",
-        cleared_deadline: clearedDeadline,
-      };
-
       const eventChanges: Change[] = [
-        { table: "application_events", row: newEvent },
+        {
+          table: "application_events",
+          row: {
+            id: lastEntry.id,
+            stage: targetStage,
+            cleared_deadline: clearedDeadline,
+          },
+          patch: true,
+        },
       ];
 
+      const timeStr = entryTimeText(lastEntry.at);
       return {
-        action: "add",
+        action: "amend",
         appUpdates,
         eventChanges,
         undo: {
@@ -557,56 +544,13 @@ export function evaluateStageChange(
           previousStage: app.stage,
           previousDeadline: app.next_deadline,
           previousApplied: app.applied,
-          action: "add",
-          eventId: newEventId,
+          action: "amend",
+          eventId: lastEntry.id,
+          previousEvent: { ...lastEntry },
         },
-        notice: `Stage changed to ${stageOf(targetStage).label}.`,
+        notice: `${stageOf(targetStage).label}, replacing the change at ${timeStr}.`,
       };
     }
-
-    const originalFrom = lastEntry.from_stage ?? currentStage;
-    const shouldClearDeadline = stageOf(originalFrom).cat === "todo" && stageOf(targetStage).cat !== "todo";
-    const clearedDeadline = shouldClearDeadline ? (lastEntry.cleared_deadline ?? app.next_deadline) : null;
-    const appUpdates: Partial<ApplicationRow> = { stage: targetStage };
-    if (shouldClearDeadline) {
-      appUpdates.next_deadline = null;
-    } else if (stageOf(targetStage).cat === "todo" && lastEntry.cleared_deadline) {
-      appUpdates.next_deadline = lastEntry.cleared_deadline;
-    }
-    if (targetStage === "to_apply") {
-      appUpdates.applied = null;
-    } else if (originalFrom === "to_apply" && targetStage !== "to_apply" && !app.applied) {
-      appUpdates.applied = todayIso(now);
-    }
-
-    const eventChanges: Change[] = [
-      {
-        table: "application_events",
-        row: {
-          id: lastEntry.id,
-          stage: targetStage,
-          cleared_deadline: clearedDeadline,
-        },
-        patch: true,
-      },
-    ];
-
-    const timeStr = entryTimeText(lastEntry.at);
-    return {
-      action: "amend",
-      appUpdates,
-      eventChanges,
-      undo: {
-        appId: app.id,
-        previousStage: app.stage,
-        previousDeadline: app.next_deadline,
-        previousApplied: app.applied,
-        action: "amend",
-        eventId: lastEntry.id,
-        previousEvent: { ...lastEntry },
-      },
-      notice: `${stageOf(targetStage).label}, replacing the change at ${timeStr}.`,
-    };
   }
 
   const shouldClearDeadline = stageOf(currentStage).cat === "todo" && stageOf(targetStage).cat !== "todo";

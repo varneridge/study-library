@@ -38,7 +38,6 @@ export interface NoteView {
 
 export interface QuestionView {
   question: QuestionRow;
-  filed: number;
   answered: boolean;
 }
 
@@ -146,8 +145,7 @@ export async function loadWeek(week: WeekRow): Promise<WeekView> {
     const questions = live(await db.questions.where("session_id").equals(session.id).toArray()).sort(byPosition);
     const questionViews: QuestionView[] = [];
     for (const question of questions) {
-      const filed = live(await db.highlights.where("question_id").equals(question.id).toArray()).length;
-      questionViews.push({ question, filed, answered: await hasWriting({ question_id: question.id }) });
+      questionViews.push({ question, answered: await hasWriting({ question_id: question.id }) });
     }
     sessionViews.push({
       session,
@@ -211,8 +209,6 @@ export async function loadReader(itemId: string) {
   );
   const link = live(await db.week_items.where("item_id").equals(itemId).toArray())[0] ?? null;
   const week = link ? (await db.weeks.get(link.week_id)) ?? null : null;
-  const sessions = week ? live(await db.sessions.where("week_id").equals(week.id).toArray()) : [];
-  const questions = live(await db.questions.where("session_id").anyOf(sessions.map((s) => s.id)).toArray()).sort(byPosition);
   // The readings either side, in the order the week page shows them.
   let previous: ItemRow | null = null;
   let next: ItemRow | null = null;
@@ -227,7 +223,7 @@ export async function loadReader(itemId: string) {
   }
   // The session it is slides for, if any, so the reader goes back there.
   const session = link?.session_id ? (await db.sessions.get(link.session_id)) ?? null : null;
-  return { item, file, upload, highlights, week, questions, previous, next, link, session: session && !session.deleted ? session : null };
+  return { item, file, upload, highlights, week, previous, next, link, session: session && !session.deleted ? session : null };
 }
 
 export async function loadSession(sessionId: string) {
@@ -247,60 +243,6 @@ export async function loadSession(sessionId: string) {
     }
   }
   return { module, week, session, view: mine, audio, readings: [...view.readings, ...view.primaries] };
-}
-
-export interface FiledHighlight {
-  highlight: HighlightRow;
-  item: ItemRow;
-}
-
-export async function loadQuestion(questionId: string, scope: "week" | "module" = "week") {
-  const question = await db.questions.get(questionId);
-  if (!question || question.deleted) return null;
-  const session = await db.sessions.get(question.session_id);
-  if (!session) return null;
-  const week = await db.weeks.get(session.week_id);
-  if (!week) return null;
-  const module = await db.modules.get(week.module_id);
-  if (!module) return null;
-  const view = await loadWeek(week);
-  const readings = [...view.readings, ...view.primaries];
-  const items = new Map(readings.map((r) => [r.item.id, r.item]));
-  if (scope === "module") {
-    // Every reading in the module, so earlier weeks can supply evidence.
-    const weekIds = live(await db.weeks.where("module_id").equals(module.id).toArray()).map((w) => w.id);
-    const links = live(await db.week_items.where("week_id").anyOf(weekIds).toArray());
-    for (const item of live((await db.items.bulkGet(links.map((l) => l.item_id))).filter(Boolean) as ItemRow[])) {
-      if (!items.has(item.id)) items.set(item.id, item);
-    }
-  }
-  const weekHighlights = live(await db.highlights.where("item_id").anyOf([...items.keys()]).toArray());
-  const filedRows = live(await db.highlights.where("question_id").equals(questionId).toArray());
-  for (const h of filedRows) {
-    if (!items.has(h.item_id)) {
-      const item = await db.items.get(h.item_id);
-      if (item) items.set(item.id, item);
-    }
-  }
-  const rank = (id: string) => {
-    const index = readings.findIndex((r) => r.item.id === id);
-    return index < 0 ? 1000 : index;
-  };
-  const order = (a: FiledHighlight, b: FiledHighlight) =>
-    rank(a.item.id) - rank(b.item.id) || a.item.title.localeCompare(b.item.title) ||
-    a.highlight.page - b.highlight.page ||
-    (b.highlight.rects[0]?.[3] ?? 0) - (a.highlight.rects[0]?.[3] ?? 0);
-  const filed = filedRows.map((h) => ({ highlight: h, item: items.get(h.item_id)! })).filter((f) => f.item).sort(order);
-  const unfiled = weekHighlights
-    .filter((h) => !h.question_id)
-    .map((h) => ({ highlight: h, item: items.get(h.item_id)! }))
-    .sort(order);
-  const siblings = live(await db.questions.where("session_id").equals(session.id).toArray()).sort(byPosition);
-  const at = siblings.findIndex((q) => q.id === questionId);
-  return {
-    module, week, session, question, filed, unfiled, number: at + 1,
-    previous: siblings[at - 1] ?? null, next: siblings[at + 1] ?? null, readings,
-  };
 }
 
 export function readCount(views: ReadingView[]): { read: number; total: number } {
