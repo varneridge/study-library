@@ -11,14 +11,7 @@ BASE = sys.argv[1]
 BACKEND = HERE.parent.parent.parent / "backend"
 
 
-def until(page, script, timeout=30):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.5)
-    raise AssertionError("timed out: " + script[:100])
+from helpers import until
 
 
 def photo(path, lines, rotate=0):

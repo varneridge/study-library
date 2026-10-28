@@ -4,28 +4,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 (HERE / 'shots').mkdir(exist_ok=True)
 
-def until(page, script, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:80])
 from playwright.sync_api import sync_playwright, expect
+from helpers import page_colour, until
 
 BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "library")
-
-
-def page_colour(page, name):
-    """Picks the theme from the reader's Appearance panel."""
-    group = page.get_by_role("group", name="Theme")
-    if not group.is_visible():
-        page.get_by_role("button", name="Appearance").click()
-    group.get_by_role("button", name=name).click()
-    page.keyboard.press("Escape")
 
 
 with sync_playwright() as p:

@@ -11,14 +11,7 @@ files = sorted(str(p) for p in (HERE / "files").glob("*.pdf"))
 shots = str(HERE / "shots" / "reading-notes")
 
 
-def until(page, script, timeout=25):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:90])
+from helpers import until
 
 
 def highlight(page, page_index, line, colour="yellow"):

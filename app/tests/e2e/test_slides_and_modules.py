@@ -12,37 +12,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "slides-modules")
 
 
-def until(page, script, timeout=25):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:90])
-
-
-def drag(page, source, target, dy=0):
-    source.scroll_into_view_if_needed()
-    a = source.bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
-    target.scroll_into_view_if_needed()
-    b = target.bounding_box()
-    page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2 + dy, steps=14)
-    page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
-
-
-def drop_files(page, selector, paths):
-    payload = [{"name": Path(p).name, "bytes": list(Path(p).read_bytes())} for p in paths]
-    page.evaluate("""([selector, payload]) => {
-      const target = document.querySelector(selector);
-      const data = new DataTransfer();
-      for (const f of payload) data.items.add(new File([new Uint8Array(f.bytes)], f.name, { type: 'application/pdf' }));
-      for (const type of ['dragenter', 'dragover', 'drop']) target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
-    }""", [selector, payload])
+from helpers import drag, drop_files, until
 
 
 def server(page):

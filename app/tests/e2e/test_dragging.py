@@ -11,40 +11,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "dragging")
 
 
-def until(page, script, timeout=25):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:90])
-
-
-def drag(page, source, target, dy=0):
-    """Picks up with the mouse, moves past the threshold, then drops."""
-    source.scroll_into_view_if_needed()
-    a = source.bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
-    target.scroll_into_view_if_needed()
-    b = target.bounding_box()
-    page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2 + dy, steps=14)
-    page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
-
-
-def drop_files(page, selector, paths, release=True):
-    """Drops files from the computer onto an element, as a person would."""
-    payload = [{"name": Path(p).name, "bytes": list(Path(p).read_bytes())} for p in paths]
-    page.evaluate("""([selector, payload, release]) => {
-      const target = document.querySelector(selector);
-      const data = new DataTransfer();
-      for (const f of payload) data.items.add(new File([new Uint8Array(f.bytes)], f.name, { type: 'application/pdf' }));
-      for (const type of ['dragenter', 'dragover']) target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
-      if (release) target.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
-    }""", [selector, payload, release])
+from helpers import drag, drop_files, until
 
 
 def titles(page):
@@ -157,13 +124,32 @@ with sync_playwright() as p:
     row = page.locator("#week-AT1 li.reading").first
     expect(row).to_be_visible()
     row.scroll_into_view_if_needed()
+    # AT1 has just opened, so wait until AT5's heading has stopped moving
+    # before taking its position as the place to drop.
+    page.wait_for_function("""() => new Promise(resolve => {
+        const top = () => document.querySelector('#week-AT5 .week-head')?.getBoundingClientRect().top;
+        const first = top();
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(first !== undefined && first === top())));
+    })""")
     drag(page, row, page.locator("#week-AT5 .week-head"))
     expect(page.locator(".toast")).to_contain_text("Moved to AT5")
     print("moved on the module page from AT1 to AT5")
     row = page.locator("#week-AT1 li.reading").first
     expect(row).to_be_visible()
-    row.scroll_into_view_if_needed()
-    a = row.bounding_box()
+    # AT1's list redraws without the reading just moved, so measure its first
+    # row only once it has settled.
+    a = None
+    for _ in range(10):
+        try:
+            row.scroll_into_view_if_needed(timeout=2000)
+            first = row.bounding_box()
+            page.wait_for_timeout(120)
+            a = row.bounding_box()
+            if first and a and first["y"] == a["y"]:
+                break
+        except Exception:
+            page.wait_for_timeout(200)
+    assert a, "AT1's first row never settled"
     page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
     page.mouse.down()
     page.mouse.move(a["x"] + 80, a["y"] + 30, steps=5)
@@ -209,6 +195,52 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     expect(page.locator(".crumbs")).to_contain_text("AT5")
     print("Ctrl K went straight to AT5")
+
+    # No dragging by keyboard. A space typed in Edit details stays in the
+    # title, Space after clicking a row scrolls the page, and the menu's Move
+    # up and Move down move readings on a laptop as on a phone.
+    # Still on AT5, where Ctrl K went.
+    rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
+    expect(rows.first).to_be_visible()
+    rows.first.get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Edit details").click()
+    editor = page.locator(".week-page form.editor")
+    title_field = editor.get_by_label("Title", exact=True)
+    title_field.fill("")
+    title_field.press_sequentially("A title with spaces in it")
+    expect(title_field).to_have_value("A title with spaces in it")
+    expect(page.locator(".move-dock")).to_have_count(0)
+    editor.get_by_role("button", name="Save").click()
+    expect(page.locator(".week-page li.reading .name", has_text="A title with spaces in it")).to_have_count(1)
+    print("a title typed with spaces in Edit details kept them, and nothing was picked up")
+    # A row is no longer a focusable drag button, which is what let Space pick it up.
+    assert rows.first.evaluate("el => !el.hasAttribute('tabindex') && el.getAttribute('role') !== 'button'"), "a row is still a drag button"
+    page.set_viewport_size({"width": 1280, "height": 500})
+    page.evaluate("() => { window.scrollTo(0, 0); document.activeElement?.blur(); }")
+    before_scroll = page.evaluate("() => window.scrollY")
+    page.keyboard.press("Space")
+    page.wait_for_timeout(400)
+    expect(page.locator(".move-dock")).to_have_count(0)
+    assert page.evaluate("() => window.scrollY") > before_scroll, "Space did not scroll the page"
+    page.set_viewport_size({"width": 1280, "height": 900})
+    print("rows are not drag buttons, and Space scrolls the page")
+    order = rows.locator(".name").all_text_contents()
+    if len(order) >= 2:
+        rows.first.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Move down").click()
+        expect(rows.first.locator(".name")).to_have_text(order[1])
+        rows.nth(1).get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Move up").click()
+        expect(rows.first.locator(".name")).to_have_text(order[0])
+    else:
+        # One reading here: both are offered on a laptop, and say there is nowhere to go.
+        rows.first.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Move up").click()
+        expect(page.locator(".toast")).to_contain_text("Already at the top.")
+        rows.first.get_by_role("button", name="More actions").click()
+        page.get_by_role("menuitem", name="Move down").click()
+        expect(page.locator(".toast")).to_contain_text("Already at the foot.")
+    print("Move up and Move down are in the menu on a laptop, and work")
 
     # Phone: the dock and the sheet fit the screen.
     phone = browser.new_page(viewport={"width": 390, "height": 844})

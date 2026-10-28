@@ -16,14 +16,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "jobs")
 
 
-def until(page, script, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:100])
+from helpers import stamp, until
 
 
 def server_apps(page):
@@ -48,10 +41,6 @@ def until_stages(page, employer, expected, timeout=20):
             return
         time.sleep(0.4)
     raise AssertionError(f"{employer}: {stages_on_server(page, employer)} on the server, wanted {sorted(expected)}")
-
-
-def stamp():
-    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
 
 def push(page, rows, events=None):

@@ -357,13 +357,7 @@ def create_files():
         doc.save(tv_path)
 
 
-def until(page, script, timeout=30):
-    end = time.time() + timeout
-    while time.time() < end:
-        if page.evaluate(script):
-            return
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:100])
+from helpers import until
 
 
 def seed_database(browser):

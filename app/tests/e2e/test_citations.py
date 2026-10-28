@@ -12,14 +12,7 @@ shots = str(HERE / "shots" / "citations")
 FILES = HERE / "files-citations"
 
 
-def until(page, script, timeout=30):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:90])
+from helpers import until
 
 
 def process():

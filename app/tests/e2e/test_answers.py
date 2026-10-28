@@ -10,14 +10,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "answers")
 
 
-def until(page, script, timeout=20):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:100])
+from helpers import until
 
 
 ANSWER_SAVED = """async (words) => { const j = await (await fetch('/api/sync/pull?since=0')).json();

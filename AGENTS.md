@@ -8,7 +8,7 @@ A personal, single-user web app that replaces Zotero for an LSE History degree. 
 
 - 4 (How it works), 10 (Decisions and why), 11 (Code map), 12 (Data model)
 - 14 (Tests), 15 (Design rules), 16 (Known limits and next steps)
-- 17 (Version history): the current version is 0.33.2
+- 17 (Version history): the current version is 0.33.3
 
 ## Layout
 
@@ -42,10 +42,10 @@ All of these run from `app/`. Use them rather than working out how to run things
 
 | What | Command |
 | --- | --- |
-| Typecheck, unit tests and backend tests together | `npm run test:all` |
+| Typecheck and unit tests together (on Windows) | `npm run test:all` |
 | Typecheck only | `npm run typecheck` |
 | Unit tests only | `npm test` |
-| Backend tests only | `npm run test:backend` |
+| Backend tests only (in WSL) | `npm run test:backend` |
 | Every browser test, in the order they depend on | `npm run e2e` |
 | Named browser tests | `npm run e2e -- jobs ux` (for `test_jobs.py` and `test_ux.py`) |
 | The layout audit | `npm run e2e -- audit_layout` |
@@ -54,6 +54,7 @@ All of these run from `app/`. Use them rather than working out how to run things
 
 How they work, so there is no need to investigate:
 
+- `npm run test:all` runs `npm run typecheck` and `npm test` directly on Windows and skips the WSL rsync step by default.
 - `npm run test:backend` and `npm run e2e` run in WSL, from a copy of the project at `~/study-library` that they refresh each time. `npm run e2e` builds the app there, starts and stops the local Worker itself, and waits until every test has finished, printing PASS or FAIL for each. Never start the Worker or run browser tests any other way.
 - Python for tests is `~/.venvs/study/bin/python` in WSL. Don't look for Python on Windows.
 - Never run `npm install` for Linux in the Windows folder.

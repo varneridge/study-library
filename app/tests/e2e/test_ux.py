@@ -14,18 +14,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "ux")
 
 
-def until(page, script, timeout=25):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:100])
-
-
-def stamp():
-    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+from helpers import stamp, until
 
 
 with sync_playwright() as p:

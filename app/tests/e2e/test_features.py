@@ -15,14 +15,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "features")
 
 
-def until(page, script, timeout=25):
-    end = time.time() + timeout
-    while time.time() < end:
-        value = page.evaluate(script)
-        if value:
-            return value
-        time.sleep(0.4)
-    raise AssertionError("timed out: " + script[:90])
+from helpers import page_colour, until
 
 
 def figure_pdf() -> Path:
@@ -47,15 +40,6 @@ def figure_pdf() -> Path:
     doc.save(path)
     return path
 
-
-
-def page_colour(page, name):
-    """Picks the theme from the reader's Appearance panel."""
-    group = page.get_by_role("group", name="Theme")
-    if not group.is_visible():
-        page.get_by_role("button", name="Appearance").click()
-    group.get_by_role("button", name=name).click()
-    page.keyboard.press("Escape")
 
 
 with sync_playwright() as p:

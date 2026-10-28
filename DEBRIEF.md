@@ -398,7 +398,7 @@ Transcripts of your own recordings read the same way, as plain text without spea
 
 ### Dragging and dropping
 
-**Readings.** On a week page, pick a reading up and drop it where you want it. A mouse, trackpad or pen picks up after a small movement, so a plain click still opens the reading. A finger never drags: on a touch screen a finger on a list scrolls it, and each reading's ••• menu has **Move up**, **Move down** and **Move to another week or module** instead. The keyboard works too: focus a row, press Space, move it with the arrow keys, and press Space again. The rows you pass slide out of the way, so you see where it will land before you let go.
+**Readings.** On a week page, pick a reading up and drop it where you want it. A mouse, trackpad or pen picks up after a small movement, so a plain click still opens the reading. Neither a finger nor the keyboard drags: on a touch screen a finger on a list scrolls it, and each reading's ••• menu has **Move up**, **Move down** and **Move to another week or module** instead. The rows you pass slide out of the way, so you see where it will land before you let go.
 
 Dropping a reading in the other list changes what it is: into Primary sources makes it a primary source, and back again makes it a reading. While you drag, a grid of the module's weeks appears at the foot of the screen, with Unsorted beside it. Drop on any week to move the reading there.
 
@@ -707,13 +707,7 @@ Service tokens expire after the period chosen when they were made. If the proces
 
 ### Moving the processor to a server
 
-To process recordings while the laptop is off, run the processor on a small Linux server with 2 CPUs and 4 GB of memory. On the server:
-
-```
-curl -fsSL https://get.docker.com | sh
-```
-
-Copy the `backend` folder and `.env` across, then run `docker compose up -d --build` in that folder. Then disable the Task Scheduler task on the laptop. Two processors at once is safe, but pointless.
+To process recordings while the laptop is off, run the processor on a small Linux server with 2 CPUs and 4 GB of memory. Copy the `backend` folder and `.env` across, run `bash setup-wsl.sh` to build the Python environment, and run `bash run-processor.sh` under `systemd` or `cron`. Then disable the Task Scheduler task on the laptop. Two processors at once is safe, but pointless.
 
 ---
 
@@ -798,7 +792,7 @@ All estimates. Check current pricing.
 study-library/
   DEBRIEF.md                   this document
   README.md                    short setup guide
-  docs/original-plan.html      the first plan, before the move to Cloudflare
+  docs/plans/                  active design and feature plans
   shared/title-fixtures.json   test cases shared by both title parsers
 
   app/                         the app and the Worker
@@ -818,8 +812,10 @@ study-library/
       App.tsx                  routes, the top bar and shortcuts
       components/              each screen
         reader/pages.tsx       drawing pages, page colours, trimmed margins, find marks
+        reader/Controls.tsx    the reader's colour picker, appearance, page jump and sheets
         reader/Sidebar.tsx     the reading's notes, page thumbnails, contents
         reader/TextView.tsx    a reading set as an article
+        jobs/Controls.tsx      fields, stage card, slot card and timeline for the job search
         icons.tsx              the toolbar's line icons
         Menu.tsx               the ••• menu used on every row
         WeekBoard.tsx          dragging readings on a week page
@@ -863,7 +859,6 @@ study-library/
     run-processor.sh           starts the processor in WSL
     setup-wsl.sh               one-time WSL setup
     .env.example               the processor's settings
-    Dockerfile                 for running on a server
     study/
       api.py                   client for the Worker's API
       parser.py                the (AT1) title parser, in Python
@@ -945,7 +940,7 @@ Every route sits behind Cloudflare Access. Processor routes also need the `X-Pro
 
 | Suite | Covers | How to run |
 | --- | --- | --- |
-| App unit tests | Title parsing, display titles, position keys, question splitting, which columns an edit sends, transcript paragraphs and tidying, and CSS custom property definitions | In `app`: `npm test` |
+| App unit tests | Title parsing, display titles, position keys, question splitting, which columns an edit sends, transcript paragraphs and tidying, and CSS custom property definitions | In `app`: `npm test` (or `npm run test:all` with typecheck on Windows) |
 | Backend integration tests (70) | Sync rules and patches, job order, OCR, conversion, recordings, transcription that resumes, heartbeats, the storage sweep, multipart uploads, range requests, search, the Zotero importer | In `backend`: `pip install -r requirements-dev.txt`, then `pytest` |
 | Phone browser test | The tab bar and its sections, the slim top bar, the tab bar stepping aside while typing, 16px fields, the Evidence link without hover, menus as sheets, swiping between weeks, the reader's toolbar at 44 points, highlighting by finger with Whole sentence, a low selection kept in view, and the installable app | `python tests/e2e/test_mobile.py http://127.0.0.1:8790` |
 | Photos browser test | Two pictures added together become one two-page PDF reading on the device, and OCR reads both, one taken sideways | `python tests/e2e/test_photos.py http://127.0.0.1:8790` |
@@ -1025,6 +1020,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Established automated layout audit regression tests across 320, 390, 768 and 1280 viewports, added virtualenv binaries to the test runner PATH, and added `test_back.py` and `audit_layout` to the default e2e suite.
 - Unified the laptop top bar across tablet and desktop viewports (768px to 1440px) into a single row at height --topbar-h with no wrapping, matching the page content column within 2px using bar width percentages, maintaining natural DOM tab order without CSS flex order, drawing accent pills on navigation links while keeping brand elements transparent, collapsing idle sync notices to zero layout space as live regions, standardising This week naming across navigation and document titles, and building the job search bar on the same structure.
 - Fixed live recordings being recovered and processed early when another device or tab opened the app mid-lecture: restricted automatic recovery and chunk completion to the device that started the recording (with a live tab heartbeat so other tabs in the same browser leave it alone), discarded 0-chunk recordings if reloaded before the first chunk, added **Finish recording** to the recording menu for recordings left behind on a device that never comes back, and added server-side guards in the Worker and processor so a recording is never processed while still recording, never built from chunks that do not start at chunk 0 without gaps, only deletes the specific chunks consumed, and never transcribes the same audio twice.
+- Culled ~300 MB of disk bloat and refactored the codebase in 0.33.3: cleared cached audit PDFs, build source maps, optional native canvas binaries, and stale Docker/plan files; excluded `backend/audit` from WSL test rsyncs and set `npm run test:all` to run `typecheck` and `test` directly on Windows; replaced the `uuid` dependency with an inline RFC 9562 UUIDv7 generator; removed keyboard drag on reading and slide rows so rows use only their interactive buttons for keyboard focus; split `Reader.tsx` and `JobsPage.tsx` by extracting `reader/Controls.tsx` and `jobs/Controls.tsx`; removed dead queries, functions and CSS rules from retired features; and consolidated duplicated logic in `citations.ts`, `jobs.ts`, `edits.ts` and browser test helpers (`tests/e2e/helpers.py`).
 
 ## 17. Version history
 
@@ -1069,6 +1065,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.33.0 | Unified laptop top bar: single row at all widths above phone layout, column alignment matching the page content column using bar width percentages, icon controls for Go to, Search and Settings with accessible names and shortcut tooltips, unified This week naming across navigation, unified accent-pill active page marking, and the job search bar built on the same structure |
 | 0.33.1 | Top bar fixes: plain rem spacing and --topbar-h height, 2px column alignment of the brand's first letter and the last icon's drawn glyph across 768 to 1440, natural DOM tab order without CSS order, This week and Week {code} headings and tab titles on AcrossPage, no accent pill on brands, zero-width live SyncStatus when idle, redundant text tooltips removed, top bar browser test and CSS variable unit test |
 | 0.33.2 | Live recording recovery and processing guards: only the device that started a recording recovers or finishes it automatically, Finish recording menu action for recordings left on a lost device, and server-side guards against processing live recordings, chunks not starting at 0, or transcribing the same audio twice |
+| 0.33.3 | Codebase culling and refactoring: 300 MB of disk bloat removed, keyboard drag removed from reading and slide rows, `Reader.tsx` and `JobsPage.tsx` split into `reader/Controls.tsx` and `jobs/Controls.tsx`, inline UUIDv7 replacing `uuid`, dead queries and CSS rules removed, shared e2e helpers extracted, and `test:all` set to run `typecheck` and `test` directly on Windows |
 
 ## 18. The job search
 
@@ -1186,7 +1183,7 @@ The job search uses the same type, rules, spacing and theme tokens as the rest o
 
 ### Code
 
-`src/lib/jobs.ts` holds the stages, the progression grid, timeline rules, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` is the screen, and `src/components/ChoiceCard.tsx` the choice card it opens for every choice. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the changes are the `applications` and `application_events` tables in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check. Migration `0012_application_events.sql` adds the events table with starting entry backfill, and Dexie version 7 upgrades the local database and resets the pull cursor.
+`src/lib/jobs.ts` holds the stages, the progression grid, timeline rules, the date and deadline rules, the order, and attaching files. `src/components/JobsPage.tsx` and `src/components/jobs/Controls.tsx` are the screen and its controls, and `src/components/ChoiceCard.tsx` the choice card it opens for every choice. It loads only when the job search is first opened, as its own small file, so the study side never loads it. On the Worker, the changes are the `applications` and `application_events` tables in `worker/schema.ts`, plain text added to the accepted file types, `?name=` on downloads, and the purge's check. Migration `0012_application_events.sql` adds the events table with starting entry backfill, and Dexie version 7 upgrades the local database and resets the pull cursor.
 
 ## 19. On a phone
 
