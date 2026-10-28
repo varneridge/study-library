@@ -7,7 +7,7 @@ import {
   DndContext, DragOverlay, useDroppable,
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from "@dnd-kit/core";
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ReadingView, SessionView } from "../lib/library";
 import { byWeek, sessionLabel, weekCode } from "../lib/modules";
@@ -54,7 +54,7 @@ export function SlideBoard({ week, weeks, moduleId, sessions, children }: {
   // While nothing is being dragged, the lists follow the library.
   useEffect(() => { if (!active) setLists(fromProps()); }, [sessions, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sensors = useDragSensors(sortableKeyboardCoordinates);
+  const sensors = useDragSensors();
 
   const sessionOf = (id: string): string | null => {
     if (id.startsWith("slides:")) return id.slice(7);

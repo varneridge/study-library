@@ -1,9 +1,13 @@
 // Drag and drop is for a mouse, a trackpad or a pen. On a touch screen a
 // finger on a list means scrolling, and a held finger means selecting
-// text, so a drag there fights both. Touch gets menus instead: Move up,
-// Move down, and Move to another week or module.
+// text, so a drag there fights both. Touch and the keyboard get menus
+// instead: Move up, Move down, and Move to another week or module.
+//
+// There is no dragging by keyboard. The rows hold fields, such as Edit
+// details, and a keyboard drag starts on Space or Enter pressed anywhere in
+// a row, so a space typed in a title picked the reading up instead.
 
-import { KeyboardSensor, PointerSensor, useSensor, useSensors, type KeyboardCoordinateGetter } from "@dnd-kit/core";
+import { PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 
 // A pointer sensor that only starts for a mouse or a pen.
 class MouseOrPenSensor extends PointerSensor {
@@ -14,12 +18,6 @@ class MouseOrPenSensor extends PointerSensor {
   }];
 }
 
-export function useDragSensors(coordinateGetter?: KeyboardCoordinateGetter) {
-  return useSensors(
-    useSensor(MouseOrPenSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, coordinateGetter ? { coordinateGetter } : undefined),
-  );
+export function useDragSensors() {
+  return useSensors(useSensor(MouseOrPenSensor, { activationConstraint: { distance: 6 } }));
 }
-
-// Whether this device is used by touch, so lists offer menus in place of dragging.
-export const touchFirst = () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);

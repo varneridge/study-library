@@ -12,7 +12,7 @@ import {
   closestCenter, pointerWithin, DndContext, type CollisionDetection, DragOverlay, useDroppable,
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from "@dnd-kit/core";
-import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useMemo, useState } from "react";
 import type { ReadingView } from "../lib/library";
@@ -82,7 +82,7 @@ export function WeekBoard({ week, readings, primaries, weeks, moduleId }: {
   // While nothing is being dragged, the lists follow the library.
   useEffect(() => { if (!active) setLists(fromProps()); }, [readings, primaries, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sensors = useDragSensors(sortableKeyboardCoordinates);
+  const sensors = useDragSensors();
 
   const listOf = (id: string): ListKey | null => {
     if (id === "list:secondary" || lists.secondary.includes(id)) return "secondary";

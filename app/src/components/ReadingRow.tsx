@@ -15,7 +15,6 @@ import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
 import { keepMine, lookAgain, pending, putBack, applySuggestion, viaLabel } from "../lib/citations";
 import { db } from "../lib/db";
-import { touchFirst } from "../lib/drag";
 import { Icon } from "./icons";
 import { byPosition, keysAfter } from "../lib/keys";
 import type { ItemKind, ItemRow, Suggestion, WeekRow, WorkKind } from "../lib/types";
@@ -383,7 +382,9 @@ export function ReadingRow({
     <li
       ref={drag?.setNodeRef}
       style={drag?.style}
-      {...(drag?.attributes ?? {})}
+      /* No drag attributes: they made the whole row a focusable drag
+         button, so Space after a click, or typed in Edit details, picked
+         the reading up. Moving by keyboard is through the menu. */
       {...((drag?.listeners ?? {}) as React.HTMLAttributes<HTMLElement>)}
       // The row stays a list item for screen readers. The library's own
       // description tells them it can be picked up with the space bar.
@@ -409,8 +410,8 @@ export function ReadingRow({
             { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: view.item.kind === "slides" },
             { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !view.file || view.file.mime !== "application/pdf" },
             // On a touch screen these stand in for dragging the row.
-            { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link || !touchFirst() },
-            { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link || !touchFirst() },
+            { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link },
+            { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link },
             { label: "Move to another week or module", onSelect: () => setMoving(true) },
             { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
             { label: view.item.read_status === "read" ? "Mark as unread" : "Mark as read",
