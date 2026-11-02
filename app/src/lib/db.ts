@@ -37,6 +37,7 @@ export interface PendingUpload {
   file_id: string;
   item_id: string;
   recording_id?: string;
+  kind?: "file" | "picture";
   // Large files upload in parts. Finished parts are remembered here.
   multipart?: { key: string; upload_id: string; parts: { part_number: number; etag: string }[] };
   name: string;

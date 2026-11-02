@@ -29,7 +29,7 @@ function spec(columns: string[], json: string[] = [], bool: string[] = []): Tabl
 
 export const TABLES = {
   modules: spec(
-    ["code", "title", "session_pattern", "description", "last_opened_week_id", "position", "kind", "key_dates"],
+    ["code", "title", "session_pattern", "description", "last_opened_week_id", "position", "kind", "key_dates", "image_key"],
     ["session_pattern", "description", "key_dates"],
   ),
   weeks: spec(["module_id", "term", "number", "title", "is_reading_week"], [], ["is_reading_week"]),
@@ -79,6 +79,11 @@ export function encode(table: TableName, column: string, value: unknown): Value 
   const t = TABLES[table];
   if (value === undefined && column in DEFAULTS) value = DEFAULTS[column];
   if (value === undefined || value === null) return null;
+  if (table === "modules" && column === "image_key") {
+    if (typeof value !== "string" || !/^pictures\/[0-9a-f]{64}\.(webp|jpe?g|png)$/.test(value)) {
+      return null;
+    }
+  }
   if (t.json.includes(column)) return JSON.stringify(value);
   if (t.bool.includes(column)) return value ? 1 : 0;
   if (typeof value === "boolean") return value ? 1 : 0;

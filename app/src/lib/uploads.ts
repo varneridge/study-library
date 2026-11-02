@@ -80,6 +80,10 @@ async function send(upload: PendingUpload): Promise<string> {
     progress.set(upload.id, fraction);
     notify();
   };
+  if (upload.kind === "picture") {
+    const filename = upload.name.replace(/^pictures\//, "");
+    return JSON.parse(await put(`/api/pictures/${filename}`, upload.blob, upload.mime, report)).key;
+  }
   if (upload.bytes <= PART_BYTES) {
     return JSON.parse(await put(`/api/files/${upload.sha256}`, upload.blob, upload.mime, report)).key;
   }
@@ -113,6 +117,10 @@ async function send(upload: PendingUpload): Promise<string> {
 }
 
 async function finish(upload: PendingUpload, key: string) {
+  if (upload.kind === "picture") {
+    await db.uploads.delete(upload.id);
+    return;
+  }
   const file = {
     table: "files" as const,
     row: {
@@ -190,4 +198,148 @@ export async function uploadImage(file: File): Promise<string> {
   const response = await api(`/api/files/${sha}`, { method: "PUT", headers: { "content-type": file.type }, body: file });
   const { key } = (await response.json()) as { key: string };
   return `/api/objects/${key}`;
+}
+
+function loadImg(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Image decode failed"));
+    };
+    img.src = url;
+  });
+}
+
+// Resizes and centre-crops a module picture to 16:9 (960x540) on canvas,
+// preserving orientation and encoding as WebP with JPEG fallback.
+export async function resizeModulePicture(file: File): Promise<{ blob: Blob; ext: "webp" | "jpg"; sha: string; key: string }> {
+  let source: ImageBitmap | HTMLImageElement;
+  try {
+    if (typeof createImageBitmap === "function") {
+      source = await createImageBitmap(file, { imageOrientation: "from-image" });
+    } else {
+      source = await loadImg(file);
+    }
+  } catch {
+    try {
+      source = await loadImg(file);
+    } catch {
+      throw new Error("Could not read this picture. Try another image.");
+    }
+  }
+
+  const sw = source.width;
+  const sh = source.height;
+  if (!sw || !sh) {
+    if ("close" in source && typeof source.close === "function") source.close();
+    throw new Error("Could not read image dimensions.");
+  }
+
+  const targetW = 960;
+  const targetH = 540;
+  const targetAspect = 16 / 9;
+  const sourceAspect = sw / sh;
+
+  let cropW = sw;
+  let cropH = sh;
+  let cropX = 0;
+  let cropY = 0;
+
+  if (sourceAspect > targetAspect) {
+    cropW = Math.round(sh * targetAspect);
+    cropX = Math.round((sw - cropW) / 2);
+  } else {
+    cropH = Math.round(sw / targetAspect);
+    cropY = Math.round((sh - cropH) / 2);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    if ("close" in source && typeof source.close === "function") source.close();
+    throw new Error("Canvas context unavailable.");
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+
+  if ("close" in source && typeof source.close === "function") source.close();
+
+  const toBlob = (c: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> =>
+    new Promise((resolve, reject) => {
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error("Encoding failed"))), type, quality);
+    });
+
+  let blob: Blob;
+  let ext: "webp" | "jpg" = "webp";
+  try {
+    blob = await toBlob(canvas, "image/webp", 0.82);
+    if (blob.type !== "image/webp") {
+      blob = await toBlob(canvas, "image/jpeg", 0.85);
+      ext = "jpg";
+    }
+  } catch {
+    blob = await toBlob(canvas, "image/jpeg", 0.85);
+    ext = "jpg";
+  }
+
+  const sha = await sha256(blob);
+  const key = `pictures/${sha}.${ext}`;
+  return { blob, ext, sha, key };
+}
+
+export async function cachePicture(key: string, blob: Blob): Promise<void> {
+  if (typeof window !== "undefined" && "caches" in window) {
+    try {
+      const filename = key.replace(/^pictures\//, "");
+      const cache = await caches.open("study-pictures-v1");
+      const makeResponse = () =>
+        new Response(blob, {
+          headers: {
+            "content-type": blob.type,
+            "content-length": String(blob.size),
+            "cache-control": "private, max-age=31536000, immutable",
+          },
+        });
+      await cache.put(`/api/pictures/${filename}`, makeResponse());
+      await cache.put(`/api/objects/${key}`, makeResponse());
+    } catch {
+      // ignore cache failure
+    }
+  }
+}
+
+export async function queuePictureUpload(key: string, blob: Blob, sha: string): Promise<void> {
+  await db.uploads.put({
+    id: newId(),
+    kind: "picture",
+    file_id: "",
+    item_id: "",
+    name: key,
+    mime: blob.type,
+    sha256: sha,
+    bytes: blob.size,
+    blob,
+    status: "queued",
+    attempts: 0,
+    error: null,
+    created_at: new Date().toISOString(),
+  });
+  void pump();
+}
+
+export async function uploadModulePicture(file: File): Promise<string> {
+  const { blob, sha, key } = await resizeModulePicture(file);
+  await cachePicture(key, blob);
+  await queuePictureUpload(key, blob, sha);
+  return key;
 }

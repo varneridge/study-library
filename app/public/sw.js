@@ -52,7 +52,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
-  if (/^\/api\/objects\/files\/[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(url.pathname)) {
+  if (/^\/api\/(objects\/files|objects\/pictures|pictures)\/[0-9a-f]{64}\.(png|jpe?g|gif|webp)$/.test(url.pathname)) {
     event.respondWith(cacheFirst(request, PICTURES));
     return;
   }

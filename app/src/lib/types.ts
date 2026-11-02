@@ -24,6 +24,8 @@ export interface ModuleRow extends SyncedRow {
   kind?: ModuleKind;
   // Dates that matter, such as a proposal or a submission, for a countdown.
   key_dates?: KeyDate[] | null;
+  // A cover picture shown on the home page card.
+  image_key?: string | null;
 }
 
 export type ModuleKind = "taught" | "dissertation";
@@ -52,6 +54,8 @@ export interface FileRow extends SyncedRow {
   original_name: string | null;
   page_count: number | null;
   text_status: TextStatus;
+  // A first-page thumbnail for a slide deck.
+  thumb_key?: string | null;
 }
 
 export type WorkKind = "article" | "chapter" | "book" | "primary";

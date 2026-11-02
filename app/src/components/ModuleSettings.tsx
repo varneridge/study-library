@@ -1,5 +1,5 @@
 import { convertToDissertation } from "../lib/sections";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { blockText } from "../lib/notes";
 import { deleteModule, setReadingWeek, withUndo } from "../lib/edits";
 import { TERMS, WEEK_NUMBERS, weekCode } from "../lib/modules";
@@ -7,6 +7,7 @@ import { navigate } from "../lib/router";
 import { newId, update } from "../lib/sync";
 import type { Block, ModuleRow, WeekRow } from "../lib/types";
 import { confirmAction, showToast, useCloseOnBack } from "../lib/ui";
+import { uploadModulePicture } from "../lib/uploads";
 
 function toText(blocks: Block[] | null): string {
   return (blocks ?? []).map(blockText).join("\n\n");
@@ -40,6 +41,56 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
   const original = toText(module.description);
   const [description, setDescription] = useState(original);
   const [busy, setBusy] = useState(false);
+  const [imageKey, setImageKey] = useState<string | null>(module.image_key ?? null);
+  const [pictureBusy, setPictureBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickSeq = useRef(0);
+
+  async function onPickPicture(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    pickSeq.current += 1;
+    const current = pickSeq.current;
+    setPictureBusy(true);
+
+    try {
+      const key = await uploadModulePicture(file);
+      if (current !== pickSeq.current) return;
+      await update("modules", module.id, { image_key: key });
+      setImageKey(key);
+      showToast("Picture updated.");
+    } catch (err) {
+      if (current === pickSeq.current) {
+        showToast(err instanceof Error ? err.message : "The picture could not be added.");
+      }
+    } finally {
+      if (current === pickSeq.current) {
+        setPictureBusy(false);
+      }
+    }
+  }
+
+  async function removePicture() {
+    if (!imageKey) return;
+    pickSeq.current += 1;
+    setPictureBusy(true);
+    const prev = imageKey;
+    try {
+      setImageKey(null);
+      await update("modules", module.id, { image_key: null });
+      showToast("Picture removed.", {
+        label: "Undo",
+        run: async () => {
+          await update("modules", module.id, { image_key: prev });
+          setImageKey(prev);
+        },
+      });
+    } finally {
+      setPictureBusy(false);
+    }
+  }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -99,6 +150,54 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
       <div className="row">
         <button className="button primary" disabled={busy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
         <button type="button" className="quiet" onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+
+      <div className="field" style={{ marginTop: "1.5rem" }}>
+        <span>Cover picture</span>
+        <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>
+          Shown on the card for this module on the home page. Cropped to 16:9.
+        </p>
+        <div className="module-settings-picture">
+          {imageKey ? (
+            <div className="module-picture-preview">
+              <img
+                src={imageKey.startsWith("pictures/") ? `/api/${imageKey}` : `/api/pictures/${imageKey}`}
+                alt=""
+              />
+            </div>
+          ) : (
+            <div className="module-picture-placeholder">
+              <span>No picture chosen</span>
+            </div>
+          )}
+          <div className="row" style={{ marginTop: "0.5rem", gap: "0.5rem" }}>
+            <button
+              type="button"
+              className="button"
+              disabled={pictureBusy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {pictureBusy ? "Processing…" : imageKey ? "Change picture" : "Choose picture"}
+            </button>
+            {imageKey && (
+              <button
+                type="button"
+                className="quiet"
+                disabled={pictureBusy}
+                onClick={removePicture}
+              >
+                Remove picture
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={onPickPicture}
+          />
+        </div>
       </div>
 
       {module.kind !== "dissertation" && (

@@ -3,6 +3,7 @@ import { requireAccess } from "./auth";
 import type { Env } from "./env";
 import { bumpFile, completeUpload, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan } from "./files";
 import { retryRecording, storeChunk } from "./recordings";
+import { servePicture, storePicture } from "./pictures";
 import { search } from "./search";
 import { maintain, purge } from "./maintenance";
 import { processor } from "./processor";
@@ -48,6 +49,16 @@ app.put("/api/files/:sha", async (c) => {
     return c.json({ error: (error as Error).message }, 400);
   }
 });
+
+app.put("/api/pictures/:filename", async (c) => {
+  try {
+    return c.json(await storePicture(c.env, c.req.raw, c.req.param("filename")));
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
+app.get("/api/pictures/:filename", (c) => servePicture(c.env, c.req.param("filename"), c.req.raw));
 
 app.get("/api/objects/*", (c) => serveObject(c.env, c.req.path.replace(/^\/api\/objects\//, ""), c.req.raw));
 
