@@ -7,12 +7,13 @@ import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { moveModule } from "../lib/edits";
 import { useTitle } from "../lib/ui";
+import type { ModuleKind } from "../lib/types";
 
 function NewModule({ onDone }: { onDone?: () => void }) {
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [pattern, setPattern] = useState(0);
-  const [kind, setKind] = useState<"taught" | "dissertation">("taught");
+  const [kind, setKind] = useState<ModuleKind>("taught");
   const [autumn, setAutumn] = useState("6");
   const [winter, setWinter] = useState("6");
   const [saving, setSaving] = useState(false);
@@ -42,12 +43,15 @@ function NewModule({ onDone }: { onDone?: () => void }) {
       <div className="field">
         <span className="small muted">This module is</span>
         <div className="segmented" role="group" aria-label="Kind of module">
-          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught, by weeks of term</button>
-          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>A dissertation, by sections you name</button>
+          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught course</button>
+          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>Dissertation</button>
+          <button type="button" className="tool" aria-pressed={kind === "library"} onClick={() => setKind("library")}>Library for books</button>
         </div>
       </div>
       {kind === "dissertation" ? (
-        <p className="small muted">It starts with one section, ready to name. Add sections for chapters, sources and supervision as you go, and key dates for the countdown on the home page.</p>
+        <p className="small muted">It starts with one section, ready to name. Add sections for chapters, sources and supervision as you go, and key dates for the countdown.</p>
+      ) : kind === "library" ? (
+        <p className="small muted">An open library for books, secondary literature and downloaded references, organised by shelves you name (such as Historiography, Reference, or Primary sources) with no term weeks.</p>
       ) : (<>
       <div className="field">
         <span className="small muted">Each week has</span>

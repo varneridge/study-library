@@ -6,6 +6,7 @@ import { keyBetween, keysAfter } from "../src/lib/keys";
 import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName } from "../src/lib/names";
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
+import { isDissertation, isLibrary, hasCustomSections } from "../src/lib/sections";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
@@ -838,6 +839,23 @@ test("downloads are named for what they are, safely on any computer", () => {
   assert.equal(readingFileName(reading, { mime: "application/pdf", original_name: "(AT1) Chen, J. (2001) 'Introduction', in Mao's China.pdf" }), "Chen (2001) 'Introduction'.pdf");
   const slides = { ...reading, kind: "slides" as const, title: "HY248 AT4 Lecture slides" };
   assert.equal(readingFileName(slides, { mime: "application/pdf", original_name: "lecture-week-4.pptx" }), "HY248 AT4 Lecture slides.pptx");
+});
+
+test("module kinds distinguish taught, dissertation and library modules", () => {
+  assert.equal(isDissertation({ kind: "dissertation" }), true);
+  assert.equal(isDissertation({ kind: "taught" }), false);
+  assert.equal(isDissertation({ kind: "library" }), false);
+  assert.equal(isDissertation(null), false);
+
+  assert.equal(isLibrary({ kind: "library" }), true);
+  assert.equal(isLibrary({ kind: "taught" }), false);
+  assert.equal(isLibrary({ kind: "dissertation" }), false);
+  assert.equal(isLibrary(null), false);
+
+  assert.equal(hasCustomSections({ kind: "library" }), true);
+  assert.equal(hasCustomSections({ kind: "dissertation" }), true);
+  assert.equal(hasCustomSections({ kind: "taught" }), false);
+  assert.equal(hasCustomSections(null), false);
 });
 
 if (failed) {

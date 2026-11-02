@@ -28,7 +28,7 @@ export interface ModuleRow extends SyncedRow {
   image_key?: string | null;
 }
 
-export type ModuleKind = "taught" | "dissertation";
+export type ModuleKind = "taught" | "dissertation" | "library";
 export interface KeyDate { id: string; label: string; date: string }
 
 export interface WeekRow extends SyncedRow {

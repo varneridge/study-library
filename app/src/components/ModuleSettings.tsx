@@ -200,7 +200,7 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
         </div>
       </div>
 
-      {module.kind !== "dissertation" && (
+      {module.kind !== "dissertation" && module.kind !== "library" && (
       <div className="field" style={{ marginTop: "1.5rem" }}>
         <span>Reading weeks</span>
         <p className="small muted" style={{ margin: "0 0 0.5rem" }}>
@@ -221,9 +221,9 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
           ))}
         </div>
       </div>
-
       )}
-      {module.kind !== "dissertation" && (
+
+      {module.kind !== "dissertation" && module.kind !== "library" && (
         <div className="field" style={{ marginTop: "1.5rem" }}>
           <span>Organise by sections instead</span>
           <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>

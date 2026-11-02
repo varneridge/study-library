@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { keysAfter } from "./keys";
 import { commit, newId, type Change } from "./sync";
-import type { SessionKind, Term, WeekRow } from "./types";
+import type { ModuleKind, SessionKind, Term, WeekRow } from "./types";
 
 export const TERMS: Term[] = ["AT", "WT"];
 export const WEEK_NUMBERS = Array.from({ length: 11 }, (_, i) => i + 1);
@@ -52,8 +52,8 @@ export interface NewModule {
   title: string;
   pattern: SessionKind[];
   readingWeeks: string[];
-  // A dissertation has one empty section to start, and no weeks of term.
-  kind?: "taught" | "dissertation";
+  // A dissertation or library has sections you name, and no weeks of term.
+  kind?: ModuleKind;
 }
 
 // Creates the module with all 22 weeks and their sessions in one commit.
@@ -78,8 +78,18 @@ export async function createModule(input: NewModule): Promise<string> {
     },
   ];
 
-  if (input.kind === "dissertation") {
-    changes.push({ table: "weeks", row: { id: newId(), module_id: moduleId, term: "S" as const, number: 1, title: null, is_reading_week: false } });
+  if (input.kind === "dissertation" || input.kind === "library") {
+    changes.push({
+      table: "weeks",
+      row: {
+        id: newId(),
+        module_id: moduleId,
+        term: "S" as const,
+        number: 1,
+        title: input.kind === "library" ? "General" : null,
+        is_reading_week: false,
+      },
+    });
     await commit(changes);
     return moduleId;
   }

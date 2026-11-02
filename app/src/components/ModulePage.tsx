@@ -1,7 +1,7 @@
 import { navigate } from "../lib/router";
 import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
-import { moveSection, addSection, isDissertation, saveKeyDates, countdown } from "../lib/sections";
+import { moveSection, addSection, isDissertation, isLibrary, saveKeyDates, countdown } from "../lib/sections";
 import { Menu } from "./Menu";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
@@ -338,6 +338,10 @@ export function ModulePage({ id }: { id: string }) {
 
   const { module, weeks, tray, found, empty } = data;
   const dissertation = isDissertation(module);
+  const library = isLibrary(module);
+  const customSectionsOnly = dissertation || library;
+  const customSections = weeks.filter((w) => w.week.term === "S");
+  const termWeeks = weeks.filter((w) => w.week.term !== "S");
 
   return (
     <div className="page wide">
@@ -350,6 +354,17 @@ export function ModulePage({ id }: { id: string }) {
           </button>
         )}
         <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
+        {!customSectionsOnly && (
+          <button
+            className="button quiet"
+            onClick={async () => {
+              const newWeekId = await addSection(module.id, "Syllabus & Admin");
+              navigate({ view: "week", id: newWeekId });
+            }}
+          >
+            Add syllabus / admin section
+          </button>
+        )}
         <Link to={{ view: "import", id: module.id }} className={`button${empty ? " primary" : ""}`}>Import readings</Link>
       </div>
       {module.title && <p className="lede">{module.title}</p>}
@@ -363,30 +378,51 @@ export function ModulePage({ id }: { id: string }) {
       )}
 
       {dissertation && <KeyDates module={module} />}
-      {dissertation && (
+      {customSectionsOnly && (
         <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0" }}>
           <button
             className="button small"
             onClick={async () => {
-              const newWeekId = await addSection(module.id);
+              const newWeekId = await addSection(module.id, library ? "New shelf" : null);
               navigate({ view: "week", id: newWeekId });
             }}
           >
-            Add a section
+            {library ? "Add a shelf" : "Add a section"}
           </button>
         </div>
       )}
 
-      {empty && !dissertation && (
+      {empty && !customSectionsOnly && (
         <div className="first-steps">
           <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>Import readings lets you check them first.</p>
           <p className="small muted">Files named like "(AT3) Author, 'Title'" go to their weeks by themselves. The rest wait in Unsorted.</p>
         </div>
       )}
 
-      {!dissertation && weeks.length > 0 && (
+      {!customSectionsOnly && customSections.length > 0 && (
+        <section className="section course-materials" style={{ marginTop: "1rem" }}>
+          <div className="section-head">
+            <h2>Course materials & admin</h2>
+          </div>
+          <div className="week-grid">
+            {customSections.map((ov) => (
+              <WeekCard
+                key={ov.week.id}
+                overview={ov}
+                module={module}
+                dates={dates}
+                renaming={renamingId === ov.week.id}
+                onStartRename={() => setRenamingId(ov.week.id)}
+                onEndRename={() => setRenamingId(null)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!customSectionsOnly && termWeeks.length > 0 && (
         <nav className="jump" aria-label="Weeks">
-          {weeks.map((ov) => {
+          {termWeeks.map((ov) => {
             const w = ov.week;
             const code = weekCode(w);
             const isThis = ov.isCurrentWeek;
@@ -408,7 +444,7 @@ export function ModulePage({ id }: { id: string }) {
       )}
 
       <div className="week-grid">
-        {weeks.map((ov) => (
+        {(customSectionsOnly ? weeks : termWeeks).map((ov) => (
           <WeekCard
             key={ov.week.id}
             overview={ov}

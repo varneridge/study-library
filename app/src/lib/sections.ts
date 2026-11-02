@@ -9,6 +9,8 @@ import type { KeyDate, ModuleRow, WeekRow } from "./types";
 import { showToast } from "./ui";
 
 export const isDissertation = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation";
+export const isLibrary = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "library";
+export const hasCustomSections = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation" || module?.kind === "library";
 
 async function sectionsOf(moduleId: string): Promise<WeekRow[]> {
   return (await db.weeks.where("module_id").equals(moduleId).toArray()).filter((w) => !w.deleted && w.term === "S").sort(byWeek);
