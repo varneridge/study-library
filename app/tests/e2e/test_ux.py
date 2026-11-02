@@ -97,21 +97,24 @@ with sync_playwright() as p:
     expect(page.locator(".week-page li.reading .state.progress").first).to_contain_text("1 highlight")
     print("a reading with a highlight says so on its row")
 
-    # The home page's module card counts the week and opens the next one.
+    # The home page's module card has only code and title, keeping cards smaller.
     page.get_by_role("link", name="Study Library").click()
     card = page.locator(".module-card").first
-    expect(card.locator(".count")).to_have_text("AT1: 2 readings")
-    expect(card.locator(".next-up")).to_contain_text("Next")
+    expect(card.locator(".code")).to_have_text("HY319")
+    expect(card.locator(".title")).to_have_text("Napoleon and Europe")
+    expect(card.locator(".next-up")).to_have_count(0)
     page.screenshot(path=f"{shots}-3-home.png")
-    card.locator(".next-up a").first.click()
+    card.locator("a.module-row").click()
+    expect(page.get_by_role("heading", name="HY319")).to_be_visible()
+    page.locator("#week-AT1 .week-title").click()
+    page.locator(".week-page li.reading a.name").first.click()
     page.wait_for_function("document.querySelectorAll('.textLayer span').length > 5", timeout=20000)
     assert "v=reader" in page.url, page.url
     page.get_by_role("button", name="Mark as read", exact=True).click()
     expect(page.get_by_role("button", name="Read. Mark as unread")).to_have_attribute("aria-pressed", "true")
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     page.get_by_role("link", name="Study Library").click()
-    expect(page.locator(".module-card .count").first).to_have_text("AT1: 1 of 2 read")
-    print("home: module card counted the week and opened the next reading")
+    print("home: module card has code and title, reading marked as read")
 
     # Go to closes with one Esc, even after typing.
     page.keyboard.press("Control+k")

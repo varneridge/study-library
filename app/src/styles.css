@@ -1597,15 +1597,43 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .details-toggle.open svg { transform: rotate(180deg); }
 .details-open svg { transform: rotate(-90deg); }
 
-/* Details: notes, files and Delete */
-.details-row > td { padding: 0 0.5rem 1rem; }
-.app-details { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(22rem, 1.6fr); gap: 0.75rem 2rem; padding-top: 0.75rem; }
-.app-details .app-notes textarea { min-height: 4.5rem; resize: vertical; font-size: var(--fs-sm); line-height: 1.5; }
+/* Details: notes, files and Delete, presented as an elevated card */
+.details-row > td { padding: 0.5rem 0.5rem 1.25rem; }
+.app-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+.app-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.75rem;
+}
+.app-details-title {
+  font-family: var(--serif);
+  font-size: var(--fs-md);
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+.app-details-grid {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) minmax(18rem, 1.4fr) minmax(15rem, 1.1fr);
+  gap: 1.5rem;
+}
+.app-details .app-notes textarea { min-height: 5rem; resize: vertical; font-size: var(--fs-sm); line-height: 1.5; }
 .slot-list { list-style: none; margin: 0; padding: 0; }
 .slot-row { display: grid; gap: 0.15rem 0.75rem; font-size: var(--fs-sm); }
 .slot-label { font-weight: 600; }
 .slot-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-right: -0.4rem; }
+.app-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 0.5rem; border-top: 1px solid var(--rule); }
 .quiet.danger { color: var(--danger); }
 
 /* Flat application list on phone viewports */
