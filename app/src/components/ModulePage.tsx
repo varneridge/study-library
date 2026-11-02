@@ -1,7 +1,7 @@
 import { navigate } from "../lib/router";
 import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
-import { moveSection, addSection, isDissertation, isLibrary, saveKeyDates, countdown } from "../lib/sections";
+import { moveSection, addSection, isDissertation, isLibrary, moduleHasSessions, saveKeyDates, countdown } from "../lib/sections";
 import { Menu } from "./Menu";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
@@ -181,12 +181,12 @@ function WeekCard({
         <Menu
           label={`More actions for ${code}`}
           items={isSec ? [
-            { label: "Rename", onSelect: onStartRename },
+            { label: isLibrary(module) ? "Rename shelf" : "Rename", onSelect: onStartRename },
             { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-            { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
-            { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
-            { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
+            { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
+            { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
+            { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
           ] : [
             { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
@@ -209,7 +209,7 @@ function WeekCard({
             type="text"
             defaultValue={week.title ?? ""}
             autoFocus
-            placeholder={`Section ${week.number}`}
+            placeholder={isLibrary(module) ? `Shelf ${week.number}` : `Section ${week.number}`}
             aria-label="Section name"
             enterKeyHint="done"
             onBlur={(e) => {
@@ -224,14 +224,14 @@ function WeekCard({
         ) : (
           <Link to={{ view: "week", id: week.id }} className="week-title week-card-title-link">
             {isSec ? (
-              week.title || `Section ${week.number}`
+              week.title || (isLibrary(module) ? `Shelf ${week.number}` : `Section ${week.number}`)
             ) : (
               week.title || (week.is_reading_week ? <span className="reading-weeks week-card-title-reading-week">Reading week</span> : code)
             )}
           </Link>
         )}
 
-        {!week.is_reading_week && sessions.length > 0 && (
+        {!week.is_reading_week && moduleHasSessions(module) && sessions.length > 0 && (
           <div className="week-card-sessions week-head">
             {sessions.map(({ session, hasNotes }) => (
               <Link

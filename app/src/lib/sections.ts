@@ -11,6 +11,11 @@ import { showToast } from "./ui";
 export const isDissertation = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation";
 export const isLibrary = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "library";
 export const hasCustomSections = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation" || module?.kind === "library";
+export const isSyllabus = (week: (Pick<WeekRow, "number" | "term"> & { title?: string | null }) | null | undefined) =>
+  week?.number === 0 || (week?.term === "S" && /syllabus|admin|course material/i.test(week?.title ?? ""));
+export const moduleHasNotes = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind !== "library";
+export const moduleHasSessions = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind !== "library";
+export const moduleHasMeetings = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation";
 
 async function sectionsOf(moduleId: string): Promise<WeekRow[]> {
   return (await db.weeks.where("module_id").equals(moduleId).toArray()).filter((w) => !w.deleted && w.term === "S").sort(byWeek);

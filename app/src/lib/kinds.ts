@@ -32,7 +32,7 @@ export const KIND_DELETE_LABEL: Record<ItemKind, string> = {
 export const KIND_GROUP: Record<"primary" | "secondary" | "summary", string> = {
   primary: "Primary readings",
   secondary: "Secondary readings",
-  summary: "Summaries",
+  summary: "Course materials",
 };
 
 export const KIND_NOUN: Record<ItemKind, string> = {

@@ -1,4 +1,5 @@
 import { combinePhotos } from "../lib/photos";
+import { isLibrary } from "../lib/sections";
 // Files can be dropped anywhere in the app. Week and module pages decide
 // for themselves where files land. Everywhere else, this takes over: on a
 // session, recordings become its recording and slides become its slides;
@@ -74,12 +75,15 @@ function Sheet({ files, initial, onClose }: {
     const module = modules.find((m) => m.id === moduleId);
     if (!module) return;
     setBusy(true);
+    const selectedModule = modules.find((m) => m.id === moduleId);
+    const isLib = isLibrary(selectedModule);
     const forced = weeks.find((w) => w.id === where);
+    const effectiveKind = isLib ? "summary" : addAs;
     const plans = usable.map((file) => {
       const plan = planFile(file, weeks, forced);
       let res = where === "tray" ? { ...plan, weekId: null } : plan;
-      if (addAs !== "auto" && res.kind !== "skip" && res.kind !== "week-title") {
-        res = { ...res, kind: addAs, sessionId: null };
+      if (effectiveKind !== "auto" && res.kind !== "skip" && res.kind !== "week-title") {
+        res = { ...res, kind: effectiveKind, sessionId: null };
       }
       return res;
     });
@@ -116,20 +120,30 @@ function Sheet({ files, initial, onClose }: {
             </select>
           </label>
           <label className="field" style={{ flex: 1 }}>
-            <span>Week</span>
+            <span>{isLibrary(modules.find((m) => m.id === moduleId)) ? "Shelf" : "Week"}</span>
             <select value={where} onChange={(e) => setWhere(e.target.value)}>
-              {named && <option value="named">As in the file names</option>}
+              {named && !isLibrary(modules.find((m) => m.id === moduleId)) && <option value="named">As in the file names</option>}
               <option value="tray">Unsorted, to sort later</option>
               {weeks.map((w) => <option key={w.id} value={w.id}>{weekCode(w)}{titleAfter(w, ", ")}</option>)}
             </select>
           </label>
           <label className="field" style={{ flex: 1 }}>
             <span>Add as</span>
-            <select value={addAs} onChange={(e) => setAddAs(e.target.value as typeof addAs)}>
-              <option value="auto">As in the file names</option>
-              <option value="primary">{KIND_GROUP.primary}</option>
-              <option value="secondary">{KIND_GROUP.secondary}</option>
-              <option value="summary">{KIND_GROUP.summary}</option>
+            <select
+              value={isLibrary(modules.find((m) => m.id === moduleId)) ? "summary" : addAs}
+              onChange={(e) => setAddAs(e.target.value as typeof addAs)}
+              disabled={isLibrary(modules.find((m) => m.id === moduleId))}
+            >
+              {isLibrary(modules.find((m) => m.id === moduleId)) ? (
+                <option value="summary">Documents</option>
+              ) : (
+                <>
+                  <option value="auto">As in the file names</option>
+                  <option value="primary">{KIND_GROUP.primary}</option>
+                  <option value="secondary">{KIND_GROUP.secondary}</option>
+                  <option value="summary">{KIND_GROUP.summary}</option>
+                </>
+              )}
             </select>
           </label>
         </div>

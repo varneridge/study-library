@@ -1,5 +1,5 @@
 import { NotesLoading } from "./ErrorBoundary";
-import { addMeeting, moveSection } from "../lib/sections";
+import { addMeeting, moveSection, isDissertation, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
 import { useLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -124,26 +124,30 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
     files = files.filter((f) => !isTranscriptFile(f));
     if (!files.length) return;
   }
+  const docOnly = isSyllabus(week) || isLibrary(module);
+  const effectiveTarget = target ?? (docOnly ? { kind: "summary" as const, label: "documents" } : undefined);
   const weeks = await db.weeks.where("module_id").equals(module.id).toArray();
   const plans = files.map((file) => {
     const plan = planFile(file, weeks, week);
-    if (target?.kind === "slides") return { ...plan, kind: "slides" as const, sessionId: target.sessionId ?? null };
-    if (target?.kind === "primary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+    const targetKind = effectiveTarget?.kind;
+    if (targetKind === "slides") return { ...plan, kind: "slides" as const, sessionId: effectiveTarget?.sessionId ?? null };
+    if (targetKind === "primary" && plan.kind !== "skip" && plan.kind !== "week-title") {
       return { ...plan, kind: "primary" as const, sessionId: null };
     }
-    if (target?.kind === "secondary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+    if (targetKind === "secondary" && plan.kind !== "skip" && plan.kind !== "week-title") {
       return { ...plan, kind: "secondary" as const, sessionId: null };
     }
-    if (target?.kind === "summary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+    if (targetKind === "summary" && plan.kind !== "skip" && plan.kind !== "week-title") {
       return { ...plan, kind: "summary" as const, sessionId: null };
     }
     return plan;
   });
   const count = await applyPlans(module, plans);
-  if (count) showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}${target?.kind === "slides" ? `, ${target.label}` : ""}. Uploading now.`);
+  if (count) showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}${effectiveTarget?.kind === "slides" ? `, ${effectiveTarget.label}` : ""}. Uploading now.`);
 }
 
-function targetOf(element: Element | null, week: WeekRow): FileTarget {
+function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boolean): FileTarget {
+  if (isDocumentOnly) return { kind: "summary", label: "documents" };
   const zone = element?.closest("[data-drop]") as HTMLElement | null;
   if (zone?.dataset.drop === "slides") return { kind: "slides", sessionId: zone.dataset.session, label: zone.dataset.label ?? "slides" };
   if (zone?.dataset.drop === "primary") return { kind: "primary", label: KIND_GROUP.primary.toLowerCase() };
@@ -316,6 +320,7 @@ export function WeekPage({ id }: { id: string }) {
   const section = isSection(view.week);
   const week = view.week;
   const hasSectionNotes = (data.sectionNotes ?? []).some((n) => n.blocks.some((b) => blockText(b).trim()));
+  const isDocumentOnly = isSyllabus(week) || isLibrary(module);
 
   async function toggleReadingWeek() {
     const { kept } = await setReadingWeek(week, module, !week.is_reading_week);
@@ -327,18 +332,20 @@ export function WeekPage({ id }: { id: string }) {
     if (!event.dataTransfer.files.length) return;
     event.preventDefault();
     event.stopPropagation();
-    void addFiles(Array.from(event.dataTransfer.files), module, week, targetOf(event.target as Element, week));
+    void addFiles(Array.from(event.dataTransfer.files), module, week, targetOf(event.target as Element, week, isDocumentOnly));
   };
   const overText = over
-    ? over.kind === "slides"
-      ? `Drop to add slides to ${over.label}`
-      : over.kind === "primary"
-        ? `Drop to add primary readings to ${weekCode(week)}`
-        : over.kind === "secondary"
-          ? `Drop to add secondary readings to ${weekCode(week)}${titleAfter(week, ", ")}`
-          : over.kind === "summary"
-            ? `Drop to add summaries to ${weekCode(week)}`
-            : `Drop to add files to ${weekCode(week)}${titleAfter(week, ", ")}`
+    ? isDocumentOnly
+      ? `Drop to add documents to ${weekCode(week)}${titleAfter(week, ", ")}`
+      : over.kind === "slides"
+        ? `Drop to add slides to ${over.label}`
+        : over.kind === "primary"
+          ? `Drop to add primary readings to ${weekCode(week)}`
+          : over.kind === "secondary"
+            ? `Drop to add secondary readings to ${weekCode(week)}${titleAfter(week, ", ")}`
+            : over.kind === "summary"
+              ? `Drop to add summaries to ${weekCode(week)}`
+              : `Drop to add files to ${weekCode(week)}${titleAfter(week, ", ")}`
     : null;
 
   return (
@@ -348,7 +355,7 @@ export function WeekPage({ id }: { id: string }) {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         e.stopPropagation();
-        const next = targetOf(e.target as Element, week);
+        const next = targetOf(e.target as Element, week, isDocumentOnly);
         if (next.kind !== over?.kind || next.sessionId !== over?.sessionId) setOver(next);
       }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}
@@ -361,74 +368,88 @@ export function WeekPage({ id }: { id: string }) {
       </div>
       <div className="section-head" style={{ marginBottom: 0, alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 0 }}><TitleEditor week={week} editing={renaming} setEditing={setRenaming} /></div>
-        <button ref={addFilesButton} className="button" onClick={() => setAddCardOpen(true)}>Add files</button>
-        <ChoiceCard
-          open={addCardOpen}
-          onClose={() => setAddCardOpen(false)}
-          anchor={addFilesButton}
-          label="Add files to this week"
-          title="Add files as"
-        >
-          <div className="choice-list">
-            <button
-              type="button"
-              className="choice-row"
-              onClick={() => {
-                setAddCardOpen(false);
-                addTargetRef.current = undefined;
-                picker.current?.click();
-              }}
+        {isDocumentOnly ? (
+          <button
+            className="button"
+            onClick={() => {
+              addTargetRef.current = { kind: "summary", label: "documents" };
+              picker.current?.click();
+            }}
+          >
+            Add document
+          </button>
+        ) : (
+          <>
+            <button ref={addFilesButton} className="button" onClick={() => setAddCardOpen(true)}>Add files</button>
+            <ChoiceCard
+              open={addCardOpen}
+              onClose={() => setAddCardOpen(false)}
+              anchor={addFilesButton}
+              label="Add files to this week"
+              title="Add files as"
             >
-              <span>As in the file names</span>
-            </button>
-            <button
-              type="button"
-              className="choice-row"
-              onClick={() => {
-                setAddCardOpen(false);
-                addTargetRef.current = { kind: "primary", label: "primary readings" };
-                picker.current?.click();
-              }}
-            >
-              <span>{KIND_GROUP.primary}</span>
-            </button>
-            <button
-              type="button"
-              className="choice-row"
-              onClick={() => {
-                setAddCardOpen(false);
-                addTargetRef.current = { kind: "secondary", label: "secondary readings" };
-                picker.current?.click();
-              }}
-            >
-              <span>{KIND_GROUP.secondary}</span>
-            </button>
-            <button
-              type="button"
-              className="choice-row"
-              onClick={() => {
-                setAddCardOpen(false);
-                addTargetRef.current = { kind: "summary", label: "summaries" };
-                picker.current?.click();
-              }}
-            >
-              <span>{KIND_GROUP.summary}</span>
-            </button>
-          </div>
-        </ChoiceCard>
-        {section && (
+              <div className="choice-list">
+                <button
+                  type="button"
+                  className="choice-row"
+                  onClick={() => {
+                    setAddCardOpen(false);
+                    addTargetRef.current = undefined;
+                    picker.current?.click();
+                  }}
+                >
+                  <span>As in the file names</span>
+                </button>
+                <button
+                  type="button"
+                  className="choice-row"
+                  onClick={() => {
+                    setAddCardOpen(false);
+                    addTargetRef.current = { kind: "primary", label: "primary readings" };
+                    picker.current?.click();
+                  }}
+                >
+                  <span>{KIND_GROUP.primary}</span>
+                </button>
+                <button
+                  type="button"
+                  className="choice-row"
+                  onClick={() => {
+                    setAddCardOpen(false);
+                    addTargetRef.current = { kind: "secondary", label: "secondary readings" };
+                    picker.current?.click();
+                  }}
+                >
+                  <span>{KIND_GROUP.secondary}</span>
+                </button>
+                <button
+                  type="button"
+                  className="choice-row"
+                  onClick={() => {
+                    setAddCardOpen(false);
+                    addTargetRef.current = { kind: "summary", label: "course materials" };
+                    picker.current?.click();
+                  }}
+                >
+                  <span>{KIND_GROUP.summary}</span>
+                </button>
+              </div>
+            </ChoiceCard>
+          </>
+        )}
+        {section && moduleHasMeetings(module) && (
           <button className="button" onClick={async () => navigate({ view: "session", id: await addMeeting(week.id) })}>Add a meeting</button>
         )}
         {section ? (
           <Menu
-            label="More actions for this section"
+            label={isLibrary(module) ? "More actions for this shelf" : "More actions for this section"}
             items={[
-              { label: "Rename section", onSelect: () => setRenaming(true) },
+              { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
               { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
               { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-              { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
-              { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
-              { label: "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
+              { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
+              { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
+              { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
             ]}
           />
         ) : (
@@ -439,7 +460,7 @@ export function WeekPage({ id }: { id: string }) {
             { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
             { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
-            ...KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })),
+            ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
             { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
           ]}
         />
@@ -457,7 +478,7 @@ export function WeekPage({ id }: { id: string }) {
       </div>
 
       {/* Prominent notes buttons above readings */}
-      {(view.sessions.length > 0 || section) && (
+      {(view.sessions.length > 0 || section) && moduleHasNotes(module) && (
         <div className="week-notes-bar" role="navigation" aria-label="Notes">
           {view.sessions.map((s) => {
             const has = s.notes.some((n) => n.blocks.some((b) => blockText(b).trim()));
@@ -482,33 +503,44 @@ export function WeekPage({ id }: { id: string }) {
       )}
 
       <div data-drop="readings" className={over?.kind === "secondary" || over?.kind === "primary" || over?.kind === "summary" || over?.kind === "auto" ? "drop-over-lists" : undefined}>
-        <WeekBoard week={week} primaries={view.primaries} readings={view.readings} summaries={view.summaries} weeks={weeks ?? []} moduleId={module.id} />
+        <WeekBoard
+          week={week}
+          primaries={view.primaries}
+          readings={view.readings}
+          summaries={view.summaries}
+          weeks={weeks ?? []}
+          moduleId={module.id}
+          isLibrary={isLibrary(module)}
+          isSyllabus={isSyllabus(week)}
+        />
         {over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
-          <div className="section"><div className="readings empty-target file-target">Readings for {weekCode(week)}</div></div>
+          <div className="section"><div className="readings empty-target file-target">{isDocumentOnly ? `Documents for ${weekCode(week)}` : `Readings for ${weekCode(week)}`}</div></div>
         )}
       </div>
 
       {/* A section's own notes: a chapter's plan, an argument, what to find. */}
-      {section && <SectionNotes weekId={week.id} code={weekCode(week)} />}
+      {section && moduleHasNotes(module) && <SectionNotes weekId={week.id} code={weekCode(week)} />}
 
-      <SlideBoard week={week} weeks={weeks ?? []} moduleId={module.id} sessions={view.sessions}>
-      {view.sessions.map((sessionView, index) => (
-        <SessionBlock
-          key={sessionView.session.id}
-          view={sessionView}
-          index={index}
-          count={view.sessions.length}
-          dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
-          weeks={weeks ?? []}
-          onAddSlides={(sessionId) => {
-            if (sessionPicker.current) {
-              sessionPicker.current.dataset.session = sessionId;
-              sessionPicker.current.click();
-            }
-          }}
-        />
-      ))}
-      </SlideBoard>
+      {moduleHasSessions(module) && (
+        <SlideBoard week={week} weeks={weeks ?? []} moduleId={module.id} sessions={view.sessions}>
+        {view.sessions.map((sessionView, index) => (
+          <SessionBlock
+            key={sessionView.session.id}
+            view={sessionView}
+            index={index}
+            count={view.sessions.length}
+            dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
+            weeks={weeks ?? []}
+            onAddSlides={(sessionId) => {
+              if (sessionPicker.current) {
+                sessionPicker.current.dataset.session = sessionId;
+                sessionPicker.current.click();
+              }
+            }}
+          />
+        ))}
+        </SlideBoard>
+      )}
 
       <nav className="week-nav" aria-label="Other weeks">
         {data.previous ? (

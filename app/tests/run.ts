@@ -6,7 +6,7 @@ import { keyBetween, keysAfter } from "../src/lib/keys";
 import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName } from "../src/lib/names";
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
-import { isDissertation, isLibrary, hasCustomSections } from "../src/lib/sections";
+import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../src/lib/sections";
 import { notesLabel } from "../src/lib/modules";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
@@ -859,6 +859,24 @@ test("module kinds distinguish taught, dissertation and library modules", () => 
   assert.equal(hasCustomSections({ kind: "dissertation" }), true);
   assert.equal(hasCustomSections({ kind: "taught" }), false);
   assert.equal(hasCustomSections(null), false);
+
+  assert.equal(moduleHasNotes({ kind: "taught" }), true);
+  assert.equal(moduleHasNotes({ kind: "dissertation" }), true);
+  assert.equal(moduleHasNotes({ kind: "library" }), false);
+
+  assert.equal(moduleHasSessions({ kind: "taught" }), true);
+  assert.equal(moduleHasSessions({ kind: "dissertation" }), true);
+  assert.equal(moduleHasSessions({ kind: "library" }), false);
+
+  assert.equal(moduleHasMeetings({ kind: "taught" }), false);
+  assert.equal(moduleHasMeetings({ kind: "dissertation" }), true);
+  assert.equal(moduleHasMeetings({ kind: "library" }), false);
+
+  assert.equal(isSyllabus({ term: "AT", number: 0 }), true);
+  assert.equal(isSyllabus({ term: "S", number: 1, title: "Syllabus & Admin" }), true);
+  assert.equal(isSyllabus({ term: "S", number: 2, title: "Course Materials" }), true);
+  assert.equal(isSyllabus({ term: "S", number: 1, title: "Chapter 1" }), false);
+  assert.equal(isSyllabus({ term: "AT", number: 1 }), false);
 });
 
 test("notesLabel formats session notes titles and avoids double 'notes'", () => {
