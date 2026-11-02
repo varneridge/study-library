@@ -22,7 +22,7 @@ import { confirmAction, showToast, typing, useNarrow, useTitle, useSwipe } from 
 import type { SessionView } from "../lib/library";
 import type { SessionKind } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
-import { BlockView } from "./BlockView";
+import { blockText } from "../lib/notes";
 import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
 import { WeekBoard } from "./WeekBoard";
@@ -216,15 +216,19 @@ function SessionBlock({
           <Link to={{ view: "session", id: session.id }}>{recordingLine(r)}</Link>
         </p>
       ))}
-      {notes.map(({ note, blocks }) => (
-        // Long notes show their opening, with the rest a tap away.
-        <div key={note.id} className={`notes-preview${blocks.length > 6 ? " clipped" : ""}`}>
-          <BlockView blocks={blocks.length > 6 ? blocks.slice(0, 5) : blocks} />
-          {blocks.length > 6 && (
-            <Link to={{ view: "session", id: session.id }} className="notes-more">Read all {blocks.length} lines of notes</Link>
-          )}
-        </div>
-      ))}
+      <div className="session-notes-action">
+        <Link
+          to={{ view: "session", id: session.id }}
+          className={`button small${notes.some((n) => n.blocks.some((b) => blockText(b).trim())) ? " primary" : ""}`}
+        >
+          <Icon name="notes" size={16} />
+          <span>
+            {notes.some((n) => n.blocks.some((b) => blockText(b).trim()))
+              ? `${label} notes`
+              : `Add ${label.toLowerCase()} notes`}
+          </span>
+        </Link>
+      </div>
     </section>
   );
 }
@@ -417,6 +421,32 @@ export function WeekPage({ id }: { id: string }) {
         />
       </div>
 
+      {/* Prominent notes buttons above readings */}
+      {(view.sessions.length > 0 || section) && (
+        <div className="week-notes-bar" role="navigation" aria-label="Notes">
+          {view.sessions.map((s) => {
+            const has = s.notes.some((n) => n.blocks.some((b) => blockText(b).trim()));
+            const name = s.session.title || `${sessionLabel(s.session.kind)} notes`;
+            return (
+              <Link
+                key={s.session.id}
+                to={{ view: "session", id: s.session.id }}
+                className={`button week-note-btn${has ? " primary" : ""}`}
+              >
+                <Icon name="notes" size={16} />
+                <span>{has ? name : `Add ${name.toLowerCase()}`}</span>
+              </Link>
+            );
+          })}
+          {section && (
+            <a href="#section-notes" className="button week-note-btn primary">
+              <Icon name="notes" size={16} />
+              <span>Section notes</span>
+            </a>
+          )}
+        </div>
+      )}
+
       <div data-drop="readings" className={over?.kind === "secondary" || over?.kind === "primary" || over?.kind === "summary" || over?.kind === "auto" ? "drop-over-lists" : undefined}>
         <WeekBoard week={week} primaries={view.primaries} readings={view.readings} summaries={view.summaries} weeks={weeks ?? []} moduleId={module.id} />
         {over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
@@ -426,7 +456,7 @@ export function WeekPage({ id }: { id: string }) {
 
       {/* A section's own notes: a chapter's plan, an argument, what to find. */}
       {section && (
-        <section className="section section-notes">
+        <section id="section-notes" className="section section-notes">
           <h2 className="group-label">Notes</h2>
           <Suspense fallback={<NotesLoading />}>
             <NoteEditor target={{ week_id: week.id }} label={`Notes on ${weekCode(week)}`} placeholder="Notes on this section" />
