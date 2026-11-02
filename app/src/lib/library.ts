@@ -6,7 +6,8 @@ import { byPosition } from "./keys";
 import { byWeek, weekCode } from "./modules";
 import { blockText } from "./notes";
 import { moduleProgress, readCount, type ModuleProgress } from "./progress";
-import { currentYear, defaultDates, teachingWeek, type TeachingWeek, type TermDates } from "./term";
+import { currentYear, defaultDates, isThisWeek, teachingWeek, type TeachingWeek, type TermDates } from "./term";
+import { pending } from "./citations";
 import type {
   Block,
   FileRow,
@@ -63,6 +64,22 @@ export interface ModuleView {
   module: ModuleRow;
   weeks: WeekView[];
   tray: ReadingView[];
+}
+
+export interface WeekOverview {
+  week: WeekRow;
+  readingCount: { read: number; total: number };
+  thumb_key: string | null;
+  sessions: { session: SessionRow; hasNotes: boolean }[];
+  isCurrentWeek: boolean;
+}
+
+export interface ModuleOverview {
+  module: ModuleRow;
+  weeks: WeekOverview[];
+  tray: ReadingView[];
+  detailsFoundCount: number;
+  empty: boolean;
 }
 
 export interface ModuleSummary {
@@ -212,6 +229,140 @@ export async function loadModule(moduleId: string): Promise<ModuleView | null> {
   const trayItems = live(await db.items.where("tray_module_id").equals(moduleId).toArray());
   const tray = await readingViews(trayItems, new Map());
   return { module, weeks: weekViews, tray };
+}
+
+export async function loadModuleOverview(
+  moduleId: string,
+  now?: TeachingWeek | null,
+): Promise<ModuleOverview | null> {
+  const module = await db.modules.get(moduleId);
+  if (!module || module.deleted) return null;
+
+  const rawWeeks = await db.weeks.where("module_id").equals(moduleId).toArray();
+  const weeks = live(rawWeeks).sort(byWeek);
+  const weekIds = weeks.map((w) => w.id);
+
+  if (weekIds.length === 0) {
+    const rawTray = await db.items.where("tray_module_id").equals(moduleId).toArray();
+    const trayItems = live(rawTray);
+    const tray = await readingViews(trayItems, new Map());
+    const detailsFoundCount = trayItems.filter((i) => pending(i)).length;
+    return {
+      module,
+      weeks: [],
+      tray,
+      detailsFoundCount,
+      empty: tray.length === 0,
+    };
+  }
+
+  // Bulk queries across weeks
+  const [weekItems, sessions] = await Promise.all([
+    db.week_items.where("week_id").anyOf(weekIds).toArray(),
+    db.sessions.where("week_id").anyOf(weekIds).toArray(),
+  ]);
+
+  const liveWeekItems = live(weekItems);
+  const liveSessions = live(sessions).sort(byPosition);
+  const sessionIds = liveSessions.map((s) => s.id);
+
+  const itemIds = Array.from(new Set(liveWeekItems.map((wi) => wi.item_id)));
+
+  const [items, notes] = await Promise.all([
+    itemIds.length > 0 ? db.items.where("id").anyOf(itemIds).toArray() : [],
+    sessionIds.length > 0 ? db.notes.where("session_id").anyOf(sessionIds).toArray() : [],
+  ]);
+
+  const liveItems = live(items);
+  const itemMap = new Map<string, ItemRow>(liveItems.map((i) => [i.id, i]));
+  const liveNotes = live(notes);
+  const sessionsWithNotes = new Set(liveNotes.map((n) => n.session_id));
+
+  // Find slide deck files with thumb_key
+  const slideFileIds = liveItems
+    .filter((i) => i.kind === "slides" && i.file_id)
+    .map((i) => i.file_id as string);
+
+  const files = slideFileIds.length > 0
+    ? await db.files.where("id").anyOf(Array.from(new Set(slideFileIds))).toArray()
+    : [];
+  const fileMap = new Map<string, FileRow>(live(files).map((f) => [f.id, f]));
+
+  // Index week items and sessions by week_id
+  const weekItemsByWeek = new Map<string, WeekItemRow[]>();
+  for (const wi of liveWeekItems) {
+    const list = weekItemsByWeek.get(wi.week_id);
+    if (list) list.push(wi);
+    else weekItemsByWeek.set(wi.week_id, [wi]);
+  }
+
+  const sessionsByWeek = new Map<string, SessionRow[]>();
+  for (const s of liveSessions) {
+    const list = sessionsByWeek.get(s.week_id);
+    if (list) list.push(s);
+    else sessionsByWeek.set(s.week_id, [s]);
+  }
+
+  // Build each week's overview
+  const weekOverviews: WeekOverview[] = weeks.map((week) => {
+    const wis = weekItemsByWeek.get(week.id) ?? [];
+    const weekSessions = sessionsByWeek.get(week.id) ?? [];
+
+    // Readings for this week: week items not tied to a session
+    const readingItems = wis
+      .filter((wi) => !wi.session_id)
+      .map((wi) => itemMap.get(wi.item_id))
+      .filter((i): i is ItemRow => Boolean(i && !i.deleted));
+    const counts = readCount(readingItems);
+
+    // Thumbnail candidate: first slide deck in that week with a thumb_key
+    let thumb_key: string | null = null;
+    for (const wi of wis) {
+      const it = itemMap.get(wi.item_id);
+      if (it && it.kind === "slides" && it.file_id) {
+        const file = fileMap.get(it.file_id);
+        if (file?.thumb_key) {
+          thumb_key = file.thumb_key;
+          break;
+        }
+      }
+    }
+
+    const sessOverviews = weekSessions.map((s) => ({
+      session: s,
+      hasNotes: sessionsWithNotes.has(s.id),
+    }));
+
+    const isCurrentWeek = Boolean(now && isThisWeek(week, now));
+
+    return {
+      week,
+      readingCount: counts,
+      thumb_key,
+      sessions: sessOverviews,
+      isCurrentWeek,
+    };
+  });
+
+  // Tray
+  const rawTray = await db.items.where("tray_module_id").equals(moduleId).toArray();
+  const trayItems = live(rawTray);
+  const tray = await readingViews(trayItems, new Map());
+
+  const allItems = [...liveItems, ...trayItems];
+  const detailsFoundCount = allItems.filter((i) => pending(i)).length;
+
+  const empty =
+    tray.length === 0 &&
+    weekOverviews.every((w) => w.readingCount.total === 0 && w.sessions.length === 0);
+
+  return {
+    module,
+    weeks: weekOverviews,
+    tray,
+    detailsFoundCount,
+    empty,
+  };
 }
 
 export async function loadWeekPage(weekId: string): Promise<{ module: ModuleRow; view: WeekView; next: WeekRow | null; previous: WeekRow | null } | null> {
