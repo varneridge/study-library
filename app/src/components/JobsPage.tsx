@@ -30,21 +30,22 @@ type Filter = "all" | "open" | "closed";
 // Below this width the table becomes cards.
 const NARROW = "(max-width: 60rem)";
 
-// The table header stays in view just under the top bar, whatever its height.
-function useTopbarHeight(): void {
+// Tracks the table header height so the sticky thead offsets align exactly.
+function useAppsHeaderHeight() {
+  const [head, setHead] = useState<HTMLTableSectionElement | null>(null);
   useLayoutEffect(() => {
-    const bar = document.querySelector<HTMLElement>(".topbar");
-    if (!bar) return;
-    const set = () => {
-      document.documentElement.style.setProperty("--topbar-h", `${bar.offsetHeight}px`);
-      const head = document.querySelector<HTMLElement>(".apps thead");
-      if (head) document.documentElement.style.setProperty("--apps-head-h", `${head.offsetHeight}px`);
-    };
+    if (!head) return;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty("--apps-head-h", `${head.offsetHeight}px`);
     set();
     const observer = new ResizeObserver(set);
-    observer.observe(bar);
-    return () => observer.disconnect();
-  }, []);
+    observer.observe(head);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--apps-head-h");
+    };
+  }, [head]);
+  return setHead;
 }
 
 function Details({ app, events, onDone }: {
@@ -63,15 +64,15 @@ function Details({ app, events, onDone }: {
   );
   const files = <ul className="slot-list" aria-label="Files">{SLOTS.map((slot) => <SlotRow key={slot.name} app={app} slot={slot} />)}</ul>;
   return (
-    <div className="app-details wide">
+    <div className="app-details">
       <div className="app-details-header">
         <div>
-          <h4 className="app-details-title">{app.employer || "Application"}</h4>
+          <h2 className="app-details-title">{app.employer || "Application"}</h2>
           {app.role && <p className="small muted" style={{ margin: "0.15rem 0 0" }}>{app.role}</p>}
         </div>
         <button
           type="button"
-          className="button quiet"
+          className="quiet"
           onClick={() => navigate({ view: "jobs", app: app.id })}
         >
           Open card view
@@ -209,7 +210,7 @@ function RecentlyDeleted() {
 
 export function JobsPage() {
   useTitle("Job search");
-  useTopbarHeight();
+  const setHead = useAppsHeaderHeight();
   const route = useRoute();
   const narrow = useNarrow(NARROW);
   const all = useLiveQuery(async () => (await db.applications.toArray()).filter((a) => !a.deleted), [], null);
@@ -343,7 +344,7 @@ export function JobsPage() {
               <col className="w-employer" /><col className="w-role" /><col className="w-applied" /><col className="w-stage" /><col className="w-deadline" />
               <col className="w-slot" /><col className="w-slot" /><col className="w-slot" /><col className="w-slot" /><col className="w-more" />
             </colgroup>
-            <thead>
+            <thead ref={setHead}>
               <tr>
                 <th rowSpan={2} scope="col">Employer</th>
                 <th rowSpan={2} scope="col">Role</th>

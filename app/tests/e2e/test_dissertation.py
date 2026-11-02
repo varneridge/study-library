@@ -90,7 +90,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.get_by_role("button", name="Add", exact=True).click()
     expect(page.locator(".key-date-list li")).to_contain_text("in 5 days")
     page.goto(BASE + "/")
-    expect(page.locator(".module-card", has_text="HY300")).to_contain_text("Chapter 2 draft: in 5 days")
+    expect(page.locator(".module-card", has_text="HY300")).to_contain_text("HY300")
+    expect(page.locator(".module-card", has_text="HY300")).to_contain_text("Dissertation: the Monroe Doctrine")
     page.goto(BASE + "/?v=across")
     ahead = page.locator(".key-dates-ahead li").first
     expect(ahead).to_contain_text("Chapter 2 draft")

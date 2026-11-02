@@ -1,8 +1,9 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
+import { Icon } from "./icons";
 import { loadModules, type ModuleSummary } from "../lib/library";
-import { useTeachingWeek, useTermDates, type TermDates } from "../lib/term";
+import { useTeachingWeek } from "../lib/term";
 import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { moveModule } from "../lib/edits";
@@ -43,9 +44,9 @@ function NewModule({ onDone }: { onDone?: () => void }) {
       <div className="field">
         <span className="small muted">This module is</span>
         <div className="segmented" role="group" aria-label="Kind of module">
-          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught course</button>
-          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>Dissertation</button>
-          <button type="button" className="tool" aria-pressed={kind === "library"} onClick={() => setKind("library")}>Library for books</button>
+          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught, by weeks of term</button>
+          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>A dissertation, by sections you name</button>
+          <button type="button" className="tool" aria-pressed={kind === "library"} onClick={() => setKind("library")}>A library for books</button>
         </div>
       </div>
       {kind === "dissertation" ? (
@@ -99,7 +100,6 @@ function ModuleCard({
   item: ModuleSummary;
   index: number;
   arranging: boolean;
-  dates: TermDates;
   totalModules: number;
 }) {
   const { module } = item;
@@ -111,42 +111,20 @@ function ModuleCard({
 
   return (
     <li className={`module-card module-item${arranging ? " arranging" : ""}`}>
-      {arranging ? (
-        <div className="module-card-cover">
-          {hasImage && imageSrc ? (
-            <img
-              src={imageSrc}
-              alt=""
-              loading={index < 2 ? "eager" : "lazy"}
-              onError={() => setImgFailed(true)}
-            />
-          ) : (
-            <div className="module-card-typo-cover" aria-hidden="true">
-              <span className="module-card-typo-code">{module.code}</span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <Link
-          to={{ view: "module", id: module.id }}
-          className="module-card-cover module-card-cover-link"
-          tabIndex={-1}
-          ariaHidden={true}
-        >
-          {hasImage && imageSrc ? (
-            <img
-              src={imageSrc}
-              alt=""
-              loading={index < 2 ? "eager" : "lazy"}
-              onError={() => setImgFailed(true)}
-            />
-          ) : (
-            <div className="module-card-typo-cover" aria-hidden="true">
-              <span className="module-card-typo-code">{module.code}</span>
-            </div>
-          )}
-        </Link>
-      )}
+      <div className="module-card-cover">
+        {hasImage && imageSrc ? (
+          <img
+            src={imageSrc}
+            alt=""
+            loading={index < 2 ? "eager" : "lazy"}
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <div className="module-card-typo-cover" aria-hidden="true">
+            <span className="module-card-typo-code">{module.code}</span>
+          </div>
+        )}
+      </div>
       <div className="module-card-body">
         {arranging ? (
           <div className="module-row">
@@ -167,8 +145,8 @@ function ModuleCard({
 
         {arranging && (
           <span className="order">
-            <button className="tool" aria-label={`Move ${module.code} up`} disabled={index === 0} onClick={() => moveModule(module.id, -1)}>↑</button>
-            <button className="tool" aria-label={`Move ${module.code} down`} disabled={index === totalModules - 1} onClick={() => moveModule(module.id, 1)}>↓</button>
+            <button className="tool" aria-label={`Move ${module.code} up`} disabled={index === 0} onClick={() => moveModule(module.id, -1)}><Icon name="up" size={16} /></button>
+            <button className="tool" aria-label={`Move ${module.code} down`} disabled={index === totalModules - 1} onClick={() => moveModule(module.id, 1)}><Icon name="down" size={16} /></button>
           </span>
         )}
       </div>
@@ -178,7 +156,6 @@ function ModuleCard({
 
 export function Home() {
   const week = useTeachingWeek();
-  const dates = useTermDates();
   const modules = useLiveQuery(() => loadModules(week), [week?.term, week?.number, week?.upcoming]);
   const [adding, setAdding] = useState(false);
   const [arranging, setArranging] = useState(false);
@@ -215,7 +192,6 @@ export function Home() {
             item={item}
             index={index}
             arranging={arranging}
-            dates={dates}
             totalModules={modules.length}
           />
         ))}

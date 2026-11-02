@@ -47,6 +47,22 @@ export function sessionLabel(kind: SessionKind): string {
   return kind === "lecture" ? "Lecture" : kind === "seminar" ? "Seminar" : kind === "supervision" ? "Supervision" : "Session";
 }
 
+export function notesLabel(session: { kind: SessionKind; title?: string | null }, hasNotes: boolean): string {
+  const raw = session.title?.trim() ?? "";
+  const cleaned = raw.replace(/^[\s.,;:!?—–-]+|[\s.,;:!?—–-]+$/g, "");
+  if (!cleaned) {
+    return hasNotes ? `${sessionLabel(session.kind)} notes` : `Add ${sessionLabel(session.kind).toLowerCase()} notes`;
+  }
+  const startsOrEndsWithNotes = /^(?:notes\b|\b.*?\bnotes[.?!]*$)/i.test(cleaned);
+  const displayTitle = raw.replace(/[.,;:!?]+$/, "");
+  if (hasNotes) {
+    if (startsOrEndsWithNotes) return displayTitle;
+    return `${raw} notes`;
+  }
+  if (startsOrEndsWithNotes) return `Add ${displayTitle}`;
+  return `Add ${raw} notes`;
+}
+
 export interface NewModule {
   code: string;
   title: string;

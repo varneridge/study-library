@@ -2,7 +2,7 @@ import { NotesLoading } from "./ErrorBoundary";
 import { addMeeting, moveSection } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
 import { useLiveQuery } from "dexie-react-hooks";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "../App";
 import { db } from "../lib/db";
 import { prefetch } from "../lib/files";
@@ -10,7 +10,7 @@ import { applyPlans, planFile, addSlides, SLIDES_ACCEPT } from "../lib/importing
 import { byPosition, keyBetween, keysAfter } from "../lib/keys";
 import { clock } from "../lib/recorder";
 import { loadWeekPage, type ReadingView } from "../lib/library";
-import { sessionLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
+import { sessionLabel, notesLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
 import { commit, newId, update } from "../lib/sync";
 import type { FileRow, ModuleRow, RecordingRow, SessionRow, WeekRow } from "../lib/types";
 import { recordingState } from "./Recording";
@@ -219,16 +219,24 @@ function SessionBlock({
       <div className="session-notes-action">
         <Link
           to={{ view: "session", id: session.id }}
-          className={`button small${notes.some((n) => n.blocks.some((b) => blockText(b).trim())) ? " primary" : ""}`}
+          className="button small"
         >
           <Icon name="notes" size={16} />
-          <span>
-            {notes.some((n) => n.blocks.some((b) => blockText(b).trim()))
-              ? `${label} notes`
-              : `Add ${label.toLowerCase()} notes`}
-          </span>
+          <span>{notesLabel(session, notes.some((n) => n.blocks.some((b) => blockText(b).trim())))}</span>
         </Link>
       </div>
+    </section>
+  );
+}
+
+function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
+  const target = useMemo(() => ({ week_id: weekId }), [weekId]);
+  return (
+    <section id="section-notes" className="section section-notes">
+      <h2 className="group-label">Notes</h2>
+      <Suspense fallback={<NotesLoading />}>
+        <NoteEditor target={target} label={`Notes on ${code}`} placeholder="Notes on this section" />
+      </Suspense>
     </section>
   );
 }
@@ -286,6 +294,7 @@ export function WeekPage({ id }: { id: string }) {
   const { module, view } = data;
   const section = isSection(view.week);
   const week = view.week;
+  const hasSectionNotes = (data.sectionNotes ?? []).some((n) => n.blocks.some((b) => blockText(b).trim()));
 
   async function toggleReadingWeek() {
     const { kept } = await setReadingWeek(week, module, !week.is_reading_week);
@@ -426,22 +435,21 @@ export function WeekPage({ id }: { id: string }) {
         <div className="week-notes-bar" role="navigation" aria-label="Notes">
           {view.sessions.map((s) => {
             const has = s.notes.some((n) => n.blocks.some((b) => blockText(b).trim()));
-            const name = s.session.title || `${sessionLabel(s.session.kind)} notes`;
             return (
               <Link
                 key={s.session.id}
                 to={{ view: "session", id: s.session.id }}
-                className={`button week-note-btn${has ? " primary" : ""}`}
+                className={`button week-note-btn${has ? " has-notes" : " empty"}`}
               >
                 <Icon name="notes" size={16} />
-                <span>{has ? name : `Add ${name.toLowerCase()}`}</span>
+                <span>{notesLabel(s.session, has)}</span>
               </Link>
             );
           })}
           {section && (
-            <a href="#section-notes" className="button week-note-btn primary">
+            <a href="#section-notes" className={`button week-note-btn${hasSectionNotes ? " has-notes" : " empty"}`}>
               <Icon name="notes" size={16} />
-              <span>Section notes</span>
+              <span>{hasSectionNotes ? "Section notes" : "Add section notes"}</span>
             </a>
           )}
         </div>
@@ -455,14 +463,7 @@ export function WeekPage({ id }: { id: string }) {
       </div>
 
       {/* A section's own notes: a chapter's plan, an argument, what to find. */}
-      {section && (
-        <section id="section-notes" className="section section-notes">
-          <h2 className="group-label">Notes</h2>
-          <Suspense fallback={<NotesLoading />}>
-            <NoteEditor target={{ week_id: week.id }} label={`Notes on ${weekCode(week)}`} placeholder="Notes on this section" />
-          </Suspense>
-        </section>
-      )}
+      {section && <SectionNotes weekId={week.id} code={weekCode(week)} />}
 
       <SlideBoard week={week} weeks={weeks ?? []} moduleId={module.id} sessions={view.sessions}>
       {view.sessions.map((sessionView, index) => (

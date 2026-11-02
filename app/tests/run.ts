@@ -7,6 +7,7 @@ import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extens
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { isDissertation, isLibrary, hasCustomSections } from "../src/lib/sections";
+import { notesLabel } from "../src/lib/modules";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
@@ -856,6 +857,50 @@ test("module kinds distinguish taught, dissertation and library modules", () => 
   assert.equal(hasCustomSections({ kind: "dissertation" }), true);
   assert.equal(hasCustomSections({ kind: "taught" }), false);
   assert.equal(hasCustomSections(null), false);
+});
+
+test("notesLabel formats session notes titles and avoids double 'notes'", () => {
+  // Untitled lecture:
+  assert.equal(notesLabel({ kind: "lecture", title: "" }, false), "Add lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: null }, false), "Add lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "   " }, false), "Add lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "" }, true), "Lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: null }, true), "Lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "   " }, true), "Lecture notes");
+
+  // Untitled seminar:
+  assert.equal(notesLabel({ kind: "seminar", title: "" }, false), "Add seminar notes");
+  assert.equal(notesLabel({ kind: "seminar", title: "" }, true), "Seminar notes");
+
+  // Titled session without "notes":
+  assert.equal(notesLabel({ kind: "lecture", title: "Bismarck and Europe" }, false), "Add Bismarck and Europe notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "Bismarck and Europe" }, true), "Bismarck and Europe notes");
+
+  // Titled session ending in "notes":
+  assert.equal(notesLabel({ kind: "seminar", title: "Seminar Notes" }, false), "Add Seminar Notes");
+  assert.equal(notesLabel({ kind: "seminar", title: "Seminar Notes" }, true), "Seminar Notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "Reading notes" }, false), "Add Reading notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "Reading notes" }, true), "Reading notes");
+
+  // Leading "Notes" or trailing punctuation:
+  assert.equal(notesLabel({ kind: "lecture", title: "Notes on Bismarck" }, false), "Add Notes on Bismarck");
+  assert.equal(notesLabel({ kind: "lecture", title: "Notes on Bismarck" }, true), "Notes on Bismarck");
+  assert.equal(notesLabel({ kind: "lecture", title: "Lecture notes." }, false), "Add Lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "Lecture notes." }, true), "Lecture notes");
+
+  // Word containing "notes" as substring (e.g. Footnotes):
+  assert.equal(notesLabel({ kind: "lecture", title: "Footnotes" }, false), "Add Footnotes notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "Footnotes" }, true), "Footnotes notes");
+
+  // Title of only whitespace and punctuation:
+  assert.equal(notesLabel({ kind: "lecture", title: "   ...   " }, false), "Add lecture notes");
+  assert.equal(notesLabel({ kind: "lecture", title: "   ...   " }, true), "Lecture notes");
+});
+
+test("top bar brand maintains distinct styling without selector interference", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.ok(/\.brand\s*\{[^}]*font-weight:\s*600/.test(css), "brand must have font-weight: 600");
+  assert.ok(/\.brand\s*\{[^}]*font-size:\s*1\.15rem/.test(css), "brand must have font-size: 1.15rem");
 });
 
 if (failed) {

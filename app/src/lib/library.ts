@@ -3,7 +3,7 @@
 
 import { db, type PendingUpload } from "./db";
 import { byPosition } from "./keys";
-import { byWeek, weekCode } from "./modules";
+import { byWeek, weekCode, isSection } from "./modules";
 import { blockText } from "./notes";
 import { moduleProgress, readCount, type ModuleProgress } from "./progress";
 import { currentYear, defaultDates, isThisWeek, teachingWeek, type TeachingWeek, type TermDates } from "./term";
@@ -161,7 +161,7 @@ async function readingViews(items: ItemRow[], links: Map<string, WeekItemRow>): 
   }));
 }
 
-async function notesFor(where: { session_id?: string; item_id?: string }): Promise<NoteView[]> {
+async function notesFor(where: { session_id?: string; item_id?: string; week_id?: string }): Promise<NoteView[]> {
   const [field, value] = Object.entries(where)[0];
   const notes = live(await db.notes.where(field).equals(value as string).toArray());
   const views: NoteView[] = [];
@@ -379,14 +379,23 @@ export async function loadModuleOverview(
   };
 }
 
-export async function loadWeekPage(weekId: string): Promise<{ module: ModuleRow; view: WeekView; next: WeekRow | null; previous: WeekRow | null } | null> {
+export async function loadWeekPage(weekId: string): Promise<{
+  module: ModuleRow;
+  view: WeekView;
+  next: WeekRow | null;
+  previous: WeekRow | null;
+  sectionNotes: NoteView[];
+} | null> {
   const week = await db.weeks.get(weekId);
   if (!week || week.deleted) return null;
   const module = await db.modules.get(week.module_id);
   if (!module) return null;
   const siblings = live(await db.weeks.where("module_id").equals(module.id).toArray()).sort(byWeek);
   const index = siblings.findIndex((w) => w.id === week.id);
-  return { module, view: await loadWeek(week), next: siblings[index + 1] ?? null, previous: siblings[index - 1] ?? null };
+  const sectionNotes = isSection(week)
+    ? (await notesFor({ week_id: week.id })).filter((n) => !n.note.session_id && !n.note.item_id)
+    : [];
+  return { module, view: await loadWeek(week), next: siblings[index + 1] ?? null, previous: siblings[index - 1] ?? null, sectionNotes };
 }
 
 export async function loadAcross(term: string, number: number) {

@@ -1003,6 +1003,16 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Interface craft, tactile feedback and typography polish completed in 0.38.1 (guided by unslop principles and two-phase review with Claude Opus Oracle):
+  - Spacing and timing scale: 4px grid spacing tokens (--sp-1 to --sp-10), whole-pixel type scale (--fs-xs 0.75rem, --fs-xl 1.25rem), and standardized ease-out timing (--dur-1 120ms, --ease-out).
+  - Tactile interaction feedback: uniform scale(0.97) and translucent ink tint (--tint-3) on :active for all buttons, tools, icon buttons and quiet links; placed at the end of the cascade so press state reliably beats hover; stage chips preserved through brightness filter rather than colour replacement; background-color used everywhere to preserve chevrons and background images; selected segments stay highlighted during press.
+  - Button tint system: translucent ink tints (--tint-1, --tint-2, --tint-3) across cards, paper, and surface backgrounds, eliminating ad-hoc background overrides.
+  - Sizing and touch targets: week notes chips and all interactive controls maintain full 44px (2.75rem) hit targets on touch devices, with hover states wrapped in hover media queries to prevent sticky touch states.
+  - Tabular numerals: tabular-nums applied across times, dates, durations, and counts, eliminating digit jitter across changes.
+  - Physical keycaps: kbd elements styled with card background, rule-strong border, subtle bottom shelf, and optical baseline alignment fitting within standard line boxes without enlargement.
+  - Visual hierarchy and accessibility: details card heading hierarchy cleaned with h2 title and h3 section headers; card title optical sizing reset to normal; container-type inline-size with layout containment documentation; non-scaling-stroke on SVG icons; cards lift on hover with subtle brightness filter and rule-strong border; single focus ring with @supports selector(:has(a)) fallback.
+  - Shell and header observation: top bar height loop broken with static desktop height and static coarse-pointer token; application table header height observed via state-backed ref that attaches and detaches with element presence.
+  - Session notes labelling: notesLabel helper avoiding double "notes" on leading, trailing or punctuated titles, with complete unit test coverage.
 - Layout, card and library improvements completed in 0.38.0:
   - Saving indicator retired and notes debounced flush on pagehide and visibilitychange.
   - Normal Lucide cog icon for Settings.
@@ -1097,6 +1107,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.36.0 | Module page week cards and slide thumbnails: slide cover thumbnails rendered by the Python processor on extract_text at 640px WebP, bulk loadModuleOverview loader, responsive card grid with stretched-link week cards, quick week jump strip, and bounded thumbnail prefetching |
 | 0.37.0 | Job search mobile list and sheets: accessible modal Sheet primitive, compact scannable application list below 60rem, read-first application sheet, dedicated new and edit application sheets with delta patch saving and remote conflict detection, shared timeline entry sheet and inline editor with stage progression rules, and synchronous toast portalling across dialog layers |
 | 0.38.0 | Library modules for books, manual syllabus and admin sections, elevated job details card, code and title module cards, prominent note links above readings, week thumbnail fallback from readings, wider desktop layout, equal week cards, normal settings cog, and retired saving status |
+| 0.38.1 | Interface craft and tactile feedback polish: 4px spacing scale, whole-pixel type tokens, translucent ink tints, scale(0.97) press feedback, tabular figures, physical keycaps, top bar and table header observation, and notes label formatting |
 
 ## 18. The job search
 
