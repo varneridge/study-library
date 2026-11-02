@@ -60,7 +60,6 @@ function SyncStatus() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const [, tick] = useState(0);
-  const pending = useLiveQuery(() => db.outbox.count(), [], 0);
   const uploads = useLiveQuery(() => db.uploads.toArray(), [], []);
   useCloseOnBack(open, () => setOpen(false));
   useEffect(() => subscribeSync(setState), []);
@@ -86,7 +85,6 @@ function SyncStatus() {
   if (state && !state.online) text = uploads.length ? `Offline, ${uploads.length} to upload` : "Offline";
   else if (state?.error) { text = "Sync problem"; problem = state.error; }
   else if (uploads.length) text = `Uploading ${uploads.length}`;
-  else if (pending) text = "Saving";
   if (!text && !uploads.length) {
     return <span className="sync" aria-live="polite" />;
   }

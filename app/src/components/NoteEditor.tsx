@@ -291,17 +291,33 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
           }
         }
         if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => void persist(), 400);
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          void persist();
+        }, 400);
       }),
     [editor, persist, onQuoteRemoved, onQuoteRestored, target],
   );
 
-  // Save straight away when leaving the page.
-  useEffect(() => () => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      void persist();
-    }
+  // Save straight away when leaving or hiding the page.
+  useEffect(() => {
+    const flush = () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        void persist();
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
   }, [persist]);
 
   // Edits from other devices arrive here. They wait while you are typing.
