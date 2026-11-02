@@ -35,7 +35,14 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.get_by_label("Code").fill("HY319")
     page.get_by_label("Title").fill("Napoleon and Europe")
-    page.get_by_role("button", name="Create module").click()
+    # Guard: button active (pressed) state differs from hover state.
+    create_btn = page.get_by_role("button", name="Create module")
+    create_btn.hover()
+    hover_bg = create_btn.evaluate("el => getComputedStyle(el).backgroundColor")
+    page.mouse.down()
+    active_bg = create_btn.evaluate("el => getComputedStyle(el).backgroundColor")
+    page.mouse.up()
+    assert hover_bg != active_bg, f"Expected button active bg to differ from hover, got hover={hover_bg}, active={active_bg}"
     expect(page.get_by_role("heading", name="HY319")).to_be_visible()
 
     # The import table: names kept short, the Import button always in view,
@@ -86,7 +93,7 @@ with sync_playwright() as p:
     }""")
     page.get_by_role("button", name="Highlight yellow").click()
     expect(page.locator(".hl").first).to_be_visible()
-    page.get_by_role("button", name="Back to the week").click()
+    page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     expect(page.locator(".week-page li.reading .state.progress").first).to_contain_text("1 highlight")
     print("a reading with a highlight says so on its row")
 
@@ -101,7 +108,7 @@ with sync_playwright() as p:
     assert "v=reader" in page.url, page.url
     page.get_by_role("button", name="Mark as read", exact=True).click()
     expect(page.get_by_role("button", name="Read. Mark as unread")).to_have_attribute("aria-pressed", "true")
-    page.get_by_role("button", name="Back to the week").click()
+    page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     page.get_by_role("link", name="Study Library").click()
     expect(page.locator(".tw-readings .tw-state").first).to_have_text("1 of 2 read")
     print("home: Readings tile counted the week and opened the next reading")

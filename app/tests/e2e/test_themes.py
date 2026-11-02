@@ -36,12 +36,16 @@ with sync_playwright() as p:
         page.goto(BASE + "/?v=settings")
         page.get_by_role("group", name="Appearance").get_by_role("button", name=name).click()
         expect(page.locator("html")).to_have_attribute("data-theme", key)
-        # Guard: pressed theme chip retains solid outline when blurred.
+        # Guard: pressed theme chip retains accent selection ring (box-shadow) when blurred.
         page.evaluate("document.activeElement.blur()")
-        chip_outline = page.locator(".theme-chip[aria-pressed='true']").first.evaluate(
-            "el => window.getComputedStyle(el).outlineStyle"
+        accent_rgb = page.evaluate(
+            "() => { const div = document.createElement('div'); div.style.color = 'var(--accent)'; document.body.appendChild(div); const c = getComputedStyle(div).color; div.remove(); return c; }"
         )
-        assert chip_outline == "solid", f"Expected pressed theme chip outline solid, got {chip_outline}"
+        chip_ring = page.locator(".theme-chip[aria-pressed='true']").first.evaluate(
+            "el => window.getComputedStyle(el).boxShadow"
+        )
+        accent_nums = accent_rgb.replace("rgb(", "").replace(")", "").strip()
+        assert accent_nums in chip_ring, f"Expected pressed theme chip box-shadow ring containing accent {accent_nums}, got {chip_ring}"
         assert bg(page, "body") == want["paper"], (name, bg(page, "body"))
         page.screenshot(path=f"{shots}-{key}-1-settings.png")
 
@@ -85,7 +89,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Appearance").click()
     page.get_by_role("group", name="Theme").get_by_role("button", name="Sepia").click()
     page.keyboard.press("Escape")
-    page.get_by_role("button", name="Back to the week").first.click()
+    page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     assert bg(page, "body") == EXPECT["sepia"]["paper"]
     print("sepia chosen in the reader colours the week page too")
     page.goto(BASE + "/?v=settings")

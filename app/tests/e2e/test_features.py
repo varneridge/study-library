@@ -66,6 +66,11 @@ with sync_playwright() as p:
     total = page.locator(".find-bar .count-at").inner_text()
     expect(page.locator("mark.find-hit").first).to_be_visible()
     expect(page.locator("mark.find-hit.current")).to_have_count(1)
+    # Guard: find highlights in page layout are translucent so canvas text remains readable underneath.
+    hit_bg = page.locator(".textLayer mark.find-hit:not(.current)").first.evaluate("el => getComputedStyle(el).backgroundColor")
+    assert ("255, 196, 0" in hit_bg or "1 0.768627 0" in hit_bg) and not hit_bg.endswith(", 1)"), f"Expected translucent amber highlight, got {hit_bg}"
+    current_bg = page.locator(".textLayer mark.find-hit.current").first.evaluate("el => getComputedStyle(el).backgroundColor")
+    assert ("0.45" in current_bg or "/ 0.45" in current_bg) and not current_bg.endswith(", 1)"), f"Expected translucent current match, got {current_bg}"
     first = int(total.split(" of ")[0])
     page.keyboard.press("Enter")
     expect(page.locator(".find-bar .count-at")).to_contain_text(f"{first % int(total.split(' of ')[1].split(',')[0]) + 1} of")

@@ -80,7 +80,7 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
 
     # Back to week page
-    page.get_by_role("button", name="Back to the week").click()
+    page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     expect(page.get_by_role("heading", name="AT1")).to_be_visible()
 
     # 4. Move summary to Secondary readings via row menu

@@ -74,7 +74,7 @@ with sync_playwright() as p:
     page.keyboard.type("Chen frames the period through the Cold War in Asia.")
     page.wait_for_timeout(900)
     page.screenshot(path=f"{shots}-1-reader-notes.png")
-    page.get_by_role("button", name="Back to the week").click()
+    page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
 
     # A question's answer is written beneath it; there is no evidence to file.
     q1 = page.locator(".question-row", has=page.get_by_label("Question 1", exact=True)).first

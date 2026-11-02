@@ -120,11 +120,15 @@ with sync_playwright() as p:
     assert abs(s["y"] + s["height"] - 844) < 2 and s["width"] >= 389, s
     for item in sheet.get_by_role("menuitem").all():
         assert item.bounding_box()["height"] >= 44
+    item_pad = float(sheet.locator("button[role='menuitem']").first.evaluate("el => getComputedStyle(el).paddingLeft").replace("px", ""))
+    assert item_pad >= 18, f"Expected comfortable touch padding on phone menu items, got {item_pad}px"
+    assert sheet.locator(".menu-cancel").bounding_box()["height"] >= 50
     phone.screenshot(path=f"{shots}-2-sheet.png")
     sheet.get_by_role("menuitem", name="Cancel").tap()
     expect(sheet).to_have_count(0)
     # Tapping the dimmed page closes it too.
     row.get_by_role("button", name="More actions").tap()
+    expect(phone.locator(".menu-panel")).to_be_visible()
     phone.locator(".menu-backdrop").tap(position={"x": 195, "y": 100})
     expect(phone.locator(".menu-panel")).to_have_count(0)
     print("menus rise from the foot of the screen, with Cancel, and close on a tap outside")

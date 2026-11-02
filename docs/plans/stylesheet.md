@@ -67,9 +67,12 @@ Phase 3 work completed in 0.34.1:
 - The two duplicate `(pointer: coarse), (max-width: 48rem)` query blocks unified into one.
 - Three unjustified `!important` flags replaced with natural specificity: quotation action buttons (`.quote-write`, `.quote-delete`), appearance menu segmented tools (`.menu-panel.appearance .segmented .tool`), and `.found` chips.
 
-Remaining component definitions slated for single-rule gathering alongside Phase 4:
-- Surviving component single-block unifications (`.button`, fields, menus, dialogs, reader bar, and panes).
-- Merging the disjoint `:root` and `:root[data-theme="*"]` token blocks.
+Phase 3 token work completed in 0.34.2:
+- Merged the disjoint `:root` and `:root[data-theme="*"]` token blocks into single unified blocks per theme with verified dark parity.
+
+Remaining component definition gathering:
+- Consolidating surviving component definitions (`.button`, fields, menus, dialogs, reader bar, and panes) into single blocks will be carried out alongside future feature work on those components.
+- Future button state refinements: `.button.stop:hover:not(:disabled)` and `.button.stop:active:not(:disabled)` mixing `--danger` into `--paper` at increasing opacity, and `.button.danger:active:not(:disabled)` distinct press feedback.
 
 ---
 
@@ -77,22 +80,21 @@ Remaining component definitions slated for single-rule gathering alongside Phase
 
 - Retire `--wash` in favour of semantic `--surface` / `--surface-hover` (for surfaces) and `--accent-soft` (for active/selection/drop highlights).
 - Retire `--shadow` in favour of `--shadow-float` for floating elements.
-- Semantic tokens: add `--warn`, `--live`, `--find` (with values defined for light, sepia, and dark) for key dates, recording pill, and find highlights.
-- Dark theme system token parity: ensure `@media (prefers-color-scheme: dark)` defines the full token set identical to `:root[data-theme="dark"]`, enforced by the CSS unit test.
-- Round leftover square shapes (`.rec-dot`, `.swatch-mini`, `kbd`, `.drag-card`, `.move-dock`, `.drop-banner`, `.pick`, `.readings.empty-target`, `.transcript`, `.first-steps`, `.annotation`, `--bn-border-radius-large`).
+- Semantic tokens: added `--warn` (#8A5A00 light/sepia, #E0B25B dark) and `--find` (#FFE58F light, #F5DCA0 sepia, #6B5100 dark) across `:root`, `:root[data-theme="sepia"]`, `:root[data-theme="dark"]`, and `@media (prefers-color-scheme: dark)`. Key dates use `--warn`, recording pill uses `--danger` (recording) and `--warn` (problem), and find highlights use translucent `--find` on page layout and opaque `--find` in text view and transcripts.
+- Dark theme system token parity: `@media (prefers-color-scheme: dark)` defines the full token set identical to `:root[data-theme="dark"]`, enforced by the CSS unit test in `test_css_vars.ts`.
+- Round leftover square shapes: `.rec-dot`, `.swatch-mini`, `kbd`, `.drag-card`, `.move-dock`, `.drop-banner`, `.pick`, `.readings.empty-target`, `.transcript`, `.first-steps`, `.annotation`, `.t-speakers li::before`, `.dock-grid`, `.target`, and `--bn-border-radius-large`.
+- Button press states: restored distinct active feedback via `color-mix(in srgb, var(--ink) 8%, var(--surface-hover))` and `color-mix(in srgb, var(--accent) 78%, black)` directly following Design hover rules, and kept pressed icon buttons accented under pointer.
+- Phone sheet buttons: unified under `@media (max-width: 44rem)` with `min-height: 3.25rem` across all buttons including Cancel, while keeping menu items square-cornered.
+- Slide arrows: translucent dark scrim with white glyphs for high contrast in dark mode.
 
 ---
 
 ## Verification
 
-- **Release 0.34.1 (Phases 1 & 3):**
-  - Verified by cascade proofs, markup checks, targeted assertions, and the full regression suite:
-    - Unit tests: `npm run test:all` (including `test_css_vars`).
-    - Layout audit: `npm run e2e -- audit_layout` (171s, 0 faults across 320, 390, 768, 1280 light & dark).
-    - Targeted guards in `test_reading_notes.py` (opacity at touch), `test_citations.py` (fontSize), and `test_themes.py` (border and outline).
-    - Full suite of browser tests passing without regression.
+- **Release 0.34.1 (Phases 1 & 3):** Completed and verified.
+- **Release 0.34.2 (Phases 2 & 4):** Completed and verified:
+  - Unit tests: `npm run test:all` (CSS variable definition, `--wash` and `--shadow` retirement assertions, dark theme token parity check).
+  - Browser tests: `npm run e2e -- sessions themes summaries ux citations reading_notes` all passing.
+  - Layout audit: `npm run e2e -- audit_layout` passing with 0 faults across 320, 390, 768, 1280 light and dark.
+  - Targeted guards: translucent find highlight in `test_features.py`, button active distinction in `test_ux.py`, theme chip accent ring in `test_themes.py`, and 52px Cancel button height in `test_mobile.py`.
   - Claude Oracle diff review before commit.
-- **Release 0.34.2 (Phases 2 & 4):**
-  - Design screenshot checks in `docs/design/`.
-  - Contrast checks (recording pill and amber passing 4.5:1 in all themes).
-  - System dark theme token parity unit test.
