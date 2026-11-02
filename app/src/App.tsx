@@ -32,8 +32,9 @@ const opening = <PageLoading label="Opening the reading" />;
 // The job search is its own part of the app, loaded when first opened.
 const JobsPage = lazy(() => import("./components/JobsPage").then((m) => ({ default: m.JobsPage })));
 
-export function Link({ to, children, className, current, title, label }: {
+export function Link({ to, children, className, current, title, label, tabIndex, ariaHidden }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
+  tabIndex?: number; ariaHidden?: boolean;
 }) {
   return (
     <a
@@ -41,6 +42,8 @@ export function Link({ to, children, className, current, title, label }: {
       title={title}
       aria-label={label}
       aria-current={current ? "page" : undefined}
+      tabIndex={tabIndex}
+      aria-hidden={ariaHidden ? true : undefined}
       href={href(to)}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;

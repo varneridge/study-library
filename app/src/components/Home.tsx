@@ -1,15 +1,10 @@
-import { countdown, isDissertation } from "../lib/sections";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
 import { loadModules, type ModuleSummary } from "../lib/library";
-import { progressWords } from "../lib/progress";
 import { useTeachingWeek, useTermDates, type TermDates } from "../lib/term";
-import { shortTitle } from "../lib/titles";
-import { weekCode } from "../lib/modules";
 import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
-import type { ModuleRow } from "../lib/types";
 import { moveModule } from "../lib/edits";
 import { useTitle } from "../lib/ui";
 
@@ -91,20 +86,10 @@ function NewModule({ onDone }: { onDone?: () => void }) {
 }
 
 
-function nextKeyDate(module: ModuleRow) {
-  if (module.kind !== "dissertation" || !module.key_dates?.length) return null;
-  const coming = module.key_dates
-    .map((d) => ({ ...d, when: countdown(d.date) }))
-    .filter((d) => d.when.days >= -14)
-    .sort((a, b) => a.date.localeCompare(b.date));
-  return coming[0] ?? null;
-}
-
 function ModuleCard({
   item,
   index,
   arranging,
-  dates,
   totalModules,
 }: {
   item: ModuleSummary;
@@ -113,10 +98,8 @@ function ModuleCard({
   dates: TermDates;
   totalModules: number;
 }) {
-  const { module, next, progress } = item;
+  const { module } = item;
   const [imgFailed, setImgFailed] = useState(false);
-  const progressLabel = progressWords(progress, dates);
-  const nextDate = isDissertation(module) ? nextKeyDate(module) : null;
   const hasImage = Boolean(module.image_key && !imgFailed);
   const imageSrc = module.image_key
     ? (module.image_key.startsWith("pictures/") ? `/api/${module.image_key}` : `/api/pictures/${module.image_key}`)
@@ -124,20 +107,42 @@ function ModuleCard({
 
   return (
     <li className={`module-card module-item${arranging ? " arranging" : ""}`}>
-      <div className="module-card-cover">
-        {hasImage && imageSrc ? (
-          <img
-            src={imageSrc}
-            alt=""
-            loading={index < 2 ? "eager" : "lazy"}
-            onError={() => setImgFailed(true)}
-          />
-        ) : (
-          <div className="module-card-typo-cover" aria-hidden="true">
-            <span className="module-card-typo-code">{module.code}</span>
-          </div>
-        )}
-      </div>
+      {arranging ? (
+        <div className="module-card-cover">
+          {hasImage && imageSrc ? (
+            <img
+              src={imageSrc}
+              alt=""
+              loading={index < 2 ? "eager" : "lazy"}
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <div className="module-card-typo-cover" aria-hidden="true">
+              <span className="module-card-typo-code">{module.code}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Link
+          to={{ view: "module", id: module.id }}
+          className="module-card-cover module-card-cover-link"
+          tabIndex={-1}
+          ariaHidden={true}
+        >
+          {hasImage && imageSrc ? (
+            <img
+              src={imageSrc}
+              alt=""
+              loading={index < 2 ? "eager" : "lazy"}
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <div className="module-card-typo-cover" aria-hidden="true">
+              <span className="module-card-typo-code">{module.code}</span>
+            </div>
+          )}
+        </Link>
+      )}
       <div className="module-card-body">
         {arranging ? (
           <div className="module-row">
@@ -154,31 +159,6 @@ function ModuleCard({
             <span className="title">{module.title || module.code}</span>
             <span className="module-card-stretch" aria-hidden="true" />
           </Link>
-        )}
-
-        {isDissertation(module) ? (
-          nextDate && (
-            <span className="count">
-              {nextDate.label}: {nextDate.when.words}
-            </span>
-          )
-        ) : (
-          <>
-            {progressLabel && <span className="count">{progressLabel}</span>}
-            {progress.state !== "none" && progress.total > 0 && progress.read > 0 && !arranging && (
-              <span className="progress-line" aria-hidden="true">
-                <span style={{ width: `${Math.round((progress.read / progress.total) * 100)}%` }} />
-              </span>
-            )}
-          </>
-        )}
-
-        {next && !arranging && (
-          <p className="next-up small">
-            <span className="muted">Next</span>{" "}
-            <Link to={{ view: "reader", id: next.item.id }}>{shortTitle(next.item)}</Link>{" "}
-            <Link to={{ view: "week", id: next.week.id }} className="where">{weekCode(next.week)}</Link>
-          </p>
         )}
 
         {arranging && (
@@ -203,7 +183,7 @@ export function Home() {
 
   if (modules.length === 0) {
     return (
-      <div className="page">
+      <div className="page wide">
         <h1>Add your first module</h1>
         <p className="lede">Creating a module sets up all 22 weeks, with sessions in each.</p>
         <NewModule />
@@ -212,7 +192,7 @@ export function Home() {
   }
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="section-head" style={{ marginBottom: 0 }}>
         <h1>Modules</h1>
         <span className="spacer" />

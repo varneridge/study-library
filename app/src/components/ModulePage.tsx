@@ -136,7 +136,12 @@ function WeekCard({
         void addFilesTo(Array.from(e.dataTransfer.files), module, week);
       }}
     >
-      <div className="week-card-cover">
+      <Link
+        to={{ view: "week", id: week.id }}
+        className="week-card-cover week-card-cover-link"
+        tabIndex={-1}
+        ariaHidden={true}
+      >
         {thumb_key ? (
           <img src={`/api/objects/${thumb_key}`} alt="" loading="lazy" decoding="async" />
         ) : (
@@ -144,18 +149,18 @@ function WeekCard({
             <span className="week-card-cover-display">{isSec ? `Section ${week.number}` : code}</span>
           </div>
         )}
-        {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}
-        {isSec && (
-          <div className="week-card-actions">
-            <Menu label={`More actions for ${code}`} items={[
-              { label: "Rename", onSelect: onStartRename },
-              { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
-              { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
-              { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
-            ]} />
-          </div>
-        )}
-      </div>
+      </Link>
+      {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}
+      {isSec && (
+        <div className="week-card-actions">
+          <Menu label={`More actions for ${code}`} items={[
+            { label: "Rename", onSelect: onStartRename },
+            { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
+            { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
+            { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
+          ]} />
+        </div>
+      )}
 
       <div className="week-card-body">
         <div className="week-card-meta">
@@ -205,6 +210,11 @@ function WeekCard({
                 {session.title || sessionLabel(session.kind)}
               </Link>
             ))}
+          </div>
+        )}
+        {week.is_reading_week && (
+          <div className="week-card-sessions reading-week-placeholder">
+            <span className="reading-weeks">Independent study</span>
           </div>
         )}
 
@@ -330,7 +340,7 @@ export function ModulePage({ id }: { id: string }) {
   const dissertation = isDissertation(module);
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="section-head" style={{ marginBottom: 0 }}>
         <h1>{module.code}</h1>
         <span className="spacer" />

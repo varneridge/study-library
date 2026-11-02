@@ -75,7 +75,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
   const span = weekDatesText(t, n, dates);
 
   return (
-    <div className="page">
+    <div className="page wide">
       <KeyDatesAhead />
       <h1>{title}</h1>
       {span && <p className="when small muted" style={{ marginTop: "-0.25rem", marginBottom: "0.75rem" }}>{isUpcoming && when ? `Starts ${when}` : span}</p>}
