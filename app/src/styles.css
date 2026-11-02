@@ -357,7 +357,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   background: var(--surface);
   border-radius: var(--r-md);
   overflow: hidden;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease;
   scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 0.5rem);
 }
 .week-card-cover-link {
@@ -372,6 +372,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
 @media (hover: hover) {
   .week-card:hover {
     background: var(--surface-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--ink) 5%, transparent);
   }
 }
 
@@ -1384,11 +1386,17 @@ p, li { text-wrap: pretty; }
 /* Scrollbars that take the theme instead of the system grey. */
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--faint) 70%, transparent) transparent; }
 
-/* Motion: short, and only on colour and shadow, so nothing jumps. */
+/* Motion: short, responsive, and purposeful. */
 a, button, input, select, textarea, .reading, .menu-panel button, .pane-tab, .target {
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+button:active:not(:disabled), .button:active:not(:disabled), .tool:active:not(:disabled) {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+  .week-card:hover, button:active, .button:active, .tool:active { transform: none !important; }
+}
 
 /* Focus is always visible from the keyboard, and never from a click. */
 :focus:not(:focus-visible) { outline: none; }
@@ -2196,6 +2204,15 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .menu-panel { border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow-float); padding: 0.3rem; background: var(--card); }
 .menu-panel button[role="menuitem"] { border-radius: var(--r-sm); padding: 0.45rem 0.7rem; }
 .menu-panel button[role="menuitem"]:hover { background: var(--surface); }
+@media (min-width: 44.01rem) {
+  .menu-panel {
+    animation: menu-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+@keyframes menu-pop {
+  from { opacity: 0; transform: translateY(-3px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .dialog, dialog.palette { border: 1px solid var(--rule); border-radius: var(--r-lg); box-shadow: var(--shadow-float); }
 .toast { border-radius: var(--r-md); box-shadow: var(--shadow-float); }
 @media (max-width: 44rem) {

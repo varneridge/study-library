@@ -57,6 +57,8 @@ export interface FileRow extends SyncedRow {
   text_status: TextStatus;
   // A first-page thumbnail for a slide deck.
   thumb_key?: string | null;
+  // Optional file metadata such as EPUB TOC or pagination mapping.
+  meta?: string | null;
 }
 
 export type WorkKind = "article" | "chapter" | "book" | "primary";

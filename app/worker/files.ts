@@ -23,6 +23,8 @@ export const EXTENSIONS: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/gif": ".gif",
   "image/webp": ".webp",
+  // Books and readings in EPUB format.
+  "application/epub+zip": ".epub",
 };
 
 export function contentType(request: Request): string {
@@ -33,6 +35,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 
 export function jobTypeFor(mime: string): string | null {
   if (mime === "application/pdf") return "extract_text";
+  if (mime === "application/epub+zip") return "convert";
   if (EXTENSIONS[mime] && /officedocument|ms-powerpoint|msword/.test(mime)) return "convert";
   return null;
 }

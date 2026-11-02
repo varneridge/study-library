@@ -152,3 +152,64 @@ def test_convert_end_to_end(api, tmp_path):
     assert state["files"][item["file_id"]]["mime"] == "application/pdf"
     assert state["files"][item["file_id"]]["text_status"] == "ready"
     assert state["files"]["f1"]["text_status"] == "converted"
+
+
+def test_convert_epub_end_to_end(api, tmp_path):
+    import zipfile
+    source = tmp_path / "book.epub"
+    with zipfile.ZipFile(source, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("META-INF/container.xml", """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>""")
+        zf.writestr("OEBPS/content.opf", """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Test EPUB</dc:title>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine toc="toc">
+    <itemref idref="ch1"/>
+  </spine>
+</package>""")
+        zf.writestr("OEBPS/toc.ncx", """<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="test-123"/></head>
+  <docTitle><text>Test EPUB</text></docTitle>
+  <navMap>
+    <navPoint id="np-1" playOrder="1">
+      <navLabel><text>Chapter 1</text></navLabel>
+      <content src="ch1.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>""")
+        zf.writestr("OEBPS/ch1.xhtml", """<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>
+  <h1>Chapter 1</h1>
+  <p>To Sherlock Holmes she is always the woman of European history.</p>
+</body>
+</html>""")
+
+    mime = "application/epub+zip"
+    _add(api, source, "f_epub", mime)
+    api.push([{"table": "items", "row": {
+        "id": "i_epub", "kind": "secondary", "author": "Arthur Conan Doyle", "title": "A Scandal in Bohemia",
+        "source": None, "pages": None, "year": 1891, "doc_date": None, "file_id": "f_epub",
+        "original_file_id": None, "tray_module_id": None, "zotero_key": None, "last_page": None,
+        "read_status": "unread", "modified_at": stamp(), "deleted": False}}])
+
+    # Convert, extract text, and check details.
+    assert Processor(api).drain() >= 2
+    state = api.pull_all()
+    item = state["items"]["i_epub"]
+    assert item["original_file_id"] == "f_epub"
+    assert state["files"][item["file_id"]]["mime"] == "application/pdf"
+    assert state["files"][item["file_id"]]["text_status"] == "ready"
+    assert state["files"]["f_epub"]["text_status"] == "converted"

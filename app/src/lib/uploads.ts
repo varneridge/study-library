@@ -25,6 +25,7 @@ export const MIME_BY_EXTENSION: Record<string, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ppt: "application/vnd.ms-powerpoint",
   doc: "application/msword",
+  epub: "application/epub+zip",
 };
 
 export function mimeFor(file: File): string | null {

@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -44,6 +45,7 @@ OFFICE_EXTENSIONS = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "application/vnd.ms-powerpoint": ".ppt",
     "application/msword": ".doc",
+    "application/epub+zip": ".epub",
 }
 
 FILE_JOBS = {"extract_text", "ocr", "convert"}
@@ -313,6 +315,33 @@ def ocr(ctx: Context, job: dict) -> None:
              f", {spreads} spreads split" if spreads else "", languages)
 
 
+def _convert_epub(source: str, pdf_path: str) -> None:
+    import pymupdf
+
+    try:
+        with zipfile.ZipFile(source, "r") as zf:
+            namelist = set(zf.namelist())
+            if "META-INF/encryption.xml" in namelist:
+                enc_content = zf.read("META-INF/encryption.xml").decode("utf-8", "ignore")
+                if "<EncryptedData" in enc_content or "<enc:EncryptedData" in enc_content:
+                    raise JobError("This EPUB is protected by DRM (encryption) and cannot be converted.")
+    except zipfile.BadZipFile:
+        raise JobError("Invalid or corrupted EPUB file.")
+
+    try:
+        epub_doc = pymupdf.open(source, filetype="epub")
+        toc = epub_doc.get_toc()
+        pdf_bytes = epub_doc.convert_to_pdf()
+        pdf_doc = pymupdf.open("pdf", pdf_bytes)
+        if toc:
+            pdf_doc.set_toc(toc)
+        pdf_doc.save(pdf_path)
+    except Exception as e:
+        if isinstance(e, JobError):
+            raise
+        raise JobError(f"EPUB conversion failed: {e}")
+
+
 def convert(ctx: Context, job: dict) -> None:
     file = _live_file(ctx, job)
     if file is None:
@@ -324,16 +353,19 @@ def convert(ctx: Context, job: dict) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         source = os.path.join(tmp, "source" + extension)
         ctx.api.download(file["r2_key"], source)
-        profile = os.path.join(tmp, "profile")
-        result = subprocess.run(
-            ["soffice", f"-env:UserInstallation=file://{profile}", "--headless", "--norestore",
-             "--convert-to", "pdf", "--outdir", tmp, source],
-            capture_output=True, text=True, timeout=CONVERT_TIMEOUT,
-            env={**os.environ, "HOME": tmp},
-        )
         pdf = os.path.join(tmp, "source.pdf")
-        if result.returncode != 0 or not os.path.exists(pdf):
-            raise JobError(f"LibreOffice exited with {result.returncode}: {_tail(result.stderr)}")
+        if file["mime"] == "application/epub+zip":
+            _convert_epub(source, pdf)
+        else:
+            profile = os.path.join(tmp, "profile")
+            result = subprocess.run(
+                ["soffice", f"-env:UserInstallation=file://{profile}", "--headless", "--norestore",
+                 "--convert-to", "pdf", "--outdir", tmp, source],
+                capture_output=True, text=True, timeout=CONVERT_TIMEOUT,
+                env={**os.environ, "HOME": tmp},
+            )
+            if result.returncode != 0 or not os.path.exists(pdf):
+                raise JobError(f"LibreOffice exited with {result.returncode}: {_tail(result.stderr)}")
         digest = _sha256(pdf)
         key = f"files/{digest}.pdf"
         ctx.api.put_object(pdf, key, "application/pdf")
