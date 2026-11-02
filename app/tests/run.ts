@@ -22,6 +22,7 @@ import { paragraphs, tidy } from "../src/lib/transcriptImport";
 import { registerCssVarTests } from "./test_css_vars";
 import { registerProgressTests } from "./test_progress";
 import { registerSheetRouteTests } from "./test_sheet";
+import { registerJobLogicTests } from "./test_job_logic";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -38,6 +39,7 @@ const fixtures = JSON.parse(readFileSync(new URL("../../shared/title-fixtures.js
 registerCssVarTests(test);
 registerProgressTests(test);
 registerSheetRouteTests(test);
+registerJobLogicTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);

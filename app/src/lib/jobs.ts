@@ -731,3 +731,167 @@ export async function saveEntry(app: ApplicationRow, entry: ApplicationEventRow,
   const events = await db.application_events.where("application_id").equals(app.id).toArray();
   await commit(entryEditChanges(app, events, entry, edit));
 }
+
+// Pure helper functions for Milestone 5: dirty patch calculation, validation,
+// conflict detection, and timeline additions/deletions.
+
+export function computeApplicationPatch(
+  initial: ApplicationRow,
+  current: Partial<ApplicationRow>,
+): Partial<ApplicationRow> {
+  const patch: Partial<ApplicationRow> = {};
+  for (const [key, val] of Object.entries(current)) {
+    const k = key as keyof ApplicationRow;
+    const initialVal = initial[k];
+    if (val !== undefined && val !== initialVal) {
+      (patch as Record<string, unknown>)[k] = val;
+    }
+  }
+  return patch;
+}
+
+export interface ApplicationValidation {
+  valid: boolean;
+  errors: {
+    employer?: string;
+    applied?: string;
+    next_deadline?: string;
+  };
+}
+
+export function validateApplication(fields: {
+  employer: string;
+  role?: string | null;
+  applied?: string | null;
+  next_deadline?: string | null;
+}): ApplicationValidation {
+  const errors: ApplicationValidation["errors"] = {};
+  if (!fields.employer || !fields.employer.trim()) {
+    errors.employer = "Employer is required";
+  }
+  const dateIso = /^\d{4}-\d{2}-\d{2}$/;
+  if (fields.applied && !dateIso.test(fields.applied)) {
+    errors.applied = "Applied date must be YYYY-MM-DD";
+  }
+  if (fields.next_deadline && !dateIso.test(fields.next_deadline)) {
+    errors.next_deadline = "Next deadline must be YYYY-MM-DD";
+  }
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+export function detectApplicationConflict(
+  initialModifiedAt: string | undefined,
+  currentModifiedAt: string | undefined,
+  dirtyKeys: (keyof ApplicationRow)[],
+  currentApp?: ApplicationRow,
+  initialApp?: ApplicationRow,
+): boolean {
+  if (!initialModifiedAt || !currentModifiedAt || initialModifiedAt === currentModifiedAt) {
+    return false;
+  }
+  if (!currentApp || !initialApp) {
+    return true;
+  }
+  for (const key of dirtyKeys) {
+    if (currentApp[key] !== initialApp[key]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function entryAddChanges(
+  app: ApplicationRow,
+  events: ApplicationEventRow[],
+  newEntry: { id?: string; stage: string; at: string },
+): { changes: Change[]; newStage: string } {
+  const entryId = newEntry.id || newId();
+  const eventRow: ApplicationEventRow = {
+    id: entryId,
+    application_id: app.id,
+    stage: newEntry.stage,
+    from_stage: null,
+    at: newEntry.at,
+    kind: "manual",
+    cleared_deadline: null,
+    modified_at: new Date().toISOString(),
+    seq: 0,
+    deleted: false,
+  };
+
+  const changes: Change[] = [
+    {
+      table: "application_events",
+      row: eventRow,
+    },
+  ];
+
+  const liveEvents = events.filter((e) => !e.deleted && e.application_id === app.id);
+  const updatedEvents = sortEvents([...liveEvents, eventRow]);
+  const latest = updatedEvents[updatedEvents.length - 1];
+  const newStage = latest ? latest.stage : newEntry.stage;
+
+  if (newStage !== app.stage) {
+    changes.push({
+      table: "applications",
+      row: { id: app.id, stage: newStage },
+      patch: true,
+    });
+  }
+
+  const firstApplied = firstAppliedEntry(updatedEvents);
+  if (firstApplied && firstApplied.stage === "applied" && entryDate(firstApplied.at) !== app.applied) {
+    changes.push({
+      table: "applications",
+      row: { id: app.id, applied: entryDate(firstApplied.at) },
+      patch: true,
+    });
+  }
+
+  return { changes, newStage };
+}
+
+export function entryDeleteChanges(
+  app: ApplicationRow,
+  events: ApplicationEventRow[],
+  entryId: string,
+): { changes: Change[]; restoredStage: string } {
+  const changes: Change[] = [
+    {
+      table: "application_events",
+      row: { id: entryId, deleted: true },
+      patch: true,
+    },
+  ];
+
+  const remaining = sortEvents(events.filter((e) => !e.deleted && e.application_id === app.id && e.id !== entryId));
+  const latest = remaining[remaining.length - 1];
+  const restoredStage = latest ? latest.stage : app.stage;
+
+  if (restoredStage !== app.stage) {
+    changes.push({
+      table: "applications",
+      row: { id: app.id, stage: restoredStage },
+      patch: true,
+    });
+  }
+
+  return { changes, restoredStage };
+}
+
+export async function addEntry(app: ApplicationRow, entry: { stage: string; at: string }): Promise<string> {
+  const events = await db.application_events.where("application_id").equals(app.id).toArray();
+  const entryId = newId();
+  const { changes } = entryAddChanges(app, events, { ...entry, id: entryId });
+  await commit(changes);
+  return entryId;
+}
+
+export async function deleteEntry(app: ApplicationRow, entryId: string): Promise<void> {
+  const events = await db.application_events.where("application_id").equals(app.id).toArray();
+  const { changes } = entryDeleteChanges(app, events, entryId);
+  await commit(changes);
+}
