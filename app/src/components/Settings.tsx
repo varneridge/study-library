@@ -2,7 +2,9 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useState } from "react";
 import { db } from "../lib/db";
 import { formatBytes, keepEverything, setKeepEverything } from "../lib/files";
-import { clearLocalData, pull, api } from "../lib/sync";
+import { cancelAllUploads } from "../lib/uploads";
+import { clearLocalData, describeFailedChange, isSyncExpired, pull, flush, pauseSync, resumeSync, api } from "../lib/sync";
+import { activeSession } from "../lib/recorder";
 import { loadBin } from "../lib/edits";
 import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames, useSetting } from "../lib/settings";
@@ -174,6 +176,7 @@ function Bin() {
 }
 
 export function Settings() {
+  const [restarting, setRestarting] = useState(false);
   const [keep, setKeep] = useState<boolean | null>(null);
   const [estimate, setEstimate] = useState<StorageEstimate | null>(null);
   const cached = useLiveQuery(async () => {
@@ -226,9 +229,15 @@ export function Settings() {
           <h2>Rejected changes</h2>
           <p className="small muted">The server turned these down. They are kept here so nothing disappears silently.</p>
           <ul className="list small">
-            {failed.slice(-20).map((f) => (
-              <li key={f.id} style={{ padding: "0.4rem 0" }}>{f.table} {f.row_id}: {f.error}</li>
-            ))}
+            {failed.slice(-20).map((f) => {
+              const cleanError = (f.error || "").replace(/\.+$/, "");
+              return (
+                <li key={f.id} style={{ padding: "0.4rem 0" }}>
+                  <span>{describeFailedChange(f.table)}</span>
+                  {cleanError && <details className="small muted"><summary>Details</summary>{cleanError}</details>}
+                </li>
+              );
+            })}
           </ul>
           <button className="quiet" onClick={() => db.failed.clear()}>Clear this list</button>
         </section>
@@ -252,14 +261,101 @@ export function Settings() {
           Removes the local copy and downloads everything again. Unsaved edits on this device are lost.
         </p>
         <button
-          className="button"
+          className="button danger"
+          disabled={restarting}
           onClick={async () => {
-            if (!confirm("Remove the local copy and download everything again?")) return;
-            await clearLocalData();
-            await pull();
+            if (restarting) return;
+            if (!navigator.onLine) {
+              showToast("You are offline. Connect to the internet before restarting.");
+              return;
+            }
+            if (isSyncExpired()) {
+              showToast("Sign in again before restarting.");
+              return;
+            }
+            setRestarting(true);
+            let didPause = false;
+            try {
+              if (activeSession() !== null) {
+                showToast("A recording is active. Finish or cancel the recording first.");
+                return;
+              }
+              const chunkCount = await db.chunks.count();
+              if (chunkCount > 0) {
+                showToast("Audio is still being saved. Wait a moment and try again.");
+                return;
+              }
+              const outboxCount = await db.outbox.count();
+              const uploadsCount = await db.uploads.count();
+              if (outboxCount > 0 || uploadsCount > 0) {
+                await flush();
+              }
+              const initialPending = (await db.outbox.count()) + (await db.uploads.count());
+              if (initialPending > 0) {
+                const proceed = await confirmAction({
+                  title: "Unsaved changes on this device",
+                  body: initialPending === 1
+                    ? "1 unsent edit or upload has not reached the server yet and will be lost forever."
+                    : `${initialPending} unsent edits or uploads have not reached the server yet and will be lost forever.`,
+                  confirm: "Discard and start again",
+                  danger: true,
+                });
+                if (!proceed) return;
+              } else {
+                const ok = await confirmAction({
+                  title: "Start again on this device?",
+                  body: "Removes the local database and downloads everything fresh from the server.",
+                  confirm: "Download everything again",
+                  danger: true,
+                });
+                if (!ok) return;
+              }
+
+              await pauseSync();
+              didPause = true;
+
+              const postPausePending = (await db.outbox.count()) + (await db.uploads.count());
+              if (postPausePending > initialPending) {
+                const diff = postPausePending - initialPending;
+                const proceed = await confirmAction({
+                  title: "New changes arrived",
+                  body: diff === 1
+                    ? "1 new change was queued just now. Discard and download a fresh copy anyway?"
+                    : `${diff} new changes were queued just now. Discard and download a fresh copy anyway?`,
+                  confirm: "Discard and start again",
+                  danger: true,
+                });
+                if (!proceed) return;
+              }
+
+              try {
+                await api("/api/ping");
+              } catch {
+                showToast("The server cannot be reached right now, so nothing was removed.");
+                return;
+              }
+
+              await cancelAllUploads();
+              await clearLocalData();
+              resumeSync();
+              didPause = false;
+              const ok = await pull({ join: true });
+              if (ok) {
+                showToast("Downloaded fresh copy from the server.");
+              } else {
+                showToast("Could not download everything. Check your internet connection.");
+              }
+            } catch (err) {
+              showToast(err instanceof Error ? err.message : "Could not restart on this device.");
+            } finally {
+              if (didPause) {
+                resumeSync();
+              }
+              setRestarting(false);
+            }
           }}
         >
-          Download everything again
+          {restarting ? "Downloading…" : "Download everything again"}
         </button>
       </section>
     </div>

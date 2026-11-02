@@ -654,16 +654,28 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     return map;
   }, [data?.highlights]);
 
+  const quoteNotices = useRef<Map<string, number>>(new Map());
   const onQuoteRemoved = useCallback((hid: string) => {
     const h = (data?.highlights ?? []).find((x) => x.id === hid);
-    if (h) void withUndo("Highlight removed from the page too.", deleteRows([{ table: "highlights", row: h }]));
+    if (h) {
+      void withUndo("Highlight removed from the page too.", deleteRows([{ table: "highlights", row: h }])).then((id) => {
+        if (id !== undefined) {
+          quoteNotices.current.set(hid, id);
+          setTimeout(() => quoteNotices.current.delete(hid), 9000);
+        }
+      });
+    }
   }, [data?.highlights]);
 
   const onQuoteRestored = useCallback(async (hid: string) => {
+    const toastId = quoteNotices.current.get(hid);
+    if (toastId !== undefined) {
+      dismissToast(toastId);
+      quoteNotices.current.delete(hid);
+    }
     const h = (await db.highlights.get(hid)) as HighlightRow | undefined;
     if (h?.deleted) {
       await commit([{ table: "highlights", row: { ...h, deleted: false } }]);
-      dismissToast();
     }
   }, []);
 

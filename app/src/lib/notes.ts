@@ -12,10 +12,77 @@ export function targetKey(target: NoteTarget): string {
   return Object.entries(target)[0].join(":");
 }
 
+export function pickPrimaryNote(notes: NoteRow[], target: NoteTarget): NoteRow | null {
+  if (notes.length === 0) return null;
+  const canonicalId = `note:${targetKey(target)}`;
+  return notes.find((n) => n.id === canonicalId) ?? [...notes].sort((a, b) => a.id.localeCompare(b.id))[0];
+}
+
 export async function findNote(target: NoteTarget): Promise<NoteRow | null> {
   const [field, value] = Object.entries(target)[0];
   const notes = (await db.notes.where(field).equals(value).toArray()).filter((n) => !n.deleted);
-  return notes.sort((a, b) => a.modified_at.localeCompare(b.modified_at))[0] ?? null;
+  return pickPrimaryNote(notes, target);
+}
+
+// When two devices create notes offline for the same target, merge blocks into one note.
+// Note: initial queries read outside a transaction; concurrent merges are safe because
+// commit() runs in a single transaction and skips writes that produce no change.
+export async function mergeDuplicateNotes(target: NoteTarget): Promise<void> {
+  const [field, value] = Object.entries(target)[0];
+  const allNotes = await db.notes.where(field).equals(value).toArray();
+  const liveNotes = allNotes.filter((n) => !n.deleted);
+
+  // Find notes that either are active or are marked deleted but still hold undeleted blocks.
+  const notesWithBlocks: NoteRow[] = [];
+  for (const n of allNotes) {
+    if (!n.deleted) {
+      notesWithBlocks.push(n);
+    } else {
+      const liveBlocks = (await db.note_blocks.where("note_id").equals(n.id).toArray()).filter((b) => !b.deleted);
+      if (liveBlocks.length > 0) {
+        notesWithBlocks.push(n);
+      }
+    }
+  }
+
+  if (notesWithBlocks.length <= 1) return;
+
+  const primary = pickPrimaryNote(liveNotes, target) ?? pickPrimaryNote(notesWithBlocks, target)!;
+  const duplicates = notesWithBlocks.filter((n) => n.id !== primary.id);
+  const changes: Change[] = [];
+  if (primary.deleted) {
+    changes.push({
+      table: "notes",
+      row: { id: primary.id, deleted: false },
+      patch: true,
+    });
+  }
+  const primaryBlocks = await noteBlocks(primary.id);
+  let lastPos = primaryBlocks.at(-1)?.position ?? null;
+
+  for (const dup of duplicates) {
+    const dupBlocks = (await db.note_blocks.where("note_id").equals(dup.id).toArray())
+      .filter((b) => !b.deleted)
+      .sort(byPosition);
+    for (const b of dupBlocks) {
+      lastPos = keyBetween(lastPos, null);
+      changes.push({
+        table: "note_blocks",
+        row: { id: b.id, note_id: primary.id, position: lastPos },
+        patch: true,
+      });
+    }
+    if (!dup.deleted) {
+      changes.push({
+        table: "notes",
+        row: { id: dup.id, deleted: true },
+        patch: true,
+      });
+    }
+  }
+  if (changes.length > 0) {
+    await commit(changes);
+  }
 }
 
 export async function noteBlocks(noteId: string): Promise<NoteBlockRow[]> {
@@ -93,7 +160,7 @@ export async function saveNote(
   if (!noteId && isEmpty(blocks)) return null;
   const changes: Change[] = [];
   const existing = noteId ? await db.notes.get(noteId) : await findNote(target);
-  const id = existing?.id ?? noteId ?? newId();
+  const id = existing?.id ?? noteId ?? `note:${targetKey(target)}`;
   if (!existing) {
     changes.push({
       table: "notes",

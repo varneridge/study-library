@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { closeShortcuts, dismissToast, useCloseOnBack, useOverlays } from "../lib/ui";
+import { Icon } from "./icons";
 
 const SHORTCUTS: { group: string; keys: [string, string][] }[] = [
   { group: "Anywhere", keys: [["Ctrl K", "Go to a module, week, reading or question"], ["/", "Search"], ["?", "These shortcuts"]] },
-  { group: "On a week", keys: [["[", "Previous week"], ["]", "Next week"], ["Space, arrows, Space", "Pick up a focused reading and move it"]] },
+  { group: "On a week", keys: [["[", "Previous week"], ["]", "Next week"]] },
   { group: "In the job search", keys: [["N", "Add an application"], ["/", "Find an application"], ["Esc", "Clear the search"]] },
   {
     group: "Reading",
@@ -73,6 +74,16 @@ function Dialog() {
       triggerRef.current = document.activeElement as HTMLElement | null;
       setTyped("");
       dialog.showModal();
+      requestAnimationFrame(() => {
+        if (!dialog.open) return;
+        if (ask.typed) {
+          dialog.querySelector<HTMLInputElement>("input")?.focus();
+        } else if (ask.danger) {
+          dialog.querySelector<HTMLButtonElement>("[data-role=cancel]")?.focus();
+        } else {
+          dialog.querySelector<HTMLButtonElement>("[data-role=confirm]")?.focus();
+        }
+      });
     }
     if (!ask && dialog.open) {
       dialog.close();
@@ -108,8 +119,19 @@ function Dialog() {
             </label>
           )}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: "1.25rem" }}>
-            <button type="button" className="quiet" onClick={() => ask.resolve(false)}>Cancel</button>
-            <button className={`button ${ask.danger ? "danger" : "primary"}`} disabled={!ready} autoFocus={!ask.typed}>
+            <button
+              type="button"
+              data-role="cancel"
+              className="quiet"
+              onClick={() => ask.resolve(false)}
+            >
+              Cancel
+            </button>
+            <button
+              data-role="confirm"
+              className={`button ${ask.danger ? "danger" : "primary"}`}
+              disabled={!ready}
+            >
               {ask.confirm}
             </button>
           </div>
@@ -122,7 +144,7 @@ function Dialog() {
 // The live region is always present, so screen readers announce each notice.
 // If a modal dialog is open, the toast portals into the topmost open dialog so it stays interactive in the top layer.
 export function ToastView() {
-  const { toast } = useOverlays();
+  const { toasts } = useOverlays();
   const [target, setTarget] = useState<HTMLDialogElement | null>(null);
 
   useLayoutEffect(() => {
@@ -139,19 +161,23 @@ export function ToastView() {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
 
     return () => observer.disconnect();
-  }, [toast]);
-
-  if (!toast) return null;
+  }, [toasts.length]);
 
   const content = (
     <div className="toast-region" aria-live="polite">
-      <div className="toast" key={toast.id}>
-        <span>{toast.message}</span>
-        {toast.action && (
-          <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>{toast.action.label}</button>
-        )}
-        <button className="quiet" aria-label="Dismiss" onClick={dismissToast}>×</button>
-      </div>
+      {toasts.map((item) => (
+        <div className="toast" key={item.id}>
+          <span>{item.message}</span>
+          {item.action && (
+            <button className="link" onClick={() => { void item.action!.run(); dismissToast(item.id); }}>
+              {item.action.label}
+            </button>
+          )}
+          <button className="quiet" aria-label="Dismiss" onClick={() => dismissToast(item.id)}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 

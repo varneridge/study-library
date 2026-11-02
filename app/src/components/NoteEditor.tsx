@@ -19,7 +19,7 @@ import { useDark } from "../lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { colourLabel, useColourNames } from "../lib/settings";
-import { blockText, findNote, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
+import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
 import { href, navigate } from "../lib/router";
 import { fullTitle, shortTitle } from "../lib/titles";
 import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib/types";
@@ -499,6 +499,9 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
 
 export default function NoteEditor(props: Props) {
   const key = targetKey(props.target);
+  useEffect(() => {
+    void mergeDuplicateNotes(props.target);
+  }, [key]);
   const live = useLiveQuery(async () => {
     const note = await findNote(props.target);
     return { note, rows: note ? await noteBlocks(note.id) : [] };

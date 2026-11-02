@@ -1,5 +1,5 @@
 import { convertToDissertation } from "../lib/sections";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { blockText } from "../lib/notes";
 import { deleteModule, setReadingWeek, withUndo } from "../lib/edits";
 import { TERMS, WEEK_NUMBERS, weekCode } from "../lib/modules";
@@ -45,6 +45,11 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
   const [pictureBusy, setPictureBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickSeq = useRef(0);
+  useEffect(() => {
+    return () => {
+      pickSeq.current += 1;
+    };
+  }, []);
 
   async function onPickPicture(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -58,9 +63,8 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
     try {
       const key = await uploadModulePicture(file);
       if (current !== pickSeq.current) return;
-      await update("modules", module.id, { image_key: key });
       setImageKey(key);
-      showToast("Picture updated.");
+      showToast("Picture chosen. Save to keep changes.");
     } catch (err) {
       if (current === pickSeq.current) {
         showToast(err instanceof Error ? err.message : "The picture could not be added.");
@@ -72,35 +76,22 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
     }
   }
 
-  async function removePicture() {
+  function removePicture() {
     if (!imageKey) return;
-    pickSeq.current += 1;
-    setPictureBusy(true);
-    const prev = imageKey;
-    try {
-      setImageKey(null);
-      await update("modules", module.id, { image_key: null });
-      showToast("Picture removed.", {
-        label: "Undo",
-        run: async () => {
-          await update("modules", module.id, { image_key: prev });
-          setImageKey(prev);
-        },
-      });
-    } finally {
-      setPictureBusy(false);
-    }
+    setImageKey(null);
+    showToast("Picture cleared. Save to keep changes.");
   }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (busy || !code.trim()) return;
+    if (busy || pictureBusy || !code.trim()) return;
     setBusy(true);
     try {
       await update("modules", module.id, {
         code: code.trim(),
         title: title.trim() || null,
         ...(description !== original ? { description: toBlocks(description) } : {}),
+        ...(imageKey !== (module.image_key ?? null) ? { image_key: imageKey } : {}),
       });
       onClose();
     } finally {
@@ -148,7 +139,7 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
           placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
       </label>
       <div className="row">
-        <button className="button primary" disabled={busy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
+        <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
         <button type="button" className="quiet" onClick={onClose} disabled={busy}>Cancel</button>
       </div>
 

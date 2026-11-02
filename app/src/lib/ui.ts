@@ -19,26 +19,63 @@ export interface Ask {
   resolve: (ok: boolean) => void;
 }
 
-let toast: Toast | null = null;
+let toasts: Toast[] = [];
 let shortcuts = false;
 let ask: Ask | null = null;
 let counter = 0;
-let timer: ReturnType<typeof setTimeout> | null = null;
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
-export function showToast(message: string, action?: Toast["action"], ms = 8000): void {
+export function showToast(message: string, action?: Toast["action"], ms = 8000): number {
+  const existing = toasts.find((t) => t.message === message);
+  if (existing && !action && !existing.action) {
+    const prevTimer = toastTimers.get(existing.id);
+    if (prevTimer) clearTimeout(prevTimer);
+    const newTimer = setTimeout(() => {
+      dismissToast(existing.id);
+    }, ms);
+    toastTimers.set(existing.id, newTimer);
+    notify();
+    return existing.id;
+  }
   counter += 1;
-  toast = { id: counter, message, action };
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => { toast = null; notify(); }, ms);
+  const id = counter;
+  const item: Toast = { id, message, action };
+  if (toasts.length >= 3) {
+    const candidateIndex = toasts.findIndex((t) => !t.action);
+    const evictIndex = candidateIndex !== -1 ? candidateIndex : 0;
+    const evicted = toasts[evictIndex];
+    const evictedTimer = toastTimers.get(evicted.id);
+    if (evictedTimer) clearTimeout(evictedTimer);
+    toastTimers.delete(evicted.id);
+    toasts.splice(evictIndex, 1);
+  }
+  toasts.push(item);
+  const timer = setTimeout(() => {
+    dismissToast(id);
+  }, ms);
+  toastTimers.set(id, timer);
+  notify();
+  return id;
+}
+
+export function dismissToast(id?: number): void {
+  if (id !== undefined) {
+    const timer = toastTimers.get(id);
+    if (timer) clearTimeout(timer);
+    toastTimers.delete(id);
+    toasts = toasts.filter((t) => t.id !== id);
+  } else {
+    toastTimers.forEach((t) => clearTimeout(t));
+    toastTimers.clear();
+    toasts = [];
+  }
   notify();
 }
 
-export function dismissToast(): void {
-  toast = null;
-  if (timer) clearTimeout(timer);
-  notify();
+export function getToasts(): Toast[] {
+  return toasts;
 }
 
 export function confirmAction(options: Omit<Ask, "resolve">): Promise<boolean> {
@@ -62,14 +99,14 @@ export function closeShortcuts(): void {
   notify();
 }
 
-export function useOverlays(): { toast: Toast | null; ask: Ask | null; shortcuts: boolean } {
+export function useOverlays(): { toast: Toast | null; toasts: Toast[]; ask: Ask | null; shortcuts: boolean } {
   const [, force] = useState(0);
   useEffect(() => {
     const listener = () => force((n) => n + 1);
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   }, []);
-  return { toast, ask, shortcuts };
+  return { toast: toasts[toasts.length - 1] ?? null, toasts, ask, shortcuts };
 }
 
 // Sets the browser tab's title for the screen on show.
@@ -86,7 +123,7 @@ export function typing(event: KeyboardEvent): boolean {
   return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 }
 
-// True on a phone-width screen, where some actions move into a menu.
+// True on a phone-width screen, where some actions move into a menu or sheet.
 export function useNarrow(query = "(max-width: 34rem)"): boolean {
   const [narrow, setNarrow] = useState(() => window.matchMedia?.(query).matches ?? false);
   useEffect(() => {

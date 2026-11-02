@@ -57,39 +57,89 @@ export async function queueUpload(input: Omit<PendingUpload, "id" | "status" | "
   void pump();
 }
 
+const activeUploadXhrs = new Map<string, XMLHttpRequest>();
+const cancelledUploadIds = new Set<string>();
+
+// If undone while a complete request was in flight, the first finish commit
+// and the restored upload commit the same file row safely.
+export function uncancelUpload(uploadId: string): void {
+  cancelledUploadIds.delete(uploadId);
+}
+
+function abortUpload(uploadId: string): void {
+  cancelledUploadIds.add(uploadId);
+  const xhr = activeUploadXhrs.get(uploadId);
+  if (xhr) {
+    try { xhr.abort(); } catch {}
+    activeUploadXhrs.delete(uploadId);
+  }
+}
+
+export async function cancelUploadsForItem(itemId: string): Promise<PendingUpload[]> {
+  const pending = await db.uploads.where("item_id").equals(itemId).toArray();
+  for (const u of pending) {
+    abortUpload(u.id);
+  }
+  await db.uploads.where("item_id").equals(itemId).delete();
+  return pending;
+}
+
+export async function cancelAllUploads(): Promise<void> {
+  const all = await db.uploads.toArray();
+  for (const u of all) {
+    abortUpload(u.id);
+  }
+  await db.uploads.clear();
+}
+
 // XMLHttpRequest reports upload progress, which fetch does not.
-function put(url: string, body: Blob, mime: string | null, onProgress: (fraction: number) => void): Promise<string> {
+function put(url: string, body: Blob, mime: string | null, onProgress: (fraction: number) => void, uploadId?: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (uploadId && cancelledUploadIds.has(uploadId)) {
+      reject(new Error("upload cancelled"));
+      return;
+    }
     const xhr = new XMLHttpRequest();
+    if (uploadId) activeUploadXhrs.set(uploadId, xhr);
     xhr.open("PUT", url);
     if (mime) xhr.setRequestHeader("content-type", mime);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);
     };
     xhr.onload = () => {
+      if (uploadId) activeUploadXhrs.delete(uploadId);
       if (xhr.status >= 200 && xhr.status < 300 && !xhr.responseURL.includes("cloudflareaccess.com")) resolve(xhr.responseText);
       else reject(new Error(`upload returned ${xhr.status}`));
     };
-    xhr.onerror = () => reject(new Error("network error"));
+    xhr.onerror = () => {
+      if (uploadId) activeUploadXhrs.delete(uploadId);
+      reject(new Error("network error"));
+    };
+    xhr.onabort = () => {
+      if (uploadId) activeUploadXhrs.delete(uploadId);
+      reject(new Error("upload cancelled"));
+    };
     xhr.send(body);
   });
 }
 
 async function send(upload: PendingUpload): Promise<string> {
+  if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
   const report = (fraction: number) => {
     progress.set(upload.id, fraction);
     notify();
   };
   if (upload.kind === "picture") {
     const filename = upload.name.replace(/^pictures\//, "");
-    return JSON.parse(await put(`/api/pictures/${filename}`, upload.blob, upload.mime, report)).key;
+    return JSON.parse(await put(`/api/pictures/${filename}`, upload.blob, upload.mime, report, upload.id)).key;
   }
   if (upload.bytes <= PART_BYTES) {
-    return JSON.parse(await put(`/api/files/${upload.sha256}`, upload.blob, upload.mime, report)).key;
+    return JSON.parse(await put(`/api/files/${upload.sha256}`, upload.blob, upload.mime, report, upload.id)).key;
   }
 
   let state = upload.multipart;
   if (!state) {
+    if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
     const started = await (await api("/api/uploads", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -97,17 +147,21 @@ async function send(upload: PendingUpload): Promise<string> {
     })).json();
     if (started.existed) return started.key;
     state = { key: started.key, upload_id: started.upload_id, parts: [] };
+    if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
     await db.uploads.update(upload.id, { multipart: state });
   }
   const total = Math.ceil(upload.bytes / PART_BYTES);
   for (let number = 1; number <= total; number += 1) {
+    if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
     if (state.parts.some((p) => p.part_number === number)) continue;
     const body = upload.blob.slice((number - 1) * PART_BYTES, Math.min(number * PART_BYTES, upload.bytes));
     const url = `/api/uploads/${encodeURIComponent(state.upload_id)}/${number}?key=${encodeURIComponent(state.key)}`;
-    const part = JSON.parse(await put(url, body, null, (f) => report((number - 1 + f) / total)));
+    const part = JSON.parse(await put(url, body, null, (f) => report((number - 1 + f) / total), upload.id));
+    if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
     state = { ...state, parts: [...state.parts, part] };
     await db.uploads.update(upload.id, { multipart: state });
   }
+  if (cancelledUploadIds.has(upload.id)) throw new Error("upload cancelled");
   const done = await (await api(`/api/uploads/${encodeURIComponent(state.upload_id)}/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -117,46 +171,58 @@ async function send(upload: PendingUpload): Promise<string> {
 }
 
 async function finish(upload: PendingUpload, key: string) {
-  if (upload.kind === "picture") {
+  if (cancelledUploadIds.has(upload.id)) return;
+  await db.transaction("rw", [db.uploads, db.files, db.items, db.recordings, db.outbox], async () => {
+    // If the upload was cancelled or undone while in flight, do not commit.
+    if (cancelledUploadIds.has(upload.id)) return;
+    const current = await db.uploads.get(upload.id);
+    if (!current) return;
+    if (upload.kind === "picture") {
+      await db.uploads.delete(upload.id);
+      return;
+    }
+    const file = {
+      table: "files" as const,
+      row: {
+        id: upload.file_id, sha256: upload.sha256, r2_key: key, mime: upload.mime, bytes: upload.bytes,
+        original_name: upload.name, page_count: null,
+        text_status: upload.recording_id ? ("ready" as const) : ("pending" as const),
+      },
+    };
+    // The file row goes first, so nothing ever points at a missing file.
+    if (upload.recording_id) {
+      const recording = await db.recordings.get(upload.recording_id);
+      await commit([
+        file,
+        ...(recording && !recording.deleted
+          ? [{ table: "recordings" as const, row: { ...recording, file_id: upload.file_id, status: "uploaded" } }]
+          : []),
+      ]);
+    } else {
+      const item = await db.items.get(upload.item_id);
+      await commit([file, ...(item && !item.deleted ? [{ table: "items" as const, row: { ...item, file_id: upload.file_id } }] : [])]);
+    }
     await db.uploads.delete(upload.id);
-    return;
-  }
-  const file = {
-    table: "files" as const,
-    row: {
-      id: upload.file_id, sha256: upload.sha256, r2_key: key, mime: upload.mime, bytes: upload.bytes,
-      original_name: upload.name, page_count: null,
-      text_status: upload.recording_id ? ("ready" as const) : ("pending" as const),
-    },
-  };
-  // The file row goes first, so nothing ever points at a missing file.
-  if (upload.recording_id) {
-    const recording = await db.recordings.get(upload.recording_id);
-    await commit([
-      file,
-      ...(recording && !recording.deleted
-        ? [{ table: "recordings" as const, row: { ...recording, file_id: upload.file_id, status: "uploaded" } }]
-        : []),
-    ]);
-  } else {
-    const item = await db.items.get(upload.item_id);
-    await commit([file, ...(item && !item.deleted ? [{ table: "items" as const, row: { ...item, file_id: upload.file_id } }] : [])]);
-  }
-  await db.uploads.delete(upload.id);
+  });
 }
 
 export async function pump(): Promise<void> {
   if (!navigator.onLine) return;
   while (running < CONCURRENCY) {
-    const next = await db.uploads.where("status").equals("queued").first();
+    const next = await db.transaction("rw", db.uploads, async () => {
+      const queued = await db.uploads.where("status").equals("queued").first();
+      if (!queued) return null;
+      await db.uploads.update(queued.id, { status: "uploading" });
+      return queued;
+    });
     if (!next) return;
-    await db.uploads.update(next.id, { status: "uploading" });
     running += 1;
     void (async () => {
       try {
         const key = await send(next);
         await finish(next, key);
       } catch (error) {
+        cancelledUploadIds.delete(next.id);
         const attempts = next.attempts + 1;
         await db.uploads.update(next.id, {
           status: attempts >= 5 ? "failed" : "queued",

@@ -26,6 +26,7 @@ export interface PlannedFile {
   docDate: string;
   sha: string | null;
   existingFileId: string | null;
+  existingOriginalFileId?: string | null;
   sessionId?: string | null;
 }
 
@@ -67,12 +68,26 @@ export function planFile(file: File, weeks: WeekRow[], forcedWeek?: WeekRow): Pl
   };
 }
 
+export async function resolveExistingFile(sha: string): Promise<{ fileId: string; originalFileId: string | null } | null> {
+  const existing = (await db.files.where("sha256").equals(sha).toArray()).find((f) => !f.deleted);
+  if (!existing || existing.text_status === "failed") return null;
+  if (existing.text_status === "converted") {
+    const pdf = await db.files.get(`${existing.id}:pdf`);
+    if (pdf && !pdf.deleted) {
+      return { fileId: pdf.id, originalFileId: existing.id };
+    }
+    return null;
+  }
+  return { fileId: existing.id, originalFileId: null };
+}
+
 export async function hashPlans(plans: PlannedFile[], onEach?: () => void): Promise<void> {
-  const files = (await db.files.toArray()).filter((f) => !f.deleted);
   for (const plan of plans) {
     if (plan.kind === "skip" || plan.sha) continue;
     plan.sha = await sha256(plan.file);
-    plan.existingFileId = files.find((f) => f.sha256 === plan.sha)?.id ?? null;
+    const resolved = await resolveExistingFile(plan.sha);
+    plan.existingFileId = resolved?.fileId ?? null;
+    plan.existingOriginalFileId = resolved?.originalFileId ?? null;
     onEach?.();
   }
 }
@@ -151,7 +166,7 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
         year,
         doc_date: docDate,
         file_id: plan.existingFileId,
-        original_file_id: null,
+        original_file_id: plan.existingOriginalFileId ?? null,
         tray_module_id: week ? null : module.id,
         zotero_key: null,
         last_page: null,

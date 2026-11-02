@@ -25,6 +25,7 @@ import { registerCssVarTests } from "./test_css_vars";
 import { registerProgressTests } from "./test_progress";
 import { registerSheetRouteTests } from "./test_sheet";
 import { registerJobLogicTests } from "./test_job_logic";
+import { registerSafetyTests } from "./test_safety";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -42,6 +43,7 @@ registerCssVarTests(test);
 registerProgressTests(test);
 registerSheetRouteTests(test);
 registerJobLogicTests(test);
+registerSafetyTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);

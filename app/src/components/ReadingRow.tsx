@@ -6,8 +6,9 @@ import { Link } from "../App";
 import type { ReadingView } from "../lib/library";
 import { weekCode, byWeek, titleAfter } from "../lib/modules";
 import { commit, newId, retryFile, update } from "../lib/sync";
+import { resolveExistingFile } from "../lib/importing";
 import { fullTitle, shortTitle, titleParts, chicagoBibliography } from "../lib/titles";
-import { mimeFor, onUploadProgress, queueUpload, retryUpload, sha256, uploadProgress } from "../lib/uploads";
+import { cancelUploadsForItem, mimeFor, onUploadProgress, pump, queueUpload, retryUpload, sha256, uncancelUpload, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
 import { moveToTray, moveToWeek, nudge, placeInWeek } from "../lib/moves";
 import { counts, citable } from "../lib/progress";
@@ -262,14 +263,62 @@ export async function replaceFile(view: ReadingView, chosen: File) {
     if (!ok) return;
   }
   const sha = await sha256(file);
-  const existing = (await db.files.where("sha256").equals(sha).toArray()).find((f) => !f.deleted);
-  if (existing) {
-    await update("items", view.item.id, { file_id: existing.id, original_file_id: null, last_page: null });
+  const resolved = await resolveExistingFile(sha);
+  const prevFileId = view.item.file_id;
+  const prevOriginalFileId = view.item.original_file_id;
+  const prevLastPage = view.item.last_page;
+  const prevLastSpot = view.item.last_spot;
+  let newFileId: string | null = null;
+
+  // Abort and remove any pending uploads for this item, remembering them so Undo can restore them.
+  const pendingUploads = await cancelUploadsForItem(view.item.id);
+
+  if (resolved) {
+    await update("items", view.item.id, {
+      file_id: resolved.fileId,
+      original_file_id: resolved.originalFileId,
+      last_page: null,
+      last_spot: null,
+    });
   } else {
-    await update("items", view.item.id, { original_file_id: null, last_page: null });
-    await queueUpload({ file_id: newId(), item_id: view.item.id, name: file.name, mime, sha256: sha, bytes: file.size, blob: file });
+    newFileId = newId();
+    await update("items", view.item.id, {
+      file_id: null,
+      original_file_id: null,
+      last_page: null,
+      last_spot: null,
+    });
+    await queueUpload({
+      file_id: newFileId,
+      item_id: view.item.id,
+      name: file.name,
+      mime,
+      sha256: sha,
+      bytes: file.size,
+      blob: file,
+    });
   }
-  showToast("File replaced.");
+  showToast("File replaced.", {
+    label: "Undo",
+    run: async () => {
+      if (newFileId) {
+        await cancelUploadsForItem(view.item.id);
+      }
+      if (pendingUploads.length > 0) {
+        pendingUploads.forEach((u) => uncancelUpload(u.id));
+        await db.uploads.bulkPut(
+          pendingUploads.map((u) => ({ ...u, status: "queued" as const, attempts: 0 }))
+        );
+        void pump();
+      }
+      await update("items", view.item.id, {
+        file_id: prevFileId,
+        original_file_id: prevOriginalFileId,
+        last_page: prevLastPage,
+        last_spot: prevLastSpot,
+      });
+    },
+  });
 }
 
 export async function download(view: ReadingView) {

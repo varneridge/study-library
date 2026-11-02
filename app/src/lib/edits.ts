@@ -299,10 +299,10 @@ export async function moveSession(session: SessionRow, direction: -1 | 1): Promi
 }
 
 // Deletes, then offers to undo at the foot of the screen.
-export async function withUndo(message: string, run: Promise<Deleted>): Promise<void> {
+export async function withUndo(message: string, run: Promise<Deleted>): Promise<number | undefined> {
   const deleted = await run;
-  if (!deleted.refs.length) return;
-  showToast(message, { label: "Undo", run: () => undo(deleted) });
+  if (!deleted.refs.length) return undefined;
+  return showToast(message, { label: "Undo", run: () => undo(deleted) });
 }
 
 // Deletes a session from wherever it is shown, asking first only if it has

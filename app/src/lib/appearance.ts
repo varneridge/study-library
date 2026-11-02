@@ -36,9 +36,11 @@ export function applyAppearance(value: Appearance): void {
 }
 
 // Following the device means changing when the device does.
-window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (storedAppearance() === "system") applyAppearance("system");
-});
+if (typeof window !== "undefined") {
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (storedAppearance() === "system") applyAppearance("system");
+  });
+}
 
 export async function chooseAppearance(value: Appearance): Promise<void> {
   applyAppearance(value);

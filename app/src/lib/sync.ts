@@ -138,6 +138,10 @@ export function subscribeSync(listener: (s: SyncState) => void): () => void {
   return () => listeners.delete(listener);
 }
 
+export function isSyncExpired(): boolean {
+  return state.expired;
+}
+
 function reportError(error: unknown) {
   if (error instanceof SessionExpired) return;
   setState({ error: error instanceof Error ? error.message : String(error) });
@@ -145,11 +149,17 @@ function reportError(error: unknown) {
 
 // Pushing
 
+let paused = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let flushAgain = false;
 
+export function isSyncPaused(): boolean {
+  return paused;
+}
+
 export function scheduleFlush(delay = 300): void {
+  if (paused) return;
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = setTimeout(() => void flush(), delay);
 }
@@ -158,6 +168,27 @@ interface Failure {
   table: string;
   id: string | null;
   error: string;
+}
+
+export function describeFailedChange(table: string): string {
+  const map: Record<string, string> = {
+    modules: "a module",
+    weeks: "a week",
+    sessions: "a session",
+    files: "a file",
+    items: "a reading",
+    questions: "a question",
+    highlights: "a highlight",
+    notes: "a note",
+    note_blocks: "part of a note",
+    recordings: "a recording",
+    applications: "an application",
+    application_events: "a job application event",
+    week_items: "a reading in a week",
+    settings: "a setting",
+  };
+  const noun = map[table];
+  return noun ? `A change to ${noun} could not be saved.` : "A change could not be saved.";
 }
 
 type Rows = Partial<Record<TableName, Tables[TableName][]>>;
@@ -180,7 +211,7 @@ export function sendNow<T extends TableName>(table: T, row: Tables[T], cols: (ke
 }
 
 export async function flush(): Promise<void> {
-  if (!navigator.onLine || state.expired) return;
+  if (paused || !navigator.onLine || state.expired) return;
   if (flushing) {
     // An edit made during a push is sent as soon as that push finishes.
     flushAgain = true;
@@ -219,7 +250,7 @@ export async function flush(): Promise<void> {
   } finally {
     flushing = false;
     setState({ busy: false });
-    if (flushAgain) {
+    if (flushAgain && !paused) {
       flushAgain = false;
       scheduleFlush(0);
     }
@@ -231,8 +262,10 @@ export async function flush(): Promise<void> {
 let pullTimer: ReturnType<typeof setTimeout> | null = null;
 let pulling = false;
 let pullAgain = false;
+let currentPull: Promise<boolean> | null = null;
 
 export function schedulePull(delay = 500): void {
+  if (paused) return;
   if (pullTimer) clearTimeout(pullTimer);
   pullTimer = setTimeout(() => void pull(), delay);
 }
@@ -249,37 +282,44 @@ async function merge(table: TableName, rows: Tables[TableName][]): Promise<void>
   });
 }
 
-export async function pull(): Promise<void> {
-  if (!navigator.onLine || state.expired) return;
-  if (pulling) {
-    pullAgain = true;
-    return;
+export async function pull(options: { join?: boolean } = {}): Promise<boolean> {
+  if (paused || !navigator.onLine || state.expired) return false;
+  if (currentPull) {
+    if (!options.join) pullAgain = true;
+    return currentPull;
   }
   pulling = true;
-  try {
-    let since = (await getMeta<number>("cursor")) ?? 0;
-    for (;;) {
-      const response = await api(`/api/sync/pull?since=${since}`);
-      const result = (await response.json()) as { cursor: number; more: boolean; rows: Rows };
-      for (const [table, rows] of Object.entries(result.rows)) {
-        // A table added by a newer version is ignored until this one updates.
-        if (!SYNCED_TABLES.includes(table as TableName)) continue;
-        if (rows?.length) await merge(table as TableName, rows);
+  currentPull = (async () => {
+    let ok = false;
+    try {
+      let since = (await getMeta<number>("cursor")) ?? 0;
+      for (;;) {
+        const response = await api(`/api/sync/pull?since=${since}`);
+        const result = (await response.json()) as { cursor: number; more: boolean; rows: Rows };
+        for (const [table, rows] of Object.entries(result.rows)) {
+          // A table added by a newer version is ignored until this one updates.
+          if (!SYNCED_TABLES.includes(table as TableName)) continue;
+          if (rows?.length) await merge(table as TableName, rows);
+        }
+        since = result.cursor;
+        await setMeta("cursor", since);
+        if (!result.more) break;
       }
-      since = result.cursor;
-      await setMeta("cursor", since);
-      if (!result.more) break;
+      setState({ error: null });
+      ok = true;
+    } catch (error) {
+      reportError(error);
+    } finally {
+      pulling = false;
+      currentPull = null;
+      if (pullAgain && !paused) {
+        pullAgain = false;
+        schedulePull();
+      }
     }
-    setState({ error: null });
-  } catch (error) {
-    reportError(error);
-  } finally {
-    pulling = false;
-    if (pullAgain) {
-      pullAgain = false;
-      schedulePull();
-    }
-  }
+    return ok;
+  })();
+  return currentPull;
 }
 
 // Lifecycle
@@ -288,7 +328,7 @@ let poll: ReturnType<typeof setInterval> | null = null;
 
 function onOnline() {
   setState({ online: true });
-  void flush().then(pull);
+  void flush().then(() => pull());
 }
 function onOffline() {
   setState({ online: false });
@@ -301,24 +341,59 @@ function onVisible() {
 }
 
 export function startSync(): void {
-  window.addEventListener("online", onOnline);
-  window.addEventListener("offline", onOffline);
-  document.addEventListener("visibilitychange", onVisible);
-  poll = setInterval(() => {
-    if (document.visibilityState === "visible") {
-      void flush();
-      void pull();
-    }
-  }, POLL_MS);
-  void flush().then(pull).then(() => import("./names")).then((names) => names.nameSlidesOnce()).catch(() => undefined);
+  if (paused) return;
+  stopSync();
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    document.addEventListener("visibilitychange", onVisible);
+    poll = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void flush();
+        void pull();
+      }
+    }, POLL_MS);
+  }
+  void flush().then(() => pull()).then(() => import("./names")).then((names) => names.nameSlidesOnce()).catch(() => undefined);
 }
 
 export function stopSync(): void {
-  window.removeEventListener("online", onOnline);
-  window.removeEventListener("offline", onOffline);
-  document.removeEventListener("visibilitychange", onVisible);
+  if (typeof window !== "undefined") {
+    window.removeEventListener("online", onOnline);
+    window.removeEventListener("offline", onOffline);
+    document.removeEventListener("visibilitychange", onVisible);
+  }
   if (poll) clearInterval(poll);
   poll = null;
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  if (pullTimer) clearTimeout(pullTimer);
+  pullTimer = null;
+  flushAgain = false;
+  pullAgain = false;
+}
+
+export async function pauseSync(): Promise<void> {
+  paused = true;
+  stopSync();
+  const start = Date.now();
+  try {
+    while (flushing || pulling) {
+      if (Date.now() - start > 15_000) {
+        throw new Error("Sync is still busy. Wait a moment and try again.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  } catch (error) {
+    paused = false;
+    startSync();
+    throw error;
+  }
+}
+
+export function resumeSync(): void {
+  paused = false;
+  startSync();
 }
 
 export async function clearLocalData(): Promise<void> {
