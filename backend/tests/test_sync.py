@@ -174,3 +174,20 @@ def test_the_purge_lets_go_of_files_nothing_uses(api):
     # A deleted reading can still be restored, so its file stays.
     assert files["tombstoned"]["deleted"] is False
     assert files["orphan"]["deleted"] is True
+
+
+def test_summary_item_pushes_and_pulls(api):
+    row = {
+        "id": "i_sum", "kind": "summary", "author": None, "title": "Handout", "source": None,
+        "pages": None, "year": None, "doc_date": None, "file_id": None, "original_file_id": None,
+        "tray_module_id": None, "zotero_key": None, "last_page": 0, "read_status": "unread",
+        "last_opened_at": None, "suggested": None, "last_spot": None, "work_kind": None,
+        "editor": None, "publisher": None, "volume": None, "issue": None, "doi": None,
+        "modified_at": stamp(), "deleted": False,
+    }
+    failures = api.push([{"table": "items", "row": row}])
+    assert failures == []
+    pulled = api.pull_all()["items"]["i_sum"]
+    assert pulled["kind"] == "summary"
+    assert pulled["title"] == "Handout"
+

@@ -23,6 +23,7 @@ import type { SessionView } from "../lib/library";
 import type { SessionKind } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { BlockView } from "./BlockView";
+import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
 import { WeekBoard } from "./WeekBoard";
 import { SessionSlides, SlideBoard } from "./SlideBoard";
@@ -87,6 +88,8 @@ function TitleEditor({ week, editing, setEditing }: { week: WeekRow; editing: bo
   );
 }
 
+import { KIND_GROUP } from "../lib/kinds";
+
 function recordingLine(recording: RecordingRow): string {
   const state = recordingState(recording);
   if (state) return state;
@@ -95,9 +98,10 @@ function recordingLine(recording: RecordingRow): string {
 }
 
 // Where dropped files go depends on where they land: on a session they
-// become its slides, on primary sources they become primary sources, and
-// anywhere else they are readings, unless their names say otherwise.
-export interface FileTarget { kind: "readings" | "primary" | "slides"; sessionId?: string; label: string }
+// become its slides, on primary readings they become primary readings, on
+// summaries they become summaries, and anywhere else they are secondary
+// readings, unless their names say otherwise.
+export interface FileTarget { kind: "auto" | "primary" | "secondary" | "summary" | "slides"; sessionId?: string; label: string }
 
 async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?: FileTarget) {
   // Pictures added together become one reading, a page each.
@@ -123,7 +127,15 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
   const plans = files.map((file) => {
     const plan = planFile(file, weeks, week);
     if (target?.kind === "slides") return { ...plan, kind: "slides" as const, sessionId: target.sessionId ?? null };
-    if (target?.kind === "primary" && plan.kind !== "skip") return { ...plan, kind: "primary" as const };
+    if (target?.kind === "primary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+      return { ...plan, kind: "primary" as const, sessionId: null };
+    }
+    if (target?.kind === "secondary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+      return { ...plan, kind: "secondary" as const, sessionId: null };
+    }
+    if (target?.kind === "summary" && plan.kind !== "skip" && plan.kind !== "week-title") {
+      return { ...plan, kind: "summary" as const, sessionId: null };
+    }
     return plan;
   });
   const count = await applyPlans(module, plans);
@@ -133,8 +145,10 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
 function targetOf(element: Element | null, week: WeekRow): FileTarget {
   const zone = element?.closest("[data-drop]") as HTMLElement | null;
   if (zone?.dataset.drop === "slides") return { kind: "slides", sessionId: zone.dataset.session, label: zone.dataset.label ?? "slides" };
-  if (zone?.dataset.drop === "primary") return { kind: "primary", label: "primary sources" };
-  return { kind: "readings", label: weekCode(week) };
+  if (zone?.dataset.drop === "primary") return { kind: "primary", label: KIND_GROUP.primary.toLowerCase() };
+  if (zone?.dataset.drop === "summary") return { kind: "summary", label: KIND_GROUP.summary.toLowerCase() };
+  if (zone?.dataset.drop === "readings") return { kind: "secondary", label: KIND_GROUP.secondary.toLowerCase() };
+  return { kind: "auto", label: weekCode(week) };
 }
 
 const KINDS = SESSION_KINDS;
@@ -223,6 +237,9 @@ export function WeekPage({ id }: { id: string }) {
   }, [data?.module.id]);
   const [over, setOver] = useState<FileTarget | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [addCardOpen, setAddCardOpen] = useState(false);
+  const addFilesButton = useRef<HTMLButtonElement>(null);
+  const addTargetRef = useRef<FileTarget | undefined>(undefined);
   const picker = useRef<HTMLInputElement>(null);
   const sessionPicker = useRef<HTMLInputElement>(null);
   const prefetched = useRef<string | null>(null);
@@ -279,9 +296,15 @@ export function WeekPage({ id }: { id: string }) {
     void addFiles(Array.from(event.dataTransfer.files), module, week, targetOf(event.target as Element, week));
   };
   const overText = over
-    ? over.kind === "slides" ? `Drop to add slides to ${over.label}`
-      : over.kind === "primary" ? `Drop to add primary sources to ${weekCode(week)}`
-        : `Drop to add readings to ${weekCode(week)}${titleAfter(week, ", ")}`
+    ? over.kind === "slides"
+      ? `Drop to add slides to ${over.label}`
+      : over.kind === "primary"
+        ? `Drop to add primary readings to ${weekCode(week)}`
+        : over.kind === "secondary"
+          ? `Drop to add secondary readings to ${weekCode(week)}${titleAfter(week, ", ")}`
+          : over.kind === "summary"
+            ? `Drop to add summaries to ${weekCode(week)}`
+            : `Drop to add files to ${weekCode(week)}${titleAfter(week, ", ")}`
     : null;
 
   return (
@@ -304,7 +327,61 @@ export function WeekPage({ id }: { id: string }) {
       </div>
       <div className="section-head" style={{ marginBottom: 0, alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 0 }}><TitleEditor week={week} editing={renaming} setEditing={setRenaming} /></div>
-        <button className="button" onClick={() => picker.current?.click()}>Add files</button>
+        <button ref={addFilesButton} className="button" onClick={() => setAddCardOpen(true)}>Add files</button>
+        <ChoiceCard
+          open={addCardOpen}
+          onClose={() => setAddCardOpen(false)}
+          anchor={addFilesButton}
+          label="Add files to this week"
+          title="Add files as"
+        >
+          <div className="choice-list">
+            <button
+              type="button"
+              className="choice-row"
+              onClick={() => {
+                setAddCardOpen(false);
+                addTargetRef.current = undefined;
+                picker.current?.click();
+              }}
+            >
+              <span>As in the file names</span>
+            </button>
+            <button
+              type="button"
+              className="choice-row"
+              onClick={() => {
+                setAddCardOpen(false);
+                addTargetRef.current = { kind: "primary", label: "primary readings" };
+                picker.current?.click();
+              }}
+            >
+              <span>{KIND_GROUP.primary}</span>
+            </button>
+            <button
+              type="button"
+              className="choice-row"
+              onClick={() => {
+                setAddCardOpen(false);
+                addTargetRef.current = { kind: "secondary", label: "secondary readings" };
+                picker.current?.click();
+              }}
+            >
+              <span>{KIND_GROUP.secondary}</span>
+            </button>
+            <button
+              type="button"
+              className="choice-row"
+              onClick={() => {
+                setAddCardOpen(false);
+                addTargetRef.current = { kind: "summary", label: "summaries" };
+                picker.current?.click();
+              }}
+            >
+              <span>{KIND_GROUP.summary}</span>
+            </button>
+          </div>
+        </ChoiceCard>
         {section && (
           <button className="button" onClick={async () => navigate({ view: "session", id: await addMeeting(week.id) })}>Add a meeting</button>
         )}
@@ -331,13 +408,18 @@ export function WeekPage({ id }: { id: string }) {
         )}
         <input
           ref={picker} type="file" multiple hidden accept={READING_ACCEPT}
-          onChange={(e) => { if (e.target.files) void addFiles(Array.from(e.target.files), module, week); e.target.value = ""; }}
+          onChange={(e) => {
+            const target = addTargetRef.current;
+            addTargetRef.current = undefined;
+            if (e.target.files) void addFiles(Array.from(e.target.files), module, week, target);
+            e.target.value = "";
+          }}
         />
       </div>
 
-      <div data-drop="readings" className={over?.kind === "readings" || over?.kind === "primary" ? "drop-over-lists" : undefined}>
-        <WeekBoard week={week} readings={view.readings} primaries={view.primaries} weeks={weeks ?? []} moduleId={module.id} />
-        {over && !view.readings.length && !view.primaries.length && (
+      <div data-drop="readings" className={over?.kind === "secondary" || over?.kind === "primary" || over?.kind === "summary" || over?.kind === "auto" ? "drop-over-lists" : undefined}>
+        <WeekBoard week={week} primaries={view.primaries} readings={view.readings} summaries={view.summaries} weeks={weeks ?? []} moduleId={module.id} />
+        {over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
           <div className="section"><div className="readings empty-target file-target">Readings for {weekCode(week)}</div></div>
         )}
       </div>

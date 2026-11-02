@@ -32,7 +32,7 @@ with sync_playwright() as p:
 
     # Files dropped on the week's readings become readings of that week.
     drop_files(page, ".week-page [data-drop='readings']", files[:1] + files[2:], release=False)
-    expect(page.locator(".drop-banner")).to_contain_text("Drop to add readings to AT1")
+    expect(page.locator(".drop-banner")).to_contain_text("Drop to add secondary readings to AT1")
     page.screenshot(path=f"{shots}-1-drop-banner.png")
     drop_files(page, ".week-page [data-drop='readings']", files[:1] + files[2:])
     expect(page.locator(".week-page li.reading")).to_have_count(2)
@@ -90,15 +90,15 @@ with sync_playwright() as p:
     page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
     page.mouse.down()
     page.mouse.move(a["x"] + 80, a["y"] + 30, steps=5)
-    empty = page.locator(".readings.empty-target")
+    empty = page.locator(".week-page .section[data-drop='primary'] .readings.empty-target")
     expect(empty).to_be_visible()
     e = empty.bounding_box()
     page.mouse.move(e["x"] + 100, e["y"] + e["height"] / 2, steps=14)
     expect(page.locator(".week-page .section[data-drop='primary'] li.reading")).to_have_count(1)
     page.mouse.up()
     expect(page.locator(".drag-card")).to_have_count(0)
-    expect(page.locator(".toast")).to_contain_text("Now a primary source")
-    expect(page.locator(".week-page .group-label", has_text="Primary sources")).to_be_visible()
+    expect(page.locator(".toast")).to_contain_text("Now a primary reading.")
+    expect(page.locator(".week-page .group-label", has_text="Primary readings")).to_be_visible()
     page.screenshot(path=f"{shots}-3-primary.png", full_page=True)
     print("dragged into primary sources")
 
@@ -200,7 +200,7 @@ with sync_playwright() as p:
     # title, Space after clicking a row scrolls the page, and the menu's Move
     # up and Move down move readings on a laptop as on a phone.
     # Still on AT5, where Ctrl K went.
-    rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
+    rows = page.locator(".week-page li.reading")
     expect(rows.first).to_be_visible()
     rows.first.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Edit details").click()

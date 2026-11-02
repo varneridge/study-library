@@ -46,7 +46,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
         ))}
       </div>
       {data?.map(({ module, view }) => {
-        const loose = view.readings.length + view.primaries.length;
+        const loose = view.primaries.length + view.readings.length + view.summaries.length;
         const sessions = view.sessions.filter((s) => s.notes.length || s.slides.length || s.recordings.length || s.questions.length);
         return (
           <section key={module.id} className="section across-module">
@@ -56,13 +56,22 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
                 {view.week.title || (view.week.is_reading_week ? "Reading week" : "Open the week")}
               </Link>
             </div>
-            {view.readings.length > 0 && (
-              <ul className="readings">{view.readings.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
-            )}
             {view.primaries.length > 0 && (
               <>
-                <p className="group-label">Primary sources</p>
+                <p className="group-label">Primary readings</p>
                 <ul className="readings">{view.primaries.map((r) => <ReadingRow key={r.item.id} view={r} />)}</ul>
+              </>
+            )}
+            {view.readings.length > 0 && (
+              <>
+                <p className="group-label">Secondary readings</p>
+                <ul className="readings">{view.readings.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
+              </>
+            )}
+            {view.summaries.length > 0 && (
+              <>
+                <p className="group-label">Summaries</p>
+                <ul className="readings">{view.summaries.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
               </>
             )}
             {sessions.map(({ session, notes, slides, recordings, questions }) => (

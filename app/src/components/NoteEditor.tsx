@@ -11,6 +11,7 @@ import {
 } from "@blocknote/react";
 import { db } from "../lib/db";
 import { placesOf } from "../lib/library";
+import { citable } from "../lib/progress";
 import { matches } from "../lib/search";
 import { uploadImage } from "../lib/uploads";
 import { showToast } from "../lib/ui";
@@ -161,7 +162,7 @@ async function readingSuggestions(
   insert: (text: string, url: string) => void,
 ): Promise<DefaultReactSuggestionItem[]> {
   const items = (await db.items.toArray())
-    .filter((i) => !i.deleted && i.kind !== "slides" && (!query || matches(fullTitle(i), query)))
+    .filter((i) => !i.deleted && citable(i) && (!query || matches(fullTitle(i), query)))
     .sort((a, b) => (b.last_opened_at ?? "").localeCompare(a.last_opened_at ?? "") || a.title.localeCompare(b.title))
     .slice(0, 8);
   const places = await placesOf(items.map((i) => i.id));

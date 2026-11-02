@@ -5,6 +5,8 @@ import { db, type PendingUpload } from "./db";
 import { byPosition } from "./keys";
 import { byWeek, weekCode } from "./modules";
 import { blockText } from "./notes";
+import { moduleProgress, readCount, type ModuleProgress } from "./progress";
+import { currentYear, defaultDates, teachingWeek, type TeachingWeek, type TermDates } from "./term";
 import type {
   Block,
   FileRow,
@@ -53,6 +55,7 @@ export interface WeekView {
   week: WeekRow;
   readings: ReadingView[];
   primaries: ReadingView[];
+  summaries: ReadingView[];
   sessions: SessionView[];
 }
 
@@ -68,26 +71,44 @@ export interface ModuleSummary {
   read: number;
   // The first unread reading in the week you last opened, or the next week with one.
   next: { item: ItemRow; week: WeekRow } | null;
+  progress: ModuleProgress;
 }
 
-export async function loadModules(): Promise<ModuleSummary[]> {
+export async function loadModules(now?: TeachingWeek | null): Promise<ModuleSummary[]> {
+  if (now === undefined) {
+    const dates = ((await db.settings.get("term-dates"))?.value ?? {}) as Partial<Record<number, TermDates>>;
+    const year = currentYear();
+    now = teachingWeek(new Date(), dates[year] ?? defaultDates(year));
+  }
   const modules = live(await db.modules.toArray()).sort(byPosition);
   const result: ModuleSummary[] = [];
   for (const module of modules) {
     const weeks = live(await db.weeks.where("module_id").equals(module.id).toArray()).sort(byWeek);
     const links = live(await db.week_items.where("week_id").anyOf(weeks.map((w) => w.id)).toArray())
       .filter((l) => !l.session_id).sort(byPosition);
-    const items = new Map(live((await db.items.bulkGet(links.map((l) => l.item_id))).filter(Boolean) as ItemRow[]).map((i) => [i.id, i]));
-    const counted = links.filter((l) => items.has(l.item_id));
-    const read = counted.filter((l) => items.get(l.item_id)!.read_status === "read").length;
-    // Start from the week you last opened, so "next" follows where you are.
-    const start = Math.max(0, weeks.findIndex((w) => w.id === module.last_opened_week_id));
+    const itemsMap = new Map(live((await db.items.bulkGet(links.map((l) => l.item_id))).filter(Boolean) as ItemRow[]).map((i) => [i.id, i]));
+    const weekItemsList = weeks.map((week) => {
+      const weekLinks = links.filter((l) => l.week_id === week.id);
+      const weekItems = weekLinks.map((l) => itemsMap.get(l.item_id)).filter((i): i is ItemRow => Boolean(i));
+      return { week, items: weekItems };
+    });
+    const progress = moduleProgress(weekItemsList, now);
     let next: ModuleSummary["next"] = null;
-    for (const week of weeks.slice(start)) {
-      const unread = counted.find((l) => l.week_id === week.id && items.get(l.item_id)!.read_status !== "read");
-      if (unread) { next = { item: items.get(unread.item_id)!, week }; break; }
+    if (progress.state === "week" || progress.state === "upcoming" || progress.state === "reading-week") {
+      const targetWeek = weekItemsList.find((w) => w.week.id === progress.week.id);
+      if (targetWeek) {
+        // In page order: primary readings first, then secondary readings
+        const primaries = targetWeek.items.filter((i) => i.kind === "primary");
+        const secondaries = targetWeek.items.filter((i) => i.kind === "secondary");
+        const candidates = [...primaries, ...secondaries];
+        const unread = candidates.find((i) => i.read_status !== "read");
+        if (unread) {
+          next = { item: unread, week: progress.week };
+        }
+      }
     }
-    result.push({ module, readings: counted.length, read, next });
+    const { read, total } = progress.state !== "none" ? { read: progress.read, total: progress.total } : { read: 0, total: 0 };
+    result.push({ module, readings: total, read, next, progress });
   }
   return result;
 }
@@ -161,8 +182,9 @@ export async function loadWeek(week: WeekRow): Promise<WeekView> {
   const loose = ordered.filter((v) => !v.link?.session_id);
   return {
     week,
-    readings: loose.filter((v) => v.item.kind === "secondary"),
     primaries: loose.filter((v) => v.item.kind === "primary"),
+    readings: loose.filter((v) => v.item.kind === "secondary"),
+    summaries: loose.filter((v) => v.item.kind === "summary"),
     sessions: sessionViews,
   };
 }
@@ -216,7 +238,7 @@ export async function loadReader(itemId: string) {
     const view = await loadWeek(week);
     const order = link?.session_id
       ? view.sessions.find((s) => s.session.id === link.session_id)?.slides ?? []
-      : [...view.readings, ...view.primaries];
+      : [...view.primaries, ...view.readings, ...view.summaries];
     const index = order.findIndex((r) => r.item.id === itemId);
     previous = index > 0 ? order[index - 1].item : null;
     next = index >= 0 ? order[index + 1]?.item ?? null : null;
@@ -242,11 +264,7 @@ export async function loadSession(sessionId: string) {
       if (file) audio.set(recording.id, file);
     }
   }
-  return { module, week, session, view: mine, audio, readings: [...view.readings, ...view.primaries] };
-}
-
-export function readCount(views: ReadingView[]): { read: number; total: number } {
-  return { read: views.filter((v) => v.item.read_status === "read").length, total: views.length };
+  return { module, week, session, view: mine, audio, readings: [...view.primaries, ...view.readings, ...view.summaries] };
 }
 
 // Where a reading sits: its module and week. Used to label search results
@@ -310,14 +328,19 @@ export async function loadThisWeek(term: "AT" | "WT", number: number): Promise<W
       const recorded = live(await db.recordings.where("session_id").equals(session.id).toArray()).length > 0;
       rows.push({ session, words, questions, recorded });
     }
-    const links = live(await db.week_items.where("week_id").equals(week.id).toArray()).sort(byPosition);
+    const links = live(await db.week_items.where("week_id").equals(week.id).toArray())
+      .filter((l) => !l.session_id)
+      .sort(byPosition);
     const items = live(await db.items.bulkGet(links.map((l) => l.item_id)).then((found) => found.filter((i): i is ItemRow => Boolean(i))));
     const order = new Map(links.map((l, i) => [l.item_id, i]));
     const ordered = items.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    const read = ordered.filter((i) => i.read_status === "read").length;
-    // Secondary readings first, as the week page lists them, then primary sources.
-    const next = ordered.find((i) => i.read_status !== "read" && i.kind !== "primary") ?? ordered.find((i) => i.read_status !== "read") ?? null;
-    out.push({ module, week, sessions: rows, readings: { total: ordered.length, read, next } });
+    const { read, total } = readCount(ordered);
+    // Primary readings first, as the week page lists them, then secondary readings.
+    const primaries = ordered.filter((i) => i.kind === "primary");
+    const secondaries = ordered.filter((i) => i.kind === "secondary");
+    const candidates = [...primaries, ...secondaries];
+    const next = candidates.find((i) => i.read_status !== "read") ?? null;
+    out.push({ module, week, sessions: rows, readings: { total, read, next } });
   }
   return out;
 }

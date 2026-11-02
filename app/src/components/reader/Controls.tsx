@@ -8,6 +8,7 @@ import { deleteRows, withUndo } from "../../lib/edits";
 import { navigate } from "../../lib/router";
 import { COLOURS, colourLabel, type ColourNames } from "../../lib/settings";
 import { update } from "../../lib/sync";
+import { counts } from "../../lib/progress";
 import { shortTitle } from "../../lib/titles";
 import type { HighlightRow, ItemRow } from "../../lib/types";
 import { sheetHost, useCloseOnBack, useNarrow } from "../../lib/ui";
@@ -180,6 +181,7 @@ export function PageJump({ current, total, onGo }: { current: number; total: num
 
 export function EndOfReading({ item, next, back, backLabel }: { item: ItemRow; next: ItemRow | null; back: () => void; backLabel: string }) {
   const read = item.read_status === "read";
+  const canCount = counts(item);
   return (
     <div className="end-card">
       <p className="small muted">End of the reading.</p>
@@ -188,18 +190,18 @@ export function EndOfReading({ item, next, back, backLabel }: { item: ItemRow; n
           <button
             className="button primary"
             onClick={async () => {
-              if (!read) await update("items", item.id, { read_status: "read" });
+              if (canCount && !read) await update("items", item.id, { read_status: "read" });
               navigate({ view: "reader", id: next.id });
             }}
           >
-            {read ? "Next" : "Mark as read and go to the next"}
+            {canCount && !read ? "Mark as read and go to the next" : "Next"}
           </button>
           <span className="small">{shortTitle(next)}</span>
         </div>
       ) : (
         <div className="row">
-          {!read && <button className="button primary" onClick={() => update("items", item.id, { read_status: "read" })}>Mark as read</button>}
-          <button className="quiet" onClick={back}>{backLabel}</button>
+          {canCount && !read && <button className="button primary" onClick={() => update("items", item.id, { read_status: "read" })}>Mark as read</button>}
+          <button className={canCount && !read ? "quiet" : "button primary"} onClick={back}>{backLabel}</button>
         </div>
       )}
     </div>

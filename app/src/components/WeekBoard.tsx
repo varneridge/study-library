@@ -20,9 +20,10 @@ import { byWeek, weekCode } from "../lib/modules";
 import { moveToTray, moveToWeek, placeInWeek, positionsOf } from "../lib/moves";
 import { shortTitle } from "../lib/titles";
 import type { WeekRow } from "../lib/types";
+import { KIND_GROUP, KIND_LABEL } from "../lib/kinds";
 import { ReadingRow } from "./ReadingRow";
 
-type ListKey = "secondary" | "primary";
+type ListKey = "primary" | "secondary" | "summary";
 
 // The week grid answers to where the pointer is, so the week under your
 // finger is the week you get. The lists answer to the nearest row.
@@ -49,13 +50,15 @@ function List({ id, label, views, weeks, dragging }: { id: ListKey; label: strin
   const { setNodeRef, isOver } = useDroppable({ id: `list:${id}` });
   // An empty list only shows while something is being dragged, as a place to drop.
   if (!views.length && !dragging) return null;
+  const dropKind = id === "primary" ? "primary" : id === "summary" ? "summary" : "readings";
+  const hintText = `a ${KIND_LABEL[id]}`;
   return (
-    <div className="section" data-drop={id === "primary" ? "primary" : "readings"}>
+    <div className="section" data-drop={dropKind}>
       {label && <p className="group-label">{label}</p>}
       <SortableContext items={views.map((v) => v.link!.id)} strategy={verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`readings${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
           {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} />)}
-          {!views.length && <li className="drop-hint">Drop here to make it {id === "primary" ? "a primary source" : "a reading"}</li>}
+          {!views.length && <li className="drop-hint">Drop here to make it {hintText}</li>}
         </ul>
       </SortableContext>
     </div>
@@ -71,28 +74,35 @@ export function Target({ id, label, current, reading }: { id: string; label: str
   );
 }
 
-export function WeekBoard({ week, readings, primaries, weeks, moduleId }: {
-  week: WeekRow; readings: ReadingView[]; primaries: ReadingView[]; weeks: WeekRow[]; moduleId: string;
+const NONE: ReadingView[] = [];
+
+export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, moduleId }: {
+  week: WeekRow; primaries?: ReadingView[]; readings?: ReadingView[]; summaries?: ReadingView[]; weeks: WeekRow[]; moduleId: string;
 }) {
   const sorted = useMemo(() => [...weeks].sort(byWeek), [weeks]);
-  const all = useMemo(() => new Map([...readings, ...primaries].map((v) => [v.link!.id, v])), [readings, primaries]);
-  const fromProps = () => ({ secondary: readings.map((v) => v.link!.id), primary: primaries.map((v) => v.link!.id) });
+  const all = useMemo(() => new Map([...primaries, ...readings, ...summaries].map((v) => [v.link!.id, v])), [primaries, readings, summaries]);
+  const fromProps = () => ({
+    primary: primaries.map((v) => v.link!.id),
+    secondary: readings.map((v) => v.link!.id),
+    summary: summaries.map((v) => v.link!.id),
+  });
   const [lists, setLists] = useState(fromProps);
   const [active, setActive] = useState<string | null>(null);
   // While nothing is being dragged, the lists follow the library.
-  useEffect(() => { if (!active) setLists(fromProps()); }, [readings, primaries, active]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!active) setLists(fromProps()); }, [primaries, readings, summaries, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sensors = useDragSensors();
 
   const listOf = (id: string): ListKey | null => {
-    if (id === "list:secondary" || lists.secondary.includes(id)) return "secondary";
     if (id === "list:primary" || lists.primary.includes(id)) return "primary";
+    if (id === "list:secondary" || lists.secondary.includes(id)) return "secondary";
+    if (id === "list:summary" || lists.summary.includes(id)) return "summary";
     return null;
   };
 
   const onStart = (e: DragStartEvent) => setActive(String(e.active.id));
 
-  // Crossing into the other list moves the row there straight away, so you
+  // Crossing into another list moves the row there straight away, so you
   // see where it will land before letting go.
   const onOver = (e: DragOverEvent) => {
     const from = listOf(String(e.active.id));
@@ -132,7 +142,7 @@ export function WeekBoard({ week, readings, primaries, weeks, moduleId }: {
       ids.splice(overIndex, 0, id);
     }
     setLists((current) => ({ ...current, [to]: ids }));
-    const kind = to === "primary" ? "primary" : "secondary";
+    const kind = to;
     if (kind === view.item.kind && JSON.stringify(ids) === JSON.stringify(fromProps()[to])) return;
     // The new position falls between the rows either side of the drop.
     await placeInWeek(view.item, view.link, positionsOf(ids.map((x) => all.get(x)?.link ?? null)), ids.indexOf(id), kind);
@@ -143,8 +153,9 @@ export function WeekBoard({ week, readings, primaries, weeks, moduleId }: {
 
   return (
     <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragOver={onOver} onDragEnd={onEnd} onDragCancel={() => setActive(null)}>
-      <List id="secondary" label={null} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} />
-      <List id="primary" label="Primary sources" views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} />
+      <List id="primary" label={KIND_GROUP.primary} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} />
+      <List id="secondary" label={KIND_GROUP.secondary} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} />
+      <List id="summary" label={KIND_GROUP.summary} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} />
       {active && <MoveDock weeks={sorted} current={week} />}
       <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
         {dragged ? <div className="drag-card">{shortTitle(dragged.item)}<span className="where">{weekCode(week)}</span></div> : null}

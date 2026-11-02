@@ -9,7 +9,9 @@ import { commit, newId, retryFile, update } from "../lib/sync";
 import { fullTitle, shortTitle, titleParts, chicagoBibliography } from "../lib/titles";
 import { mimeFor, onUploadProgress, queueUpload, retryUpload, sha256, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
-import { moveToTray, moveToWeek, nudge } from "../lib/moves";
+import { moveToTray, moveToWeek, nudge, placeInWeek } from "../lib/moves";
+import { counts, citable } from "../lib/progress";
+import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/kinds";
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
@@ -80,6 +82,7 @@ function Progress({ view }: { view: ReadingView }) {
 }
 
 export function ReadMark({ view }: { view: ReadingView }) {
+  if (!counts(view.item)) return null;
   const read = view.item.read_status === "read";
   return (
     <button
@@ -134,7 +137,7 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     await update("items", view.item.id, {
       ...(start && view.item.suggested ? { suggested: { ...view.item.suggested, dismissed: true } } : {}),
       kind: draft.kind as ItemKind,
-      work_kind: (draft.kind === "slides" ? null : draft.work_kind) as WorkKind,
+      work_kind: draft.kind === "slides" ? null : (draft.work_kind as WorkKind),
       author: draft.author.trim() || null,
       editor: draft.editor.trim() || null,
       title: draft.title.trim() || view.item.title,
@@ -150,6 +153,9 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     onClose();
   }
 
+  const isSessionItem = Boolean(view.link?.session_id);
+  const allowsSlides = isSessionItem || view.item.kind === "slides";
+
   return (
     <form className="editor" onSubmit={save}>
       {auto && !start && (
@@ -164,9 +170,16 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
             const k = e.target.value as ItemKind;
             setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
           }}>
-            <option value="secondary">Reading</option>
-            <option value="primary">Primary source</option>
-            <option value="slides">Slides</option>
+            {isSessionItem ? (
+              <option value="slides">{KIND_TITLE_LABEL.slides}</option>
+            ) : (
+              <>
+                <option value="primary">{KIND_TITLE_LABEL.primary}</option>
+                <option value="secondary">{KIND_TITLE_LABEL.secondary}</option>
+                <option value="summary">{KIND_TITLE_LABEL.summary}</option>
+                {allowsSlides && <option value="slides">{KIND_TITLE_LABEL.slides}</option>}
+              </>
+            )}
           </select>
         </label>
         {draft.kind === "secondary" && (
@@ -179,35 +192,41 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
           </label>
         )}
       </div>
-      <div className="grid">
-        <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, Given and Surname, Given" /></label>
-        {draft.work_kind === "chapter" && (
-          <label className="field"><span>Volume editor</span><input type="text" value={draft.editor} onChange={set("editor")} placeholder="Surname, Given" /></label>
-        )}
-      </div>
-      <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
-      <div className="grid">
-        <label className="field"><span>{draft.work_kind === "chapter" ? "Book title" : draft.work_kind === "article" ? "Journal" : "Source"}</span><input type="text" value={draft.source} onChange={set("source")} /></label>
-        <label className="field"><span>Pages</span><input type="text" value={draft.pages} onChange={set("pages")} /></label>
-        {draft.kind === "primary" ? (
-          <label className="field"><span>Date</span><input type="text" value={draft.doc_date} onChange={set("doc_date")} /></label>
-        ) : (
-          <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
-        )}
-      </div>
-      {draft.kind === "secondary" && (
+      {draft.kind !== "summary" && (
         <div className="grid">
-          {(draft.work_kind === "chapter" || draft.work_kind === "book") && (
-            <label className="field"><span>Publisher</span><input type="text" value={draft.publisher} onChange={set("publisher")} placeholder="Publisher name" /></label>
+          <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, Given and Surname, Given" /></label>
+          {draft.work_kind === "chapter" && (
+            <label className="field"><span>Volume editor</span><input type="text" value={draft.editor} onChange={set("editor")} placeholder="Surname, Given" /></label>
           )}
-          {draft.work_kind === "article" && (
-            <>
-              <label className="field"><span>Volume</span><input type="text" value={draft.volume} onChange={set("volume")} placeholder="e.g. 38" /></label>
-              <label className="field"><span>Issue</span><input type="text" value={draft.issue} onChange={set("issue")} placeholder="e.g. 2" /></label>
-            </>
-          )}
-          <label className="field"><span>DOI or URL</span><input type="text" value={draft.doi} onChange={set("doi")} placeholder="10.1080/... or https://..." /></label>
         </div>
+      )}
+      <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
+      {draft.kind !== "summary" && (
+        <>
+          <div className="grid">
+            <label className="field"><span>{draft.work_kind === "chapter" ? "Book title" : draft.work_kind === "article" ? "Journal" : "Source"}</span><input type="text" value={draft.source} onChange={set("source")} /></label>
+            <label className="field"><span>Pages</span><input type="text" value={draft.pages} onChange={set("pages")} /></label>
+            {draft.kind === "primary" ? (
+              <label className="field"><span>Date</span><input type="text" value={draft.doc_date} onChange={set("doc_date")} /></label>
+            ) : (
+              <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
+            )}
+          </div>
+          {draft.kind === "secondary" && (
+            <div className="grid">
+              {(draft.work_kind === "chapter" || draft.work_kind === "book") && (
+                <label className="field"><span>Publisher</span><input type="text" value={draft.publisher} onChange={set("publisher")} placeholder="Publisher name" /></label>
+              )}
+              {draft.work_kind === "article" && (
+                <>
+                  <label className="field"><span>Volume</span><input type="text" value={draft.volume} onChange={set("volume")} placeholder="e.g. 38" /></label>
+                  <label className="field"><span>Issue</span><input type="text" value={draft.issue} onChange={set("issue")} placeholder="e.g. 2" /></label>
+                </>
+              )}
+              <label className="field"><span>DOI or URL</span><input type="text" value={draft.doi} onChange={set("doi")} placeholder="10.1080/... or https://..." /></label>
+            </div>
+          )}
+        </>
       )}
       <div className="row">
         <button className="button primary">Save</button>
@@ -272,17 +291,21 @@ async function removeFromWeek(view: ReadingView) {
 }
 
 export async function deleteReading(view: ReadingView): Promise<boolean> {
+  const noun = view.item.kind === "slides" ? "slides" : view.item.kind === "summary" ? "summary" : "reading";
+  const name = view.item.kind === "slides" ? "these slides" : `this ${noun}`;
   const highlights = (await db.highlights.where("item_id").equals(view.item.id).toArray()).filter((h) => !h.deleted).length;
   if (highlights > 0) {
     const ok = await confirmAction({
-      title: "Delete this reading?",
+      title: `Delete ${name}?`,
       body: `Its ${highlights} ${highlights === 1 ? "highlight" : "highlights"} and notes go with it. You can restore it from Settings for 90 days.`,
-      confirm: "Delete reading",
+      confirm: deleteLabel(view.item.kind),
       danger: true,
     });
     if (!ok) return false;
   }
-  await withUndo("Reading deleted.", deleteItem(view.item));
+  const capNoun = noun.charAt(0).toUpperCase() + noun.slice(1);
+  const msg = view.item.kind === "slides" ? "Slides deleted." : `${capNoun} deleted.`;
+  await withUndo(msg, deleteItem(view.item));
   return true;
 }
 
@@ -407,18 +430,22 @@ export function ReadingRow({
         <Menu
           items={[
             { label: "Edit details", onSelect: () => { setEditFrom(null); setEditing(true); } },
-            { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: view.item.kind === "slides" },
-            { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !view.file || view.file.mime !== "application/pdf" },
+            { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: !citable(view.item) },
+            { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !citable(view.item) || !view.file || view.file.mime !== "application/pdf" },
+            { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
+            { label: `Move to ${KIND_GROUP.secondary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "secondary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "secondary" },
+            { label: `Move to ${KIND_GROUP.summary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "summary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "summary" },
             // On a touch screen these stand in for dragging the row.
             { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link },
             { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link },
             { label: "Move to another week or module", onSelect: () => setMoving(true) },
             { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
             { label: view.item.read_status === "read" ? "Mark as unread" : "Mark as read",
-              onSelect: () => void update("items", view.item.id, { read_status: view.item.read_status === "read" ? "unread" : "read" }) },
+              onSelect: () => void update("items", view.item.id, { read_status: view.item.read_status === "read" ? "unread" : "read" }),
+              hidden: !counts(view.item) },
             { label: "Download file", onSelect: () => void download(view), hidden: !view.file },
             { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(view.upload) },
-            { label: "Delete reading", onSelect: () => void deleteReading(view), danger: true },
+            { label: deleteLabel(view.item.kind), onSelect: () => void deleteReading(view), danger: true },
           ]}
         />
       )}

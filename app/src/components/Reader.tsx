@@ -25,6 +25,8 @@ import { reconcile } from "../lib/readingNotes";
 import { db } from "../lib/db";
 import type { NoteEditorHandle } from "./NoteEditor";
 import { chooseAppearance, useTheme } from "../lib/appearance";
+import { counts, citable } from "../lib/progress";
+import { deleteLabel } from "../lib/kinds";
 import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, toPdfRect, type Crop, type Size, type Theme } from "./reader/pages";
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
 
@@ -732,8 +734,10 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
               onClick={() => chooseLayout(layout === "text" ? "pages" : "text")} />
           )}
           <IconButton icon="search" label="Find" shortcut="Ctrl+F" pressed={finding} onClick={() => (finding ? closeFind() : openFind())} />
-          <IconButton icon="check" label={read ? "Read. Mark as unread" : "Mark as read"} pressed={read} className="read-toggle"
-            onClick={() => update("items", id, { read_status: read ? "unread" : "read" })} />
+          {counts(item) && (
+            <IconButton icon="check" label={read ? "Read. Mark as unread" : "Mark as read"} pressed={read} className="read-toggle"
+              onClick={() => update("items", id, { read_status: read ? "unread" : "read" })} />
+          )}
           {!narrow && (
             <IconButton icon="notes" label="Notes on this reading" pressed={left && tab === "notes"}
               onClick={() => { if (left && tab === "notes") toggleLeft(); else { setLeft(true); setTab("notes"); } }} />
@@ -747,12 +751,12 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
               { label: `Next: ${next ? shortTitle(next) : ""}`, onSelect: () => next && navigate({ view: "reader", id: next.id }), hidden: !next },
               // What a reading's row offers on the week page, here as well.
               { label: "Edit details", onSelect: () => setSheet("edit") },
-              { label: "Copy reference", onSelect: () => void copyReference(item), hidden: item.kind === "slides" },
+              { label: "Copy reference", onSelect: () => void copyReference(item), hidden: !citable(item) },
               { label: "Move to another week or module", onSelect: () => setSheet("move") },
               { label: "Download file", onSelect: () => void download(asView), hidden: !file },
               { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(upload) },
               { label: "Keyboard shortcuts", onSelect: () => openShortcuts() },
-              { label: "Delete reading", danger: true, onSelect: async () => { if (await deleteReading(asView)) back(); } },
+              { label: deleteLabel(item.kind), danger: true, onSelect: async () => { if (await deleteReading(asView)) back(); } },
             ]}
           />
           <input

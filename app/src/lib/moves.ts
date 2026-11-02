@@ -78,18 +78,47 @@ export async function placeInWeek(
   index: number,
   kind: ItemKind,
 ): Promise<void> {
-  const others = order.filter((o) => o.id !== link.id);
-  const at = Math.max(0, Math.min(index, others.length));
+  let others = order.filter((o) => o.id !== link.id);
+  let at = Math.max(0, Math.min(index, others.length));
+  if (!others.length && link.week_id) {
+    const weekLinks = await db.week_items.where("week_id").equals(link.week_id).toArray();
+    const liveLinks = weekLinks.filter((l) => !l.deleted && !l.session_id && l.id !== link.id);
+    const itemIds = liveLinks.map((l) => l.item_id);
+    const targetItems = await db.items.where("id").anyOf(itemIds).toArray();
+    const kindItemIds = new Set(targetItems.filter((i) => !i.deleted && i.kind === kind).map((i) => i.id));
+    const kindLinks = liveLinks.filter((l) => kindItemIds.has(l.item_id)).sort((a, b) => a.position.localeCompare(b.position));
+    if (kindLinks.length) {
+      others = kindLinks.map((l) => ({ id: l.id, position: l.position }));
+      at = others.length;
+    }
+  }
   const position = keyBetween(others[at - 1]?.position ?? null, others[at]?.position ?? null);
   const changes: Change[] = [{ table: "week_items", row: { id: link.id, position }, patch: true }];
-  if (kind !== item.kind) changes.push({ table: "items", row: { id: item.id, kind }, patch: true });
+  if (kind !== item.kind) {
+    changes.push({
+      table: "items",
+      row: {
+        id: item.id,
+        kind,
+        work_kind: kind === "primary" ? "primary" : item.work_kind === "primary" ? "article" : (item.work_kind ?? null),
+        ...(kind === "summary" && item.suggested ? { suggested: null } : {}),
+      },
+      patch: true,
+    });
+  }
   if (kind === item.kind) {
     // A plain reorder needs no notice: the list shows the result.
     await commit(changes);
     return;
   }
+  const message =
+    kind === "primary"
+      ? "Now a primary reading."
+      : kind === "summary"
+        ? "Now a summary."
+        : "Now a secondary reading.";
   await undoable(
-    kind === "primary" ? "Now a primary source." : "Now a reading.",
+    message,
     [{ table: "items", row: item }, { table: "week_items", row: link }],
     changes,
   );
@@ -140,7 +169,7 @@ export async function nudge(item: ItemRow, link: WeekItemRow, direction: -1 | 1)
   const links = (await db.week_items.where("week_id").equals(link.week_id).toArray())
     .filter((l) => !l.deleted && (l.session_id ?? null) === (link.session_id ?? null));
   const items = new Map((await db.items.bulkGet(links.map((l) => l.item_id))).filter((i): i is ItemRow => Boolean(i)).map((i) => [i.id, i]));
-  const group = (i: ItemRow | undefined) => (i?.kind === "primary" ? "primary" : "readings");
+  const group = (i: ItemRow | undefined) => (i?.kind ? i.kind : "secondary");
   const mine = group(item);
   const siblings = links.filter((l) => !items.get(l.item_id)?.deleted && group(items.get(l.item_id)) === mine).sort(byPosition);
   const index = siblings.findIndex((l) => l.id === link.id);

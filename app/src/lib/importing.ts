@@ -115,6 +115,19 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
 
     // Slides in a week are named for their place, as "HY248 AT4 Lecture slides".
     let title = plan.title.trim() || plan.file.name;
+    let author: string | null = plan.author.trim() || null;
+    let source: string | null = plan.source.trim() || null;
+    let pages: string | null = plan.pages.trim() || null;
+    let year: number | null = plan.year ? Number(plan.year) || null : null;
+    let docDate: string | null = plan.docDate.trim() || null;
+    if (plan.kind === "summary") {
+      title = stripExtension(plan.file.name);
+      author = null;
+      source = null;
+      pages = null;
+      year = null;
+      docDate = null;
+    }
     if (plan.kind === "slides" && week) {
       const scope = `${week.id}:${sessionId ?? ""}`;
       const name = await nameForNewSlides({ weekId: week.id, sessionId }, slideNames.get(scope));
@@ -131,12 +144,12 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
       row: {
         id: itemId,
         kind: plan.kind,
-        author: plan.author.trim() || null,
+        author,
         title,
-        source: plan.source.trim() || null,
-        pages: plan.pages.trim() || null,
-        year: plan.year ? Number(plan.year) || null : null,
-        doc_date: plan.docDate.trim() || null,
+        source,
+        pages,
+        year,
+        doc_date: docDate,
         file_id: plan.existingFileId,
         original_file_id: null,
         tray_module_id: week ? null : module.id,

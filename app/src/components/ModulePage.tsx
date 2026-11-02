@@ -22,7 +22,8 @@ import type { ReadingView } from "../lib/library";
 import type { ModuleRow, WeekRow } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { Link } from "../App";
-import { loadModule, readCount, type WeekView } from "../lib/library";
+import { loadModule, type WeekView } from "../lib/library";
+import { readCount } from "../lib/progress";
 import { sessionLabel, weekCode, isSection } from "../lib/modules";
 import { BlockView } from "./BlockView";
 import { Icon } from "./icons";
@@ -31,7 +32,7 @@ import { ModuleSettings } from "./ModuleSettings";
 import { useTitle } from "../lib/ui";
 
 function progress(view: WeekView): string | null {
-  const { read, total } = readCount([...view.readings, ...view.primaries]);
+  const { read, total } = readCount([...view.primaries, ...view.readings]);
   if (total === 0) return null;
   if (read === 0) return `${total} ${total === 1 ? "reading" : "readings"}`;
   return `${read} of ${total} read`;
@@ -143,7 +144,7 @@ function WeekBlock({ view, open, onToggle, module }: { view: WeekView; open: boo
   const [fileOver, setFileOver] = useState(false);
   const summary = progress(view);
   const sessions = sessionSummary(view);
-  const hasBody = view.readings.length > 0 || view.primaries.length > 0 || Boolean(sessions);
+  const hasBody = view.primaries.length > 0 || view.readings.length > 0 || view.summaries.length > 0 || Boolean(sessions);
   const [renaming, setRenaming] = useState(false);
   return (
     <div
@@ -207,13 +208,22 @@ function WeekBlock({ view, open, onToggle, module }: { view: WeekView; open: boo
       {!open && sessions && <p className="week-gist small muted">{sessions}</p>}
       {open && hasBody && (
         <div className="week-body">
-          {view.readings.length > 0 && (
-            <ul className="readings">{view.readings.map((r) => <Movable key={r.item.id} view={r} short />)}</ul>
-          )}
           {view.primaries.length > 0 && (
             <>
-              <p className="group-label">Primary sources</p>
+              <p className="group-label">Primary readings</p>
               <ul className="readings">{view.primaries.map((r) => <Movable key={r.item.id} view={r} />)}</ul>
+            </>
+          )}
+          {view.readings.length > 0 && (
+            <>
+              <p className="group-label">Secondary readings</p>
+              <ul className="readings">{view.readings.map((r) => <Movable key={r.item.id} view={r} short />)}</ul>
+            </>
+          )}
+          {view.summaries.length > 0 && (
+            <>
+              <p className="group-label">Summaries</p>
+              <ul className="readings">{view.summaries.map((r) => <Movable key={r.item.id} view={r} short />)}</ul>
             </>
           )}
           {sessions && <p className="small muted" style={{ margin: "0.6rem 0 0" }}>{sessions}</p>}
@@ -265,9 +275,9 @@ export function ModulePage({ id }: { id: string }) {
   const { module, weeks, tray } = data;
 
   const dissertation = isDissertation(module);
-  const found = [...weeks.flatMap((w) => [...w.readings, ...w.primaries]), ...tray].filter((v) => pending(v.item));
+  const found = [...weeks.flatMap((w) => [...w.primaries, ...w.readings, ...w.summaries]), ...tray].filter((v) => pending(v.item));
   // A module with nothing in it yet makes importing its main action.
-  const empty = !tray.length && weeks.every((w) => !w.readings.length && !w.primaries.length && !w.sessions.some((x) => x.slides.length));
+  const empty = !tray.length && weeks.every((w) => !w.readings.length && !w.primaries.length && !w.summaries.length && !w.sessions.some((x) => x.slides.length));
 
   const toggle = (weekId: string) => {
     const next = new Set(open);

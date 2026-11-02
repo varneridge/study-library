@@ -6,13 +6,16 @@ import { Link } from "../App";
 import { useTitle } from "../lib/ui";
 import { db } from "../lib/db";
 import { applyPlans, hashPlans, planFile, type PlanKind, type PlannedFile } from "../lib/importing";
+import { stripExtension } from "../lib/parse";
 import { byWeek, weekCode } from "../lib/modules";
 import { navigate } from "../lib/router";
+import { KIND_TITLE_LABEL } from "../lib/kinds";
 
 const KINDS: { value: PlanKind; label: string }[] = [
-  { value: "secondary", label: "Reading" },
-  { value: "primary", label: "Primary source" },
-  { value: "slides", label: "Slides" },
+  { value: "primary", label: KIND_TITLE_LABEL.primary },
+  { value: "secondary", label: KIND_TITLE_LABEL.secondary },
+  { value: "summary", label: KIND_TITLE_LABEL.summary },
+  { value: "slides", label: KIND_TITLE_LABEL.slides },
   { value: "week-title", label: "Week title only" },
   { value: "skip", label: "Skip" },
 ];
@@ -126,7 +129,11 @@ export function ImportPage({ id }: { id: string }) {
                       </select>
                     </td>
                     <td>
-                      <select value={plan.kind} onChange={(e) => edit(i, { kind: e.target.value as PlanKind })} disabled={!plan.mime}>
+                      <select
+                        value={plan.kind}
+                        onChange={(e) => edit(i, { kind: e.target.value as PlanKind })}
+                        disabled={!plan.mime}
+                      >
                         {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
                       </select>
                     </td>
@@ -136,17 +143,17 @@ export function ImportPage({ id }: { id: string }) {
                           onChange={(e) => edit(i, { order: Number(e.target.value) || 0 })} />
                       )}
                     </td>
-                    <td><input type="text" value={plan.author} onChange={(e) => edit(i, { author: e.target.value })} /></td>
+                    <td>{plan.kind !== "summary" && <input type="text" value={plan.author} onChange={(e) => edit(i, { author: e.target.value })} />}</td>
                     <td><input type="text" value={plan.title} onChange={(e) => edit(i, { title: e.target.value })} style={{ minWidth: "16rem" }} /></td>
                     <td>
                       {plan.kind === "primary" ? (
                         <input type="text" value={plan.docDate} onChange={(e) => edit(i, { docDate: e.target.value })} />
-                      ) : (
+                      ) : plan.kind === "summary" ? null : (
                         <input type="text" value={plan.year} onChange={(e) => edit(i, { year: e.target.value })} style={{ width: "5rem", minWidth: 0 }} />
                       )}
                     </td>
-                    <td><input type="text" value={plan.source} onChange={(e) => edit(i, { source: e.target.value })} /></td>
-                    <td><input type="text" value={plan.pages} onChange={(e) => edit(i, { pages: e.target.value })} style={{ width: "6rem", minWidth: 0 }} /></td>
+                    <td>{plan.kind !== "summary" && <input type="text" value={plan.source} onChange={(e) => edit(i, { source: e.target.value })} />}</td>
+                    <td>{plan.kind !== "summary" && <input type="text" value={plan.pages} onChange={(e) => edit(i, { pages: e.target.value })} style={{ width: "6rem", minWidth: 0 }} />}</td>
                   </tr>
                 ))}
               </tbody>

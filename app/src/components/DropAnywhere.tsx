@@ -11,6 +11,7 @@ import { db } from "../lib/db";
 import { applyPlans, planFile } from "../lib/importing";
 import { byPosition } from "../lib/keys";
 import { byWeek, weekCode, titleAfter } from "../lib/modules";
+import { KIND_GROUP } from "../lib/kinds";
 import { parseTitle, stripExtension } from "../lib/parse";
 import { navigate, type Route } from "../lib/router";
 import { mimeFor } from "../lib/uploads";
@@ -52,6 +53,7 @@ function Sheet({ files, initial, onClose }: {
   const [moduleId, setModuleId] = useState(initial.moduleId ?? "");
   const named = files.some((f) => parseTitle(stripExtension(f.name)).term);
   const [where, setWhere] = useState(initial.weekId ?? (named ? "named" : "tray"));
+  const [addAs, setAddAs] = useState<"auto" | "primary" | "secondary" | "summary">("auto");
   const [busy, setBusy] = useState(false);
   const usable = files.filter((f) => mimeFor(f) && !isMedia(f));
 
@@ -75,7 +77,11 @@ function Sheet({ files, initial, onClose }: {
     const forced = weeks.find((w) => w.id === where);
     const plans = usable.map((file) => {
       const plan = planFile(file, weeks, forced);
-      return where === "tray" ? { ...plan, weekId: null } : plan;
+      let res = where === "tray" ? { ...plan, weekId: null } : plan;
+      if (addAs !== "auto" && res.kind !== "skip" && res.kind !== "week-title") {
+        res = { ...res, kind: addAs, sessionId: null };
+      }
+      return res;
     });
     const count = await applyPlans(module, plans);
     onClose();
@@ -115,6 +121,15 @@ function Sheet({ files, initial, onClose }: {
               {named && <option value="named">As in the file names</option>}
               <option value="tray">Unsorted, to sort later</option>
               {weeks.map((w) => <option key={w.id} value={w.id}>{weekCode(w)}{titleAfter(w, ", ")}</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ flex: 1 }}>
+            <span>Add as</span>
+            <select value={addAs} onChange={(e) => setAddAs(e.target.value as typeof addAs)}>
+              <option value="auto">As in the file names</option>
+              <option value="primary">{KIND_GROUP.primary}</option>
+              <option value="secondary">{KIND_GROUP.secondary}</option>
+              <option value="summary">{KIND_GROUP.summary}</option>
             </select>
           </label>
         </div>

@@ -126,6 +126,10 @@ Each file is stored in R2 under the SHA-256 hash of its contents. Uploading the 
 
 Files over 50 MB, such as lecture videos, upload in 50 MB parts. Each part finished is remembered, so a dropped connection only repeats the part in progress. Files waiting to upload are kept on the device, so uploads survive closing the app.
 
+### Readings, summaries and progress
+
+Items belong to a week or dissertation section and are grouped into Primary readings, Secondary readings, and Summaries. Only primary and secondary readings have read status and count towards progress. Summaries are reference materials kept to hand, such as revision sheets and reading pack overviews. They do not have a read tick, are not cited via `@` autocomplete in notes, and use dedicated action names (**Delete summary**). Slide decks similarly use **Delete slides** and do not count towards reading progress.
+
 ### The job queue
 
 Jobs live in a `jobs` table in D1. Database triggers create them:
@@ -783,6 +787,8 @@ All estimates. Check current pricing.
 | Recordings captured in chunks saved locally | A crash or bad wifi loses seconds, not a lecture. |
 | A second Zotero import never overwrites | Edits made in Study Library are always kept. |
 | OCR deletes the original scan | The OCR output keeps the original images, so nothing is lost. |
+| Summaries as a distinct item kind | Summaries are reference aids (reading pack overviews, revision sheets) kept to hand rather than read through. They omit read ticks and @ citation autocompletes, and do not distort reading progress. |
+| Preserving seq and triggers in table rebuilds | Migration 0014 rebuilds items to add 'summary' to the check constraint while retaining the counter value and all sync/job triggers. |
 
 ---
 
@@ -883,7 +889,7 @@ Every synced table has `id`, `modified_at`, `seq` and `deleted`.
 | `weeks` | Term, number, title, whether it is a reading week |
 | `sessions` | Lecture, seminar or combined, for one week |
 | `files` | Hash, storage key, type, size, processing status |
-| `items` | A reading, primary source or slide deck, with its citation details, last page, when it was last opened, and any citation found in its PDF |
+| `items` | A primary or secondary reading, summary, or slide deck (`kind` in `'secondary'`, `'primary'`, `'slides'`, `'summary'`), with citation details, last page, when it was last opened, and any citation found in its PDF |
 | `week_items` | Places an item in a week, and in a session for slides |
 | `questions` | Seminar questions for a session |
 | `highlights` | Page, rectangles in PDF points, colour and comment. A column for filing under a question remains from earlier versions, unused |
@@ -954,6 +960,7 @@ Every route sits behind Cloudflare Access. Processor routes also need the `X-Pro
 | Answers browser test | Answers typed beneath both questions and saved, down from a question into its answer, rewording a question leaving its answer alone, the same answers on the seminar and question pages, and the phone layout | `python tests/e2e/test_answers.py http://127.0.0.1:8790` |
 | Dissertation browser test | Creating a dissertation, sections renamed, added and moved, section readings and notes, a supervision meeting, key dates counting down on the home page, a file named for a section, search on section notes, deleting a section, changing a taught module, and the phone | `python tests/e2e/test_dissertation.py http://127.0.0.1:8790` |
 | Consistency browser test | Slides added on a lecture's own page and listed with their menu, the session menu, renaming a session by its name, going on to the next session, Back from slides to their session, Edit details from the reader, and reading menus on the module page and Week across modules | `python tests/e2e/test_consistency.py http://127.0.0.1:8790` |
+| Summaries browser test | Summaries section, omission from reading counts and read marks, row actions, reader controls, kind toggling, and @ search exclusion | `python tests/e2e/test_summaries.py http://127.0.0.1:8790` |
 | UX browser test | The import table and its bar, page ranges read as pages, this week marked on the module and week pages, week dates, highlight counts, the home page's Readings tile, Go to closing with one Esc, and Jobs on a phone's first row | `python tests/e2e/test_ux.py http://127.0.0.1:8790` |
 | Notes access browser test | This week on the home page, session links on the module page, notes in Go to, term dates, the fading slide arrows and typed questions | `python tests/e2e/test_notes_access.py http://127.0.0.1:8790` |
 | Paragraphs browser test | An article with every printed hazard: a drop capital, extra line space mid-sentence, a larger word, a paragraph over a page turn with footnotes between, a sentence across two columns, ragged-right text | `python tests/e2e/test_paragraphs.py http://127.0.0.1:8790` |
@@ -996,6 +1003,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Week groups, summaries and progress completed in 0.34.0: three-list week board (Primary readings, Secondary readings, Summaries), summary item kind with migration 0014, pure progress module, reading counts excluding slides and summaries, row menus offering move between kinds, Delete summary/Delete slides naming, ChoiceCard on Add files, and citable-only filtering in @ autocomplete.
 - Reading quality and Chicago reference overhaul completed in 0.32.0 (migration 0013, Dexie version 8, Chicago 18th edition citations and Copy reference action, cover sheet reference finder, ocrmypdf --redo-ocr on unhealthy scans, text reflow watermark and spread improvements, heading detection, and footnotes excluded from text view). Margin preservation and paragraph breaking completed in 0.32.1 (contiguous margin lines kept, column baseline seeding on page turns, abbreviation and lowercase mid-sentence break prevention, unicode hyphens, and list item heading distinction).
 - Move the processor to a small server, so recordings are processed while the laptop is off.
 - Job search redesign: Part 1 done (20 stages, progression steps, search aliases, `application_events` table, migration 0012, Dexie version 7 with cursor reset, mis-tap rules and wiring with Undo). Part 2 done (choice cards for the stage, the order and each file, dates and cells that Escape puts back, Cancel on a new row, and laptop Details with the timeline). Part 3 remains: the phone list, the application sheet, and the Edit, New application and entry sheets.
@@ -1066,6 +1074,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.33.1 | Top bar fixes: plain rem spacing and --topbar-h height, 2px column alignment of the brand's first letter and the last icon's drawn glyph across 768 to 1440, natural DOM tab order without CSS order, This week and Week {code} headings and tab titles on AcrossPage, no accent pill on brands, zero-width live SyncStatus when idle, redundant text tooltips removed, top bar browser test and CSS variable unit test |
 | 0.33.2 | Live recording recovery and processing guards: only the device that started a recording recovers or finishes it automatically, Finish recording menu action for recordings left on a lost device, and server-side guards against processing live recordings, chunks not starting at 0, or transcribing the same audio twice |
 | 0.33.3 | Codebase culling and refactoring: 300 MB of disk bloat removed, keyboard drag removed from reading and slide rows, `Reader.tsx` and `JobsPage.tsx` split into `reader/Controls.tsx` and `jobs/Controls.tsx`, inline UUIDv7 replacing `uuid`, dead queries and CSS rules removed, shared e2e helpers extracted, and `test:all` set to run `typecheck` and `test` directly on Windows |
+| 0.34.0 | Week groups, summaries and progress: three-list week board (Primary readings, Secondary readings, Summaries), summary item kind with migration 0014, pure progress calculation and display, reading counts excluding slides and summaries, row menus offering move between kinds, Delete summary/Delete slides naming, ChoiceCard on Add files, and citable-only filtering in @ autocomplete |
 
 ## 18. The job search
 

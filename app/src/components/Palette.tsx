@@ -16,6 +16,7 @@ function matches(text: string, query: string): boolean {
   return fold(query).split(/\s+/).filter(Boolean).every((word) => hay.includes(word));
 }
 import { fullTitle, shortTitle } from "../lib/titles";
+import { KIND_TITLE_LABEL } from "../lib/kinds";
 import { Icon } from "./icons";
 
 interface Entry { key: string; kind: string; label: string; detail?: string; route: Route; text: string; rank: number }
@@ -52,7 +53,7 @@ async function entries(): Promise<Entry[]> {
     const place = places.get(i.id);
     if (!place) continue;
     out.push({
-      key: `i${i.id}`, kind: i.kind === "slides" ? "Slides" : i.kind === "primary" ? "Source" : "Reading", label: shortTitle(i), detail: place.label,
+      key: `i${i.id}`, kind: KIND_TITLE_LABEL[i.kind], label: shortTitle(i), detail: place.label,
       route: { view: "reader", id: i.id }, text: `${fullTitle(i)} ${place.label}`, rank: i.last_opened_at ? 2 : 3,
     });
   }

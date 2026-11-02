@@ -3,7 +3,7 @@
 // "S" is a dissertation section: its number is its place in the order.
 export type Term = "AT" | "WT" | "S";
 export type SessionKind = "lecture" | "seminar" | "combined" | "supervision";
-export type ItemKind = "secondary" | "primary" | "slides";
+export type ItemKind = "secondary" | "primary" | "slides" | "summary";
 export type TextStatus = "pending" | "ocr" | "ready" | "failed" | "converted";
 
 export interface SyncedRow {

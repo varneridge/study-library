@@ -134,7 +134,7 @@ processor.post("/files/:id/identified", async (c) => {
   let suggested = 0;
   for (const raw of items) {
     const item = decode("items", raw) as Record<string, unknown> & { suggested?: Record<string, unknown> | null };
-    if (item.kind === "slides") continue;
+    if (item.kind === "slides" || item.kind === "summary") continue;
     const fields = ["author", "year", "title", "source", "pages"] as const;
     const allFields = ["work_kind", "author", "editor", "year", "title", "source", "publisher", "volume", "issue", "pages", "doc_date", "doi"] as const;
     if (fields.every((f) => same(item[f], citation[f]))) continue;

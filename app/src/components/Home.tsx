@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
 import { loadModules, loadRecent, loadRecentSessions, loadThisWeek, type WeekSessions } from "../lib/library";
+import { progressWords } from "../lib/progress";
 import { sessionLabel } from "../lib/modules";
 import { useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { shortDate } from "../lib/dates";
@@ -156,7 +157,9 @@ function ThisWeek() {
 }
 
 export function Home() {
-  const modules = useLiveQuery(loadModules, []);
+  const week = useTeachingWeek();
+  const dates = useTermDates();
+  const modules = useLiveQuery(() => loadModules(week), [week?.term, week?.number, week?.upcoming]);
   const recent = useLiveQuery(() => loadRecent(6), [], []);
   const notes = useLiveQuery(() => loadRecentSessions(4), [], []);
   // Readings and notes you opened, in one list, newest first.
@@ -195,16 +198,20 @@ export function Home() {
         {!adding && <button className="button" onClick={() => setAdding(true)}>Add a module</button>}
       </div>
       <ul className="list section">
-        {modules.map(({ module, readings, read, next }, index) => (
-          <li key={module.id} className={arranging ? "arranging" : "module-item"}>
-            <Link to={{ view: "module", id: module.id }} className="module-row">
-              <span className="code">{module.code}</span>
-              <span className="title">{module.title}</span>
-              {readings > 0 && <span className="count">{read ? `${read} of ${readings} read` : `${readings} ${readings === 1 ? "reading" : "readings"}`}</span>}
-            </Link>
-            {read > 0 && !arranging && (
-              <span className="progress-line" aria-hidden="true"><span style={{ width: `${Math.round((read / readings) * 100)}%` }} /></span>
-            )}
+        {modules.map(({ module, readings, read, next, progress }, index) => {
+          const progressLabel = progressWords(progress, dates);
+          return (
+            <li key={module.id} className={arranging ? "arranging" : "module-item"}>
+              <Link to={{ view: "module", id: module.id }} className="module-row">
+                <span className="code">{module.code}</span>
+                <span className="title">{module.title}</span>
+                {progressLabel && <span className="count">{progressLabel}</span>}
+              </Link>
+              {progress.state !== "none" && progress.total > 0 && progress.read > 0 && !arranging && (
+                <span className="progress-line" aria-hidden="true">
+                  <span style={{ width: `${Math.round((progress.read / progress.total) * 100)}%` }} />
+                </span>
+              )}
             {next && !arranging && (
               <p className="next-up small">
                 <span className="muted">Next</span>{" "}
@@ -219,7 +226,8 @@ export function Home() {
               </span>
             )}
           </li>
-        ))}
+        );
+      })}
       </ul>
       {adding && <NewModule onDone={() => setAdding(false)} />}
 

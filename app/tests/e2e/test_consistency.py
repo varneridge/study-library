@@ -49,7 +49,7 @@ with sync_playwright() as p:
     expect(slides.locator("li.reading")).to_have_count(1)
     # The slides there have the full reading menu.
     deck = menu_items(page, slides)
-    assert "Move to another week or module" in deck and "Delete reading" in deck, deck
+    assert "Move to another week or module" in deck and "Delete slides" in deck, deck
     print("the lecture page adds slides, and lists them with their menu:", deck[:3])
 
     # The session's own menu offers what its row on the week page does.
