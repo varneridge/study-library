@@ -141,7 +141,7 @@ function WeekCard({
           <img src={`/api/objects/${thumb_key}`} alt="" loading="lazy" decoding="async" />
         ) : (
           <div className="week-card-cover-fallback">
-            <span className="week-card-cover-display">{code}</span>
+            <span className="week-card-cover-display">{isSec ? `Section ${week.number}` : code}</span>
           </div>
         )}
         {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}

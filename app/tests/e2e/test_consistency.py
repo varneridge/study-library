@@ -97,15 +97,12 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.locator(".module-row").first.click()
     page.locator("#week-AT1 .week-title").click()
-    week_url = page.url
-    page.goto(BASE + "/")
-    page.locator(".module-row").first.click()
-    week = page.locator("#week-AT1")
-    expect(week.locator("li.reading").first).to_be_visible()
-    assert "Edit details" in menu_items(page, week), "module page"
+    week_reading = page.locator("li.reading").first
+    expect(week_reading).to_be_visible()
+    assert "Edit details" in menu_items(page, week_reading), "week page"
     page.goto(BASE + "/?v=across&term=AT&n=1")
     assert "Edit details" in menu_items(page, page.locator("main")), "week across modules"
-    print("readings have their menu on the module page and Week across modules too")
+    print("readings have their menu on the week page and Week across modules too")
 
     assert not errors, errors
     print("ok")

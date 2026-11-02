@@ -108,8 +108,8 @@ with sync_playwright() as p:
 
     # 6. Verify module reading count ignores summary (shows reading week or no readings)
     page.goto(BASE + "/")
-    module_row = page.locator(".module-row", has_text="HY226")
-    expect(module_row).to_contain_text(re.compile(r"(no readings|reading week)"))
+    card = page.locator(".module-card", has_text="HY226")
+    expect(card).to_contain_text(re.compile(r"(no readings|reading week)"))
 
     assert not errors, f"Page errors: {errors}"
     print("test_summaries passed successfully")

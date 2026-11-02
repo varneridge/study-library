@@ -721,10 +721,11 @@ def audit_behaviours(browser):
     p.keyboard.press("Escape")
 
     # Rule 2: Phone's back gesture closes anything open before leaving the page
-    # Open Menu on module page
+    # Open Menu on week page
     p.goto(BASE + "/")
     p.wait_for_selector(".module-row", timeout=10000)
     p.locator(".module-row", has_text="SP335").click()
+    p.locator("#week-AT1 .week-title").click()
     p.wait_for_selector(".menu-button", timeout=10000)
     p.locator(".menu-button").first.click()
     p.wait_for_selector(".menu-panel", state="visible")

@@ -2,6 +2,7 @@
 import re, sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+from helpers import until
 
 HERE = Path(__file__).resolve().parent
 shots = HERE / "shots"
@@ -190,8 +191,9 @@ with sync_playwright() as p:
 
     def create_mod(page, code, title):
         page.goto(BASE + "/")
-        expect(page.locator(".page")).to_be_visible()
         add_btn = page.get_by_role("button", name="Add a module")
+        first_h1 = page.get_by_role("heading", name="Add your first module")
+        expect(add_btn.or_(first_h1)).to_be_visible()
         if add_btn.is_visible():
             add_btn.click()
         page.get_by_label("Code").fill(code)
@@ -207,6 +209,7 @@ with sync_playwright() as p:
     for code, title in modules:
         create_mod(setup_page, code, title)
 
+    until(setup_page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.modules || []).filter(m => !m.deleted).length === 3; }")
     setup_page.close()
 
     # 2. Assertions across 768, 1024, 1280, 1440 in light and dark
@@ -292,6 +295,7 @@ with sync_playwright() as p:
     expect(p5.locator(".module-row")).to_have_count(3, timeout=15000)
     for code, title in [("HY319", "Napoleon"), ("HY335", "China")]:
         create_mod(p5, code, title)
+    until(p5, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.modules || []).filter(m => !m.deleted).length === 5; }")
     p5.close()
 
     ctx768 = browser.new_context(viewport={"width": 768, "height": 1024})

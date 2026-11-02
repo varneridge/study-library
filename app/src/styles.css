@@ -404,7 +404,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   font-variation-settings: "opsz" 72;
   font-weight: 560;
   font-size: clamp(1.75rem, 3vw, 2.25rem);
-  line-height: 1;
+  line-height: 1.25;
   color: var(--ink);
   letter-spacing: -0.02em;
 }
@@ -476,13 +476,11 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .week-card-title-link {
   font-family: var(--serif);
   font-size: var(--fs-md);
-  line-height: 1.3;
+  line-height: 1.35;
   color: var(--ink);
   text-decoration: none;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  word-break: break-word;
 }
 .week-card-title-link::after {
   content: "";
