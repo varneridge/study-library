@@ -1570,6 +1570,13 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .cell-input:focus { border-bottom-color: var(--accent) !important; }
 .cell-input.strong { font-family: var(--serif); font-weight: 600; font-size: var(--fs-md); }
 .cell-input::placeholder { color: var(--muted); font-weight: 400; }
+.cell-link {
+  border: 0; background: transparent; padding: 0.3rem 0; width: 100%;
+  display: block; text-align: left; cursor: pointer; color: inherit;
+  line-height: 1.35; overflow-wrap: anywhere;
+}
+.cell-link:hover { text-decoration: underline; color: var(--accent); }
+.cell-link.strong { font-family: var(--serif); font-weight: 600; font-size: var(--fs-md); }
 
 .slot {
   display: inline-grid; place-items: center; width: 2rem; height: 2rem; padding: 0;
@@ -1588,6 +1595,7 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .slot.over { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); }
 .details-toggle svg { transition: transform 0.15s ease; }
 .details-toggle.open svg { transform: rotate(180deg); }
+.details-open svg { transform: rotate(-90deg); }
 
 /* Details: notes, files and Delete */
 .details-row > td { padding: 0 0.5rem 1rem; }

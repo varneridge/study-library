@@ -47,46 +47,6 @@ function useTopbarHeight(): void {
   }, []);
 }
 
-function Details({ app, events, onDone }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; onDone: () => void;
-}) {
-  const remove = async () => {
-    await deleteApplication(app.id);
-    showToast(`${app.employer || "Application"} deleted.`, { label: "Undo", run: () => void restoreApplication(app.id) });
-  };
-  const notes = (
-    <TextField
-      multiline value={app.notes ?? ""} label={`Notes on ${app.employer || "this application"}`}
-      placeholder="Notes: contacts, interview times, what they asked"
-      onSave={(v) => void saveApplication(app.id, { notes: v || null })}
-    />
-  );
-  const files = <ul className="slot-list" aria-label="Files">{SLOTS.map((slot) => <SlotRow key={slot.name} app={app} slot={slot} />)}</ul>;
-  return (
-    <div className="app-details wide">
-      <div className="app-notes"><h3 className="detail-head">Notes</h3>{notes}</div>
-      <Timeline app={app} events={events} />
-      <div className="app-files"><h3 className="detail-head">Files</h3>{files}</div>
-      <div className="app-foot">
-        <button type="button" className="button" onClick={onDone}>Close</button>
-        <button type="button" className="quiet danger" onClick={remove}>Delete application</button>
-      </div>
-    </div>
-  );
-}
-
-function DetailsToggle({ open, onToggle, app }: { open: boolean; onToggle: () => void; app: ApplicationRow }) {
-  return (
-    <button
-      type="button" className={`icon-button details-toggle${open ? " open" : ""}`}
-      aria-expanded={open} aria-label={`Details for ${app.employer || "this application"}`} title="Notes, files and Delete"
-      onClick={onToggle}
-    >
-      <Icon name="caret" />
-    </button>
-  );
-}
-
 // A new application with nothing typed in it is let go once you leave it.
 // One you filled in takes its place in the order instead.
 function useDiscardWhenLeft(id: string, fresh: boolean, onLeft: (gone: boolean) => void) {
@@ -103,8 +63,8 @@ function useDiscardWhenLeft(id: string, fresh: boolean, onLeft: (gone: boolean) 
   }, [id, fresh, onLeft]);
 }
 
-function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; open: boolean; fresh: boolean; onToggle: (to?: boolean) => void; onLeft: (gone: boolean) => void;
+function TableRow({ app, events, fresh, onLeft }: {
+  app: ApplicationRow; events: ApplicationEventRow[]; fresh: boolean; onLeft: (gone: boolean) => void;
 }) {
   const leave = useDiscardWhenLeft(app.id, fresh, onLeft);
   const since = currentStageSince(app, events);
@@ -115,10 +75,21 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
     showToast("New application cancelled.");
   };
   return (
-    <tbody className={`app${isOpen(app) ? "" : " closed"}${open ? " expanded" : ""}`} data-app={app.id} data-employer={app.employer} onBlur={leave}>
+    <tbody className={`app${isOpen(app) ? "" : " closed"}`} data-app={app.id} data-employer={app.employer} onBlur={leave}>
       <tr>
         <td className="c-employer">
-          <TextField wrap className="cell-input strong" value={app.employer} label="Employer" placeholder="Employer" autoFocus={fresh} onSave={(v) => void saveApplication(app.id, { employer: v })} />
+          {fresh ? (
+            <TextField wrap className="cell-input strong" value={app.employer} label="Employer" placeholder="Employer" autoFocus={fresh} onSave={(v) => void saveApplication(app.id, { employer: v })} />
+          ) : (
+            <button
+              type="button"
+              className="cell-link strong"
+              onClick={() => navigate({ view: "jobs", app: app.id })}
+              title="Open application card"
+            >
+              {app.employer || <span className="muted">Untitled</span>}
+            </button>
+          )}
         </td>
         <td className="c-role">
           <TextField wrap className="cell-input" value={app.role} label="Role" placeholder="Role" onSave={(v) => void saveApplication(app.id, { role: v })} />
@@ -131,21 +102,21 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
         <td className="c-deadline"><Deadline app={app} /></td>
         {SLOTS.map((slot) => <td key={slot.name} className="c-slot"><SlotMark app={app} slot={slot} /></td>)}
         <td className="c-more">
-          {fresh
-            ? <button type="button" className="icon-button new-cancel" aria-label="Cancel the new application" title="Cancel" onClick={() => void cancelNew()}><Icon name="close" /></button>
-            : <DetailsToggle open={open} app={app} onToggle={() => onToggle()} />}
+          {fresh ? (
+            <button type="button" className="icon-button new-cancel" aria-label="Cancel the new application" title="Cancel" onClick={() => void cancelNew()}><Icon name="close" /></button>
+          ) : (
+            <button
+              type="button"
+              className="icon-button details-open"
+              aria-label={`Open details card for ${app.employer || "this application"}`}
+              title="Open details card"
+              onClick={() => navigate({ view: "jobs", app: app.id })}
+            >
+              <Icon name="caret" />
+            </button>
+          )}
         </td>
       </tr>
-      {open && (
-        <tr className="details-row">
-          <td colSpan={10}>
-            <Details
-              app={app} events={events}
-              onDone={() => { onToggle(false); requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-app="${app.id}"] .details-toggle`)?.focus()); }}
-            />
-          </td>
-        </tr>
-      )}
     </tbody>
   );
 }
@@ -210,7 +181,6 @@ export function JobsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [order, setOrder] = useState<Order>("deadline");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
@@ -260,15 +230,8 @@ export function JobsPage() {
 
   if (!all) return <div className="page wide" aria-busy="true" />;
 
-  const toggle = (id: string) => (to?: boolean) => setOpen((current) => {
-    const next = new Set(current);
-    const want = to ?? !next.has(id);
-    if (want) next.add(id); else next.delete(id);
-    return next;
-  });
   const left = (id: string) => (gone: boolean) => {
     setFresh((f) => (f === id ? null : f));
-    if (gone) setOpen((s) => { const n = new Set(s); n.delete(id); return n; });
   };
   const counts = { all: all.length, open: all.filter(isOpen).length, closed: all.filter((a) => !isOpen(a)).length };
   const closedHeading = order === "deadline" && filter === "all" && shown.some(isOpen) && shown.some((a) => !isOpen(a));
@@ -346,7 +309,7 @@ export function JobsPage() {
                 {closedHeading && !isOpen(app) && (i === 0 || isOpen(shown[i - 1])) && app.id !== fresh && (
                   <tbody className="closed-head"><tr><th colSpan={10} scope="rowgroup">Closed</th></tr></tbody>
                 )}
-                <TableRow app={app} events={eventsFor(app.id)} open={open.has(app.id)} fresh={fresh === app.id} onToggle={toggle(app.id)} onLeft={left(app.id)} />
+                <TableRow app={app} events={eventsFor(app.id)} fresh={fresh === app.id} onLeft={left(app.id)} />
               </Fragment>
             ))}
           </table>
