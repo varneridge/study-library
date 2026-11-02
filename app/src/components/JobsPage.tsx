@@ -14,10 +14,13 @@ import {
   slotColumn, SLOTS, sortApplications, stageOf, summarise, type Order,
 } from "../lib/jobs";
 import type { ApplicationEventRow, ApplicationRow } from "../lib/types";
-import { showToast, typing, useCloseOnBack, useNarrow, useTitle } from "../lib/ui";
+import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
 import { shortDate } from "../lib/dates";
 import { DateField, Deadline, OrderButton, SlotMark, SlotRow, slotTitle, StageButton, TextField, Timeline } from "./jobs/Controls";
+import { AppList } from "./jobs/AppList";
+import { AppSheet } from "./jobs/AppSheet";
+import { navigate, useRoute } from "../lib/router";
 
 type Filter = "all" | "open" | "closed";
 
@@ -41,8 +44,8 @@ function useTopbarHeight(): void {
   }, []);
 }
 
-function Details({ app, events, narrow, focusEmployer, onDone }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; narrow: boolean; focusEmployer: boolean; onDone: () => void;
+function Details({ app, events, onDone }: {
+  app: ApplicationRow; events: ApplicationEventRow[]; onDone: () => void;
 }) {
   const remove = async () => {
     await deleteApplication(app.id);
@@ -56,28 +59,6 @@ function Details({ app, events, narrow, focusEmployer, onDone }: {
     />
   );
   const files = <ul className="slot-list" aria-label="Files">{SLOTS.map((slot) => <SlotRow key={slot.name} app={app} slot={slot} />)}</ul>;
-  if (narrow) {
-    return (
-      <div className="app-details">
-        <div className="app-fields">
-          <label>Employer<TextField value={app.employer} label="Employer" placeholder="Required" autoFocus={focusEmployer} onSave={(v) => void saveApplication(app.id, { employer: v })} /></label>
-          <label>Role<TextField value={app.role} label="Role" placeholder="Required" onSave={(v) => void saveApplication(app.id, { role: v })} /></label>
-          <div className="field-pair">
-            <span className="field"><span className="field-label">Applied</span><DateField value={app.applied} label="Applied" onSave={(v) => void saveAppliedDate(app, v)} /></span>
-            <span className="field"><span className="field-label">Next deadline</span><Deadline app={app} /></span>
-          </div>
-          <span className="field"><span className="field-label">Stage</span><StageButton app={app} since={currentStageSince(app, events)} /></span>
-        </div>
-        <div className="app-notes">{notes}</div>
-        <Timeline app={app} events={events} />
-        {files}
-        {/* On a phone the card closes from its foot, where the thumb is after editing. */}
-        <div className="app-foot"><button type="button" className="button" onClick={onDone}>Done</button></div>
-        {/* Delete stands apart from Done, as dangerous actions do. */}
-        <div className="app-danger"><button type="button" className="quiet danger" onClick={remove}>Delete application</button></div>
-      </div>
-    );
-  }
   return (
     <div className="app-details wide">
       <div className="app-notes"><h3 className="detail-head">Notes</h3>{notes}</div>
@@ -156,51 +137,13 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
         <tr className="details-row">
           <td colSpan={10}>
             <Details
-              app={app} events={events} narrow={false} focusEmployer={false}
+              app={app} events={events}
               onDone={() => { onToggle(false); requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-app="${app.id}"] .details-toggle`)?.focus()); }}
             />
           </td>
         </tr>
       )}
     </tbody>
-  );
-}
-
-function Card({ app, events, open, fresh, onToggle, onLeft }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; open: boolean; fresh: boolean; onToggle: (to?: boolean) => void; onLeft: (gone: boolean) => void;
-}) {
-  useCloseOnBack(open, () => onToggle(false));
-  const leave = useDiscardWhenLeft(app.id, fresh, onLeft);
-  const stage = stageOf(app.stage);
-  return (
-    <li className={`app-card${isOpen(app) ? "" : " closed"}${open ? " expanded" : ""}`} data-app={app.id} onBlur={leave}>
-      <button type="button" className="card-head" aria-expanded={open} onClick={() => onToggle()}>
-        <span className="card-top">
-          <span className="card-employer">{app.employer || <span className="muted">New application</span>}</span>
-          <span className={`stage-tag cat-${stage.cat}`} title={stage.label}>{stage.label}</span>
-        </span>
-        {app.role && <span className="card-role">{app.role}</span>}
-        <span className="card-meta">
-          {app.applied && <span>Applied {formatDate(app.applied)}</span>}
-          {app.next_deadline && isOpen(app) && <span className="card-due">Due <Deadline app={app} editable={false} /></span>}
-        </span>
-        <span className="card-slots" aria-label="Files">
-          {SLOTS.map((slot) => {
-            const value = app[slotColumn(slot.name)];
-            const mark = value?.state === "saved" ? "✓" : value?.state === "na" ? "N/A" : "";
-            return (
-              <span key={slot.name} className={`mini-slot${value ? ` ${value.state}` : ""}`} title={slotTitle(slot.label, value)}>
-                {slot.short} <b>{mark || <span aria-label="not recorded">·</span>}</b>
-              </span>
-            );
-          })}
-        </span>
-      </button>
-      {open && <Details app={app} events={events} narrow focusEmployer={fresh} onDone={() => {
-        onToggle(false);
-        requestAnimationFrame(() => document.querySelector(`[data-app="${app.id}"] .card-head`)?.scrollIntoView({ block: "nearest" }));
-      }} />}
-    </li>
   );
 }
 
@@ -247,6 +190,7 @@ function RecentlyDeleted() {
 export function JobsPage() {
   useTitle("Job search");
   useTopbarHeight();
+  const route = useRoute();
   const narrow = useNarrow(NARROW);
   const all = useLiveQuery(async () => (await db.applications.toArray()).filter((a) => !a.deleted), [], null);
   const events = useLiveQuery(() => db.application_events.toArray(), [], []);
@@ -278,8 +222,9 @@ export function JobsPage() {
       setQuery("");
       const id = await addApplication();
       setFresh(id);
-      // On a phone the new card opens, with the employer ready to type.
-      if (window.matchMedia?.(NARROW).matches) setOpen((s) => new Set(s).add(id));
+      if (window.matchMedia?.(NARROW).matches) {
+        navigate({ view: "jobs", app: id });
+      }
     } finally {
       setTimeout(() => {
         addingRef.current = false;
@@ -323,6 +268,8 @@ export function JobsPage() {
   };
   const counts = { all: all.length, open: all.filter(isOpen).length, closed: all.filter((a) => !isOpen(a)).length };
   const closedHeading = order === "deadline" && filter === "all" && shown.some(isOpen) && shown.some((a) => !isOpen(a));
+  const jobRoute = route.view === "jobs" ? route : null;
+  const currentApp = jobRoute?.app ? all.find((a) => a.id === jobRoute.app) : undefined;
 
   return (
     <div className="page wide jobs">
@@ -370,11 +317,7 @@ export function JobsPage() {
       ) : shown.length === 0 ? (
         <p className="muted jobs-none">{query ? `Nothing matches “${query}”.` : filter === "open" ? "No open applications." : "No closed applications."}</p>
       ) : narrow ? (
-        <ul className="app-cards">
-          {shown.map((app) => (
-            <Card key={app.id} app={app} events={eventsFor(app.id)} open={open.has(app.id)} fresh={fresh === app.id} onToggle={toggle(app.id)} onLeft={left(app.id)} />
-          ))}
-        </ul>
+        <AppList apps={shown} eventsFor={eventsFor} closedHeading={closedHeading} />
       ) : (
         <div className="apps-wrap">
           <table className="apps">
@@ -407,6 +350,14 @@ export function JobsPage() {
             ))}
           </table>
         </div>
+      )}
+
+      {currentApp && !jobRoute?.edit && !jobRoute?.entry && (
+        <AppSheet
+          app={currentApp}
+          events={eventsFor(currentApp.id)}
+          onClose={() => navigate({ view: "jobs" })}
+        />
       )}
 
       <RecentlyDeleted />

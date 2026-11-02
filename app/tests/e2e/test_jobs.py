@@ -456,9 +456,12 @@ with sync_playwright() as p:
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)
     castore_card = phone.locator(".app-card[data-app='castore']")
     castore_card.locator(".card-head").tap()
-    expect(castore_card.locator(".app-fields")).to_be_visible()
-    castore_card.get_by_label("Role", exact=True).fill("Consulting Analyst, Retail")
-    castore_card.locator(".app-fields .stage-chip").tap()
+    app_sheet = phone.locator("dialog.app-sheet[open]")
+    expect(app_sheet).to_be_visible()
+    assert phone.url.endswith("app=castore")
+
+    # In the application sheet: stage chip opens the stage card as a sheet.
+    app_sheet.locator(".stage-chip").tap()
     phone_sheet = phone.locator("dialog.stage-card.sheet[open]")
     expect(phone_sheet).to_be_visible()
     small_in_sheet = phone.evaluate("""() => [...document.querySelectorAll('dialog[open] button')]
@@ -469,21 +472,17 @@ with sync_playwright() as p:
     # Cancel stays on screen at the foot of the sheet, however long the sheet is.
     cancel_box = phone_sheet.get_by_role("button", name="Cancel").bounding_box()
     assert cancel_box and cancel_box["y"] + cancel_box["height"] <= 844, cancel_box
-    # Back closes the sheet first and leaves the card open.
+    # Back closes the stage choice card first and leaves the application sheet open.
     phone.go_back()
     expect(phone_sheet).to_have_count(0)
-    expect(castore_card.locator(".app-fields")).to_be_visible()
-    castore_card.locator(".app-fields .stage-chip").tap()
+    expect(app_sheet).to_be_visible()
+    app_sheet.locator(".stage-chip").tap()
     phone_sheet.locator(".stage-grid").get_by_role("button", name="Interview: done, awaiting result", exact=True).tap()
     expect(phone_sheet).to_have_count(0)
-    phone.locator(".jobs-summary").tap()
-    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.role === 'Consulting Analyst, Retail' && a.stage === 'interview_wait'); }")
+    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.stage === 'interview_wait'); }")
     phone.screenshot(path=f"{shots}-5-phone-open.png", full_page=True)
-    # An open card does not repeat itself: the summary lines give way to the form.
-    expect(castore_card.locator(".card-meta")).to_be_hidden()
-    expect(castore_card.locator(".card-slots")).to_be_hidden()
     # Each file slot has one Change button, which opens the slot card as a sheet.
-    cv = castore_card.locator(".slot-row").first
+    cv = app_sheet.locator(".slot-row").first
     expect(cv.locator("button")).to_have_count(1)
     cv.get_by_role("button", name="Change the cv").tap()
     sheet = phone.locator("dialog.slot-card.sheet[open]")
@@ -491,11 +490,10 @@ with sync_playwright() as p:
     sheet.get_by_role("button", name="Not required").tap()
     expect(cv.locator(".slot-status")).to_have_text("Not required")
     until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.file_cv && a.file_cv.state === 'na'); }")
-    # Done, at the foot of the card, closes it.
-    castore_card.get_by_role("button", name="Done", exact=True).tap()
-    expect(castore_card.locator(".app-fields")).to_have_count(0)
-    expect(castore_card.locator(".card-meta")).to_be_visible()
-    print("phone card: no repetition, one sheet per file slot, Done at the foot")
+    # Done, at the foot of the sheet, closes it.
+    app_sheet.get_by_role("button", name="Done", exact=True).tap()
+    expect(app_sheet).to_have_count(0)
+    print("phone sheet: read-first sheet, one sheet per file slot, Done at the foot")
     small = phone.evaluate("""() => [...document.querySelectorAll('.jobs button, .jobs a[href], .jobs select, .jobs input')]
       .filter(e => e.offsetParent && e.type !== 'file').map(e => [e.className || e.tagName, e.getBoundingClientRect()])
       .filter(([, r]) => r.height < 43.5).map(([c, r]) => c + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))""")

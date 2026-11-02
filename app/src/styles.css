@@ -1564,26 +1564,39 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .app-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-right: -0.4rem; }
 .quiet.danger { color: var(--danger); }
 
-/* Cards, on a phone */
-.app-cards { list-style: none; margin: 0; padding: 0; }
-.app-card { border-bottom: 1px solid var(--rule); }
-.card-head {
+/* Flat application list on phone viewports */
+.app-cards, .app-list { list-style: none; margin: 0; padding: 0; }
+.app-card, .app-row-item { border-bottom: 1px solid var(--rule); }
+.card-head, .app-row {
   display: grid; gap: 0.25rem; width: 100%; text-align: left; border: 0; background: none; padding: 0.8rem 0;
+  text-decoration: none; color: var(--ink); box-sizing: border-box;
 }
-.card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
-.card-employer { font-family: var(--serif); font-weight: 600; font-size: var(--fs-lg); line-height: 1.25; }
-.card-top .stage-tag { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
-.card-role { color: var(--muted); font-size: var(--fs-sm); }
-.card-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; font-size: var(--fs-sm); color: var(--muted); }
+.card-top, .app-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.card-employer, .app-row-employer { font-family: var(--serif); font-weight: 600; font-size: var(--fs-lg); line-height: 1.25; }
+.card-top .stage-tag, .app-row-top .stage-tag { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.card-role, .app-row-role { color: var(--muted); font-size: var(--fs-sm); }
+.card-meta, .app-row-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; font-size: var(--fs-sm); color: var(--muted); }
 .card-meta .deadline { flex-direction: row; align-items: baseline; gap: 0.4rem; color: var(--ink); }
-.card-due { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+.card-due, .app-row-due { display: inline-flex; align-items: baseline; gap: 0.4rem; color: var(--ink); }
+.app-row-due.state-overdue { color: var(--danger); }
+.app-row-due.state-soon { color: var(--accent); }
 .card-slots { display: flex; gap: 1rem; font-size: var(--fs-xs); color: var(--muted); letter-spacing: 0.03em; }
 .mini-slot b { color: var(--ink); font-weight: 600; }
 .mini-slot.na b { color: var(--muted); font-weight: 400; }
-.app-card.closed .card-employer, .app-card.closed .card-meta { color: var(--muted); }
-.app-card.expanded .card-head { padding-bottom: 0.4rem; }
-.app-card .app-details { display: block; padding: 0.25rem 0 1rem; }
-.app-card .app-details > * + * { margin-top: 1rem; }
+.app-card.closed .card-employer, .app-card.closed .card-meta,
+.app-row-item.closed .app-row-employer, .app-row-item.closed .app-row-meta { color: var(--muted); }
+
+/* Application sheet */
+.app-sheet-body { display: flex; flex-direction: column; gap: 1.25rem; }
+.app-sheet-section { display: flex; flex-direction: column; gap: 0.5rem; }
+.app-sheet-field { display: grid; gap: 0.25rem; color: var(--muted); }
+.app-sheet-field .field-label { display: block; font-size: var(--fs-sm); font-weight: 500; }
+.app-sheet-val { font-size: var(--fs-md); color: var(--ink); }
+.app-sheet-stage-wrap { display: flex; align-items: center; gap: 0.75rem; }
+.app-sheet-notes-text { font-family: var(--serif); font-size: var(--fs-md); line-height: 1.5; color: var(--ink); margin: 0; white-space: pre-wrap; }
+.app-sheet-foot { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; }
+.app-sheet-foot-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; }
+
 .app-fields { display: grid; gap: 0.75rem; }
 .app-fields label, .app-fields .field { display: grid; gap: 0.25rem; color: var(--muted); }
 .app-fields input, .app-fields select { font-size: var(--fs-md); color: var(--ink); }
@@ -1792,13 +1805,10 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 .touch-swatch .name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .touch-swatch:active { background: var(--surface-hover); }
 
-/* An open job card shows its employer and stage at the top; everything else
-   is in the form beneath, so nothing is shown twice. */
-.app-card.expanded .card-role, .app-card.expanded .card-meta, .app-card.expanded .card-slots { display: none; }
-.app-card .slot-row { align-items: center; }
-.app-card .slot-row .slot-label { grid-column: 1; }
-.app-card .slot-row .slot-status { grid-column: 1; }
-.app-card .app-foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-left: 0; }
+/* In the sheet or details, a slot row keeps its label and status cleanly aligned. */
+.slot-row { align-items: center; }
+.slot-row .slot-label { grid-column: 1; }
+.slot-row .slot-status { grid-column: 1; }
 
 /* A session's name on a week page is the way into it, so it looks like one. */
 .session-open { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
@@ -2011,8 +2021,8 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .slot-row { grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr) auto; align-items: center; padding: 0.2rem 0; }
 .slot-change { justify-self: end; }
 /* On a phone each file is its label over what was sent, with Change to the right of both. */
-.app-card .slot-row { grid-template-columns: minmax(0, 1fr) auto; }
-.app-card .slot-row .slot-change { grid-area: 1 / 2 / span 2 / 3; }
+.app-sheet .slot-row, .app-card .slot-row { grid-template-columns: minmax(0, 1fr) auto; }
+.app-sheet .slot-row .slot-change, .app-card .slot-row .slot-change { grid-area: 1 / 2 / span 2 / 3; }
 .app-fields .stage-chip { justify-self: start; }
 .app-danger { margin-top: 1.25rem; margin-left: -0.4rem; }
 
