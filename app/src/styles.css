@@ -2079,6 +2079,112 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
   .dialog .row .button { flex: 1 1 8rem; justify-content: center; min-height: 3rem; }
 }
 
+/* Modal sheets on phone and dialogs on wider screens */
+dialog.sheet-dialog {
+  position: fixed;
+  inset: auto 0 0 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 85vh;
+  margin: 0;
+  padding: 0;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-width: 1px 0 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  animation: sheet-in 0.18s ease-out;
+  box-sizing: border-box;
+}
+dialog.sheet-dialog.tall {
+  max-height: 92vh;
+}
+dialog.sheet-dialog::backdrop {
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.sheet-dialog {
+    animation: none;
+  }
+}
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.8rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--card);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+}
+.sheet-title-group {
+  flex: 1;
+  min-width: 0;
+}
+.sheet-title {
+  font-family: var(--serif);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0;
+  color: var(--ink);
+}
+.sheet-subtitle {
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  margin: 0.2rem 0 0;
+}
+.sheet-close {
+  flex-shrink: 0;
+  margin: -0.25rem -0.25rem 0 0;
+}
+.sheet-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: var(--card);
+  border-top: 1px solid var(--rule);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex-shrink: 0;
+}
+.sheet-foot .button {
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+}
+@media (min-width: 44.01rem) {
+  dialog.sheet-dialog {
+    inset: auto auto 50% 50%;
+    transform: translate(-50%, 50%);
+    max-width: 34rem;
+    border-width: 1px;
+    border-radius: var(--r-lg);
+    max-height: 85vh;
+  }
+  dialog.sheet-dialog.tall {
+    max-height: 90vh;
+  }
+}
+
 /* The reader keeps Zotero's shape, softened. */
 .reader-bar { box-shadow: inset 0 -1px 0 var(--rule); }
 .pdf-page { border-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06); }

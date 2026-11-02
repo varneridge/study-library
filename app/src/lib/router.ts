@@ -15,7 +15,7 @@ export type Route =
   | { view: "search"; q?: string }
   | { view: "settings" }
   // The job search, kept apart from the study library.
-  | { view: "jobs" };
+  | { view: "jobs"; app?: string; edit?: boolean; newApp?: boolean; entry?: string };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
@@ -43,8 +43,14 @@ export function parseRoute(search: string): Route {
     case "search":
       return { view, q: params.get("q") ?? undefined };
     case "settings":
-    case "jobs":
       return { view };
+    case "jobs": {
+      const app = params.get("app") ?? undefined;
+      const edit = params.get("edit") === "1" ? true : undefined;
+      const newApp = params.get("new") === "1" ? true : undefined;
+      const entry = params.get("entry") ?? undefined;
+      return { view, app, edit, newApp, entry };
+    }
     default:
       return { view: "home" };
   }
@@ -62,6 +68,12 @@ export function href(route: Route): string {
   if (route.view === "across") {
     if (route.term) params.set("term", route.term);
     if (route.number) params.set("n", String(route.number));
+  }
+  if (route.view === "jobs") {
+    if (route.app) params.set("app", route.app);
+    if (route.edit) params.set("edit", "1");
+    if (route.newApp) params.set("new", "1");
+    if (route.entry) params.set("entry", route.entry);
   }
   const query = params.toString();
   return query ? `/?${query}` : "/";
