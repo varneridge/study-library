@@ -36,6 +36,12 @@ with sync_playwright() as p:
         page.goto(BASE + "/?v=settings")
         page.get_by_role("group", name="Appearance").get_by_role("button", name=name).click()
         expect(page.locator("html")).to_have_attribute("data-theme", key)
+        # Guard: pressed theme chip retains solid outline when blurred.
+        page.evaluate("document.activeElement.blur()")
+        chip_outline = page.locator(".theme-chip[aria-pressed='true']").first.evaluate(
+            "el => window.getComputedStyle(el).outlineStyle"
+        )
+        assert chip_outline == "solid", f"Expected pressed theme chip outline solid, got {chip_outline}"
         assert bg(page, "body") == want["paper"], (name, bg(page, "body"))
         page.screenshot(path=f"{shots}-{key}-1-settings.png")
 
@@ -56,6 +62,11 @@ with sync_playwright() as p:
 
         # Text layout too.
         page.get_by_role("button", name="Appearance").click()
+        # Guard: standalone tools in appearance menu retain their 1px top border.
+        tool_borders = page.evaluate(
+            "Array.from(document.querySelectorAll('.menu-panel.appearance .tool:not(.segmented .tool)')).map(el => window.getComputedStyle(el).borderTopWidth)"
+        )
+        assert len(tool_borders) > 0 and all(b == "1px" for b in tool_borders), f"Expected 1px border on standalone appearance tools, got {tool_borders}"
         page.get_by_role("group", name="Layout").get_by_role("button", name="Text").click()
         page.keyboard.press("Escape")
         expect(page.locator(".text-view")).to_be_visible(timeout=15000)
@@ -74,7 +85,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Appearance").click()
     page.get_by_role("group", name="Theme").get_by_role("button", name="Sepia").click()
     page.keyboard.press("Escape")
-    page.get_by_role("button", name="Back to the week").click()
+    page.get_by_role("button", name="Back to the week").first.click()
     assert bg(page, "body") == EXPECT["sepia"]["paper"]
     print("sepia chosen in the reader colours the week page too")
     page.goto(BASE + "/?v=settings")

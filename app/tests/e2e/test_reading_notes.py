@@ -226,9 +226,20 @@ with sync_playwright() as p:
     # The same notes on a phone, as text.
     phone = browser.new_page(viewport={"width": 390, "height": 844})
     phone.goto(page.url)
+    phone.wait_for_selector(".reader")
+    # If the reading position was restored past 80px, the reader bar slides away.
+    # Tapping the reader scroller below the top bar reveals the bar again.
+    phone.locator(".scroller").click(position={"x": 50, "y": 100})
+    expect(phone.locator(".reader-bar")).to_be_in_viewport()
     phone.get_by_role("button", name="Sidebar").click()
     expect(phone.locator(".reading-notes .note-highlight")).to_have_count(3, timeout=15000)
     phone.screenshot(path=f"{shots}-2-phone.png")
+
+    # Guard: quotation buttons have full opacity on touch/coarse pointer viewports.
+    quote_write_opacity = phone.locator(".note-highlight .quote-write").first.evaluate(
+        "el => window.getComputedStyle(el).opacity"
+    )
+    assert quote_write_opacity == "1", f"Expected quote-write opacity 1 on touch viewport, got {quote_write_opacity}"
 
     # Deleting a quotation on a phone removes its highlight from the page too.
     phone.locator(".reading-notes .note-highlight").first.get_by_role("button", name="Delete quotation").click()

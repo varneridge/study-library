@@ -90,8 +90,11 @@ with sync_playwright() as p:
 
     # A reading you named is left alone, with the details offered.
     row = page.locator(".week-page li.reading", has_text="Leffler")
-    expect(row.get_by_role("button", name="Details found")).to_be_visible()
-    row.get_by_role("button", name="Details found").click()
+    found_btn = row.get_by_role("button", name="Details found")
+    expect(found_btn).to_be_visible()
+    found_fs = found_btn.evaluate("el => window.getComputedStyle(el).fontSize")
+    assert found_fs == "12.48px", f"Expected Details found font-size 12.48px, got {found_fs}"
+    found_btn.click()
     expect(row.locator(".compare")).to_contain_text("from the JSTOR cover page")
     page.screenshot(path=f"{shots}-1-compare.png")
     print("offered:", row.locator(".compare .found-title").inner_text())
