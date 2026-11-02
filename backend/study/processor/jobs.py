@@ -169,6 +169,24 @@ def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
     return split
 
 
+def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
+    if len(doc) == 0:
+        return False
+    page = doc[0]
+    rect = page.rect
+    if rect.width <= 0 or rect.height <= 0:
+        return False
+    scale = min(2.0, max(0.1, width / rect.width))
+    import pymupdf
+    from PIL import Image
+    matrix = pymupdf.Matrix(scale, scale)
+    pix = page.get_pixmap(matrix=matrix, alpha=False)
+    mode = "RGB" if pix.n >= 3 else "L"
+    img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
+    img.save(thumb_path, "WEBP", quality=quality)
+    return True
+
+
 def extract_text(ctx: Context, job: dict) -> None:
     import pymupdf
 
@@ -176,41 +194,45 @@ def extract_text(ctx: Context, job: dict) -> None:
     if file is None:
         return
 
+    thumb_key = None
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "in.pdf")
         ctx.api.download(file["r2_key"], path)
         with pymupdf.open(path) as doc:
             pages = [page.get_text("text").replace("\x00", "") for page in doc]
 
-    page_count = len(pages)
-    sparse = sum(1 for text in pages if len(text.strip()) < MIN_TEXT_CHARS)
-    # A rescan of a file this processor OCR'd before: the original scan has
-    # gone, so its page images are read again. With highlights, only the text
-    # is redone and the pages stay exactly as they are; without, the file is
-    # rebuilt with the full treatment: spreads split, pages turned upright and
-    # straightened, every language.
-    payload = job["payload"]
-    keep = bool(payload.get("keep_pages"))
-    if payload.get("rescan") and file["r2_key"].endswith(".ocr.pdf"):
-        ctx.api.needs_ocr(file["id"], page_count, job.get("priority"), mode="redo" if keep else "fresh")
-        log.info("file %s rescanned: %s", file["id"], "text read again" if keep else "rebuilt from its pages")
-        return
-    if page_count and sparse / page_count > OCR_PAGE_SHARE and not job["payload"].get("after_ocr"):
-        ctx.api.needs_ocr(file["id"], page_count, job.get("priority"))
-        log.info("file %s needs OCR (%s of %s pages without text)", file["id"], sparse, page_count)
-        return
-    # Text that is mostly not words came from a poor scan: read it again.
-    if page_count and not job["payload"].get("after_ocr") and garbled(pages):
-        # Rebuilt from its pages when nothing is highlighted on it; otherwise
-        # its text is read again with the pages left as they are.
-        fresh = payload.get("rescan") and not keep
-        ctx.api.needs_ocr(file["id"], page_count, job.get("priority"), redo=not fresh, mode="fresh" if fresh else "redo")
-        log.info("file %s has a garbled text layer; reading it again", file["id"])
-        return
+            page_count = len(pages)
+            sparse = sum(1 for text in pages if len(text.strip()) < MIN_TEXT_CHARS)
+            payload = job["payload"]
+            keep = bool(payload.get("keep_pages"))
+            if payload.get("rescan") and file["r2_key"].endswith(".ocr.pdf"):
+                ctx.api.needs_ocr(file["id"], page_count, job.get("priority"), mode="redo" if keep else "fresh")
+                log.info("file %s rescanned: %s", file["id"], "text read again" if keep else "rebuilt from its pages")
+                return
+            if page_count and sparse / page_count > OCR_PAGE_SHARE and not job["payload"].get("after_ocr"):
+                ctx.api.needs_ocr(file["id"], page_count, job.get("priority"))
+                log.info("file %s needs OCR (%s of %s pages without text)", file["id"], sparse, page_count)
+                return
+            if page_count and not job["payload"].get("after_ocr") and garbled(pages):
+                fresh = payload.get("rescan") and not keep
+                ctx.api.needs_ocr(file["id"], page_count, job.get("priority"), redo=not fresh, mode="fresh" if fresh else "redo")
+                log.info("file %s has a garbled text layer; reading it again", file["id"])
+                return
+
+            try:
+                thumb_path = os.path.join(tmp, "thumb.webp")
+                if render_slide_thumbnail(doc, thumb_path):
+                    with open(thumb_path, "rb") as f:
+                        thumb_sha = hashlib.sha256(f.read()).hexdigest()
+                    thumb_key = f"files/{thumb_sha}.webp"
+                    ctx.api.put_object(thumb_path, thumb_key, "image/webp")
+            except Exception as exc:
+                log.warning("could not render slide thumbnail for file %s: %s", file["id"], exc)
 
     ctx.api.file_text(
         file["id"], page_count,
         [{"page": index, "body": text} for index, text in enumerate(pages) if text.strip()],
+        thumb_key=thumb_key,
     )
     log.info("file %s ready with %s pages", file["id"], page_count)
 
@@ -471,6 +493,28 @@ def identify(ctx: Context, job: dict) -> None:
     log.info("file %s identified %s", file["id"], f"by {via}" if via else "as unknown")
 
 
+def thumb(ctx: Context, job: dict) -> None:
+    import pymupdf
+
+    file = _live_file(ctx, job)
+    if file is None:
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "in.pdf")
+        ctx.api.download(file["r2_key"], path)
+        with pymupdf.open(path) as doc:
+            thumb_path = os.path.join(tmp, "thumb.webp")
+            if not render_slide_thumbnail(doc, thumb_path):
+                return
+            with open(thumb_path, "rb") as f:
+                thumb_sha = hashlib.sha256(f.read()).hexdigest()
+            thumb_key = f"files/{thumb_sha}.webp"
+            ctx.api.put_object(thumb_path, thumb_key, "image/webp")
+            ctx.api.file_thumb(file["id"], thumb_key)
+            log.info("file %s slide thumbnail ready: %s", file["id"], thumb_key)
+
+
 HANDLERS: dict[str, Callable[[Context, dict], None]] = {
     "extract_text": extract_text,
     "ocr": ocr,
@@ -478,4 +522,5 @@ HANDLERS: dict[str, Callable[[Context, dict], None]] = {
     "prepare_audio": prepare_audio,
     "transcribe": transcribe,
     "identify": identify,
+    "thumb": thumb,
 }

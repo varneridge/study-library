@@ -143,9 +143,15 @@ class Api:
                                  headers=dict(self.session.headers), timeout=30, allow_redirects=False)
         return response.ok and bool(response.json().get("running"))
 
-    def file_text(self, file_id: str, page_count: int, pages: list[dict]) -> None:
-        self._json("POST", f"/api/processor/files/{file_id}/text",
-                   json={"page_count": page_count, "pages": pages})
+    def file_text(self, file_id: str, page_count: int, pages: list[dict],
+                  thumb_key: str | None = None) -> None:
+        payload: dict = {"page_count": page_count, "pages": pages}
+        if thumb_key is not None:
+            payload["thumb_key"] = thumb_key
+        self._json("POST", f"/api/processor/files/{file_id}/text", json=payload)
+
+    def file_thumb(self, file_id: str, thumb_key: str) -> None:
+        self._json("POST", f"/api/processor/files/{file_id}/thumb", json={"thumb_key": thumb_key})
 
     def identified(self, file_id: str, citation: dict, via: str | None) -> None:
         self._json("POST", f"/api/processor/files/{file_id}/identified", json={"citation": citation, "via": via})

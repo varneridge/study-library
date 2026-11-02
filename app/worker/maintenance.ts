@@ -29,6 +29,13 @@ export async function purge(env: Env): Promise<void> {
           json_extract(a.file_rd, '$.key'), json_extract(a.file_qs, '$.key')))`,
   ).all<{ r2_key: string }>();
 
+  const orphanedThumbs = await env.DB.prepare(
+    `SELECT DISTINCT f.thumb_key FROM files f
+      WHERE f.deleted = 1 AND f.modified_at < ${cutoff}
+        AND f.thumb_key IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM files o WHERE o.thumb_key = f.thumb_key AND o.id <> f.id AND o.deleted = 0)`,
+  ).all<{ thumb_key: string }>();
+
   await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM page_text WHERE file_id IN (SELECT id FROM files WHERE deleted = 1 AND modified_at < ${cutoff})`,
@@ -45,6 +52,7 @@ export async function purge(env: Env): Promise<void> {
   await releaseUnusedFiles(env);
 
   for (const row of orphaned.results ?? []) await env.BUCKET.delete(row.r2_key);
+  for (const row of orphanedThumbs.results ?? []) await env.BUCKET.delete(row.thumb_key);
 }
 
 // Deleting a reading or a recording leaves its file row alone, so restoring

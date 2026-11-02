@@ -98,7 +98,9 @@ processor.put("/objects/*", async (c) => {
 processor.delete("/objects/*", async (c) => {
   const key = c.req.path.replace(/^.*\/objects\//, "");
   if (c.req.query("if_unreferenced")) {
-    const used = await c.env.DB.prepare("SELECT 1 FROM files WHERE r2_key = ?1 AND deleted = 0 LIMIT 1").bind(key).first();
+    const used = await c.env.DB.prepare(
+      "SELECT 1 FROM files WHERE (r2_key = ?1 OR thumb_key = ?1) AND deleted = 0 LIMIT 1",
+    ).bind(key).first();
     if (used) return c.json({ deleted: false });
   }
   await c.env.BUCKET.delete(key);
@@ -176,7 +178,11 @@ processor.post("/files/:id/identified", async (c) => {
 
 processor.post("/files/:id/text", async (c) => {
   const id = c.req.param("id");
-  const { page_count, pages } = await c.req.json<{ page_count: number; pages: { page: number; body: string }[] }>();
+  const { page_count, pages, thumb_key } = await c.req.json<{
+    page_count: number;
+    pages: { page: number; body: string }[];
+    thumb_key?: string | null;
+  }>();
   const statements = [c.env.DB.prepare("DELETE FROM page_text WHERE file_id = ?1").bind(id)];
   for (const page of pages) {
     if (page.body.trim()) {
@@ -185,10 +191,26 @@ processor.post("/files/:id/text", async (c) => {
       );
     }
   }
-  statements.push(
-    c.env.DB.prepare(`UPDATE files SET text_status = 'ready', page_count = ?2, ${TOUCH} WHERE id = ?1`).bind(id, page_count),
-  );
+  if (thumb_key) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE files SET text_status = 'ready', page_count = ?2, thumb_key = COALESCE(?3, thumb_key), ${TOUCH} WHERE id = ?1`,
+      ).bind(id, page_count, thumb_key),
+    );
+  } else {
+    statements.push(
+      c.env.DB.prepare(`UPDATE files SET text_status = 'ready', page_count = ?2, ${TOUCH} WHERE id = ?1`).bind(id, page_count),
+    );
+  }
   await c.env.DB.batch(statements);
+  return c.json({ ok: true });
+});
+
+processor.post("/files/:id/thumb", async (c) => {
+  const id = c.req.param("id");
+  const { thumb_key } = await c.req.json<{ thumb_key: string }>();
+  if (!thumb_key) return c.json({ error: "thumb_key required" }, 400);
+  await c.env.DB.prepare(`UPDATE files SET thumb_key = ?2, ${TOUCH} WHERE id = ?1`).bind(id, thumb_key).run();
   return c.json({ ok: true });
 });
 

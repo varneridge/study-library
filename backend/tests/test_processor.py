@@ -6,7 +6,7 @@ import pytest
 
 from study.api import stamp
 from study.processor.__main__ import Processor
-from study.processor.jobs import Context, convert, extract_text, ocr
+from study.processor.jobs import Context, convert, extract_text, ocr, thumb
 
 
 def _sha(path):
@@ -61,6 +61,19 @@ def test_extract_text_marks_ready(api, tmp_path):
     api.complete(job["id"])
     row = api.pull_all()["files"]["f1"]
     assert row["text_status"] == "ready" and row["page_count"] == 4
+    assert row.get("thumb_key") is not None and row["thumb_key"].startswith("files/") and row["thumb_key"].endswith(".webp")
+
+
+def test_thumb_backfill(api, tmp_path):
+    pdf = tmp_path / "slides.pdf"
+    _text_pdf(pdf, pages=2)
+    _add(api, pdf, "f2")
+    api._json("POST", "/api/processor/files/f2/thumb", json={"thumb_key": "files/dummy.webp"})
+    assert api.pull_all()["files"]["f2"]["thumb_key"] == "files/dummy.webp"
+    thumb(Context(api=api), {"payload": {"file_id": "f2"}})
+    row = api.pull_all()["files"]["f2"]
+    assert row.get("thumb_key") is not None and row["thumb_key"].startswith("files/") and row["thumb_key"].endswith(".webp")
+    assert row["thumb_key"] != "files/dummy.webp"
 
 
 def test_scan_goes_to_ocr(api, tmp_path):
