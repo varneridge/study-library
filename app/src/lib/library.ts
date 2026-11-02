@@ -279,13 +279,13 @@ export async function loadModuleOverview(
   const liveNotes = live(notes);
   const sessionsWithNotes = new Set(liveNotes.map((n) => n.session_id));
 
-  // Find slide deck files with thumb_key
-  const slideFileIds = liveItems
-    .filter((i) => i.kind === "slides" && i.file_id)
+  // Find slide deck and reading files with thumb_key
+  const relevantFileIds = liveItems
+    .filter((i) => i.file_id)
     .map((i) => i.file_id as string);
 
-  const files = slideFileIds.length > 0
-    ? await db.files.where("id").anyOf(Array.from(new Set(slideFileIds))).toArray()
+  const files = relevantFileIds.length > 0
+    ? await db.files.where("id").anyOf(Array.from(new Set(relevantFileIds))).toArray()
     : [];
   const fileMap = new Map<string, FileRow>(live(files).map((f) => [f.id, f]));
 
@@ -316,7 +316,7 @@ export async function loadModuleOverview(
       .filter((i): i is ItemRow => Boolean(i && !i.deleted));
     const counts = readCount(readingItems);
 
-    // Thumbnail candidate: first slide deck in that week with a thumb_key
+    // Thumbnail candidate: first slide deck with a thumb_key, then fallback to first reading
     let thumb_key: string | null = null;
     for (const wi of wis) {
       const it = itemMap.get(wi.item_id);
@@ -325,6 +325,18 @@ export async function loadModuleOverview(
         if (file?.thumb_key) {
           thumb_key = file.thumb_key;
           break;
+        }
+      }
+    }
+    if (!thumb_key) {
+      for (const wi of wis) {
+        const it = itemMap.get(wi.item_id);
+        if (it && it.kind !== "slides" && it.file_id) {
+          const file = fileMap.get(it.file_id);
+          if (file?.thumb_key) {
+            thumb_key = file.thumb_key;
+            break;
+          }
         }
       }
     }

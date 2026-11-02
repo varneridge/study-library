@@ -172,7 +172,13 @@ def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
 def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
     if len(doc) == 0:
         return False
-    page = doc[0]
+    # Skip JSTOR/publisher cover sheet or near-blank page if multi-page
+    target_idx = 0
+    if len(doc) > 1:
+        first_text = doc[0].get_text("text").strip().lower()
+        if "jstor" in first_text or "downloaded from" in first_text or "this content downloaded" in first_text or len(first_text) < 30:
+            target_idx = 1
+    page = doc[target_idx]
     rect = page.rect
     if rect.width <= 0 or rect.height <= 0:
         return False
@@ -194,14 +200,26 @@ def extract_text(ctx: Context, job: dict) -> None:
     if file is None:
         return
 
-    thumb_key = None
+    thumb_key = file.get("thumb_key")
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "in.pdf")
         ctx.api.download(file["r2_key"], path)
         with pymupdf.open(path) as doc:
             pages = [page.get_text("text").replace("\x00", "") for page in doc]
-
             page_count = len(pages)
+
+            if not thumb_key:
+                try:
+                    thumb_path = os.path.join(tmp, "thumb.webp")
+                    if render_slide_thumbnail(doc, thumb_path):
+                        with open(thumb_path, "rb") as f:
+                            thumb_sha = hashlib.sha256(f.read()).hexdigest()
+                        thumb_key = f"files/{thumb_sha}.webp"
+                        ctx.api.put_object(thumb_path, thumb_key, "image/webp")
+                        ctx.api.file_thumb(file["id"], thumb_key)
+                except Exception as exc:
+                    log.warning("could not render slide thumbnail for file %s: %s", file["id"], exc)
+
             sparse = sum(1 for text in pages if len(text.strip()) < MIN_TEXT_CHARS)
             payload = job["payload"]
             keep = bool(payload.get("keep_pages"))
@@ -218,16 +236,6 @@ def extract_text(ctx: Context, job: dict) -> None:
                 ctx.api.needs_ocr(file["id"], page_count, job.get("priority"), redo=not fresh, mode="fresh" if fresh else "redo")
                 log.info("file %s has a garbled text layer; reading it again", file["id"])
                 return
-
-            try:
-                thumb_path = os.path.join(tmp, "thumb.webp")
-                if render_slide_thumbnail(doc, thumb_path):
-                    with open(thumb_path, "rb") as f:
-                        thumb_sha = hashlib.sha256(f.read()).hexdigest()
-                    thumb_key = f"files/{thumb_sha}.webp"
-                    ctx.api.put_object(thumb_path, thumb_key, "image/webp")
-            except Exception as exc:
-                log.warning("could not render slide thumbnail for file %s: %s", file["id"], exc)
 
     ctx.api.file_text(
         file["id"], page_count,
