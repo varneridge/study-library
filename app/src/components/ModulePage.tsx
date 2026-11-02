@@ -19,6 +19,7 @@ import { loadModuleOverview } from "../lib/library";
 import { sessionLabel, weekCode, isSection } from "../lib/modules";
 import { BlockView } from "./BlockView";
 import { uploadModulePicture } from "../lib/uploads";
+import { downloadWeekArchive } from "../lib/weekArchive";
 import { MoveSelect, ReadingRow } from "./ReadingRow";
 import { ModuleSettings } from "./ModuleSettings";
 
@@ -145,6 +146,16 @@ function WeekCard({
     showToast("Cover picture removed.");
   };
 
+  const handleDownloadArchive = async () => {
+    try {
+      showToast("Preparing archive…");
+      await downloadWeekArchive(module, week, (status) => showToast(status));
+      showToast("Archive downloaded.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not create archive.");
+    }
+  };
+
   return (
     <article
       id={`week-${code}`}
@@ -186,10 +197,12 @@ function WeekCard({
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
             { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
             { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
+            { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
             { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
           ] : [
             { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+            { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
           ]}
         />
       </div>

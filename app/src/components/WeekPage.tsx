@@ -29,6 +29,7 @@ import { WeekBoard } from "./WeekBoard";
 import { SessionSlides, SlideBoard } from "./SlideBoard";
 import { uploadModulePicture } from "../lib/uploads";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
+import { downloadWeekArchive } from "../lib/weekArchive";
 
 // When a week runs, and whether that is now, beside the crumbs.
 export function WeekWhen({ week }: { week: WeekRow }) {
@@ -348,6 +349,16 @@ export function WeekPage({ id }: { id: string }) {
               : `Drop to add files to ${weekCode(week)}${titleAfter(week, ", ")}`
     : null;
 
+  const handleDownloadArchive = async () => {
+    try {
+      showToast("Preparing archive…");
+      await downloadWeekArchive(module, week, (status) => showToast(status));
+      showToast("Archive downloaded.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not create archive.");
+    }
+  };
+
   return (
     <div
       className={`page week-page dropzone${over ? " over" : ""}`}
@@ -449,6 +460,7 @@ export function WeekPage({ id }: { id: string }) {
               { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
               { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
               { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
+              { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
               { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
             ]}
           />
@@ -461,6 +473,7 @@ export function WeekPage({ id }: { id: string }) {
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
             { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
             ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
+            { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
             { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
           ]}
         />

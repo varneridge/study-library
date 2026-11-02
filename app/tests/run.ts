@@ -9,6 +9,7 @@ import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } 
 import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../src/lib/sections";
 import { notesLabel } from "../src/lib/modules";
 import { storedAccent, ACCENTS } from "../src/lib/appearance";
+import { crc32, createZip } from "../src/lib/zip";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
@@ -929,6 +930,23 @@ test("accent palette defines valid palettes and defaults to oxford", () => {
   assert.equal(ACCENTS.length, 5);
   const values = ACCENTS.map((a) => a.value);
   assert.deepEqual(values, ["oxford", "sage", "amber", "burgundy", "slate"]);
+});
+
+test("zip builder creates valid zip bytes with crc32", () => {
+  const enc = new TextEncoder();
+  const sample = enc.encode("hello world");
+  assert.equal(crc32(sample), 0x0d4a1185);
+
+  const zip = createZip([
+    { name: "test.txt", data: sample },
+    { name: "sub/notes.md", data: enc.encode("# Notes") },
+  ]);
+  assert.ok(zip.length > sample.length);
+  // Valid ZIP header starts with PK\x03\x04
+  assert.equal(zip[0], 0x50);
+  assert.equal(zip[1], 0x4b);
+  assert.equal(zip[2], 0x03);
+  assert.equal(zip[3], 0x04);
 });
 
 if (failed) {
