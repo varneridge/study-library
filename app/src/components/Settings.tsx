@@ -40,7 +40,7 @@ async function rescan() {
 async function generateThumbs() {
   try {
     const { queued } = (await (await api("/api/thumbs", { method: "POST" })).json()) as { queued: number };
-    showToast(queued ? `${queued} ${queued === 1 ? "thumbnail job" : "thumbnail jobs"} queued.` : "All files already have thumbnails.");
+    showToast(queued ? `${queued} ${queued === 1 ? "slide thumbnail job" : "slide thumbnail jobs"} queued.` : "All slide decks already have thumbnails.");
   } catch {
     showToast("Could not queue thumbnail generation. Check you are online.");
   }

@@ -46,11 +46,11 @@ It is built for one person. There are no accounts inside the app. Cloudflare Acc
 | Database | Cloudflare D1 database `study-library` | Your Cloudflare account |
 | Files | Cloudflare R2 bucket `study-library` | Your Cloudflare account |
 | Sign-in | Cloudflare Access, with two policies | Zero Trust, attached to the Worker |
-| Processor | Python, running in WSL on your laptop | `C:\Users\samue\Documents\Antigravity\study-library\backend` |
+| Processor | Python, running in WSL on your laptop | `~/study-library/backend` |
 | Processor's Python | A virtual environment on the Linux disk | `~/.venvs/study` inside WSL |
 | Processor start-up | A Task Scheduler task at sign-in | "Study Library processor" |
-| Processor log | Plain text file | `C:\Users\samue\Documents\Antigravity\study-library\backend\processor.log` |
-| Project code | This folder | `C:\Users\samue\Documents\Antigravity\study-library` |
+| Processor log | Plain text file | `~/study-library/backend/processor.log` |
+| Project code | This folder | `G:\My Drive\Antigravity\study-library` |
 
 **Access policies**
 
@@ -1035,7 +1035,7 @@ The app's design system, visual rules, component patterns and checklist are defi
   - Stretched-link clickable cards covering the entire card including cover images.
   - Wider desktop layout with --wide: 78rem across top bar, home page, module page and across views.
   - Prominent quick-access notes chips above readings on week pages and session pages.
-  - Week thumbnails populated automatically from first reading when slides are absent, skipping publisher cover pages during extraction.
+  - Week thumbnails populated exclusively from slide decks or custom week covers, keeping readings out of week cards.
   - Elevated job application details card with card header, structured columns, and direct card view navigation.
 - Module page week cards and slide thumbnails completed in 0.36.0: slide cover thumbnails rendered by the Python processor on extract_text at 640px WebP and synchronized via thumb_key on files table; bulk loadModuleOverview query indexing week readings, sessions, notes indicators and slide thumbnails; responsive card grid with accessible stretched-link <article> week cards, ::after This week indicators, and dark-mode sepia-mode filters; quick week jump strip with teaching week and reading week styling; bounded thumbnail prefetching respecting saveData.
 - Home page card grid and module pictures completed in 0.35.0: additive migration 0015 (`image_key` on modules, `thumb_key` on files), client-side 16:9 canvas resizing and WebP compression in `uploads.ts` with dedicated upload endpoint `/api/pictures/:filename`, cover picture management in `ModuleSettings` with preview and Undo removal, responsive 2-column card grid with accessible stretched-link `<article>` cards and safe arrange mode buttons, typographic fallback covers in Literata Display, next unread reading calculation and key date countdowns, relocations of `This week` and dissertation countdown strip to `AcrossPage` with reading progress beside module headings and empty session links, and recently opened readings and notes moved to the `Ctrl+K` Palette.
