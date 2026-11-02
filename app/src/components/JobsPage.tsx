@@ -20,6 +20,8 @@ import { shortDate } from "../lib/dates";
 import { DateField, Deadline, OrderButton, SlotMark, SlotRow, slotTitle, StageButton, TextField, Timeline } from "./jobs/Controls";
 import { AppList } from "./jobs/AppList";
 import { AppSheet } from "./jobs/AppSheet";
+import { ApplicationForm } from "./jobs/ApplicationForm";
+import { Sheet } from "./Sheet";
 import { navigate, useRoute } from "../lib/router";
 
 type Filter = "all" | "open" | "closed";
@@ -218,13 +220,14 @@ export function JobsPage() {
     addingRef.current = true;
     setAdding(true);
     try {
+      if (window.matchMedia?.(NARROW).matches) {
+        navigate({ view: "jobs", newApp: true });
+        return;
+      }
       setFilter("all");
       setQuery("");
       const id = await addApplication();
       setFresh(id);
-      if (window.matchMedia?.(NARROW).matches) {
-        navigate({ view: "jobs", app: id });
-      }
     } finally {
       setTimeout(() => {
         addingRef.current = false;
@@ -279,10 +282,7 @@ export function JobsPage() {
           type="button"
           className="button primary"
           disabled={adding}
-          onClick={(e) => {
-            e.currentTarget.disabled = true;
-            void add();
-          }}
+          onClick={() => void add()}
           title="Add an application (N)"
         >
           {adding ? "Adding…" : "Add application"}
@@ -350,6 +350,46 @@ export function JobsPage() {
             ))}
           </table>
         </div>
+      )}
+
+      {jobRoute?.newApp && (
+        <Sheet
+          open={true}
+          onClose={() => navigate({ view: "jobs" })}
+          title="New application"
+          tall
+        >
+          <ApplicationForm
+            mode="new"
+            onSave={async (fields) => {
+              const id = await addApplication(fields);
+              showToast(`${fields.employer || "Application"} added.`);
+              navigate({ view: "jobs", app: id });
+            }}
+            onCancel={() => navigate({ view: "jobs" })}
+          />
+        </Sheet>
+      )}
+
+      {currentApp && jobRoute?.edit && (
+        <Sheet
+          open={true}
+          onClose={() => navigate({ view: "jobs", app: currentApp.id })}
+          title={`Edit ${currentApp.employer || "application"}`}
+          subtitle={currentApp.role || undefined}
+          tall
+        >
+          <ApplicationForm
+            mode="edit"
+            initialApp={currentApp}
+            onSave={async (patch) => {
+              await saveApplication(currentApp.id, patch);
+              showToast("Application saved.");
+              navigate({ view: "jobs", app: currentApp.id });
+            }}
+            onCancel={() => navigate({ view: "jobs", app: currentApp.id })}
+          />
+        </Sheet>
       )}
 
       {currentApp && !jobRoute?.edit && !jobRoute?.entry && (

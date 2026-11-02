@@ -198,15 +198,26 @@ export function matches(app: ApplicationRow, query: string): boolean {
 
 // Editing
 
-export async function addApplication(): Promise<string> {
+export async function addApplication(initial?: Partial<ApplicationRow>): Promise<string> {
   const id = newId();
   const eventId = newId();
+  const stage = initial?.stage ?? "applied";
+  const applied = initial?.applied !== undefined ? initial.applied : todayIso();
   await commit([
     {
       table: "applications",
       row: {
-        id, employer: "", role: "", applied: todayIso(), stage: "applied", next_deadline: null, notes: null,
-        file_cv: null, file_cl: null, file_rd: null, file_qs: null,
+        id,
+        employer: initial?.employer ?? "",
+        role: initial?.role ?? "",
+        applied,
+        stage,
+        next_deadline: initial?.next_deadline ?? null,
+        notes: initial?.notes ?? null,
+        file_cv: initial?.file_cv ?? null,
+        file_cl: initial?.file_cl ?? null,
+        file_rd: initial?.file_rd ?? null,
+        file_qs: initial?.file_qs ?? null,
       },
     },
     {
@@ -214,7 +225,7 @@ export async function addApplication(): Promise<string> {
       row: {
         id: eventId,
         application_id: id,
-        stage: "applied",
+        stage,
         from_stage: null,
         at: new Date().toISOString(),
         kind: "change" as const,

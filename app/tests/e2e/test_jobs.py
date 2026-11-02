@@ -494,6 +494,45 @@ with sync_playwright() as p:
     app_sheet.get_by_role("button", name="Done", exact=True).tap()
     expect(app_sheet).to_have_count(0)
     print("phone sheet: read-first sheet, one sheet per file slot, Done at the foot")
+
+    # Edit application sheet flow:
+    castore_card.locator(".card-head").tap()
+    expect(app_sheet).to_be_visible()
+    app_sheet.get_by_role("button", name="Edit details").tap()
+    edit_sheet = phone.locator("dialog.sheet-dialog[open]")
+    expect(edit_sheet).to_be_visible()
+    assert phone.url.endswith("edit=1")
+    edit_sheet.get_by_label("Role", exact=True).fill("Consulting Analyst, Retail Strategy")
+    edit_sheet.get_by_role("button", name="Save changes").tap()
+    expect(phone.locator("dialog.sheet-dialog")).to_have_count(1) # Back to app_sheet
+    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.role === 'Consulting Analyst, Retail Strategy'); }")
+    app_sheet.get_by_role("button", name="Done", exact=True).tap()
+    expect(app_sheet).to_have_count(0)
+
+    # New application sheet flow on phone:
+    phone.get_by_role("button", name="Add application").tap()
+    new_sheet = phone.locator("dialog.sheet-dialog[open]")
+    expect(new_sheet).to_be_visible()
+    assert phone.url.endswith("new=1")
+    # Cancel without typing closes immediately:
+    new_sheet.get_by_role("button", name="Cancel").tap()
+    expect(new_sheet).to_have_count(0)
+
+    # Create new application:
+    phone.get_by_role("button", name="Add application").tap()
+    new_sheet = phone.locator("dialog.sheet-dialog[open]")
+    expect(new_sheet).to_be_visible()
+    new_sheet.get_by_label("Employer", exact=True).fill("Bain & Company")
+    new_sheet.get_by_label("Role", exact=True).fill("Associate Consultant")
+    new_sheet.get_by_role("button", name="Add application").tap()
+    # Lands directly on the new application's sheet
+    bain_sheet = phone.locator("dialog.app-sheet[open]")
+    expect(bain_sheet).to_be_visible()
+    expect(bain_sheet.locator(".sheet-title")).to_have_text("Bain & Company")
+    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Bain & Company'); }")
+    bain_sheet.get_by_role("button", name="Done", exact=True).tap()
+    expect(bain_sheet).to_have_count(0)
+    print("New and Edit application sheets: delta save, conflict free, direct landing")
     small = phone.evaluate("""() => [...document.querySelectorAll('.jobs button, .jobs a[href], .jobs select, .jobs input')]
       .filter(e => e.offsetParent && e.type !== 'file').map(e => [e.className || e.tagName, e.getBoundingClientRect()])
       .filter(([, r]) => r.height < 43.5).map(([c, r]) => c + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))""")

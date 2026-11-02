@@ -1597,6 +1597,21 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .app-sheet-foot { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; }
 .app-sheet-foot-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; }
 
+/* Application form (New and Edit sheets) */
+.app-form { display: flex; flex-direction: column; gap: 1.25rem; }
+.app-form-fields { display: flex; flex-direction: column; gap: 0.85rem; }
+.field-error { color: var(--danger); font-size: var(--fs-xs); margin-top: 0.2rem; }
+.form-conflict-notice {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 0.85rem;
+}
+.conflict-message { margin: 0 0 0.5rem; font-weight: 500; font-size: var(--fs-sm); }
+.conflict-actions { display: flex; gap: 0.5rem; }
+.form-discard-notice { margin: 0; }
+.form-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem;
+  margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--rule);
+}
+
 .app-fields { display: grid; gap: 0.75rem; }
 .app-fields label, .app-fields .field { display: grid; gap: 0.25rem; color: var(--muted); }
 .app-fields input, .app-fields select { font-size: var(--fs-md); color: var(--ink); }
