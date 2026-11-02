@@ -383,7 +383,7 @@ def seed_database(browser):
     page.keyboard.press("Enter")
     page.wait_for_timeout(400)
     readings = [str(FILES / f) for f in os.listdir(FILES) if f.endswith(".pdf") and f.startswith("(AT")]
-    page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(readings)
+    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(readings)
 
     # Upload slides to first lecture session
     lecture = page.locator("section.session").first
@@ -504,7 +504,7 @@ def run_audit():
         # Collect page URLs to audit
         p_temp = browser.new_page(viewport={"width": 1280, "height": 900})
         p_temp.goto(BASE + "/")
-        p_temp.wait_for_selector(".module-row")
+        expect(p_temp.locator(".module-row", has_text="SP335")).to_be_visible(timeout=20000)
 
         # Get taught module URL
         p_temp.locator(".module-row", has_text="SP335").click()

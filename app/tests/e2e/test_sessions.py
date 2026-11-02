@@ -1,4 +1,4 @@
-import os, subprocess, sys, time, glob
+import glob, os, re, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -138,6 +138,7 @@ with sync_playwright() as p:
     other.goto(BASE + "/")
     other.locator(".module-row", has_text="HY319").click()
     other.locator(".week").nth(0).locator(".week-title").click()
+    other.get_by_role("link", name=re.compile("Lecture", re.I)).first.click()
     expect(other.get_by_text("Mao saw the superpowers as the First World.")).to_be_visible(timeout=15000)
     other.screenshot(path=f"{shots}-5-phone-week.png", full_page=True)
     print("second device sees the lecture notes")

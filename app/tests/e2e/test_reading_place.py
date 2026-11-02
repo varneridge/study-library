@@ -38,7 +38,7 @@ with sync_playwright() as p:
     desk.get_by_label("Code").fill("HY206")
     desk.get_by_role("button", name="Create module").click()
     desk.locator("#week-AT1 .week-title").click()
-    desk.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(files[:1])
+    desk.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(files[:1])
     until(desk, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 1; }", 40)
     desk.locator("li.reading a.name").first.click()
     desk.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"1\"] .textLayer span').length > 3", timeout=20000)

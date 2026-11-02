@@ -166,16 +166,18 @@ export function ToastView() {
   if (!toast) return null;
 
   const content = (
-    <div className="toast" role="status">
-      <span>{toast.message}</span>
-      {toast.action && (
-        <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>
-          {toast.action.label}
+    <div className="toast-region" aria-live="polite">
+      <div className="toast" role="status">
+        <span>{toast.message}</span>
+        {toast.action && (
+          <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>
+            {toast.action.label}
+          </button>
+        )}
+        <button className="quiet" aria-label="Dismiss" onClick={() => dismissToast()}>
+          <Icon name="close" size={14} />
         </button>
-      )}
-      <button className="quiet" aria-label="Dismiss" onClick={() => dismissToast()}>
-        <Icon name="close" size={14} />
-      </button>
+      </div>
     </div>
   );
 

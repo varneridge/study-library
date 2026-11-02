@@ -109,7 +109,7 @@ export function SearchPage({ q = "" }: { q?: string }) {
     null;
 
   return (
-    <div className="page search-page">
+    <div className="page wide search-page">
       <h1 className="sr-only">Search</h1>
       <div className="search-wrap">
         <input

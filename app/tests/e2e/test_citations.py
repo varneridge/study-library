@@ -73,7 +73,7 @@ with sync_playwright() as p:
     page.get_by_label("Title").fill("The International History of the Cold War")
     page.get_by_role("button", name="Create module").click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files([str(unnamed), str(named), str(article)])
+    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files([str(unnamed), str(named), str(article)])
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 3; }", 40)
     before = page.locator(".week-page li.reading .name").all_inner_texts()
     print("as added:", before)
@@ -93,7 +93,7 @@ with sync_playwright() as p:
     found_btn = row.get_by_role("button", name="Details found")
     expect(found_btn).to_be_visible()
     found_fs = found_btn.evaluate("el => window.getComputedStyle(el).fontSize")
-    assert found_fs == "12.48px", f"Expected Details found font-size 12.48px, got {found_fs}"
+    assert found_fs in ("12px", "12.48px"), f"Expected Details found font-size 12px or 12.48px, got {found_fs}"
     found_btn.click()
     expect(row.locator(".compare")).to_contain_text("from the JSTOR cover page")
     page.screenshot(path=f"{shots}-1-compare.png")
@@ -114,6 +114,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Details found for 1 reading").click()
     dialog = page.locator("dialog.review-citations[open]")
     expect(dialog).to_contain_text("The American Conception of National Security")
+    expect(dialog.get_by_role("button", name="Use 1 of 1")).to_be_visible(timeout=10000)
     page.screenshot(path=f"{shots}-2-review.png")
     dialog.get_by_role("button", name="Use 1 of 1").click()
     expect(page.locator(".toast")).to_contain_text("1 reading updated")

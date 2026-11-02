@@ -2054,7 +2054,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 @media (pointer: coarse), (max-width: 48rem) {
   a, button, select, summary, [role="checkbox"], [role="menuitem"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .icon-button { min-width: 2.75rem; min-height: 2.75rem; }
-  .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title, .hit-line, .tw-session {
+  .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title, .hit-line, .tw-session, .accent-btn {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
   .button.week-note-btn { min-height: 2.75rem; }

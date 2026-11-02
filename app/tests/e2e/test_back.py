@@ -159,7 +159,7 @@ def check_overlay_back(page, is_phone: bool):
     menu_btn.click()
     expect(page.locator(".menu-panel")).to_be_visible()
     if is_phone:
-        page.locator(".menu-backdrop").click()
+        page.locator(".menu-backdrop").click(position={"x": 50, "y": 50})
     else:
         page.mouse.click(10, 10)
     expect(page.locator(".menu-panel")).to_be_hidden()

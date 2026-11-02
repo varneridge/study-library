@@ -105,9 +105,9 @@ function AppearanceChoice() {
 
   return (
     <>
-      <h2>Appearance & colours</h2>
+      <h2>Appearance</h2>
       <p className="small muted">Theme mode and accent palette across every screen, the reader panels and the pages themselves. Syncs across all your devices.</p>
-      <div className="segmented appearance-choice" role="group" aria-label="Theme mode">
+      <div className="segmented appearance-choice" role="group" aria-label="Appearance">
         {APPEARANCES.map((a) => (
           <button key={a.value} className={`tool theme-chip ${a.value}`} aria-pressed={current === a.value} onClick={() => void chooseAppearance(a.value)}>{a.label}</button>
         ))}

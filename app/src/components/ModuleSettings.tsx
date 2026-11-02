@@ -122,7 +122,7 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
   }
 
   return (
-    <form className="settings-grid" style={{ marginTop: "1rem" }} onSubmit={save}>
+    <form className="settings-grid editor" style={{ marginTop: "1rem" }} onSubmit={save}>
       <div className="settings-card">
         <h3>Module details</h3>
         <p className="small muted">Code, title and general convenor or course notes.</p>
@@ -142,7 +142,7 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
             placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
         </label>
         <div className="row" style={{ marginTop: "0.5rem" }}>
-          <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save changes"}</button>
+          <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
           <button type="button" className="button" onClick={onClose} disabled={busy}>Cancel</button>
         </div>
       </div>

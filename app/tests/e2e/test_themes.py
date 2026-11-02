@@ -83,8 +83,10 @@ with sync_playwright() as p:
 
     # The reader's Aa sets the same theme for the whole app.
     page.goto(BASE + "/")
-    # Open the first reading via the home card's next reading link.
-    page.locator(".next-up a[href*='v=reader']").first.click()
+    # Open the first reading via the module card and week.
+    page.locator(".module-card a.module-row").first.click()
+    page.locator(".week").nth(0).locator(".week-title").click()
+    page.locator(".reading a.name").first.click()
     page.wait_for_selector(".pdf-page canvas")
     page.get_by_role("button", name="Appearance").click()
     page.get_by_role("group", name="Theme").get_by_role("button", name="Sepia").click()

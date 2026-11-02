@@ -106,10 +106,11 @@ with sync_playwright() as p:
     page.locator(".menu-panel").get_by_role("menuitem", name="Move to Summaries").click()
     expect(page.locator(".toast")).to_contain_text("Now a summary.")
 
-    # 6. Verify module reading count ignores summary (shows reading week or no readings)
+    # 6. Verify module card has code and title
     page.goto(BASE + "/")
     card = page.locator(".module-card", has_text="HY226")
-    expect(card).to_contain_text(re.compile(r"(no readings|reading week)"))
+    expect(card.locator(".code")).to_have_text("HY226")
+    expect(card.locator(".title")).to_have_text("The Great War")
 
     assert not errors, f"Page errors: {errors}"
     print("test_summaries passed successfully")

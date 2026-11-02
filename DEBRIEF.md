@@ -1003,6 +1003,18 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Colour, menus, settings, EPUB support and week content archive completed in 0.39.0:
+  - Accent colour palettes (Oxford Navy, Sage Green, Warm Amber, Burgundy, Slate) with theme mode independence and synchronized pre-paint application.
+  - Module tint system (.tint-s0 to .tint-s5) for subtle visual differentiation across shelves and weeks.
+  - Structured Settings redesign dividing options into five distinct settings cards with clear visual hierarchy, subtitle groupings, and interactive palette selector.
+  - Redesigned Module Settings subpage grouping code/title, cover picture, reading weeks, and danger zone into consistent cards.
+  - Jobs application details redesign: elevated card surface with structured sub-panels for notes, timeline, and files, modal card launcher, and desktop layout switcher (Table / Cards).
+  - Week and shelf content archive download bundling week notes, session notes, transcripts, seminar questions, slides, and readings into an organized ZIP archive.
+  - Reprocessing trigger for missing thumbnails with live progress bar and custom week cover picture support.
+  - EPUB (.epub) intake and conversion via PyMuPDF in the background processor with DRM detection and TOC preservation.
+  - Library module clean-up: notes, sessions, and meetings removed from library shelves.
+  - Syllabus direct document intake without forced reading kind selection.
+  - Purposeful motion foundations with tactile active feedback, menu pop animations, and card hover elevations with prefers-reduced-motion protection.
 - Interface craft, tactile feedback and typography polish completed in 0.38.1 (guided by unslop principles and two-phase review with Claude Opus Oracle):
   - Spacing and timing scale: 4px grid spacing tokens (--sp-1 to --sp-10), whole-pixel type scale (--fs-xs 0.75rem, --fs-xl 1.25rem), and standardized ease-out timing (--dur-1 120ms, --ease-out).
   - Tactile interaction feedback: uniform scale(0.97) and translucent ink tint (--tint-3) on :active for all buttons, tools, icon buttons and quiet links; placed at the end of the cascade so press state reliably beats hover; stage chips preserved through brightness filter rather than colour replacement; background-color used everywhere to preserve chevrons and background images; selected segments stay highlighted during press.
@@ -1108,6 +1120,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.37.0 | Job search mobile list and sheets: accessible modal Sheet primitive, compact scannable application list below 60rem, read-first application sheet, dedicated new and edit application sheets with delta patch saving and remote conflict detection, shared timeline entry sheet and inline editor with stage progression rules, and synchronous toast portalling across dialog layers |
 | 0.38.0 | Library modules for books, manual syllabus and admin sections, elevated job details card, code and title module cards, prominent note links above readings, week thumbnail fallback from readings, wider desktop layout, equal week cards, normal settings cog, and retired saving status |
 | 0.38.1 | Interface craft and tactile feedback polish: 4px spacing scale, whole-pixel type tokens, translucent ink tints, scale(0.97) press feedback, tabular figures, physical keycaps, top bar and table header observation, and notes label formatting |
+| 0.39.0 | Colour palettes and module tints, redesigned Settings cards, jobs application details redesign with desktop cards switcher, ZIP week content downloads, EPUB intake and conversion, missing thumbnail generation and custom covers, library shelves clean-up, direct syllabus document addition, and purposeful animation foundations |
 
 ## 18. The job search
 

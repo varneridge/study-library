@@ -469,9 +469,9 @@ export function WeekPage({ id }: { id: string }) {
           label="More actions for this week"
           items={[
             { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
+            { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
             { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-            { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
             ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
             { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
             { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },

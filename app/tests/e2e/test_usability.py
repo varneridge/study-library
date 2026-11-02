@@ -22,14 +22,17 @@ with sync_playwright() as p:
     assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(252, 252, 251)"
     print("light by default on a dark device")
 
-    # Home: progress through each module and the next unread reading.
-    row = page.locator(".module-item").first
-    expect(row.locator(".next-up")).to_contain_text("Next")
-    print("home:", row.inner_text().replace("\n", " | "))
+    # Home: module cards are clean code and title cards.
+    card = page.locator(".module-card").first
+    expect(card.locator(".code")).to_be_visible()
+    print("home:", card.inner_text().replace("\n", " | "))
     page.screenshot(path=f"{shots}-1-home.png", full_page=True)
-    row.locator(".next-up a").first.click()
+    card.locator("a.module-row").click()
+    expect(page.locator(".week")).to_have_count(22)
+    page.locator(".week").nth(0).locator(".week-title").click()
+    page.locator(".reading a.name").first.click()
     expect(page.locator(".reader")).to_be_visible()
-    print("Next opens the reading")
+    print("Opens the reading")
 
     # Questions link to each other, and list the week's readings.
     page.goto(BASE + "/")

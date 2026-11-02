@@ -3,7 +3,7 @@ themes and contents, recordings, the notes menus, and the week views.
 
 Run after test_sessions.py, which leaves the module, readings, highlights,
 notes and recording this test uses."""
-import io, sys, time
+import io, re, sys, time
 from pathlib import Path
 import fitz
 from PIL import Image
@@ -179,7 +179,7 @@ with sync_playwright() as p:
     page.locator("body").click(position={"x": 5, "y": 300})
     page.keyboard.press("]")
     expect(page.locator(".crumbs")).to_contain_text("AT2")
-    page.locator("input[type=file][accept='.pdf,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(str(figure_pdf()))
+    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(str(figure_pdf()))
     expect(page.locator("li.reading", has_text="Westad").first).to_be_visible()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).some(f => (f.original_name || '').includes('Westad')); }", 40)
     page.locator("li.reading a.name", has_text="Westad").first.click()
@@ -307,8 +307,10 @@ with sync_playwright() as p:
     assert text_x < 12, text_x
     page.screenshot(path=f"{shots}-20-picture.png", full_page=True)
     page.locator(".crumbs a").nth(1).click()
-    expect(page.locator("section.session").first.locator("figure img")).to_be_visible()
-    print("the week page shows the picture")
+    expect(page.locator("section.session").first.locator(".session-notes-action a")).to_be_visible()
+    page.locator("section.session").first.locator(".session-notes-action a").click()
+    expect(page.locator(".session-notes .bn-editor img[src^='/api/objects/files/']")).to_be_visible()
+    print("the session notes show the picture")
 
     # Light mode, chosen in Settings, on a device set to dark.
     dark = browser.new_page(viewport={"width": 1280, "height": 900}, color_scheme="dark")
