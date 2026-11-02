@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
-import { placesOf } from "../lib/library";
+import { loadRecent, loadRecentSessions, placesOf } from "../lib/library";
 import { sessionLabel, weekCode, titleAfter } from "../lib/modules";
 import { navigate, type Route } from "../lib/router";
 import { useCloseOnBack } from "../lib/ui";
@@ -23,6 +23,36 @@ interface Entry { key: string; kind: string; label: string; detail?: string; rou
 
 async function entries(): Promise<Entry[]> {
   const out: Entry[] = [];
+
+  // Recently opened readings and session notes (top 5 each), newest first
+  const recents = await loadRecent(5);
+  const recentSessions = await loadRecentSessions(5);
+  const combinedRecent = [
+    ...recents.map((r) => ({
+      key: `r-i-${r.view.item.id}`,
+      kind: KIND_TITLE_LABEL[r.view.item.kind] ?? "Reading",
+      label: shortTitle(r.view.item),
+      detail: r.place?.label,
+      route: { view: "reader", id: r.view.item.id } as Route,
+      text: `${fullTitle(r.view.item)} ${r.place?.label ?? ""}`,
+      at: r.view.item.last_opened_at ?? "",
+      rank: -1,
+    })),
+    ...recentSessions.map((n) => {
+      const name = n.session.title || sessionLabel(n.session.kind);
+      return {
+        key: `r-s-${n.session.id}`,
+        kind: "Notes",
+        label: `${n.module.code} ${weekCode(n.week)} ${name}`,
+        detail: n.week.title ?? undefined,
+        route: { view: "session", id: n.session.id } as Route,
+        text: `${n.module.code} ${weekCode(n.week)} ${name} ${n.session.kind} notes ${n.week.title ?? ""}`,
+        at: n.at,
+        rank: -1,
+      };
+    }),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  out.push(...combinedRecent);
   const modules = new Map((await db.modules.toArray()).filter((m) => !m.deleted).map((m) => [m.id, m]));
   for (const m of modules.values()) {
     out.push({ key: `m${m.id}`, kind: "Module", label: m.code, detail: m.title ?? undefined, route: { view: "module", id: m.id }, text: `${m.code} ${m.title ?? ""}`, rank: 0 });
@@ -113,7 +143,7 @@ export function Palette() {
 
   const shown = useMemo(() => {
     if (!query.trim()) return all.filter((e) => e.rank <= 2 || e.rank === 5).sort((a, b) => a.rank - b.rank).slice(0, 40);
-    const found = all.filter((e) => matches(e.text, query)).sort((a, b) => a.rank - b.rank).slice(0, 39);
+    const found = all.filter((e) => e.rank >= 0 && matches(e.text, query)).sort((a, b) => a.rank - b.rank).slice(0, 39);
     // Searching inside readings, notes and transcripts is always one step away.
     return [...found, { key: "a-find", kind: "Search", label: `Search everything for "${query.trim()}"`, route: { view: "search", q: query.trim() } as Route, text: "", rank: 6 }];
   }, [all, query]);

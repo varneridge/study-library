@@ -90,18 +90,21 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.get_by_role("button", name="Add", exact=True).click()
     expect(page.locator(".key-date-list li")).to_contain_text("in 5 days")
     page.goto(BASE + "/")
+    expect(page.locator(".module-card", has_text="HY300")).to_contain_text("Chapter 2 draft: in 5 days")
+    page.goto(BASE + "/?v=across")
     ahead = page.locator(".key-dates-ahead li").first
     expect(ahead).to_contain_text("Chapter 2 draft")
     expect(ahead.locator(".kd-days")).to_have_text("5")
     assert "soon" in (ahead.get_attribute("class") or "")
     # A dissertation has no weeks, so This week leaves it out.
-    expect(page.locator(".tw-module", has_text="HY300")).to_have_count(0)
+    expect(page.locator(".across-module", has_text="HY300")).to_have_count(0)
     page.screenshot(path=str(HERE / "shots" / "dissertation-1-home.png"))
-    print("key dates count down on the home page; This week leaves the dissertation out")
+    print("key dates count down on the home card and This week; This week leaves the dissertation out")
 
     # A file named for a section goes to it.
     named = Path(tmp) / "(Chapter 2) Kirby, W. C. (1997) 'The Internationalization of China'.pdf"
     shutil.copy(files[-1], named)
+    page.goto(BASE + "/")
     page.locator(".module-row", has_text="HY300").click()
     page.get_by_role("link", name="Import readings").click()
     page.locator("input[type=file][accept]").last.set_input_files([str(named)])

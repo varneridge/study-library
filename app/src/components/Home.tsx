@@ -1,18 +1,15 @@
-import { db } from "../lib/db";
 import { countdown, isDissertation } from "../lib/sections";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
-import { loadModules, loadRecent, loadRecentSessions, loadThisWeek, type ModuleSummary, type WeekSessions } from "../lib/library";
+import { loadModules, type ModuleSummary } from "../lib/library";
 import { progressWords } from "../lib/progress";
-import { sessionLabel } from "../lib/modules";
-import { useTeachingWeek, useTermDates, weekDatesText, type TermDates } from "../lib/term";
-import { shortDate } from "../lib/dates";
+import { useTeachingWeek, useTermDates, type TermDates } from "../lib/term";
 import { shortTitle } from "../lib/titles";
 import { weekCode } from "../lib/modules";
 import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
-import { navigate, type Route } from "../lib/router";
-import type { ModuleRow, WeekRow } from "../lib/types";
+import { navigate } from "../lib/router";
+import type { ModuleRow } from "../lib/types";
 import { moveModule } from "../lib/edits";
 import { useTitle } from "../lib/ui";
 
@@ -93,68 +90,6 @@ function NewModule({ onDone }: { onDone?: () => void }) {
   );
 }
 
-// Each of this week's sessions, one tap from its notes.
-// The week's readings: how many are done, and one tap to the next.
-function ReadingsTile({ week, readings }: { week: WeekRow; readings: WeekSessions["readings"] }) {
-  const { total, read, next } = readings;
-  const state = !total ? "None added yet" : read === total ? `All ${total} read` : `${read} of ${total} read`;
-  const to: Route = next ? { view: "reader", id: next.id } : { view: "week", id: week.id };
-  return (
-    <Link to={to} className={`tw-session tw-readings${total && read === total ? " done" : ""}`} title={next ? `Open ${shortTitle(next)}` : undefined}>
-      <span className="tw-name">Readings</span>
-      <span className="tw-state">{state}</span>
-      {next && <span className="tw-next">Next: {shortTitle(next)}</span>}
-    </Link>
-  );
-}
-
-function ThisWeek() {
-  const week = useTeachingWeek();
-  const dates = useTermDates();
-  const rows = useLiveQuery(() => (week ? loadThisWeek(week.term, week.number) : Promise.resolve([])), [week?.term, week?.number], []);
-  if (!week || !rows.length) return null;
-  const starts = new Date(`${dates[week.term]}T00:00:00Z`);
-  starts.setUTCDate(starts.getUTCDate() + (week.number - 1) * 7);
-  const when = shortDate(starts, { utc: true });
-  const span = weekDatesText(week.term, week.number, dates);
-  return (
-    <section className="this-week">
-      <div className="section-head">
-        <h2>{week.upcoming ? `Coming up: ${week.term}1` : `This week: ${week.term}${week.number}`}</h2>
-        <span className="when small muted">{week.upcoming ? `Starts ${when}` : span}</span>
-        <span className="spacer" />
-      </div>
-      <ul className="tw-list">
-        {rows.map(({ module, week: w, sessions, readings }) => (
-          <li key={module.id} className="tw-module">
-            {/* This opens the week, so it names the week; the module itself is listed below. */}
-            <Link to={{ view: "week", id: w.id }} className="tw-head" title={`Open ${module.code} ${weekCode(w)}`}>
-              <span className="code">{module.code} {weekCode(w)}</span>
-              <span className="title">{w.title || module.title}</span>
-            </Link>
-            {w.is_reading_week && !readings.total ? (
-              <p className="small muted tw-reading">Reading week</p>
-            ) : (
-              <div className="tw-sessions">
-                <ReadingsTile week={w} readings={readings} />
-                {sessions.map(({ session, words, questions, recorded }) => (
-                  <Link key={session.id} to={{ view: "session", id: session.id }} className="tw-session">
-                    <span className="tw-name">{session.title || sessionLabel(session.kind)}</span>
-                    <span className="tw-state">
-                      {words ? `${words.toLocaleString("en-GB")} words` : "No notes yet"}
-                      {questions ? `, ${questions} ${questions === 1 ? "question" : "questions"}` : ""}
-                      {recorded ? ", recorded" : ""}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
 
 function nextKeyDate(module: ModuleRow) {
   if (module.kind !== "dissertation" || !module.key_dates?.length) return null;
@@ -261,13 +196,6 @@ export function Home() {
   const week = useTeachingWeek();
   const dates = useTermDates();
   const modules = useLiveQuery(() => loadModules(week), [week?.term, week?.number, week?.upcoming]);
-  const recent = useLiveQuery(() => loadRecent(6), [], []);
-  const notes = useLiveQuery(() => loadRecentSessions(4), [], []);
-  // Readings and notes you opened, in one list, newest first.
-  const opened = [
-    ...recent.map((r) => ({ kind: "reading" as const, at: r.view.item.last_opened_at ?? "", reading: r })),
-    ...notes.map((n) => ({ kind: "notes" as const, at: n.at, notes: n })),
-  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
   const [adding, setAdding] = useState(false);
   const [arranging, setArranging] = useState(false);
   useTitle(null);
@@ -285,8 +213,6 @@ export function Home() {
 
   return (
     <div className="page">
-      <KeyDatesAhead />
-      <ThisWeek />
       <div className="section-head" style={{ marginBottom: 0 }}>
         <h1>Modules</h1>
         <span className="spacer" />
@@ -311,76 +237,6 @@ export function Home() {
         ))}
       </ul>
       {adding && <NewModule onDone={() => setAdding(false)} />}
-
-      {opened.length > 0 && (
-        <section className="section">
-          <h2>Recently opened</h2>
-          <ul className="recent section" style={{ marginTop: "0.6rem" }}>
-            {opened.map((entry) => {
-              if (entry.kind === "notes") {
-                const { session, week, module } = entry.notes;
-                const name = session.title || sessionLabel(session.kind);
-                return (
-                  <li key={`n-${session.id}`}>
-                    <Link to={{ view: "session", id: session.id }} className="name">{name} notes</Link>
-                    <Link to={{ view: "week", id: week.id }} className="where">{module.code} {weekCode(week)}</Link>
-                  </li>
-                );
-              }
-              const { view, place } = entry.reading;
-              const { item, file } = view;
-              const at = item.read_status === "read"
-                ? "Read"
-                : item.last_page
-                  ? `p. ${item.last_page + 1}${file?.page_count ? ` of ${file.page_count}` : ""}`
-                  : null;
-              return (
-                <li key={item.id}>
-                  <Link to={{ view: "reader", id: item.id }} className="name">{shortTitle(item)}</Link>
-                  {at && <span className="count">{at}</span>}
-                  {place && (
-                    place.week
-                      ? <Link to={{ view: "week", id: place.week.id }} className="where">{place.label}</Link>
-                      : <span className="where">{place.label}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
     </div>
-  );
-}
-
-// The next key dates across dissertation modules, counting down as job
-// deadlines do: amber within a week, red on the day or once passed.
-function KeyDatesAhead() {
-  const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted && m.kind === "dissertation"), [], []);
-  const coming = modules
-    .flatMap((m) => (m.key_dates ?? []).map((d) => ({ ...d, module: m, when: countdown(d.date) })))
-    // Ones a fortnight past are let go; the rest show, soonest first.
-    .filter((d) => d.when.days >= -14)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 4);
-  if (!coming.length) return null;
-  return (
-    <section className="key-dates-ahead" aria-label="Key dates">
-      <h2>Coming up</h2>
-      <ul>
-        {coming.map((d) => (
-          <li key={d.id} className={d.when.state}>
-            <Link to={{ view: "module", id: d.module.id }} className="kd-row">
-              {/* Days to go, large; once passed, the word says so. */}
-              <span className={`kd-days${d.when.days < 0 ? " small-word" : ""}`}>{d.when.days >= 0 ? d.when.days : "Past"}</span>
-              <span className="kd-text">
-                <span className="kd-label">{d.label}</span>
-                <span className="kd-sub">{d.module.code}, {shortDate(new Date(`${d.date}T00:00:00`), { year: true })}, {d.when.words}</span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }

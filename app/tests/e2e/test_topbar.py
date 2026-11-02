@@ -225,7 +225,6 @@ with sync_playwright() as p:
             page.goto(BASE + "/")
             expect(page.locator(".topbar")).to_be_visible()
             expect(page.locator(".module-row")).to_have_count(3, timeout=15000)
-            expect(page.locator(".this-week")).to_be_visible()
             assert page.evaluate("document.documentElement.getAttribute('data-theme')") == theme
             check_single_line_and_height(page)
             check_alignment(page, is_jobs=False)
@@ -340,7 +339,6 @@ with sync_playwright() as p:
         p390 = ctx390.new_page()
         p390.goto(BASE + "/")
         expect(p390.locator(".module-row")).to_have_count(5, timeout=15000)
-        expect(p390.locator(".this-week")).to_be_visible()
         assert p390.evaluate("document.documentElement.getAttribute('data-theme')") == theme
         expect(p390.locator(".topbar .brand")).to_be_visible()
         expect(p390.locator(".topbar .sync")).to_be_attached()

@@ -32,45 +32,44 @@ with sync_playwright() as p:
         expect(page.locator("h1", has_text=code)).to_be_visible()
         page.get_by_role("link", name="Study Library").click()
 
-    # The home page opens on this week, with each session one tap away.
-    expect(page.get_by_role("heading", name="This week: AT2")).to_be_visible()
-    expect(page.locator(".this-week")).to_contain_text("5 to 9 Oct")
-    # Each module also has a Readings box since 0.24; sessions are counted apart.
-    sessions = page.locator(".tw-session:not(.tw-readings)")
-    expect(page.locator(".tw-readings")).to_have_count(2)
-    print("this week:", page.locator(".tw-module").all_inner_texts())
-    assert sessions.count() == 4, sessions.count()
-    page.screenshot(path=f"{shots}-1-home.png")
-    page.locator(".tw-module", has_text="HY206").locator(".tw-session", has_text="Seminar").click()
+    # This week opens on this week, with each session one tap away.
+    page.get_by_role("link", name="This week").click()
+    expect(page.locator("h1", has_text="This week")).to_be_visible()
+    expect(page.locator(".when")).to_contain_text("5 to 9 Oct")
+    sessions = page.locator(".across-session")
+    expect(sessions).to_have_count(4)
+    print("this week:", page.locator(".across-module").all_inner_texts())
+    page.screenshot(path=f"{shots}-1-this-week.png")
+    page.locator(".across-module", has_text="HY206").locator(".across-session", has_text="Seminar").locator("a").click()
     expect(page.locator("h1", has_text="Seminar")).to_be_visible()
     expect(page.locator(".crumbs")).to_contain_text("HY206")
     expect(page.locator(".crumbs")).to_contain_text("AT2")
-    print("one tap from the home page to the HY206 AT2 seminar notes")
+    print("one tap from This week to the HY206 AT2 seminar notes")
 
-    # Writing there shows on the home page, and the session is remembered.
+    # Writing there shows in This week, and the session is remembered.
     page.locator(".session-notes .bn-editor[contenteditable='true']").wait_for()
     page.locator(".session-notes .bn-editor").click()
     page.keyboard.type("The long telegram reframed Soviet intentions.")
     page.wait_for_timeout(1500)
-    page.get_by_role("link", name="Study Library").click()
-    expect(page.locator(".tw-module", has_text="HY206").locator(".tw-session", has_text="Seminar")).to_contain_text("6 words")
-    print("the home page shows how much is written")
+    page.get_by_role("link", name="This week").click()
+    expect(page.locator(".across-module", has_text="HY206").locator(".across-session", has_text="Seminar")).to_contain_text("notes")
+    print("This week shows the session has notes")
 
     # Any week of a module is one tap from its notes on the module page.
+    page.get_by_role("link", name="Study Library").click()
     page.locator(".module-row", has_text="HY319").click()
     page.locator("#week-AT7 .session-link", has_text="Lecture").click()
     expect(page.locator(".crumbs")).to_contain_text("AT7")
     expect(page.locator("h1", has_text="Lecture")).to_be_visible()
     print("module page to AT7 lecture notes in one tap")
 
-    # A week further back shows under notes opened lately.
-    page.get_by_role("link", name="Study Library").click()
-    # Notes you opened sit in Recently opened, with the readings.
-    expect(page.locator("ul.recent li", has_text="Lecture notes").first).to_contain_text("HY319 AT7")
-    print("recently opened:", page.locator("ul.recent").inner_text().replace("\n", " | "))
+    # A week further back shows under notes opened lately in Go to (Ctrl+K).
+    page.keyboard.press("Control+k")
+    palette = page.locator("dialog.palette")
+    expect(palette.locator("li", has_text="HY319 AT7 Lecture").first).to_be_visible()
+    print("recently opened in Palette:", palette.locator("li").first.inner_text().replace("\n", " | "))
 
     # Go to: type a few letters, Enter.
-    page.keyboard.press("Control+k")
     page.keyboard.type("319 at4 sem")
     expect(page.locator("dialog.palette li[aria-selected='true']")).to_contain_text("HY319 AT4 Seminar")
     page.keyboard.press("Enter")
@@ -82,8 +81,8 @@ with sync_playwright() as p:
     page.goto(BASE + "/?v=settings")
     page.get_by_label("Autumn Term week 1").fill("2026-10-05")
     page.wait_for_timeout(500)
-    page.get_by_role("link", name="Study Library").click()
-    expect(page.get_by_role("heading", name="This week: AT1")).to_be_visible()
+    page.get_by_role("link", name="This week").click()
+    expect(page.locator(".picker button[aria-pressed='true']")).to_have_text("1")
     print("moving the term start moves the week")
     page.goto(BASE + "/?v=settings")
     expect(page.get_by_label("Autumn Term week 1")).to_have_value("2026-10-05")
@@ -98,8 +97,8 @@ with sync_playwright() as p:
     for n in range(3):
         doc.new_page(width=720, height=405).insert_text((60, 80), f"Slide {n + 1}: the Concordat", fontsize=28)
     doc.save(deck)
-    page.get_by_role("link", name="Study Library").click()
-    page.locator(".tw-module", has_text="HY319").locator(".tw-head").click()
+    page.get_by_role("link", name="This week").click()
+    page.locator(".across-module", has_text="HY319").locator(".where").click()
     lecture = page.locator("section.session").first
     with page.expect_file_chooser() as chooser:
         lecture.get_by_role("button", name="Add slides").click()
@@ -129,8 +128,8 @@ with sync_playwright() as p:
     expect(page.get_by_role("button", name="Previous slide")).to_be_enabled()
 
     # Questions on the seminar page, typed straight in.
-    page.get_by_role("link", name="Study Library").click()
-    page.locator(".tw-module", has_text="HY319").locator(".tw-session", has_text="Seminar").click()
+    page.get_by_role("link", name="This week").click()
+    page.locator(".across-module", has_text="HY319").locator(".across-session", has_text="Seminar").locator("a").click()
     page.get_by_label("Add a question").fill("Why did Napoleon want a Concordat?")
     page.get_by_label("Add a question").press("Enter")
     expect(page.get_by_label("Question 1", exact=True)).to_have_value("Why did Napoleon want a Concordat?")
@@ -141,8 +140,8 @@ with sync_playwright() as p:
     phone = browser.new_page(viewport={"width": 390, "height": 844})
     phone.clock.install(time="2026-10-08T10:05:00")
     phone.clock.resume()
-    phone.goto(BASE + "/")
-    expect(phone.get_by_role("heading", name="This week: AT2")).to_be_visible(timeout=15000)
+    phone.goto(BASE + "/?v=across")
+    expect(phone.locator("h1", has_text="This week")).to_be_visible(timeout=15000)
     phone.screenshot(path=f"{shots}-2-phone.png", full_page=True)
 
     print("page errors:", errors[:5])

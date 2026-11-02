@@ -786,6 +786,7 @@ main:focus { outline: none; }
 .recent .name:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 a.where { text-decoration: none; }
 a.where:hover { color: var(--ink); }
+.across-module .section-head h2 { margin-right: 0; }
 .across-session { margin-top: 0.6rem; }
 .across-session p { margin: 0; }
 .across-session .questions { margin: 0.3rem 0 0; }

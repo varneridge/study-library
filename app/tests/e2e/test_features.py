@@ -48,17 +48,19 @@ with sync_playwright() as p:
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
 
-    # Recently opened, from the readings opened in the sessions test.
+    # Recently opened, from the readings opened in the sessions test, shows in Go to (Ctrl+K).
     page.goto(BASE + "/")
-    expect(page.get_by_role("heading", name="Recently opened")).to_be_visible()
-    chen = page.locator(".recent li", has_text="Chen")
+    page.wait_for_selector(".module-row", timeout=15000)
+    page.keyboard.press("Control+k")
+    palette = page.locator("dialog.palette")
+    expect(palette).to_be_visible()
+    chen = palette.locator("li", has_text="Chen")
     expect(chen).to_be_visible()
     expect(chen.locator(".where")).to_have_text("HY319 AT1")
-    page.screenshot(path=f"{shots}-1-home.png", full_page=True)
-    print("recently opened lists", page.locator(".recent li").count(), "readings")
+    print("recently opened in Palette lists readings")
 
-    # Find inside a reading.
-    chen.locator(".name").click()
+    # Find inside a reading. Open Chen directly from the palette.
+    chen.click()
     page.wait_for_selector(".textLayer span")
     page.keyboard.press("Control+f")
     page.get_by_label("Find in this reading").fill("Cold War in Asia")
@@ -206,16 +208,13 @@ with sync_playwright() as p:
     expect(page.locator(".across-session").first).to_be_visible()
     page.screenshot(path=f"{shots}-10-across.png", full_page=True)
     page.get_by_role("group", name="Choose a week").get_by_role("button", name="3", exact=True).last.click()
-    # Opened again, it shows this week while term runs, as the home page does;
+    # Opened again, it shows this week while term runs;
     # only in the vacations does it go back to the week last chosen.
-    page.goto(BASE + "/")
-    heading = page.locator(".this-week h2").inner_text()
     page.goto(BASE + "/?v=across")
-    if heading.startswith("This week: "):
-        code = heading.split(": ")[1].strip()
-        row = 0 if code.startswith("AT") else 1
+    title = page.locator("h1").inner_text()
+    if title == "This week":
         picker = page.get_by_role("group", name="Choose a week")
-        expect(picker.get_by_role("button", name=code[2:], exact=True).nth(row)).to_have_attribute("aria-pressed", "true")
+        expect(picker.locator("button[aria-pressed='true']")).to_be_visible()
     else:
         expect(page.get_by_role("group", name="Choose a week").get_by_role("button", name="3", exact=True).last).to_have_attribute("aria-pressed", "true")
     print("across opens on this week")
@@ -233,7 +232,9 @@ with sync_playwright() as p:
 
     # Zotero-style panes: thumbnails, annotation cards and the highlight tool.
     page.goto(BASE + "/")
-    page.locator(".recent li", has_text="Chen").locator(".name").click()
+    page.wait_for_selector(".module-row", timeout=15000)
+    page.keyboard.press("Control+k")
+    page.locator("dialog.palette li", has_text="Chen").click()
     page.wait_for_function("document.querySelectorAll('.pdf-page .textLayer span').length > 3", timeout=15000)
     page.get_by_role("tab", name="Pages").click()
     expect(page.locator(".thumb")).to_have_count(3)
@@ -341,7 +342,9 @@ with sync_playwright() as p:
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.settings || []).some(r => r.value && r.value['#5fb236'] === 'Evidence'); }")
     page.screenshot(path=f"{shots}-16-settings.png", full_page=True)
     page.goto(BASE + "/")
-    page.locator(".recent li", has_text="Chen").locator(".name").click()
+    page.wait_for_selector(".module-row", timeout=15000)
+    page.keyboard.press("Control+k")
+    page.locator("dialog.palette li", has_text="Chen").click()
     page.get_by_role("tab", name="Notes").click()
     expect(page.locator(".reading-notes .quote-tag", has_text="Evidence").first).to_be_visible(timeout=10000)
     print("colour names sync and show in the reader")
@@ -349,7 +352,9 @@ with sync_playwright() as p:
     # Phone: margins trimmed and the toolbar slides away.
     phone = browser.new_page(viewport={"width": 390, "height": 844})
     phone.goto(BASE + "/")
-    phone.locator(".recent .name", has_text="Westad").first.click()
+    phone.wait_for_selector(".module-row", timeout=15000)
+    phone.locator(".topbar .goto-button").click()
+    phone.locator("dialog.palette li", has_text="Westad").first.click()
     # Phones open readings as text; this part is about the pages.
     phone.get_by_role("button", name="Show the pages").click()
     phone.wait_for_selector(".pdf-page canvas")

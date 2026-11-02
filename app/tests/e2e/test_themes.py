@@ -50,7 +50,7 @@ with sync_playwright() as p:
         page.screenshot(path=f"{shots}-{key}-1-settings.png")
 
         page.goto(BASE + "/")
-        page.locator(".module-row").first.click()
+        page.locator(".module-row", has_text="HY319").click()
         page.locator("#week-AT1 .week-title").click()
         assert bg(page, "body") == want["paper"]
         page.screenshot(path=f"{shots}-{key}-2-week.png")
@@ -83,8 +83,8 @@ with sync_playwright() as p:
 
     # The reader's Aa sets the same theme for the whole app.
     page.goto(BASE + "/")
-    # Recently opened lists notes too; take the first reading.
-    page.locator(".recent a.name[href*='v=reader']").first.click()
+    # Open the first reading via the home card's next reading link.
+    page.locator(".next-up a[href*='v=reader']").first.click()
     page.wait_for_selector(".pdf-page canvas")
     page.get_by_role("button", name="Appearance").click()
     page.get_by_role("group", name="Theme").get_by_role("button", name="Sepia").click()
