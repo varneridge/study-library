@@ -52,8 +52,8 @@ function ProcessorState() {
   const quiet = processorQuiet(status);
   const waiting = status.queued + status.running;
   return (
-    <section className="section">
-      <h2>Processor</h2>
+    <>
+      <h2>Background processor</h2>
       <p className={quiet && waiting ? "problem" : undefined}>
         {status.seenAt ? `Last asked for work ${ago(status.seenAt)}.` : "Has not asked for work yet."}
         {" "}{waiting ? `${waiting} ${waiting === 1 ? "job" : "jobs"} waiting.` : "Nothing waiting."}
@@ -69,11 +69,11 @@ function ProcessorState() {
         Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
         straightened, two-page spreads split.
       </p>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
         <button className="button quiet" onClick={() => void rescan()}>Read every scan again</button>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -87,14 +87,14 @@ function TermDatesSetting() {
     void setSetting("term-dates", { ...saved, [year]: { ...dates, [term]: value } });
   };
   return (
-    <section className="section">
+    <>
       <h2>Term dates</h2>
       <p className="small muted">The Monday of week 1 in each term, {year}/{String(year + 1).slice(2)}. The home page uses these to show this week's notes.</p>
-      <div className="row">
+      <div className="row" style={{ marginTop: "0.75rem" }}>
         <label className="field"><span>Autumn Term week 1</span><input type="date" value={dates.AT} onChange={(e) => save("AT", e.target.value)} /></label>
         <label className="field"><span>Winter Term week 1</span><input type="date" value={dates.WT} onChange={(e) => save("WT", e.target.value)} /></label>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -104,9 +104,9 @@ function AppearanceChoice() {
   const dark = useDark();
 
   return (
-    <section className="section">
-      <h2>Appearance</h2>
-      <p className="small muted">One theme for everything: every screen, the reader's panels and the pages themselves. It applies on every device. The reader's Aa button changes the same setting.</p>
+    <>
+      <h2>Appearance & colours</h2>
+      <p className="small muted">Theme mode and accent palette across every screen, the reader panels and the pages themselves. Syncs across all your devices.</p>
       <div className="segmented appearance-choice" role="group" aria-label="Theme mode">
         {APPEARANCES.map((a) => (
           <button key={a.value} className={`tool theme-chip ${a.value}`} aria-pressed={current === a.value} onClick={() => void chooseAppearance(a.value)}>{a.label}</button>
@@ -133,7 +133,7 @@ function AppearanceChoice() {
           );
         })}
       </div>
-    </section>
+    </>
   );
 }
 
@@ -147,8 +147,8 @@ function ColourNames() {
     void setSetting("highlight-colours", clean);
   };
   return (
-    <section className="section">
-      <h2>Highlight colours</h2>
+    <div className="settings-subgroup">
+      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Highlight colours</h3>
       <p className="small muted">Give a colour a meaning, such as Argument or Evidence. Names show when you highlight and in the highlights list.</p>
       <ul className="colour-names">
         {COLOURS.map((c) => (
@@ -163,7 +163,7 @@ function ColourNames() {
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
 
@@ -174,7 +174,7 @@ function Bin() {
   const [busy, setBusy] = useState<string | null>(null);
   if (!entries) return null;
   return (
-    <section className="section">
+    <>
       <h2>Recently deleted</h2>
       {entries.length === 0 ? (
         <p className="small muted">Nothing deleted in the last 90 days.</p>
@@ -207,7 +207,7 @@ function Bin() {
           </ul>
         </>
       )}
-    </section>
+    </>
   );
 }
 
@@ -230,170 +230,187 @@ export function Settings() {
   }, [cached?.count]);
 
   return (
-    <div className="page">
-      <h1>Settings</h1>
+    <div className="page wide">
+      <div className="section-head" style={{ marginBottom: "1.25rem" }}>
+        <div>
+          <h1>Settings</h1>
+          <p className="small muted" style={{ margin: "0.25rem 0 0" }}>Preferences, themes, study dates, and storage on this device.</p>
+        </div>
+      </div>
 
-      <AppearanceChoice />
-
-      <TermDatesSetting />
-
-      <ProcessorState />
-
-      <section className="section">
-        <h2>On this device</h2>
-        <label className="choices" style={{ marginTop: "0.75rem" }}>
-          <input
-            type="checkbox"
-            checked={Boolean(keep)}
-            onChange={(e) => { setKeep(e.target.checked); void setKeepEverything(e.target.checked); }}
-          />
-          Keep every reading available offline
-        </label>
-        <p className="small muted">
-          Without this, a week's files are saved when you open it, along with the next week's.
-        </p>
-        {cached && cached.count > 0 && (
-          <p className="small">{cached.count} files saved, using {formatBytes(cached.bytes)}.</p>
-        )}
-        {estimate?.quota && (
-          <p className="small muted">This browser allows up to {formatBytes(estimate.quota)} for the app.</p>
-        )}
-      </section>
-
-      {failed && failed.length > 0 && (
-        <section className="section">
-          <h2>Rejected changes</h2>
-          <p className="small muted">The server turned these down. They are kept here so nothing disappears silently.</p>
-          <ul className="list small">
-            {failed.slice(-20).map((f) => {
-              const cleanError = (f.error || "").replace(/\.+$/, "");
-              return (
-                <li key={f.id} style={{ padding: "0.4rem 0" }}>
-                  <span>{describeFailedChange(f.table)}</span>
-                  {cleanError && <details className="small muted"><summary>Details</summary>{cleanError}</details>}
-                </li>
-              );
-            })}
-          </ul>
-          <button className="quiet" onClick={() => db.failed.clear()}>Clear this list</button>
+      <div className="settings-grid">
+        <section className="settings-card">
+          <AppearanceChoice />
+          <ColourNames />
         </section>
-      )}
 
-      <ColourNames />
+        <section className="settings-card">
+          <TermDatesSetting />
+          <div className="settings-subgroup keyboard-only">
+            <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Keyboard shortcuts</h3>
+            <p className="small muted" style={{ margin: "0.2rem 0 0.6rem" }}>
+              / opens search. On a week, [ and ] navigate between weeks. Press ? anywhere for the full list.
+            </p>
+            <div>
+              <button type="button" className="button" onClick={openShortcuts}>Show keyboard shortcuts</button>
+            </div>
+          </div>
+        </section>
 
-      <Bin />
+        <section className="settings-card">
+          <ProcessorState />
+        </section>
 
-      <section className="section keyboard-only">
-        <h2>Keyboard</h2>
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          / opens search. On a week, [ and ] go to the previous and next week. Press ? anywhere for the full list.
-        </p>
-        <p><button className="button" onClick={openShortcuts}>Show keyboard shortcuts</button></p>
-      </section>
+        <section className="settings-card">
+          <h2>On this device</h2>
+          <label className="choices" style={{ marginTop: "0.75rem" }}>
+            <input
+              type="checkbox"
+              checked={Boolean(keep)}
+              onChange={(e) => { setKeep(e.target.checked); void setKeepEverything(e.target.checked); }}
+            />
+            Keep every reading available offline
+          </label>
+          <p className="small muted">
+            Without this, a week's files are saved when you open it, along with the next week's.
+          </p>
+          {cached && cached.count > 0 && (
+            <p className="small">{cached.count} files saved, using {formatBytes(cached.bytes)}.</p>
+          )}
+          {estimate?.quota && (
+            <p className="small muted">This browser allows up to {formatBytes(estimate.quota)} for the app.</p>
+          )}
 
-      <section className="section">
-        <h2>Start again on this device</h2>
-        <p className="small muted">
-          Removes the local copy and downloads everything again. Unsaved edits on this device are lost.
-        </p>
-        <button
-          className="button danger"
-          disabled={restarting}
-          onClick={async () => {
-            if (restarting) return;
-            if (!navigator.onLine) {
-              showToast("You are offline. Connect to the internet before restarting.");
-              return;
-            }
-            if (isSyncExpired()) {
-              showToast("Sign in again before restarting.");
-              return;
-            }
-            setRestarting(true);
-            let didPause = false;
-            try {
-              if (activeSession() !== null) {
-                showToast("A recording is active. Finish or cancel the recording first.");
-                return;
-              }
-              const chunkCount = await db.chunks.count();
-              if (chunkCount > 0) {
-                showToast("Audio is still being saved. Wait a moment and try again.");
-                return;
-              }
-              const outboxCount = await db.outbox.count();
-              const uploadsCount = await db.uploads.count();
-              if (outboxCount > 0 || uploadsCount > 0) {
-                await flush();
-              }
-              const initialPending = (await db.outbox.count()) + (await db.uploads.count());
-              if (initialPending > 0) {
-                const proceed = await confirmAction({
-                  title: "Unsaved changes on this device",
-                  body: initialPending === 1
-                    ? "1 unsent edit or upload has not reached the server yet and will be lost forever."
-                    : `${initialPending} unsent edits or uploads have not reached the server yet and will be lost forever.`,
-                  confirm: "Discard and start again",
-                  danger: true,
-                });
-                if (!proceed) return;
-              } else {
-                const ok = await confirmAction({
-                  title: "Start again on this device?",
-                  body: "Removes the local database and downloads everything fresh from the server.",
-                  confirm: "Download everything again",
-                  danger: true,
-                });
-                if (!ok) return;
-              }
+          {failed && failed.length > 0 && (
+            <div className="settings-subgroup">
+              <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Rejected changes</h3>
+              <p className="small muted">The server turned these down. They are kept here so nothing disappears silently.</p>
+              <ul className="list small">
+                {failed.slice(-20).map((f) => {
+                  const cleanError = (f.error || "").replace(/\.+$/, "");
+                  return (
+                    <li key={f.id} style={{ padding: "0.4rem 0" }}>
+                      <span>{describeFailedChange(f.table)}</span>
+                      {cleanError && <details className="small muted"><summary>Details</summary>{cleanError}</details>}
+                    </li>
+                  );
+                })}
+              </ul>
+              <button className="quiet" onClick={() => db.failed.clear()}>Clear this list</button>
+            </div>
+          )}
+        </section>
 
-              await pauseSync();
-              didPause = true;
+        <section className="settings-card">
+          <Bin />
+        </section>
 
-              const postPausePending = (await db.outbox.count()) + (await db.uploads.count());
-              if (postPausePending > initialPending) {
-                const diff = postPausePending - initialPending;
-                const proceed = await confirmAction({
-                  title: "New changes arrived",
-                  body: diff === 1
-                    ? "1 new change was queued just now. Discard and download a fresh copy anyway?"
-                    : `${diff} new changes were queued just now. Discard and download a fresh copy anyway?`,
-                  confirm: "Discard and start again",
-                  danger: true,
-                });
-                if (!proceed) return;
-              }
+        <section className="settings-card danger-card">
+          <h2 style={{ color: "var(--danger)" }}>Start again on this device</h2>
+          <p className="small muted">
+            Removes the local copy and downloads everything again from the server. Unsaved edits on this device are lost.
+          </p>
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              className="button danger"
+              disabled={restarting}
+              onClick={async () => {
+                if (restarting) return;
+                if (!navigator.onLine) {
+                  showToast("You are offline. Connect to the internet before restarting.");
+                  return;
+                }
+                if (isSyncExpired()) {
+                  showToast("Sign in again before restarting.");
+                  return;
+                }
+                setRestarting(true);
+                let didPause = false;
+                try {
+                  if (activeSession() !== null) {
+                    showToast("A recording is active. Finish or cancel the recording first.");
+                    return;
+                  }
+                  const chunkCount = await db.chunks.count();
+                  if (chunkCount > 0) {
+                    showToast("Audio is still being saved. Wait a moment and try again.");
+                    return;
+                  }
+                  const outboxCount = await db.outbox.count();
+                  const uploadsCount = await db.uploads.count();
+                  if (outboxCount > 0 || uploadsCount > 0) {
+                    await flush();
+                  }
+                  const initialPending = (await db.outbox.count()) + (await db.uploads.count());
+                  if (initialPending > 0) {
+                    const proceed = await confirmAction({
+                      title: "Unsaved changes on this device",
+                      body: initialPending === 1
+                        ? "1 unsent edit or upload has not reached the server yet and will be lost forever."
+                        : `${initialPending} unsent edits or uploads have not reached the server yet and will be lost forever.`,
+                      confirm: "Discard and start again",
+                      danger: true,
+                    });
+                    if (!proceed) return;
+                  } else {
+                    const ok = await confirmAction({
+                      title: "Start again on this device?",
+                      body: "Removes the local database and downloads everything fresh from the server.",
+                      confirm: "Download everything again",
+                      danger: true,
+                    });
+                    if (!ok) return;
+                  }
 
-              try {
-                await api("/api/ping");
-              } catch {
-                showToast("The server cannot be reached right now, so nothing was removed.");
-                return;
-              }
+                  await pauseSync();
+                  didPause = true;
 
-              await cancelAllUploads();
-              await clearLocalData();
-              resumeSync();
-              didPause = false;
-              const ok = await pull({ join: true });
-              if (ok) {
-                showToast("Downloaded fresh copy from the server.");
-              } else {
-                showToast("Could not download everything. Check your internet connection.");
-              }
-            } catch (err) {
-              showToast(err instanceof Error ? err.message : "Could not restart on this device.");
-            } finally {
-              if (didPause) {
-                resumeSync();
-              }
-              setRestarting(false);
-            }
-          }}
-        >
-          {restarting ? "Downloading…" : "Download everything again"}
-        </button>
-      </section>
+                  const postPausePending = (await db.outbox.count()) + (await db.uploads.count());
+                  if (postPausePending > initialPending) {
+                    const diff = postPausePending - initialPending;
+                    const proceed = await confirmAction({
+                      title: "New changes arrived",
+                      body: diff === 1
+                        ? "1 new change was queued just now. Discard and download a fresh copy anyway?"
+                        : `${diff} new changes were queued just now. Discard and download a fresh copy anyway?`,
+                      confirm: "Discard and start again",
+                      danger: true,
+                    });
+                    if (!proceed) return;
+                  }
+
+                  try {
+                    await api("/api/ping");
+                  } catch {
+                    showToast("The server cannot be reached right now, so nothing was removed.");
+                    return;
+                  }
+
+                  await cancelAllUploads();
+                  await clearLocalData();
+                  resumeSync();
+                  didPause = false;
+                  const ok = await pull({ join: true });
+                  if (ok) {
+                    showToast("Downloaded fresh copy from the server.");
+                  } else {
+                    showToast("Could not download everything. Check your internet connection.");
+                  }
+                } catch (err) {
+                  showToast(err instanceof Error ? err.message : "Could not restart on this device.");
+                } finally {
+                  if (didPause) {
+                    resumeSync();
+                  }
+                  setRestarting(false);
+                }
+              }}
+            >
+              {restarting ? "Downloading…" : "Download everything again"}
+            </button>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

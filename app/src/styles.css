@@ -1091,9 +1091,41 @@ a.where:hover { color: var(--ink); }
 .across-session .questions { margin: 0.3rem 0 0; }
 .segmented { display: inline-flex; }
 .segmented.small .tool { font-size: var(--fs-xs); padding: 0.15rem 0.5rem; }
-.colour-names { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; gap: 0.4rem; max-width: 24rem; }
+.colour-names { list-style: none; margin: 0.75rem 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.6rem 1rem; }
 .colour-names li { display: flex; gap: 0.6rem; align-items: center; }
-.colour-names .swatch { flex: none; width: 1.1rem; height: 1.1rem; border: 0; }
+.colour-names .swatch { flex: none; width: 1.15rem; height: 1.15rem; border-radius: 50%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 15%, transparent); }
+
+/* Settings redesign cards */
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-top: 1.25rem;
+  margin-bottom: 3.5rem;
+}
+.settings-card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.settings-card h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--serif);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--ink);
+}
+.settings-card.danger-card {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--rule));
+  background: color-mix(in srgb, var(--danger) 2.5%, var(--card));
+}
+.settings-subgroup {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.25rem;
+}
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Shortcuts */
