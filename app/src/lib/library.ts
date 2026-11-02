@@ -94,16 +94,31 @@ export async function loadModules(now?: TeachingWeek | null): Promise<ModuleSumm
     });
     const progress = moduleProgress(weekItemsList, now);
     let next: ModuleSummary["next"] = null;
-    if (progress.state === "week" || progress.state === "upcoming" || progress.state === "reading-week") {
-      const targetWeek = weekItemsList.find((w) => w.week.id === progress.week.id);
-      if (targetWeek) {
-        // In page order: primary readings first, then secondary readings
-        const primaries = targetWeek.items.filter((i) => i.kind === "primary");
-        const secondaries = targetWeek.items.filter((i) => i.kind === "secondary");
+    const startIndex = (progress.state === "week" || progress.state === "upcoming" || progress.state === "reading-week")
+      ? Math.max(0, weekItemsList.findIndex((w) => w.week.id === progress.week.id))
+      : Math.max(0, weekItemsList.findIndex((w) => w.week.id === module.last_opened_week_id));
+
+    // First search forward from current / opened week
+    for (const entry of weekItemsList.slice(startIndex)) {
+      const primaries = entry.items.filter((i) => i.kind === "primary");
+      const secondaries = entry.items.filter((i) => i.kind === "secondary");
+      const candidates = [...primaries, ...secondaries];
+      const unread = candidates.find((i) => i.read_status !== "read");
+      if (unread) {
+        next = { item: unread, week: entry.week };
+        break;
+      }
+    }
+    // If nothing found forward, look from the start of the module
+    if (!next) {
+      for (const entry of weekItemsList.slice(0, startIndex)) {
+        const primaries = entry.items.filter((i) => i.kind === "primary");
+        const secondaries = entry.items.filter((i) => i.kind === "secondary");
         const candidates = [...primaries, ...secondaries];
         const unread = candidates.find((i) => i.read_status !== "read");
         if (unread) {
-          next = { item: unread, week: progress.week };
+          next = { item: unread, week: entry.week };
+          break;
         }
       }
     }

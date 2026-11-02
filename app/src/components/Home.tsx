@@ -1,18 +1,18 @@
 import { db } from "../lib/db";
-import { countdown } from "../lib/sections";
+import { countdown, isDissertation } from "../lib/sections";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
-import { loadModules, loadRecent, loadRecentSessions, loadThisWeek, type WeekSessions } from "../lib/library";
+import { loadModules, loadRecent, loadRecentSessions, loadThisWeek, type ModuleSummary, type WeekSessions } from "../lib/library";
 import { progressWords } from "../lib/progress";
 import { sessionLabel } from "../lib/modules";
-import { useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
+import { useTeachingWeek, useTermDates, weekDatesText, type TermDates } from "../lib/term";
 import { shortDate } from "../lib/dates";
 import { shortTitle } from "../lib/titles";
 import { weekCode } from "../lib/modules";
 import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
 import { navigate, type Route } from "../lib/router";
-import type { WeekRow } from "../lib/types";
+import type { ModuleRow, WeekRow } from "../lib/types";
 import { moveModule } from "../lib/edits";
 import { useTitle } from "../lib/ui";
 
@@ -156,6 +156,107 @@ function ThisWeek() {
   );
 }
 
+function nextKeyDate(module: ModuleRow) {
+  if (module.kind !== "dissertation" || !module.key_dates?.length) return null;
+  const coming = module.key_dates
+    .map((d) => ({ ...d, when: countdown(d.date) }))
+    .filter((d) => d.when.days >= -14)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return coming[0] ?? null;
+}
+
+function ModuleCard({
+  item,
+  index,
+  arranging,
+  dates,
+  totalModules,
+}: {
+  item: ModuleSummary;
+  index: number;
+  arranging: boolean;
+  dates: TermDates;
+  totalModules: number;
+}) {
+  const { module, next, progress } = item;
+  const [imgFailed, setImgFailed] = useState(false);
+  const progressLabel = progressWords(progress, dates);
+  const nextDate = isDissertation(module) ? nextKeyDate(module) : null;
+  const hasImage = Boolean(module.image_key && !imgFailed);
+  const imageSrc = module.image_key
+    ? (module.image_key.startsWith("pictures/") ? `/api/${module.image_key}` : `/api/pictures/${module.image_key}`)
+    : null;
+
+  return (
+    <li className={`module-card module-item${arranging ? " arranging" : ""}`}>
+      <div className="module-card-cover">
+        {hasImage && imageSrc ? (
+          <img
+            src={imageSrc}
+            alt=""
+            loading={index < 2 ? "eager" : "lazy"}
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <div className="module-card-typo-cover" aria-hidden="true">
+            <span className="module-card-typo-code">{module.code}</span>
+          </div>
+        )}
+      </div>
+      <div className="module-card-body">
+        {arranging ? (
+          <div className="module-row">
+            <span className="code">{module.code}</span>
+            <span className="title">{module.title || module.code}</span>
+          </div>
+        ) : (
+          <Link
+            to={{ view: "module", id: module.id }}
+            className="module-row"
+            aria-label={`Open ${module.code} ${module.title || ""}`}
+          >
+            <span className="code">{module.code}</span>
+            <span className="title">{module.title || module.code}</span>
+            <span className="module-card-stretch" aria-hidden="true" />
+          </Link>
+        )}
+
+        {isDissertation(module) ? (
+          nextDate && (
+            <span className="count">
+              {nextDate.label}: {nextDate.when.words}
+            </span>
+          )
+        ) : (
+          <>
+            {progressLabel && <span className="count">{progressLabel}</span>}
+            {progress.state !== "none" && progress.total > 0 && progress.read > 0 && !arranging && (
+              <span className="progress-line" aria-hidden="true">
+                <span style={{ width: `${Math.round((progress.read / progress.total) * 100)}%` }} />
+              </span>
+            )}
+          </>
+        )}
+
+        {next && !arranging && (
+          <p className="next-up small">
+            <span className="muted">Next</span>{" "}
+            <Link to={{ view: "reader", id: next.item.id }}>{shortTitle(next.item)}</Link>{" "}
+            <Link to={{ view: "week", id: next.week.id }} className="where">{weekCode(next.week)}</Link>
+          </p>
+        )}
+
+        {arranging && (
+          <span className="order">
+            <button className="tool" aria-label={`Move ${module.code} up`} disabled={index === 0} onClick={() => moveModule(module.id, -1)}>↑</button>
+            <button className="tool" aria-label={`Move ${module.code} down`} disabled={index === totalModules - 1} onClick={() => moveModule(module.id, 1)}>↓</button>
+          </span>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function Home() {
   const week = useTeachingWeek();
   const dates = useTermDates();
@@ -197,37 +298,17 @@ export function Home() {
         {/* The page's own action sits by its heading, as on every page. */}
         {!adding && <button className="button" onClick={() => setAdding(true)}>Add a module</button>}
       </div>
-      <ul className="list section">
-        {modules.map(({ module, readings, read, next, progress }, index) => {
-          const progressLabel = progressWords(progress, dates);
-          return (
-            <li key={module.id} className={arranging ? "arranging" : "module-item"}>
-              <Link to={{ view: "module", id: module.id }} className="module-row">
-                <span className="code">{module.code}</span>
-                <span className="title">{module.title}</span>
-                {progressLabel && <span className="count">{progressLabel}</span>}
-              </Link>
-              {progress.state !== "none" && progress.total > 0 && progress.read > 0 && !arranging && (
-                <span className="progress-line" aria-hidden="true">
-                  <span style={{ width: `${Math.round((progress.read / progress.total) * 100)}%` }} />
-                </span>
-              )}
-            {next && !arranging && (
-              <p className="next-up small">
-                <span className="muted">Next</span>{" "}
-                <Link to={{ view: "reader", id: next.item.id }}>{shortTitle(next.item)}</Link>{" "}
-                <Link to={{ view: "week", id: next.week.id }} className="where">{weekCode(next.week)}</Link>
-              </p>
-            )}
-            {arranging && (
-              <span className="order">
-                <button className="tool" aria-label={`Move ${module.code} up`} disabled={index === 0} onClick={() => moveModule(module.id, -1)}>↑</button>
-                <button className="tool" aria-label={`Move ${module.code} down`} disabled={index === modules.length - 1} onClick={() => moveModule(module.id, 1)}>↓</button>
-              </span>
-            )}
-          </li>
-        );
-      })}
+      <ul className="module-grid">
+        {modules.map((item, index) => (
+          <ModuleCard
+            key={item.module.id}
+            item={item}
+            index={index}
+            arranging={arranging}
+            dates={dates}
+            totalModules={modules.length}
+          />
+        ))}
       </ul>
       {adding && <NewModule onDone={() => setAdding(false)} />}
 
