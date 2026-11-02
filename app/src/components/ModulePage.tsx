@@ -298,6 +298,31 @@ export function ModulePage({ id }: { id: string }) {
     }
   }, [data]);
 
+  useEffect(() => {
+    if (!data) return;
+    const isSaveData = (navigator as unknown as { connection?: { saveData?: boolean } }).connection?.saveData === true;
+    if (typeof window !== "undefined" && navigator.onLine && !isSaveData && "caches" in window) {
+      const keysToPrefetch = data.weeks
+        .map((w) => w.thumb_key)
+        .filter((k): k is string => Boolean(k))
+        .slice(0, 8);
+      if (keysToPrefetch.length > 0) {
+        void caches.open("study-pictures-v1").then((cache) => {
+          for (const key of keysToPrefetch) {
+            const url = `/api/objects/${key}`;
+            void cache.match(url).then((hit) => {
+              if (!hit) {
+                void fetch(url).then((res) => {
+                  if (res.ok) void cache.put(url, res.clone());
+                }).catch(() => {});
+              }
+            });
+          }
+        });
+      }
+    }
+  }, [data]);
+
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
 
