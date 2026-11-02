@@ -1003,6 +1003,18 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Layout, card and library improvements completed in 0.38.0:
+  - Saving indicator retired and notes debounced flush on pagehide and visibilitychange.
+  - Normal Lucide cog icon for Settings.
+  - Library module option for downloaded books with custom shelf sections and no term weeks.
+  - Manual syllabus and course admin section support for taught modules ("Add syllabus / admin section"), grouped into a separate Course materials and admin grid.
+  - Simplified module cards displaying only code and title, keeping cards compact.
+  - Equal-height week cards using grid auto rows and independent study placeholders for reading weeks.
+  - Stretched-link clickable cards covering the entire card including cover images.
+  - Wider desktop layout with --wide: 78rem across top bar, home page, module page and across views.
+  - Prominent quick-access notes chips above readings on week pages and session pages.
+  - Week thumbnails populated automatically from first reading when slides are absent, skipping publisher cover pages during extraction.
+  - Elevated job application details card with card header, structured columns, and direct card view navigation.
 - Module page week cards and slide thumbnails completed in 0.36.0: slide cover thumbnails rendered by the Python processor on extract_text at 640px WebP and synchronized via thumb_key on files table; bulk loadModuleOverview query indexing week readings, sessions, notes indicators and slide thumbnails; responsive card grid with accessible stretched-link <article> week cards, ::after This week indicators, and dark-mode sepia-mode filters; quick week jump strip with teaching week and reading week styling; bounded thumbnail prefetching respecting saveData.
 - Home page card grid and module pictures completed in 0.35.0: additive migration 0015 (`image_key` on modules, `thumb_key` on files), client-side 16:9 canvas resizing and WebP compression in `uploads.ts` with dedicated upload endpoint `/api/pictures/:filename`, cover picture management in `ModuleSettings` with preview and Undo removal, responsive 2-column card grid with accessible stretched-link `<article>` cards and safe arrange mode buttons, typographic fallback covers in Literata Display, next unread reading calculation and key date countdowns, relocations of `This week` and dissertation countdown strip to `AcrossPage` with reading progress beside module headings and empty session links, and recently opened readings and notes moved to the `Ctrl+K` Palette.
 - Week groups, summaries and progress completed in 0.34.0: three-list week board (Primary readings, Secondary readings, Summaries), summary item kind with migration 0014, pure progress module, reading counts excluding slides and summaries, row menus offering move between kinds, Delete summary/Delete slides naming, ChoiceCard on Add files, and citable-only filtering in @ autocomplete.
@@ -1084,6 +1096,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.35.0 | Home page card grid and module pictures: 16:9 module cover pictures with client-side WebP compression and dedicated upload endpoint, migration 0015, responsive 2-column card grid with typographic fallback covers, next reading links and key date countdowns, dissertation countdown strip and all timetabled sessions relocated to This week (AcrossPage) with reading progress beside module headings, recently opened readings and notes relocated to the Go to (Ctrl+K) palette |
 | 0.36.0 | Module page week cards and slide thumbnails: slide cover thumbnails rendered by the Python processor on extract_text at 640px WebP, bulk loadModuleOverview loader, responsive card grid with stretched-link week cards, quick week jump strip, and bounded thumbnail prefetching |
 | 0.37.0 | Job search mobile list and sheets: accessible modal Sheet primitive, compact scannable application list below 60rem, read-first application sheet, dedicated new and edit application sheets with delta patch saving and remote conflict detection, shared timeline entry sheet and inline editor with stage progression rules, and synchronous toast portalling across dialog layers |
+| 0.38.0 | Library modules for books, manual syllabus and admin sections, elevated job details card, code and title module cards, prominent note links above readings, week thumbnail fallback from readings, wider desktop layout, equal week cards, normal settings cog, and retired saving status |
 
 ## 18. The job search
 
