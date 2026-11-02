@@ -960,13 +960,14 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
   z-index: 50; display: flex; gap: 1rem; align-items: center;
   padding: 0.6rem 0.6rem 0.6rem 1rem; max-width: calc(100vw - 2rem);
   background: var(--ink); color: var(--paper); font-size: var(--fs-sm);
+  pointer-events: auto;
 }
 .toast .link { color: var(--paper); font-weight: 600; }
 .toast .quiet { color: var(--paper); opacity: 0.7; font-size: var(--fs-lg); line-height: 1; }
 
 .skip { position: absolute; left: -999px; top: 0; z-index: 60; background: var(--accent); color: var(--accent-ink); padding: 0.5rem 0.9rem; }
 .skip:focus { left: 0.5rem; top: 0.5rem; }
-.toast-region { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 50; }
+.toast-region { position: fixed; left: 0; right: 0; bottom: 0; height: 0; z-index: 50; pointer-events: none; }
 main:focus { outline: none; }
 @media (pointer: coarse) { .handle { display: none; } }
 
@@ -1715,6 +1716,7 @@ input[type="date"] { color: var(--ink); }
 /* Anything fixed to the foot of the screen sits above the tab bar and the home indicator. */
 .toast { bottom: calc(1.25rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 body.recording-active .toast { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
+.sheet-dialog .toast, body:has(dialog.sheet-dialog[open]) .toast { bottom: calc(5.5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 .rec-pill { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 .move-dock { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
@@ -2052,6 +2054,11 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .tl-since { margin: 0.5rem 0 0; }
 .tl-add { margin: 0.3rem 0 0 -0.4rem; }
 .tl-editor { display: grid; gap: 0.7rem; padding: 0.75rem; margin: 0.35rem 0; background: var(--surface); border-radius: var(--r-md); }
+.tl-editor.in-sheet { background: none; padding: 0; margin: 0; gap: 1.25rem; }
+.tl-editor.in-sheet .tl-fields { gap: 0.85rem; }
+.tl-editor.in-sheet .tl-fields .field { font-size: var(--fs-sm); font-weight: 500; width: 100%; }
+.tl-editor.in-sheet .tl-fields input { font-size: var(--fs-md); width: 100%; }
+.tl-editor.in-sheet .tl-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
 .tl-fields { display: grid; gap: 0.55rem; }
 .tl-fields .field { display: grid; gap: 0.25rem; font-size: var(--fs-xs); color: var(--muted); justify-items: start; }
 .tl-fields input { font-size: var(--fs-sm); }

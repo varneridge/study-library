@@ -11,6 +11,7 @@ import type { ApplicationEventRow, ApplicationRow, FileSlot, SlotName } from "..
 import { showToast } from "../../lib/ui";
 import { Icon } from "../icons";
 import { ChoiceCard } from "../ChoiceCard";
+import { EntryForm } from "./EntryForm";
 
 export type Slot = (typeof SLOTS)[number];
 
@@ -449,74 +450,19 @@ export function SlotRow({ app, slot }: { app: ApplicationRow; slot: Slot }) {
   );
 }
 
-// Adds a past event, or edits one, with its own date and, if known, time.
-function EntryEditor({ app, entry, onDone }: { app: ApplicationRow; entry?: ApplicationEventRow; onDone: () => void }) {
-  const today = todayIso();
-  const timed = Boolean(entry && !DATE_ONLY.test(entry.at));
-  const [stage, setStage] = useState(entry?.stage ?? app.stage);
-  const [day, setDay] = useState(entry ? entryDate(entry.at) : today);
-  const [time, setTime] = useState(timed && entry ? entryTimeText(entry.at) : "");
-  const [saving, setSaving] = useState(false);
-  // A ref, not state, so a second tap in the same moment is turned away too.
-  const busy = useRef(false);
-  const [picking, setPicking] = useState(false);
-  const stageButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => { stageButton.current?.focus(); }, []);
-  const valid = DATE_ONLY.test(day) && day <= today;
-  const save = async () => {
-    if (!valid || busy.current) return;
-    busy.current = true;
-    setSaving(true);
-    const at = time ? new Date(`${day}T${time}`).toISOString() : day;
-    try {
-      if (entry) {
-        await saveEntry(app, entry, { stage, at });
-        showToast("Timeline entry changed.");
-      } else {
-        await addManualEvent(app.id, stage, at);
-      }
-      onDone();
-    } finally {
-      busy.current = false;
-      setSaving(false);
-    }
-  };
-  const chosen = stageOf(stage);
-  return (
-    <div
-      className="tl-editor" role="group" aria-label={entry ? "Edit a timeline entry" : "Add a past event"}
-      onKeyDown={(e) => { if (e.key === "Escape" && !picking) { e.preventDefault(); e.stopPropagation(); onDone(); } }}
-    >
-      <div className="tl-fields">
-        <span className="field">
-          <span className="field-label">Stage</span>
-          <button
-            ref={stageButton} type="button" className={`stage-chip cat-${chosen.cat}`} aria-haspopup="dialog"
-            aria-label={`Stage for this entry: ${chosen.label}. Change`} onClick={() => setPicking(true)}
-          >
-            <span className="stage-chip-text">{chosen.label}</span><Icon name="caret" size={14} />
-          </button>
-        </span>
-        <label className="field"><span className="field-label">Date</span><input type="date" value={day} max={today} onChange={(e) => setDay(e.target.value)} /></label>
-        <label className="field"><span className="field-label">Time, if you know it</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
-      </div>
-      <div className="tl-actions">
-        <button type="button" className="button" disabled={!valid || saving} onClick={() => void save()}>{saving ? "Saving…" : entry ? "Save entry" : "Add event"}</button>
-        <button type="button" className="quiet" onClick={onDone}>Cancel</button>
-        {entry && <button type="button" className="quiet danger tl-remove" onClick={() => { onDone(); void removeEvent(entry.id); }}>Remove entry</button>}
-      </div>
-      <StageCard
-        open={picking} onClose={() => setPicking(false)} anchor={stageButton} app={app} current={stage} since={null}
-        title="Stage for this entry" status={`Chosen: ${chosen.label}`} showNext={false}
-        onPick={(key) => { setPicking(false); setStage(key); }}
-      />
-    </div>
-  );
-}
-
 // How the application has moved on: every change of stage, oldest first,
 // with how long each step took.
-export function Timeline({ app, events }: { app: ApplicationRow; events: ApplicationEventRow[] }) {
+export function Timeline({
+  app,
+  events,
+  onEditEntry,
+  onAddEntry,
+}: {
+  app: ApplicationRow;
+  events: ApplicationEventRow[];
+  onEditEntry?: (id: string) => void;
+  onAddEntry?: () => void;
+}) {
   const entries = getTimelineEntries(app, events);
   const [editing, setEditing] = useState<string | null>(null);
   const last = entries[entries.length - 1];
@@ -528,7 +474,13 @@ export function Timeline({ app, events }: { app: ApplicationRow; events: Applica
       <h3 className="detail-head">Timeline</h3>
       <ol className="tl-list">
         {entries.map((entry, i) => {
-          if (editing === entry.id) return <li key={entry.id}><EntryEditor app={app} entry={entry} onDone={() => setEditing(null)} /></li>;
+          if (editing === entry.id) {
+            return (
+              <li key={entry.id}>
+                <EntryForm app={app} entry={entry} onDone={() => setEditing(null)} variant="inline" />
+              </li>
+            );
+          }
           const next = entries[i + 1];
           const dateOnly = DATE_ONLY.test(entry.at);
           const stage = stageOf(entry.stage);
@@ -545,7 +497,14 @@ export function Timeline({ app, events }: { app: ApplicationRow; events: Applica
               <span className={`stage-tag cat-${stage.cat}`}>{stage.label}</span>
               <span className="tl-lasted">{lasted}</span>
               {!entry.id.startsWith("virtual-") && (
-                <button type="button" className="quiet tl-edit" aria-label={`Edit the entry for ${stage.label}, ${when}`} onClick={() => setEditing(entry.id)}>Edit</button>
+                <button
+                  type="button"
+                  className="quiet tl-edit"
+                  aria-label={`Edit the entry for ${stage.label}, ${when}`}
+                  onClick={() => (onEditEntry ? onEditEntry(entry.id) : setEditing(entry.id))}
+                >
+                  Edit
+                </button>
               )}
             </li>
           );
@@ -561,9 +520,17 @@ export function Timeline({ app, events }: { app: ApplicationRow; events: Applica
       {sinceApplied !== null && (
         <p className="tl-since small muted">{sinceApplied === 0 ? "Applied today" : `${sinceApplied} ${sinceApplied === 1 ? "day" : "days"} since you applied`}</p>
       )}
-      {editing === "new"
-        ? <EntryEditor app={app} onDone={() => setEditing(null)} />
-        : <button type="button" className="quiet tl-add" onClick={() => setEditing("new")}>Add a past event</button>}
+      {editing === "new" ? (
+        <EntryForm app={app} onDone={() => setEditing(null)} variant="inline" />
+      ) : (
+        <button
+          type="button"
+          className="quiet tl-add"
+          onClick={() => (onAddEntry ? onAddEntry() : setEditing("new"))}
+        >
+          Add a past event
+        </button>
+      )}
     </section>
   );
 }

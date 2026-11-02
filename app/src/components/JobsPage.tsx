@@ -21,6 +21,7 @@ import { DateField, Deadline, OrderButton, SlotMark, SlotRow, slotTitle, StageBu
 import { AppList } from "./jobs/AppList";
 import { AppSheet } from "./jobs/AppSheet";
 import { ApplicationForm } from "./jobs/ApplicationForm";
+import { EntryForm } from "./jobs/EntryForm";
 import { Sheet } from "./Sheet";
 import { navigate, useRoute } from "../lib/router";
 
@@ -357,6 +358,7 @@ export function JobsPage() {
           open={true}
           onClose={() => navigate({ view: "jobs" })}
           title="New application"
+          className="new-app-sheet"
           tall
         >
           <ApplicationForm
@@ -377,6 +379,7 @@ export function JobsPage() {
           onClose={() => navigate({ view: "jobs", app: currentApp.id })}
           title={`Edit ${currentApp.employer || "application"}`}
           subtitle={currentApp.role || undefined}
+          className="edit-app-sheet"
           tall
         >
           <ApplicationForm
@@ -392,7 +395,25 @@ export function JobsPage() {
         </Sheet>
       )}
 
-      {currentApp && !jobRoute?.edit && !jobRoute?.entry && (
+      {currentApp && jobRoute?.entry && (
+        <Sheet
+          open={true}
+          onClose={() => navigate({ view: "jobs", app: currentApp.id })}
+          title={jobRoute.entry === "new" ? "Add event" : "Edit timeline entry"}
+          subtitle={currentApp.employer}
+          className="entry-sheet"
+          tall
+        >
+          <EntryForm
+            app={currentApp}
+            entry={jobRoute.entry !== "new" ? eventsFor(currentApp.id).find((e) => e.id === jobRoute.entry) : undefined}
+            onDone={() => navigate({ view: "jobs", app: currentApp.id })}
+            variant="sheet"
+          />
+        </Sheet>
+      )}
+
+      {currentApp && (
         <AppSheet
           app={currentApp}
           events={eventsFor(currentApp.id)}

@@ -898,11 +898,29 @@ export async function addEntry(app: ApplicationRow, entry: { stage: string; at: 
   const entryId = newId();
   const { changes } = entryAddChanges(app, events, { ...entry, id: entryId });
   await commit(changes);
+  showToast(`Event added for ${formatDate(entryDate(entry.at)) || entry.at}.`);
   return entryId;
 }
 
 export async function deleteEntry(app: ApplicationRow, entryId: string): Promise<void> {
   const events = await db.application_events.where("application_id").equals(app.id).toArray();
-  const { changes } = entryDeleteChanges(app, events, entryId);
+  const previousStage = app.stage;
+  const { changes, restoredStage } = entryDeleteChanges(app, events, entryId);
   await commit(changes);
+  showToast("Timeline entry removed.", {
+    label: "Undo",
+    run: async () => {
+      const undoChanges: Change[] = [
+        { table: "application_events", row: { id: entryId, deleted: false }, patch: true },
+      ];
+      if (restoredStage !== previousStage) {
+        undoChanges.push({
+          table: "applications",
+          row: { id: app.id, stage: previousStage },
+          patch: true,
+        });
+      }
+      await commit(undoChanges);
+    },
+  });
 }

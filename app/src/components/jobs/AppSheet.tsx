@@ -129,7 +129,12 @@ export function AppSheet({
         </div>
 
         <div className="app-sheet-section">
-          <Timeline app={app} events={events} />
+          <Timeline
+            app={app}
+            events={events}
+            onAddEntry={handleAddEntry}
+            onEditEntry={(id) => navigate({ view: "jobs", app: app.id, entry: id })}
+          />
         </div>
       </div>
     </Sheet>

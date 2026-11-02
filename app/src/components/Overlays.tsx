@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { closeShortcuts, dismissToast, useCloseOnBack, useOverlays } from "../lib/ui";
 
 const SHORTCUTS: { group: string; keys: [string, string][] }[] = [
@@ -119,21 +120,42 @@ function Dialog() {
 }
 
 // The live region is always present, so screen readers announce each notice.
-function ToastView() {
+// If a modal dialog is open, the toast portals into the topmost open dialog so it stays interactive in the top layer.
+export function ToastView() {
   const { toast } = useOverlays();
-  return (
+  const [target, setTarget] = useState<HTMLDialogElement | null>(null);
+
+  useLayoutEffect(() => {
+    const updateTarget = () => {
+      const dialogs = typeof document !== "undefined"
+        ? Array.from(document.querySelectorAll<HTMLDialogElement>("dialog[open]"))
+        : [];
+      setTarget(dialogs.length > 0 ? dialogs[dialogs.length - 1] : null);
+    };
+
+    updateTarget();
+
+    const observer = new MutationObserver(updateTarget);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
+
+    return () => observer.disconnect();
+  }, [toast]);
+
+  if (!toast) return null;
+
+  const content = (
     <div className="toast-region" aria-live="polite">
-      {toast && (
-        <div className="toast" key={toast.id}>
-          <span>{toast.message}</span>
-          {toast.action && (
-            <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>{toast.action.label}</button>
-          )}
-          <button className="quiet" aria-label="Dismiss" onClick={dismissToast}>×</button>
-        </div>
-      )}
+      <div className="toast" key={toast.id}>
+        <span>{toast.message}</span>
+        {toast.action && (
+          <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>{toast.action.label}</button>
+        )}
+        <button className="quiet" aria-label="Dismiss" onClick={dismissToast}>×</button>
+      </div>
     </div>
   );
+
+  return target && target.isConnected ? createPortal(content, target) : content;
 }
 
 export function Overlays() {
