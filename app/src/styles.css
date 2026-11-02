@@ -69,6 +69,75 @@
   }
 }
 
+/* Accent palettes: Oxford Navy (default), Sage Green, Warm Amber, Burgundy, and Slate */
+:root[data-accent="sage"] {
+  --accent: #2D6A4F; --accent-ink: #FFFFFF; --accent-soft: #EBF5F0;
+}
+:root[data-theme="sepia"][data-accent="sage"] {
+  --accent: #2D6A4F; --accent-ink: #FFFFFF; --accent-soft: #E8F0EA;
+}
+:root[data-theme="dark"][data-accent="sage"] {
+  --accent: #52B788; --accent-ink: #0B2919; --accent-soft: #173826;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="sage"]:not([data-theme="light"]):not([data-theme="sepia"]) {
+    --accent: #52B788; --accent-ink: #0B2919; --accent-soft: #173826;
+  }
+}
+
+:root[data-accent="amber"] {
+  --accent: #9A5B13; --accent-ink: #FFFFFF; --accent-soft: #FDF3E7;
+}
+:root[data-theme="sepia"][data-accent="amber"] {
+  --accent: #8F520F; --accent-ink: #FFFFFF; --accent-soft: #F9EEDD;
+}
+:root[data-theme="dark"][data-accent="amber"] {
+  --accent: #F59E0B; --accent-ink: #2E1A02; --accent-soft: #3D2608;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="amber"]:not([data-theme="light"]):not([data-theme="sepia"]) {
+    --accent: #F59E0B; --accent-ink: #2E1A02; --accent-soft: #3D2608;
+  }
+}
+
+:root[data-accent="burgundy"] {
+  --accent: #8E2035; --accent-ink: #FFFFFF; --accent-soft: #FBEBEF;
+}
+:root[data-theme="sepia"][data-accent="burgundy"] {
+  --accent: #881C31; --accent-ink: #FFFFFF; --accent-soft: #F7E5E9;
+}
+:root[data-theme="dark"][data-accent="burgundy"] {
+  --accent: #F47291; --accent-ink: #2D050E; --accent-soft: #42101B;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="burgundy"]:not([data-theme="light"]):not([data-theme="sepia"]) {
+    --accent: #F47291; --accent-ink: #2D050E; --accent-soft: #42101B;
+  }
+}
+
+:root[data-accent="slate"] {
+  --accent: #334155; --accent-ink: #FFFFFF; --accent-soft: #F1F5F9;
+}
+:root[data-theme="sepia"][data-accent="slate"] {
+  --accent: #3D444E; --accent-ink: #FFFFFF; --accent-soft: #EDEFEA;
+}
+:root[data-theme="dark"][data-accent="slate"] {
+  --accent: #94A3B8; --accent-ink: #0F172A; --accent-soft: #1E293B;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="slate"]:not([data-theme="light"]):not([data-theme="sepia"]) {
+    --accent: #94A3B8; --accent-ink: #0F172A; --accent-soft: #1E293B;
+  }
+}
+
+/* Module tints: for week covers, module headers, and badges */
+.tint-s0 { --module-tint: var(--s0); }
+.tint-s1 { --module-tint: var(--s1); }
+.tint-s2 { --module-tint: var(--s2); }
+.tint-s3 { --module-tint: var(--s3); }
+.tint-s4 { --module-tint: var(--s4); }
+.tint-s5 { --module-tint: var(--s5); }
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
 body {
@@ -1057,6 +1126,44 @@ kbd {
 .blocks figure.align-right img { margin-left: auto; }
 .blocks figcaption { font-family: var(--sans); font-size: var(--fs-xs); color: var(--muted); margin-top: 0.3rem; }
 .appearance-choice { margin-top: 0.75rem; }
+
+/* Accent choice buttons in settings */
+.accent-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.accent-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+.accent-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--rule-strong);
+}
+.accent-btn.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.accent-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
 
 /* Dragging. A picked-up reading lifts as a card. The rows it passes slide
    out of its way, and a grid of weeks appears to drop it on. */

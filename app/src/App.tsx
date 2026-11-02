@@ -22,7 +22,7 @@ import { PageLoading } from "./components/ErrorBoundary";
 import { Icon, type IconName } from "./components/icons";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { retryUpload, onUploadProgress, uploadProgress } from "./lib/uploads";
-import { useAppearanceSync } from "./lib/appearance";
+import { useAppearanceSync, useAccentSync } from "./lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
 
 // The reader carries pdf.js, the largest part of the app, so it loads when a
@@ -230,6 +230,7 @@ export function App() {
   const route = useRoute();
   useTypingClass();
   useAppearanceSync();
+  useAccentSync();
 
   useEffect(() => {
     // "/" goes to search from anywhere outside a text field.

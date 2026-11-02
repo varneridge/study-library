@@ -9,7 +9,7 @@ import { loadBin } from "../lib/edits";
 import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames, useSetting } from "../lib/settings";
 import { currentYear, useTermDates, type TermDates } from "../lib/term";
-import { chooseAppearance, useAppearance, type Appearance } from "../lib/appearance";
+import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
 import { ago, processorQuiet, useProcessorStatus } from "../lib/status";
 import { shortDate } from "../lib/dates";
 
@@ -100,14 +100,38 @@ function TermDatesSetting() {
 
 function AppearanceChoice() {
   const current = useAppearance();
+  const currentAccent = useAccent();
+  const dark = useDark();
+
   return (
     <section className="section">
       <h2>Appearance</h2>
       <p className="small muted">One theme for everything: every screen, the reader's panels and the pages themselves. It applies on every device. The reader's Aa button changes the same setting.</p>
-      <div className="segmented appearance-choice" role="group" aria-label="Appearance">
+      <div className="segmented appearance-choice" role="group" aria-label="Theme mode">
         {APPEARANCES.map((a) => (
           <button key={a.value} className={`tool theme-chip ${a.value}`} aria-pressed={current === a.value} onClick={() => void chooseAppearance(a.value)}>{a.label}</button>
         ))}
+      </div>
+
+      <h3 style={{ margin: "1.5rem 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Accent colour</h3>
+      <p className="small muted">A touch of colour for active links, buttons and current selections.</p>
+      <div className="accent-grid" role="group" aria-label="Accent colour">
+        {ACCENTS.map((acc) => {
+          const hex = dark ? acc.darkHex : acc.lightHex;
+          const active = currentAccent === acc.value;
+          return (
+            <button
+              key={acc.value}
+              type="button"
+              className={`accent-btn${active ? " is-active" : ""}`}
+              aria-pressed={active}
+              onClick={() => void chooseAccent(acc.value)}
+            >
+              <span className="accent-swatch" style={{ backgroundColor: hex }} aria-hidden="true" />
+              <span className="accent-name">{acc.label}</span>
+            </button>
+          );
+        })}
       </div>
     </section>
   );

@@ -8,6 +8,7 @@ import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../src/lib/sections";
 import { notesLabel } from "../src/lib/modules";
+import { storedAccent, ACCENTS } from "../src/lib/appearance";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
 import { changedColumns } from "../src/lib/sync";
 import { smoothRects } from "../src/components/reader/pages";
@@ -921,6 +922,13 @@ test("top bar brand maintains distinct styling without selector interference", (
   const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.ok(/\.brand\s*\{[^}]*font-weight:\s*600/.test(css), "brand must have font-weight: 600");
   assert.ok(/\.brand\s*\{[^}]*font-size:\s*1\.15rem/.test(css), "brand must have font-size: 1.15rem");
+});
+
+test("accent palette defines valid palettes and defaults to oxford", () => {
+  assert.equal(storedAccent(), "oxford");
+  assert.equal(ACCENTS.length, 5);
+  const values = ACCENTS.map((a) => a.value);
+  assert.deepEqual(values, ["oxford", "sage", "amber", "burgundy", "slate"]);
 });
 
 if (failed) {
