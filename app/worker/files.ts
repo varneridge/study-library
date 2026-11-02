@@ -183,3 +183,23 @@ export async function queueRescan(env: Env): Promise<number> {
   ).run();
   return result.meta?.changes ?? 0;
 }
+
+// Queues a thumb job for every PDF reading that does not have a thumbnail yet.
+// Unlike rescan, this is non-destructive: it renders the cover page without
+// touching OCR or text layers.
+export async function queueThumbs(env: Env): Promise<number> {
+  const result = await env.DB.prepare(
+    `INSERT INTO jobs (type, payload, priority)
+     SELECT 'thumb',
+            json_object('file_id', f.id),
+            NULL
+       FROM files f
+      WHERE f.deleted = 0 AND f.mime = 'application/pdf'
+        AND f.thumb_key IS NULL
+        AND EXISTS (SELECT 1 FROM items i WHERE i.file_id = f.id AND i.deleted = 0)
+        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.status IN ('queued', 'running')
+                         AND j.type = 'thumb'
+                         AND json_extract(j.payload, '$.file_id') = f.id)`,
+  ).run();
+  return result.meta?.changes ?? 0;
+}

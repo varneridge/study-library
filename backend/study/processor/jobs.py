@@ -172,11 +172,11 @@ def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
 def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
     if len(doc) == 0:
         return False
-    # Skip JSTOR/publisher cover sheet or near-blank page if multi-page
+    # Skip JSTOR/publisher cover sheet if multi-page
     target_idx = 0
     if len(doc) > 1:
         first_text = doc[0].get_text("text").strip().lower()
-        if "jstor" in first_text or "downloaded from" in first_text or "this content downloaded" in first_text or len(first_text) < 30:
+        if "jstor" in first_text or "downloaded from" in first_text or "this content downloaded" in first_text:
             target_idx = 1
     page = doc[target_idx]
     rect = page.rect
@@ -191,6 +191,29 @@ def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int 
     img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
     img.save(thumb_path, "WEBP", quality=quality)
     return True
+
+
+def store_thumbnail(ctx: Context, file: dict, doc, tmp: str | None = None) -> str | None:
+    cleanup = False
+    if tmp is None:
+        tmp = tempfile.mkdtemp()
+        cleanup = True
+    try:
+        thumb_path = os.path.join(tmp, "thumb.webp")
+        if not render_slide_thumbnail(doc, thumb_path):
+            return None
+        with open(thumb_path, "rb") as f:
+            thumb_sha = hashlib.sha256(f.read()).hexdigest()
+        thumb_key = f"files/{thumb_sha}.webp"
+        ctx.api.put_object(thumb_path, thumb_key, "image/webp")
+        ctx.api.file_thumb(file["id"], thumb_key)
+        return thumb_key
+    except Exception as exc:
+        log.warning("could not store thumbnail for file %s: %s", file["id"], exc)
+        return None
+    finally:
+        if cleanup and os.path.exists(tmp):
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 def extract_text(ctx: Context, job: dict) -> None:
@@ -209,16 +232,7 @@ def extract_text(ctx: Context, job: dict) -> None:
             page_count = len(pages)
 
             if not thumb_key:
-                try:
-                    thumb_path = os.path.join(tmp, "thumb.webp")
-                    if render_slide_thumbnail(doc, thumb_path):
-                        with open(thumb_path, "rb") as f:
-                            thumb_sha = hashlib.sha256(f.read()).hexdigest()
-                        thumb_key = f"files/{thumb_sha}.webp"
-                        ctx.api.put_object(thumb_path, thumb_key, "image/webp")
-                        ctx.api.file_thumb(file["id"], thumb_key)
-                except Exception as exc:
-                    log.warning("could not render slide thumbnail for file %s: %s", file["id"], exc)
+                thumb_key = store_thumbnail(ctx, file, doc, tmp)
 
             sparse = sum(1 for text in pages if len(text.strip()) < MIN_TEXT_CHARS)
             payload = job["payload"]
@@ -512,15 +526,9 @@ def thumb(ctx: Context, job: dict) -> None:
         path = os.path.join(tmp, "in.pdf")
         ctx.api.download(file["r2_key"], path)
         with pymupdf.open(path) as doc:
-            thumb_path = os.path.join(tmp, "thumb.webp")
-            if not render_slide_thumbnail(doc, thumb_path):
-                return
-            with open(thumb_path, "rb") as f:
-                thumb_sha = hashlib.sha256(f.read()).hexdigest()
-            thumb_key = f"files/{thumb_sha}.webp"
-            ctx.api.put_object(thumb_path, thumb_key, "image/webp")
-            ctx.api.file_thumb(file["id"], thumb_key)
-            log.info("file %s slide thumbnail ready: %s", file["id"], thumb_key)
+            thumb_key = store_thumbnail(ctx, file, doc, tmp)
+            if thumb_key:
+                log.info("file %s slide thumbnail ready: %s", file["id"], thumb_key)
 
 
 HANDLERS: dict[str, Callable[[Context, dict], None]] = {

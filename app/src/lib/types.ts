@@ -37,6 +37,7 @@ export interface WeekRow extends SyncedRow {
   number: number;
   title: string | null;
   is_reading_week: boolean;
+  image_key?: string | null;
 }
 
 export interface SessionRow extends SyncedRow {

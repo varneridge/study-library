@@ -27,6 +27,7 @@ import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
 import { WeekBoard } from "./WeekBoard";
 import { SessionSlides, SlideBoard } from "./SlideBoard";
+import { uploadModulePicture } from "../lib/uploads";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
 
 // When a week runs, and whether that is now, beside the crumbs.
@@ -253,8 +254,28 @@ export function WeekPage({ id }: { id: string }) {
   const addFilesButton = useRef<HTMLButtonElement>(null);
   const addTargetRef = useRef<FileTarget | undefined>(undefined);
   const picker = useRef<HTMLInputElement>(null);
+  const coverPicker = useRef<HTMLInputElement>(null);
   const sessionPicker = useRef<HTMLInputElement>(null);
   const prefetched = useRef<string | null>(null);
+
+  const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !data) return;
+    try {
+      const key = await uploadModulePicture(file);
+      await update("weeks", data.view.week.id, { image_key: key });
+      showToast("Cover picture set.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not upload cover picture.");
+    }
+  };
+
+  const onRemoveCover = async () => {
+    if (!data) return;
+    await update("weeks", data.view.week.id, { image_key: null });
+    showToast("Cover picture removed.");
+  };
 
   useEffect(() => {
     if (!data) return;
@@ -403,6 +424,8 @@ export function WeekPage({ id }: { id: string }) {
             label="More actions for this section"
             items={[
               { label: "Rename section", onSelect: () => setRenaming(true) },
+              { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+              { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
               { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
               { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
               { label: "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
@@ -413,12 +436,15 @@ export function WeekPage({ id }: { id: string }) {
           label="More actions for this week"
           items={[
             { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
+            { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+            { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
             { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
             ...KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })),
             { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
           ]}
         />
         )}
+        <input ref={coverPicker} type="file" hidden accept="image/*" onChange={onPickCover} />
         <input
           ref={picker} type="file" multiple hidden accept={READING_ACCEPT}
           onChange={(e) => {

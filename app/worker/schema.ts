@@ -32,7 +32,7 @@ export const TABLES = {
     ["code", "title", "session_pattern", "description", "last_opened_week_id", "position", "kind", "key_dates", "image_key"],
     ["session_pattern", "description", "key_dates"],
   ),
-  weeks: spec(["module_id", "term", "number", "title", "is_reading_week"], [], ["is_reading_week"]),
+  weeks: spec(["module_id", "term", "number", "title", "is_reading_week", "image_key"], [], ["is_reading_week"]),
   sessions: spec(["week_id", "kind", "title", "position"]),
   files: spec(["sha256", "r2_key", "mime", "bytes", "original_name", "page_count", "text_status", "thumb_key"]),
   items: spec([

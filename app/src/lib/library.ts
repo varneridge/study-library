@@ -306,8 +306,8 @@ export async function loadModuleOverview(
 
   // Build each week's overview
   const weekOverviews: WeekOverview[] = weeks.map((week) => {
-    const wis = weekItemsByWeek.get(week.id) ?? [];
-    const weekSessions = sessionsByWeek.get(week.id) ?? [];
+    const wis = (weekItemsByWeek.get(week.id) ?? []).slice().sort(byPosition);
+    const weekSessions = (sessionsByWeek.get(week.id) ?? []).slice().sort(byPosition);
 
     // Readings for this week: week items not tied to a session
     const readingItems = wis
@@ -316,15 +316,17 @@ export async function loadModuleOverview(
       .filter((i): i is ItemRow => Boolean(i && !i.deleted));
     const counts = readCount(readingItems);
 
-    // Thumbnail candidate: first slide deck with a thumb_key, then fallback to first reading
-    let thumb_key: string | null = null;
-    for (const wi of wis) {
-      const it = itemMap.get(wi.item_id);
-      if (it && it.kind === "slides" && it.file_id) {
-        const file = fileMap.get(it.file_id);
-        if (file?.thumb_key) {
-          thumb_key = file.thumb_key;
-          break;
+    // Thumbnail candidate: week custom cover, then first slide deck with a thumb_key, then fallback to first reading
+    let thumb_key: string | null = week.image_key ?? null;
+    if (!thumb_key) {
+      for (const wi of wis) {
+        const it = itemMap.get(wi.item_id);
+        if (it && it.kind === "slides" && it.file_id) {
+          const file = fileMap.get(it.file_id);
+          if (file?.thumb_key) {
+            thumb_key = file.thumb_key;
+            break;
+          }
         }
       }
     }

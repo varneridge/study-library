@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { requireAccess } from "./auth";
 import type { Env } from "./env";
-import { bumpFile, completeUpload, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan } from "./files";
+import { bumpFile, completeUpload, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
 import { retryRecording, storeChunk } from "./recordings";
 import { servePicture, storePicture } from "./pictures";
 import { search } from "./search";
@@ -106,6 +106,9 @@ app.post("/api/files/:id/bump", async (c) => {
 
 // Reads every scan again with the current OCR. Settings offers it.
 app.post("/api/rescan", async (c) => c.json({ queued: await queueRescan(c.env) }));
+
+// Queues thumbnail generation for every file that lacks one. Non-destructive.
+app.post("/api/thumbs", async (c) => c.json({ queued: await queueThumbs(c.env) }));
 
 app.post("/api/files/:id/retry", async (c) => {
   return c.json({ ok: await retryFile(c.env, c.req.param("id")) });

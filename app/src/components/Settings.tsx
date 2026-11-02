@@ -37,6 +37,15 @@ async function rescan() {
   }
 }
 
+async function generateThumbs() {
+  try {
+    const { queued } = (await (await api("/api/thumbs", { method: "POST" })).json()) as { queued: number };
+    showToast(queued ? `${queued} ${queued === 1 ? "thumbnail job" : "thumbnail jobs"} queued.` : "All files already have thumbnails.");
+  } catch {
+    showToast("Could not queue thumbnail generation. Check you are online.");
+  }
+}
+
 function ProcessorState() {
   const status = useProcessorStatus();
   if (!status) return null;
@@ -60,7 +69,10 @@ function ProcessorState() {
         Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
         straightened, two-page spreads split.
       </p>
-      <button className="button" onClick={() => void rescan()}>Read every scan again</button>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+        <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
+        <button className="button quiet" onClick={() => void rescan()}>Read every scan again</button>
+      </div>
     </section>
   );
 }

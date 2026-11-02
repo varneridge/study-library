@@ -18,6 +18,7 @@ import { Link } from "../App";
 import { loadModuleOverview } from "../lib/library";
 import { sessionLabel, weekCode, isSection } from "../lib/modules";
 import { BlockView } from "./BlockView";
+import { uploadModulePicture } from "../lib/uploads";
 import { MoveSelect, ReadingRow } from "./ReadingRow";
 import { ModuleSettings } from "./ModuleSettings";
 
@@ -92,6 +93,18 @@ function TraySection({ tray, weeks }: { tray: ReadingView[]; weeks: WeekRow[] })
   );
 }
 
+function WeekCoverImage({ thumbKey, code, isSec, weekNumber }: { thumbKey: string | null; code: string; isSec: boolean; weekNumber: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!thumbKey || failed) {
+    return (
+      <div className="week-card-cover-fallback">
+        <span className="week-card-cover-display">{isSec ? `Section ${weekNumber}` : code}</span>
+      </div>
+    );
+  }
+  return <img src={`/api/objects/${thumbKey}`} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
+}
+
 function WeekCard({
   overview,
   module,
@@ -109,9 +122,28 @@ function WeekCard({
 }) {
   const { week, readingCount, thumb_key, sessions, isCurrentWeek } = overview;
   const [fileOver, setFileOver] = useState(false);
+  const coverPickerRef = useRef<HTMLInputElement>(null);
   const summary = formatReadingCount(readingCount);
   const isSec = isSection(week);
   const code = weekCode(week);
+
+  const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const key = await uploadModulePicture(file);
+      await update("weeks", week.id, { image_key: key });
+      showToast("Cover picture set.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not upload cover picture.");
+    }
+  };
+
+  const onRemoveCover = async () => {
+    await update("weeks", week.id, { image_key: null });
+    showToast("Cover picture removed.");
+  };
 
   return (
     <article
@@ -142,25 +174,26 @@ function WeekCard({
         tabIndex={-1}
         ariaHidden={true}
       >
-        {thumb_key ? (
-          <img src={`/api/objects/${thumb_key}`} alt="" loading="lazy" decoding="async" />
-        ) : (
-          <div className="week-card-cover-fallback">
-            <span className="week-card-cover-display">{isSec ? `Section ${week.number}` : code}</span>
-          </div>
-        )}
+        <WeekCoverImage thumbKey={thumb_key} code={code} isSec={isSec} weekNumber={week.number} />
       </Link>
       {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}
-      {isSec && (
-        <div className="week-card-actions">
-          <Menu label={`More actions for ${code}`} items={[
+      <div className="week-card-actions">
+        <Menu
+          label={`More actions for ${code}`}
+          items={isSec ? [
             { label: "Rename", onSelect: onStartRename },
+            { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
+            { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
             { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
             { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
             { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
-          ]} />
-        </div>
-      )}
+          ] : [
+            { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
+            { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+          ]}
+        />
+      </div>
+      <input ref={coverPickerRef} type="file" hidden accept="image/*" onChange={onPickCover} />
 
       <div className="week-card-body">
         <div className="week-card-meta">
