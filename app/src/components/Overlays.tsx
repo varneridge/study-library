@@ -144,7 +144,7 @@ function Dialog() {
 // The live region is always present, so screen readers announce each notice.
 // If a modal dialog is open, the toast portals into the topmost open dialog so it stays interactive in the top layer.
 export function ToastView() {
-  const { toasts } = useOverlays();
+  const { toast } = useOverlays();
   const [target, setTarget] = useState<HTMLDialogElement | null>(null);
 
   useLayoutEffect(() => {
@@ -161,23 +161,21 @@ export function ToastView() {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
 
     return () => observer.disconnect();
-  }, [toasts.length]);
+  }, [toast]);
+
+  if (!toast) return null;
 
   const content = (
-    <div className="toast-region" aria-live="polite">
-      {toasts.map((item) => (
-        <div className="toast" key={item.id}>
-          <span>{item.message}</span>
-          {item.action && (
-            <button className="link" onClick={() => { void item.action!.run(); dismissToast(item.id); }}>
-              {item.action.label}
-            </button>
-          )}
-          <button className="quiet" aria-label="Dismiss" onClick={() => dismissToast(item.id)}>
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-      ))}
+    <div className="toast" role="status">
+      <span>{toast.message}</span>
+      {toast.action && (
+        <button className="link" onClick={() => { void toast.action!.run(); dismissToast(); }}>
+          {toast.action.label}
+        </button>
+      )}
+      <button className="quiet" aria-label="Dismiss" onClick={() => dismissToast()}>
+        <Icon name="close" size={14} />
+      </button>
     </div>
   );
 

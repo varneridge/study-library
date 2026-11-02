@@ -122,33 +122,37 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
   }
 
   return (
-    <form className="editor section" style={{ marginTop: "1rem" }} onSubmit={save}>
-      <div className="row">
-        <label className="field" style={{ flex: "0 0 9rem" }}>
-          <span>Code</span>
-          <input type="text" value={code} onChange={(e) => setCode(e.target.value)} required />
+    <form className="settings-grid" style={{ marginTop: "1rem" }} onSubmit={save}>
+      <div className="settings-card">
+        <h3>Module details</h3>
+        <p className="small muted">Code, title and general convenor or course notes.</p>
+        <div className="row" style={{ marginTop: "0.8rem" }}>
+          <label className="field" style={{ flex: "0 0 9rem" }}>
+            <span>Code</span>
+            <input type="text" value={code} onChange={(e) => setCode(e.target.value)} required />
+          </label>
+          <label className="field" style={{ flex: 1, minWidth: "14rem" }}>
+            <span>Title</span>
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+        </div>
+        <label className="field">
+          <span>About this module</span>
+          <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
         </label>
-        <label className="field" style={{ flex: 1, minWidth: "14rem" }}>
-          <span>Title</span>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-      </div>
-      <label className="field">
-        <span>About this module</span>
-        <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
-          placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
-      </label>
-      <div className="row">
-        <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
-        <button type="button" className="quiet" onClick={onClose} disabled={busy}>Cancel</button>
+        <div className="row" style={{ marginTop: "0.5rem" }}>
+          <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save changes"}</button>
+          <button type="button" className="button" onClick={onClose} disabled={busy}>Cancel</button>
+        </div>
       </div>
 
-      <div className="field" style={{ marginTop: "1.5rem" }}>
-        <span>Cover picture</span>
-        <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>
+      <div className="settings-card">
+        <h3>Cover picture</h3>
+        <p className="small muted">
           Shown on the card for this module on the home page. Cropped to 16:9.
         </p>
-        <div className="module-settings-picture">
+        <div className="module-settings-picture" style={{ marginTop: "0.8rem" }}>
           {imageKey ? (
             <div className="module-picture-preview">
               <img
@@ -161,7 +165,7 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
               <span>No picture chosen</span>
             </div>
           )}
-          <div className="row" style={{ marginTop: "0.5rem", gap: "0.5rem" }}>
+          <div className="row" style={{ marginTop: "0.75rem", gap: "0.5rem" }}>
             <button
               type="button"
               className="button"
@@ -192,42 +196,52 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
       </div>
 
       {module.kind !== "dissertation" && module.kind !== "library" && (
-      <div className="field" style={{ marginTop: "1.5rem" }}>
-        <span>Reading weeks</span>
-        <p className="small muted" style={{ margin: "0 0 0.5rem" }}>
-          Changes save straight away. A reading week keeps its readings and loses its empty sessions.
-        </p>
-        <div className="picker" role="group" aria-label="Reading weeks">
-          {TERMS.map((term) => (
-            <div key={term} style={{ display: "contents" }}>
-              <span>{term}</span>
-              {WEEK_NUMBERS.map((n) => {
-                const week = weeks.find((w) => w.term === term && w.number === n);
-                if (!week) return <span key={n} />;
-                return (
-                  <button type="button" key={n} disabled={busy} aria-pressed={week.is_reading_week} onClick={() => toggleWeek(week)}>{n}</button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-      )}
-
-      {module.kind !== "dissertation" && module.kind !== "library" && (
-        <div className="field" style={{ marginTop: "1.5rem" }}>
-          <span>Organise by sections instead</span>
-          <p className="small muted" style={{ margin: "0.2rem 0 0.5rem" }}>
-            For a dissertation: sections you name and order, key dates, and supervision meetings. Every week with something
-            in it becomes a section named after it, to rename or merge; empty weeks go.
+        <div className="settings-card">
+          <h3>Reading weeks</h3>
+          <p className="small muted">
+            Changes save straight away. A reading week keeps its readings and loses its empty sessions.
           </p>
-          <div><button type="button" className="button" onClick={convert}>Change to a dissertation</button></div>
+          <div className="picker" role="group" aria-label="Reading weeks" style={{ marginTop: "0.8rem" }}>
+            {TERMS.map((term) => (
+              <div key={term} style={{ display: "contents" }}>
+                <span>{term}</span>
+                {WEEK_NUMBERS.map((n) => {
+                  const week = weeks.find((w) => w.term === term && w.number === n);
+                  if (!week) return <span key={n} />;
+                  return (
+                    <button type="button" key={n} disabled={busy} aria-pressed={week.is_reading_week} onClick={() => toggleWeek(week)}>{n}</button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="field" style={{ marginTop: "1.5rem" }}>
-        <span>Delete this module</span>
-        <div><button type="button" className="button danger" onClick={remove}>Delete {module.code}</button></div>
+      <div className="settings-card settings-card-danger">
+        <h3>Organisation & Danger zone</h3>
+        {module.kind !== "dissertation" && module.kind !== "library" && (
+          <div className="settings-subgroup">
+            <span className="strong">Organise by sections instead</span>
+            <p className="small muted">
+              For a dissertation: sections you name and order, key dates, and supervision meetings. Every week with something
+              in it becomes a section named after it, to rename or merge; empty weeks go.
+            </p>
+            <div style={{ marginTop: "0.4rem" }}>
+              <button type="button" className="button" onClick={convert}>Change to a dissertation</button>
+            </div>
+          </div>
+        )}
+
+        <div className="settings-subgroup">
+          <span className="strong">Delete this module</span>
+          <p className="small muted">
+            Its weeks, readings, highlights, notes and recordings go with it. You can restore it from Settings for 90 days.
+          </p>
+          <div style={{ marginTop: "0.4rem" }}>
+            <button type="button" className="button danger" onClick={remove}>Delete {module.code}</button>
+          </div>
+        </div>
       </div>
     </form>
   );

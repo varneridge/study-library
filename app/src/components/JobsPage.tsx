@@ -64,24 +64,27 @@ function Details({ app, events, onDone }: {
   );
   const files = <ul className="slot-list" aria-label="Files">{SLOTS.map((slot) => <SlotRow key={slot.name} app={app} slot={slot} />)}</ul>;
   return (
-    <div className="app-details">
+    <div className="app-details app-card-surface">
       <div className="app-details-header">
         <div>
           <h2 className="app-details-title">{app.employer || "Application"}</h2>
           {app.role && <p className="small muted" style={{ margin: "0.15rem 0 0" }}>{app.role}</p>}
         </div>
-        <button
-          type="button"
-          className="quiet"
-          onClick={() => navigate({ view: "jobs", app: app.id })}
-        >
-          Open card view
-        </button>
+        <div className="app-details-actions">
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => navigate({ view: "jobs", app: app.id })}
+          >
+            Open modal
+          </button>
+          <button type="button" className="button small" onClick={onDone}>Done</button>
+        </div>
       </div>
       <div className="app-details-grid">
-        <div className="app-notes"><h3 className="detail-head">Notes</h3>{notes}</div>
-        <Timeline app={app} events={events} />
-        <div className="app-files"><h3 className="detail-head">Files</h3>{files}</div>
+        <div className="app-notes app-details-panel"><h3 className="detail-head">Notes</h3>{notes}</div>
+        <div className="app-timeline-panel app-details-panel"><Timeline app={app} events={events} /></div>
+        <div className="app-files app-details-panel"><h3 className="detail-head">Files</h3>{files}</div>
       </div>
       <div className="app-foot">
         <button type="button" className="button" onClick={onDone}>Close</button>
@@ -94,7 +97,7 @@ function Details({ app, events, onDone }: {
 function DetailsToggle({ open, onToggle, app }: { open: boolean; onToggle: () => void; app: ApplicationRow }) {
   return (
     <button
-      type="button" className={`icon-button details-toggle${open ? " open" : ""}`}
+      type="button" className={`icon-button details-toggle button-card-toggle${open ? " open" : ""}`}
       aria-expanded={open} aria-label={`Details for ${app.employer || "this application"}`} title="Notes, files and Delete"
       onClick={onToggle}
     >
@@ -227,6 +230,7 @@ export function JobsPage() {
   }, [events]);
   const [filter, setFilter] = useState<Filter>("all");
   const [order, setOrder] = useState<Order>("deadline");
+  const [layout, setLayout] = useState<"table" | "cards">("table");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<string | null>(null);
@@ -319,6 +323,10 @@ export function JobsPage() {
             ))}
           </div>
           <OrderButton order={order} onChange={setOrder} />
+          <div className="segmented wide-only" role="group" aria-label="Layout">
+            <button type="button" className="tool" aria-pressed={layout === "table"} onClick={() => setLayout("table")}>Table</button>
+            <button type="button" className="tool" aria-pressed={layout === "cards"} onClick={() => setLayout("cards")}>Cards</button>
+          </div>
           <input
             ref={find} type="search" className="jobs-find" placeholder="Find an employer or role" aria-label="Find an application (/)"
             inputMode="search" enterKeyHint="search" autoCorrect="off" spellCheck={false}
@@ -335,7 +343,7 @@ export function JobsPage() {
         </div>
       ) : shown.length === 0 ? (
         <p className="muted jobs-none">{query ? `Nothing matches “${query}”.` : filter === "open" ? "No open applications." : "No closed applications."}</p>
-      ) : narrow ? (
+      ) : narrow || layout === "cards" ? (
         <AppList apps={shown} eventsFor={eventsFor} closedHeading={closedHeading} />
       ) : (
         <div className="apps-wrap">

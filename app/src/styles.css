@@ -258,6 +258,29 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; line-height: 1.2; marg
 input[type="text"], input[type="search"], input[type="number"], select, textarea {
   padding: 0.4rem 0.55rem; width: 100%;
 }
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.75rem;
+  padding-right: 1.8rem;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rule);
+  background-color: var(--card);
+  color: var(--ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+select:hover {
+  border-color: var(--ink-subtle, #888);
+}
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 input:focus { border-color: var(--accent); outline: none; }
 label.field { display: block; margin-bottom: 0.9rem; }
 .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
@@ -1784,15 +1807,17 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .details-open svg { transform: rotate(-90deg); }
 
 /* Details: notes, files and Delete, presented as an elevated card */
-.details-row > td { padding: 0.5rem 0.5rem 1.25rem; }
+.details-row > td { padding: 0.6rem 0.5rem 1.25rem; }
 .app-details {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  padding: 1.25rem 1.5rem;
+  padding: 1.5rem;
   background: var(--card);
   border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
   border-radius: var(--r-md);
+  box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.08), 0 2px 6px -2px rgba(0, 0, 0, 0.04);
   /* Establishes containment: future inside popovers should use top-layer dialogs rather than position: fixed */
   container-type: inline-size;
 }
@@ -1801,7 +1826,18 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--rule);
-  padding-bottom: 0.75rem;
+  padding-bottom: 0.85rem;
+}
+.app-details-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.app-details-panel {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  padding: 1rem;
 }
 .app-details-title {
   font-family: var(--serif);
@@ -1815,7 +1851,7 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .app-details-grid {
   display: grid;
   grid-template-columns: minmax(13rem, 1fr) minmax(18rem, 1.4fr) minmax(15rem, 1.1fr);
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 @container (max-width: 50rem) {
   .app-details-grid {
@@ -1831,9 +1867,35 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .app-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 0.5rem; border-top: 1px solid var(--rule); }
 .quiet.danger { color: var(--danger); }
 
-/* Flat application list on phone viewports */
+/* Application list and card grid */
 .app-cards, .app-list { list-style: none; margin: 0; padding: 0; }
 .app-card, .app-row-item { border-bottom: 1px solid var(--rule); }
+
+@media (min-width: 60.01rem) {
+  .jobs .app-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+    gap: 1.25rem;
+    margin-top: 1rem;
+  }
+  .jobs .app-card {
+    border: 1px solid var(--rule);
+    border-radius: var(--r-md);
+    background: var(--card);
+    padding: 1.15rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .jobs .app-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+    transform: translateY(-1px);
+  }
+  .jobs .app-card.closed {
+    opacity: 0.82;
+    background: var(--surface);
+  }
+}
 .card-head, .app-row {
   display: grid; gap: 0.25rem; width: 100%; text-align: left; border: 0; background: none; padding: 0.8rem 0;
   text-decoration: none; color: var(--ink); box-sizing: border-box;

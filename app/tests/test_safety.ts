@@ -1,60 +1,23 @@
 import assert from "node:assert/strict";
-import { showToast, dismissToast, getToasts } from "../src/lib/ui";
+import { showToast, dismissToast, getToast } from "../src/lib/ui";
 import { pickPrimaryNote } from "../src/lib/notes";
 import { describeFailedChange, isSyncExpired, isSyncPaused, pauseSync, resumeSync, stopSync } from "../src/lib/sync";
 import type { NoteRow } from "../src/lib/types";
 
 export function registerSafetyTests(test: (name: string, fn: () => void | Promise<void>) => void) {
-  test("toast notices queue and dismiss individually", () => {
+  test("toast notice shows, updates, and dismisses", () => {
     dismissToast();
-    showToast("First notice", { label: "Undo 1", run: () => {} });
-    showToast("Second notice", { label: "Undo 2", run: () => {} });
+    assert.equal(getToast(), null);
 
-    const state1 = getToasts();
-    assert.equal(state1.length, 2);
-    assert.equal(state1[0].message, "First notice");
-    assert.equal(state1[1].message, "Second notice");
+    showToast("First notice");
+    assert.equal(getToast()?.message, "First notice");
 
-    const firstId = state1[0].id;
-    dismissToast(firstId);
-
-    const state2 = getToasts();
-    assert.equal(state2.length, 1);
-    assert.equal(state2[0].message, "Second notice");
+    showToast("Second notice", { label: "Undo", run: () => {} });
+    assert.equal(getToast()?.message, "Second notice");
+    assert.equal(getToast()?.action?.label, "Undo");
 
     dismissToast();
-    const state3 = getToasts();
-    assert.equal(state3.length, 0);
-  });
-
-  test("identical toast messages reset timer only when neither has action", () => {
-    dismissToast();
-    const id1 = showToast("Already at the top.");
-    const id2 = showToast("Already at the top.");
-    assert.equal(id1, id2);
-    assert.equal(getToasts().length, 1);
-
-    // Notices with actions are distinct and not merged
-    const actId1 = showToast("File replaced.", { label: "Undo", run: () => {} });
-    const actId2 = showToast("File replaced.", { label: "Undo", run: () => {} });
-    assert.notEqual(actId1, actId2);
-    assert.equal(getToasts().length, 3);
-    dismissToast();
-  });
-
-  test("toast queue evicts beyond 3 items cleanly, preferring items without actions", () => {
-    dismissToast();
-    showToast("Important action", { label: "Undo", run: () => {} });
-    showToast("Notice 2");
-    showToast("Notice 3");
-    // Adding 4th notice should evict Notice 2 (oldest without action), preserving Important action
-    showToast("Notice 4");
-    const list = getToasts();
-    assert.equal(list.length, 3);
-    assert.equal(list[0].message, "Important action");
-    assert.equal(list[1].message, "Notice 3");
-    assert.equal(list[2].message, "Notice 4");
-    dismissToast();
+    assert.equal(getToast(), null);
   });
 
   test("pickPrimaryNote picks canonical id or earliest id deterministically", () => {
