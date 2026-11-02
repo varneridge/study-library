@@ -333,7 +333,215 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .section-head { display: flex; align-items: baseline; margin-bottom: 0.6rem; }
 .section-head .spacer { flex: 1; }
 
-/* Weeks in the module list */
+/* Weeks in the module card grid */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+@media (max-width: 44rem) {
+  .week-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 21.25rem) {
+  .week-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.week-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: background 0.15s ease;
+  scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 0.5rem);
+}
+@media (hover: hover) {
+  .week-card:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.week-card.drop-over,
+.week-card.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.week-card-cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  background: var(--surface-hover);
+}
+.week-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+[data-theme="dark"] .week-card-cover img {
+  filter: brightness(0.92);
+}
+
+.week-card-cover-fallback {
+  width: 100%;
+  height: 100%;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: flex-end;
+  padding: 0.75rem;
+  box-sizing: border-box;
+}
+.week-card-cover-display {
+  font-family: var(--display);
+  font-variation-settings: "opsz" 72;
+  font-weight: 560;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.this-week-pill {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.week-card.this-week::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: var(--r-md);
+  pointer-events: none;
+  z-index: 3;
+}
+.week-card.this-week .week-card-cover-fallback {
+  background: var(--accent-soft);
+}
+.week-card.this-week .week-card-cover-display {
+  color: var(--accent);
+}
+
+.week-card-body {
+  padding: 0.65rem 0.75rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.25rem;
+}
+.week-card-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.week-card-code {
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.week-card.this-week .week-card-code {
+  color: var(--accent);
+}
+.week-card-dates {
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.week-card-title-link {
+  font-family: var(--serif);
+  font-size: var(--fs-md);
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.week-card-title-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.week-card-title-link:hover {
+  text-decoration: none;
+}
+.week-card-title-reading-week {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.week-card-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  position: relative;
+  z-index: 2;
+}
+@media (max-width: 44rem) {
+  .week-card-sessions {
+    display: none;
+  }
+}
+.week-card-session-link {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-decoration: none;
+  background: var(--surface-hover);
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--r-sm);
+  transition: color 0.15s ease;
+}
+.week-card-session-link.has-notes {
+  color: var(--accent);
+}
+.week-card-session-link:hover {
+  color: var(--ink);
+}
+
+.week-card-footer {
+  margin-top: auto;
+  padding-top: 0.4rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.week-card-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+}
+
+/* Weeks in the module list (legacy support for jump strip & week blocks) */
 .jump { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); margin: 1.25rem 0 1.5rem; }
 .jump button { padding: 0.35rem 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .week { scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 0.5rem); }

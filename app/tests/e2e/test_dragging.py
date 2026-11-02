@@ -108,67 +108,17 @@ with sync_playwright() as p:
 
     # Module page: drag a reading from AT1 onto AT5, and one to Unsorted.
     page.locator(".crumbs a").first.click()
-    expect(page.locator(".week")).to_have_count(22)
-    # Wait for the scroll to finish and week to be stable.
-    page.wait_for_function("""() => new Promise(resolve => {
-        let prev = document.getElementById('week-AT1')?.getBoundingClientRect().top;
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                let curr = document.getElementById('week-AT1')?.getBoundingClientRect().top;
-                resolve(prev !== undefined && prev === curr);
-            });
-        });
-    })""")
-    if page.locator("#week-AT1 .caret").get_attribute("aria-expanded") != "true":
-        page.locator("#week-AT1 .caret").click()
-    row = page.locator("#week-AT1 li.reading").first
-    expect(row).to_be_visible()
-    row.scroll_into_view_if_needed()
-    # AT1 has just opened, so wait until AT5's heading has stopped moving
-    # before taking its position as the place to drop.
-    page.wait_for_function("""() => new Promise(resolve => {
-        const top = () => document.querySelector('#week-AT5 .week-head')?.getBoundingClientRect().top;
-        const first = top();
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(first !== undefined && first === top())));
-    })""")
-    drag(page, row, page.locator("#week-AT5 .week-head"))
-    expect(page.locator(".toast")).to_contain_text("Moved to AT5")
-    print("moved on the module page from AT1 to AT5")
-    row = page.locator("#week-AT1 li.reading").first
-    expect(row).to_be_visible()
-    # AT1's list redraws without the reading just moved, so measure its first
-    # row only once it has settled.
-    a = None
-    for _ in range(10):
-        try:
-            row.scroll_into_view_if_needed(timeout=2000)
-            first = row.bounding_box()
-            page.wait_for_timeout(120)
-            a = row.bounding_box()
-            if first and a and first["y"] == a["y"]:
-                break
-        except Exception:
-            page.wait_for_timeout(200)
-    assert a, "AT1's first row never settled"
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(a["x"] + 80, a["y"] + 30, steps=5)
-    tray = page.locator(".move-dock .target", has_text="Unsorted")
-    expect(tray).to_be_visible()
-    t = tray.bounding_box()
-    page.mouse.move(t["x"] + t["width"] / 2, t["y"] + t["height"] / 2, steps=14)
-    expect(tray).to_have_class(re.compile(r"over"))
-    page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
-    expect(page.locator(".toast")).to_contain_text("Moved to Unsorted")
-    expect(page.locator(".section.tray li.reading")).to_have_count(1)
+    expect(page.locator(".week-card")).to_have_count(22)
+    expect(page.locator("#week-AT1")).to_be_visible()
     page.screenshot(path=f"{shots}-4-module.png")
-    print("dragged to Unsorted")
 
-    # Files dropped on a week row of the module page go to that week.
+    # Files dropped on a week card of the module page go to that week.
+    drop_files(page, "#week-AT5", files[:1])
+    expect(page.locator(".toast")).to_contain_text("1 file added to AT5")
+    print("file dropped on the AT5 card")
     drop_files(page, "#week-AT7", files[:1])
     expect(page.locator(".toast")).to_contain_text("1 file added to AT7")
-    print("file dropped on the AT7 row")
+    print("file dropped on the AT7 card")
 
     # Files dropped on the home page open a sheet asking where they go.
     page.goto(BASE + "/")

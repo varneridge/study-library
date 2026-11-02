@@ -219,14 +219,11 @@ with sync_playwright() as p:
         expect(page.get_by_role("group", name="Choose a week").get_by_role("button", name="3", exact=True).last).to_have_attribute("aria-pressed", "true")
     print("across opens on this week")
 
-    # Module page: no carets on empty weeks, summaries in words.
+    # Module page: week cards on the grid, 22 weeks.
     page.goto(BASE + "/")
     page.locator(".module-row", has_text="HY319").click()
-    expect(page.locator(".week")).to_have_count(22)
-    expect(page.locator("#week-AT1 button.caret")).to_have_count(1)
-    carets = page.locator(".week-head button.caret").count()
-    print("weeks with something to open:", carets)
-    assert 0 < carets < 22, carets
+    expect(page.locator(".week-card")).to_have_count(22)
+    expect(page.locator("#week-AT1")).to_be_visible()
     page.screenshot(path=f"{shots}-11-module.png")
 
 

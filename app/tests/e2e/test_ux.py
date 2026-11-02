@@ -97,21 +97,21 @@ with sync_playwright() as p:
     expect(page.locator(".week-page li.reading .state.progress").first).to_contain_text("1 highlight")
     print("a reading with a highlight says so on its row")
 
-    # The home page's Readings tile counts the week and opens the next one.
+    # The home page's module card counts the week and opens the next one.
     page.get_by_role("link", name="Study Library").click()
-    tile = page.locator(".tw-readings").first
-    expect(tile.locator(".tw-state")).to_have_text("0 of 2 read")
-    expect(tile.locator(".tw-next")).to_contain_text("Next:")
+    card = page.locator(".module-card").first
+    expect(card.locator(".count")).to_have_text("AT1: 2 readings")
+    expect(card.locator(".next-up")).to_contain_text("Next")
     page.screenshot(path=f"{shots}-3-home.png")
-    tile.click()
+    card.locator(".next-up a").first.click()
     page.wait_for_function("document.querySelectorAll('.textLayer span').length > 5", timeout=20000)
     assert "v=reader" in page.url, page.url
     page.get_by_role("button", name="Mark as read", exact=True).click()
     expect(page.get_by_role("button", name="Read. Mark as unread")).to_have_attribute("aria-pressed", "true")
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     page.get_by_role("link", name="Study Library").click()
-    expect(page.locator(".tw-readings .tw-state").first).to_have_text("1 of 2 read")
-    print("home: Readings tile counted the week and opened the next reading")
+    expect(page.locator(".module-card .count").first).to_have_text("AT1: 1 of 2 read")
+    print("home: module card counted the week and opened the next reading")
 
     # Go to closes with one Esc, even after typing.
     page.keyboard.press("Control+k")
@@ -133,14 +133,13 @@ with sync_playwright() as p:
     brand = phone.locator(".topbar .brand").bounding_box()
     assert box["x"] + box["width"] <= 390 and abs(box["y"] - brand["y"]) < 20, (box, brand)
     assert jobs.inner_text() == "Jobs"
-    tiles = phone.locator(".tw-module").first.locator(".tw-session")
-    expect(tiles).to_have_count(3)
-    tops = {round(tiles.nth(i).bounding_box()["y"]) for i in range(tiles.count())}
-    assert len(tops) == 1, tops
+    expect(phone.locator(".module-card").first).to_be_visible()
+    card_box = phone.locator(".module-card").first.bounding_box()
+    assert card_box["x"] + card_box["width"] <= 390, card_box
     phone.screenshot(path=f"{shots}-4-phone-home.png")
     jobs.click()
     expect(phone.get_by_role("heading", name="Applications")).to_be_visible()
-    print("phone: Jobs on the first row and reachable; this week's tiles sit in one row")
+    print("phone: Jobs on the first row and reachable; module cards fit the screen")
 
     assert not errors, errors
     print("ok")

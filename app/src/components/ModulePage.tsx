@@ -3,57 +3,30 @@ import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
 import { moveSection, addSection, isDissertation, saveKeyDates, countdown } from "../lib/sections";
 import { Menu } from "./Menu";
-import { useDragSensors } from "../lib/drag";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fullTitle } from "../lib/titles";
-import { applySuggestion, keepMine, pending, viaLabel } from "../lib/citations";
+import { applySuggestion, keepMine, viaLabel } from "../lib/citations";
 import { update, newId } from "../lib/sync";
-import {
-  DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable,
-  type DragEndEvent,
-} from "@dnd-kit/core";
 import { db } from "../lib/db";
 import { applyPlans, planFile } from "../lib/importing";
-import { moveToTray, moveToWeek } from "../lib/moves";
-import { shortTitle } from "../lib/titles";
-import { showToast, useCloseOnBack } from "../lib/ui";
-import type { ReadingView } from "../lib/library";
+import { showToast, useCloseOnBack, useTitle } from "../lib/ui";
+import type { ReadingView, WeekOverview } from "../lib/library";
 import type { ModuleRow, WeekRow } from "../lib/types";
-import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
+import { useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { Link } from "../App";
-import { loadModule, type WeekView } from "../lib/library";
-import { readCount } from "../lib/progress";
+import { loadModuleOverview } from "../lib/library";
 import { sessionLabel, weekCode, isSection } from "../lib/modules";
 import { BlockView } from "./BlockView";
-import { Icon } from "./icons";
 import { MoveSelect, ReadingRow } from "./ReadingRow";
 import { ModuleSettings } from "./ModuleSettings";
-import { useTitle } from "../lib/ui";
 
-function progress(view: WeekView): string | null {
-  const { read, total } = readCount([...view.primaries, ...view.readings]);
+function formatReadingCount(counts: { read: number; total: number }): string | null {
+  const { read, total } = counts;
   if (total === 0) return null;
   if (read === 0) return `${total} ${total === 1 ? "reading" : "readings"}`;
+  if (read === total) return `all ${total} read`;
   return `${read} of ${total} read`;
-}
-
-// What the week's sessions hold, in a few words. Empty sessions say nothing.
-function sessionSummary(view: WeekView): string | null {
-  const parts = view.sessions
-    .map(({ session, slides, notes, recordings, questions }) => {
-      const has = [
-        notes.length && "notes",
-        slides.length && "slides",
-        recordings.length && "recording",
-        questions.length && `${questions.length} ${questions.length === 1 ? "question" : "questions"}`,
-      ].filter(Boolean) as string[];
-      if (!has.length) return null;
-      const list = has.length > 1 ? `${has.slice(0, -1).join(", ")} and ${has.at(-1)}` : has[0];
-      return `${session.title || sessionLabel(session.kind)}: ${list}`;
-    })
-    .filter(Boolean);
-  return parts.length ? parts.join(". ") + "." : null;
 }
 
 // Details found in PDFs, all in one place: tick the ones to use.
@@ -62,7 +35,11 @@ function CitationReview({ views, onClose }: { views: ReadingView[]; onClose: () 
   const ref = useRef<HTMLDialogElement>(null);
   const [chosen, setChosen] = useState(() => new Set(views.map((v) => v.item.id)));
   useEffect(() => { ref.current?.showModal(); }, []);
-  const toggle = (id: string) => { const next = new Set(chosen); if (next.has(id)) next.delete(id); else next.add(id); setChosen(next); };
+  const toggle = (id: string) => {
+    const next = new Set(chosen);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setChosen(next);
+  };
   return (
     <dialog ref={ref} className="dialog review-citations" onCancel={(e) => { e.preventDefault(); onClose(); }}>
       <h2>Check the details found</h2>
@@ -96,63 +73,61 @@ function CitationReview({ views, onClose }: { views: ReadingView[]; onClose: () 
   );
 }
 
-// A reading on the module page can be picked up and dropped on any week.
-function Movable({ view, short, extra, weeks }: { view: ReadingView; short?: boolean; extra?: React.ReactNode; weeks?: WeekRow[] }) {
-  const id = view.link ? `link:${view.link.id}` : `item:${view.item.id}`;
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id, data: { view } });
-  return <ReadingRow view={view} short={short} extra={extra} weeks={weeks} drag={{ setNodeRef, attributes, listeners: listeners as never, dragging: isDragging }} />;
-}
-
 async function addFilesTo(files: File[], module: ModuleRow, week: WeekRow) {
   const weeks = await db.weeks.where("module_id").equals(module.id).toArray();
   const count = await applyPlans(module, files.map((file) => planFile(file, weeks, week)));
   if (count) showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}. Uploading now.`);
 }
 
-// Readings with no week yet. While a reading is dragged, this is a place to drop it too.
 function TraySection({ tray, weeks }: { tray: ReadingView[]; weeks: WeekRow[] }) {
-  const { setNodeRef, isOver } = useDroppable({ id: "tray" });
   return (
-    <div ref={setNodeRef} className={`section tray${isOver ? " drag-over" : ""}`} style={{ marginTop: 0, marginBottom: "2rem" }}>
+    <div className="section tray" style={{ marginTop: "2.5rem", marginBottom: "2rem" }}>
       <div className="section-head"><h2>Unsorted</h2></div>
       <ul className="readings">
         {tray.map((r) => (
-          <Movable key={r.item.id} view={r} weeks={weeks} extra={<MoveSelect view={r} weeks={weeks} label="Choose a week" />} />
+          <ReadingRow key={r.item.id} view={r} weeks={weeks} extra={<MoveSelect view={r} weeks={weeks} label="Choose a week" />} />
         ))}
       </ul>
     </div>
   );
 }
 
-// Floats at the foot of the screen while a reading is dragged, so the page
-// itself never shifts under your pointer.
-function Dock() {
-  const { setNodeRef, isOver } = useDroppable({ id: "tray-dock" });
-  return (
-    <div className="move-dock" role="region" aria-label="Drop targets">
-      <p className="small">Drop on any week to move it there, or</p>
-      <span ref={setNodeRef} className={`target${isOver ? " over" : ""}`}>Unsorted</span>
-    </div>
-  );
-}
-
-function WeekBlock({ view, open, onToggle, module }: { view: WeekView; open: boolean; onToggle: () => void; module: ModuleRow }) {
-  const now = useTeachingWeek();
-  const dates = useTermDates();
-  const { week } = view;
-  const { setNodeRef, isOver } = useDroppable({ id: `week:${week.id}` });
+function WeekCard({
+  overview,
+  module,
+  dates,
+  renaming,
+  onStartRename,
+  onEndRename,
+}: {
+  overview: WeekOverview;
+  module: ModuleRow;
+  dates: ReturnType<typeof useTermDates>;
+  renaming: boolean;
+  onStartRename: () => void;
+  onEndRename: () => void;
+}) {
+  const { week, readingCount, thumb_key, sessions, isCurrentWeek } = overview;
   const [fileOver, setFileOver] = useState(false);
-  const summary = progress(view);
-  const sessions = sessionSummary(view);
-  const hasBody = view.primaries.length > 0 || view.readings.length > 0 || view.summaries.length > 0 || Boolean(sessions);
-  const [renaming, setRenaming] = useState(false);
+  const summary = formatReadingCount(readingCount);
+  const isSec = isSection(week);
+  const code = weekCode(week);
+
   return (
-    <div
-      ref={setNodeRef}
-      className={`week${isOver ? " drag-over" : ""}${fileOver ? " drop-over" : ""}${isThisWeek(view.week, now) ? " this-week" : ""}`}
-      id={`week-${week.term}${week.number}`}
-      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.stopPropagation(); setFileOver(true); } }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileOver(false); }}
+    <article
+      id={`week-${code}`}
+      data-drop-week={week.id}
+      className={`week-card week${isCurrentWeek ? " this-week" : ""}${fileOver ? " drop-over" : ""}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.stopPropagation();
+          setFileOver(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileOver(false);
+      }}
       onDrop={(e) => {
         setFileOver(false);
         if (!e.dataTransfer.files.length) return;
@@ -161,227 +136,88 @@ function WeekBlock({ view, open, onToggle, module }: { view: WeekView; open: boo
         void addFilesTo(Array.from(e.dataTransfer.files), module, week);
       }}
     >
-      <div className="week-head">
-        {hasBody ? (
-          <button className="caret" aria-expanded={open} aria-label={open ? "Collapse week" : "Expand week"} onClick={onToggle}>
-            <span className={`caret-icon${open ? " open" : ""}`}><Icon name="caret" size={16} /></span>
-          </button>
+      <div className="week-card-cover">
+        {thumb_key ? (
+          <img src={`/api/objects/${thumb_key}`} alt="" loading="lazy" decoding="async" />
         ) : (
-          <span className="caret" aria-hidden="true" />
+          <div className="week-card-cover-fallback">
+            <span className="week-card-cover-display">{code}</span>
+          </div>
         )}
+        {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}
+        {isSec && (
+          <div className="week-card-actions">
+            <Menu label={`More actions for ${code}`} items={[
+              { label: "Rename", onSelect: onStartRename },
+              { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
+              { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
+              { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
+            ]} />
+          </div>
+        )}
+      </div>
+
+      <div className="week-card-body">
+        <div className="week-card-meta">
+          <span className="week-code week-card-code">{code}</span>
+          {!isSec && (
+            <span className="week-card-dates">{weekDatesText(week.term, week.number, dates)}</span>
+          )}
+        </div>
+
         {renaming ? (
           <input
-            className="title-input section-name" type="text" defaultValue={week.title ?? ""} autoFocus placeholder={`Section ${week.number}`}
-            aria-label="Section name" enterKeyHint="done"
-            onBlur={(e) => { setRenaming(false); void update("weeks", week.id, { title: e.target.value.trim() || null }); }}
-            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(false); }}
+            className="title-input section-name"
+            type="text"
+            defaultValue={week.title ?? ""}
+            autoFocus
+            placeholder={`Section ${week.number}`}
+            aria-label="Section name"
+            enterKeyHint="done"
+            onBlur={(e) => {
+              onEndRename();
+              void update("weeks", week.id, { title: e.target.value.trim() || null });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") onEndRename();
+            }}
           />
         ) : (
-          <Link to={{ view: "week", id: week.id }} className="week-title">
-            <span className="week-code">{weekCode(week)}</span>
-            {isThisWeek(week, now) && <span className="this-week-tag" title={weekDatesText(week.term, week.number, dates)}>This week</span>}
-            {!isSection(week) && (week.title || (week.is_reading_week ? <span className="reading-weeks">Reading week</span> : null))}
+          <Link to={{ view: "week", id: week.id }} className="week-title week-card-title-link">
+            {isSec ? (
+              week.title || `Section ${week.number}`
+            ) : (
+              week.title || (week.is_reading_week ? <span className="reading-weeks week-card-title-reading-week">Reading week</span> : code)
+            )}
           </Link>
         )}
-        {summary && <span className="count">{summary}</span>}
-        {/* Each session's notes, one tap away from any week. */}
-        {!week.is_reading_week && view.sessions.length > 0 && (
-          <span className="week-sessions">
-            {view.sessions.map(({ session, notes }) => (
-              <Link key={session.id} to={{ view: "session", id: session.id }} className={`session-link${notes.length ? " has-notes" : ""}`}
-                title={`Notes for the ${(session.title || sessionLabel(session.kind)).toLowerCase()}`}>
+
+        {!week.is_reading_week && sessions.length > 0 && (
+          <div className="week-card-sessions week-head">
+            {sessions.map(({ session, hasNotes }) => (
+              <Link
+                key={session.id}
+                to={{ view: "session", id: session.id }}
+                className={`session-link week-card-session-link${hasNotes ? " has-notes" : ""}`}
+                title={`Notes for the ${(session.title || sessionLabel(session.kind)).toLowerCase()}`}
+              >
                 {session.title || sessionLabel(session.kind)}
               </Link>
             ))}
-          </span>
+          </div>
         )}
-        {/* A section is named and ordered by you, so it can be renamed, moved and deleted. */}
-        {isSection(week) && (
-          <Menu label={`More actions for ${weekCode(week)}`} items={[
-            { label: "Rename", onSelect: () => setRenaming(true) },
-            { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast("Already the first section."); }) },
-            { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast("Already the last section."); }) },
-            { label: "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
-          ]} />
+
+        {summary && (
+          <div className="week-card-footer">
+            <span className="count week-card-count">{summary}</span>
+          </div>
         )}
       </div>
-      {!open && sessions && <p className="week-gist small muted">{sessions}</p>}
-      {open && hasBody && (
-        <div className="week-body">
-          {view.primaries.length > 0 && (
-            <>
-              <p className="group-label">Primary readings</p>
-              <ul className="readings">{view.primaries.map((r) => <Movable key={r.item.id} view={r} />)}</ul>
-            </>
-          )}
-          {view.readings.length > 0 && (
-            <>
-              <p className="group-label">Secondary readings</p>
-              <ul className="readings">{view.readings.map((r) => <Movable key={r.item.id} view={r} short />)}</ul>
-            </>
-          )}
-          {view.summaries.length > 0 && (
-            <>
-              <p className="group-label">Summaries</p>
-              <ul className="readings">{view.summaries.map((r) => <Movable key={r.item.id} view={r} short />)}</ul>
-            </>
-          )}
-          {sessions && <p className="small muted" style={{ margin: "0.6rem 0 0" }}>{sessions}</p>}
-        </div>
-      )}
-    </div>
+    </article>
   );
 }
 
-export function ModulePage({ id }: { id: string }) {
-  const data = useLiveQuery(() => loadModule(id), [id]);
-  const now = useTeachingWeek();
-  const dates = useTermDates();
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [seeded, setSeeded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [dragging, setDragging] = useState<ReadingView | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-  const sensors = useDragSensors();
-  useTitle(data?.module.code);
-
-  useEffect(() => {
-    if (data && !seeded) {
-      const last = data.module.last_opened_week_id;
-      if (last) setOpen(new Set([last]));
-      setSeeded(true);
-      if (last) {
-        const week = data.weeks.find((w) => w.week.id === last)?.week;
-        if (week) setTimeout(() => document.getElementById(`week-${weekCode(week)}`)?.scrollIntoView({ block: "start" }), 50);
-      }
-    }
-  }, [data, seeded]);
-
-  useLayoutEffect(() => {
-    const el = document.querySelector<HTMLElement>(".jump");
-    if (!el) return;
-    const update = () => {
-      document.documentElement.style.setProperty("--jump-h", `${el.offsetHeight}px`);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [data]);
-
-  if (data === undefined) return null;
-  if (data === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
-
-  const { module, weeks, tray } = data;
-
-  const dissertation = isDissertation(module);
-  const found = [...weeks.flatMap((w) => [...w.primaries, ...w.readings, ...w.summaries]), ...tray].filter((v) => pending(v.item));
-  // A module with nothing in it yet makes importing its main action.
-  const empty = !tray.length && weeks.every((w) => !w.readings.length && !w.primaries.length && !w.summaries.length && !w.sessions.some((x) => x.slides.length));
-
-  const toggle = (weekId: string) => {
-    const next = new Set(open);
-    if (next.has(weekId)) next.delete(weekId);
-    else next.add(weekId);
-    setOpen(next);
-  };
-  const jump = (view: WeekView) => {
-    setOpen(new Set(open).add(view.week.id));
-    setTimeout(() => document.getElementById(`week-${weekCode(view.week)}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  };
-
-  return (
-    <div className="page">
-      <div className="section-head" style={{ marginBottom: 0 }}>
-        <h1>{module.code}</h1>
-        <span className="spacer" />
-        {found.length > 0 && (
-          <button className="found" onClick={() => setReviewing(true)}>
-            Details found for {found.length} {found.length === 1 ? "reading" : "readings"}
-          </button>
-        )}
-        <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
-        <Link to={{ view: "import", id: module.id }} className={`button${empty ? " primary" : ""}`}>Import readings</Link>
-      </div>
-      {module.title && <p className="lede">{module.title}</p>}
-      {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
-      {editing && <ModuleSettings module={module} weeks={weeks.map((w) => w.week)} onClose={() => setEditing(false)} />}
-      {module.description && module.description.length > 0 && (
-        <details className="section" style={{ marginTop: "1rem" }}>
-          <summary className="small muted">About this module</summary>
-          <BlockView blocks={module.description} />
-        </details>
-      )}
-
-      {dissertation && <KeyDates module={module} />}
-      {!dissertation && <div className="jump" role="navigation" aria-label="Jump to week">
-        {weeks.map((view) => {
-          const current = isThisWeek(view.week, now);
-          const label = [view.week.title, view.week.is_reading_week ? "Reading week" : null, weekDatesText(view.week.term, view.week.number, dates), current ? "this week" : null].filter(Boolean).join(", ");
-          return (
-            <button
-              key={view.week.id} onClick={() => jump(view)} title={label} aria-current={current ? "date" : undefined}
-              className={[view.week.is_reading_week ? "is-reading-week" : "", current ? "is-this-week" : ""].filter(Boolean).join(" ") || undefined}
-            >
-              {weekCode(view.week)}
-            </button>
-          );
-        })}
-      </div>}
-      {empty && !dissertation && (
-        <div className="first-steps">
-          <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>Import readings lets you check them first.</p>
-          <p className="small muted">Files named like "(AT3) Author, 'Title'" go to their weeks by themselves. The rest wait in Unsorted.</p>
-        </div>
-      )}
-      <div className="row" style={{ justifyContent: "flex-end", margin: "-1rem 0 0.5rem" }}>
-        {open.size < weeks.length ? (
-          <button className="quiet small" onClick={() => setOpen(new Set(weeks.map((w) => w.week.id)))}>{dissertation ? "Open every section" : "Open every week"}</button>
-        ) : (
-          <button className="quiet small" onClick={() => setOpen(new Set())}>{dissertation ? "Close every section" : "Close every week"}</button>
-        )}
-      </div>
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={pointerWithin}
-        onDragStart={(e) => setDragging((e.active.data.current as { view: ReadingView }).view)}
-        onDragCancel={() => setDragging(null)}
-        onDragEnd={(e: DragEndEvent) => {
-          const view = (e.active.data.current as { view: ReadingView }).view;
-          const over = e.over ? String(e.over.id) : null;
-          setDragging(null);
-          if ((over === "tray" || over === "tray-dock") && view.link) void moveToTray(view.item, view.link, module.id);
-          if (over?.startsWith("week:")) {
-            const target = weeks.find((w) => w.week.id === over.slice(5))?.week;
-            if (target) void moveToWeek(view.item, view.link, target);
-          }
-        }}
-      >
-        {tray.length > 0 && <TraySection tray={tray} weeks={weeks.map((w) => w.week)} />}
-        {dragging?.link && <Dock />}
-
-        <div style={{ borderTop: "1px solid var(--rule)" }}>
-          {weeks.map((view) => (
-            <WeekBlock key={view.week.id} view={view} module={module} open={open.has(view.week.id)} onToggle={() => toggle(view.week.id)} />
-          ))}
-        </div>
-        {dissertation && (
-          <p className="section">
-            <button className="button" onClick={async () => { const id = await addSection(module.id); navigate({ view: "week", id }); }}>Add a section</button>
-            <span className="small muted" style={{ marginLeft: "0.75rem" }}>A chapter, a set of sources, supervision: whatever you organise by.</span>
-          </p>
-        )}
-        <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
-          {dragging ? <div className="drag-card">{shortTitle(dragging.item)}<span className="where">Drop on a week</span></div> : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
-  );
-}
-
-// A dissertation's key dates, such as the proposal, chapter drafts and the
-// submission. Each counts down on the home page as job deadlines do.
 function KeyDates({ module }: { module: ModuleRow }) {
   const dates = module.key_dates ?? [];
   const [adding, setAdding] = useState(false);
@@ -428,5 +264,129 @@ function KeyDates({ module }: { module: ModuleRow }) {
         </div>
       )}
     </section>
+  );
+}
+
+export function ModulePage({ id }: { id: string }) {
+  const now = useTeachingWeek();
+  const dates = useTermDates();
+  const data = useLiveQuery(() => loadModuleOverview(id, now), [id, now]);
+  const [editing, setEditing] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const scrolledRef = useRef(false);
+  useTitle(data?.module.code);
+
+  useEffect(() => {
+    if (data && !scrolledRef.current) {
+      scrolledRef.current = true;
+      const targetWeek =
+        data.weeks.find((w) => w.isCurrentWeek)?.week ??
+        (data.module.last_opened_week_id
+          ? data.weeks.find((w) => w.week.id === data.module.last_opened_week_id)?.week
+          : null);
+      if (targetWeek) {
+        const code = weekCode(targetWeek);
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        setTimeout(() => {
+          document.getElementById(`week-${code}`)?.scrollIntoView({
+            behavior: reduce ? "auto" : "smooth",
+            block: "nearest",
+          });
+        }, 80);
+      }
+    }
+  }, [data]);
+
+  if (data === undefined) return null;
+  if (data === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
+
+  const { module, weeks, tray, found, empty } = data;
+  const dissertation = isDissertation(module);
+
+  return (
+    <div className="page">
+      <div className="section-head" style={{ marginBottom: 0 }}>
+        <h1>{module.code}</h1>
+        <span className="spacer" />
+        {found.length > 0 && (
+          <button className="found" onClick={() => setReviewing(true)}>
+            Details found for {found.length} {found.length === 1 ? "reading" : "readings"}
+          </button>
+        )}
+        <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
+        <Link to={{ view: "import", id: module.id }} className={`button${empty ? " primary" : ""}`}>Import readings</Link>
+      </div>
+      {module.title && <p className="lede">{module.title}</p>}
+      {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
+      {editing && <ModuleSettings module={module} weeks={weeks.map((w) => w.week)} onClose={() => setEditing(false)} />}
+      {module.description && module.description.length > 0 && (
+        <details className="section" style={{ marginTop: "1rem" }}>
+          <summary className="small muted">About this module</summary>
+          <BlockView blocks={module.description} />
+        </details>
+      )}
+
+      {dissertation && <KeyDates module={module} />}
+      {dissertation && (
+        <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0" }}>
+          <button
+            className="button small"
+            onClick={async () => {
+              const newWeekId = await addSection(module.id);
+              navigate({ view: "week", id: newWeekId });
+            }}
+          >
+            Add a section
+          </button>
+        </div>
+      )}
+
+      {empty && !dissertation && (
+        <div className="first-steps">
+          <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>Import readings lets you check them first.</p>
+          <p className="small muted">Files named like "(AT3) Author, 'Title'" go to their weeks by themselves. The rest wait in Unsorted.</p>
+        </div>
+      )}
+
+      {!dissertation && weeks.length > 0 && (
+        <nav className="jump" aria-label="Weeks">
+          {weeks.map((ov) => {
+            const w = ov.week;
+            const code = weekCode(w);
+            const isThis = ov.isCurrentWeek;
+            return (
+              <button
+                key={w.id}
+                type="button"
+                className={`small${w.is_reading_week ? " is-reading-week" : ""}${isThis ? " is-this-week" : ""}`}
+                aria-current={isThis ? "date" : undefined}
+                onClick={() => {
+                  document.getElementById(`week-${code}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                {code}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      <div className="week-grid">
+        {weeks.map((ov) => (
+          <WeekCard
+            key={ov.week.id}
+            overview={ov}
+            module={module}
+            dates={dates}
+            renaming={renamingId === ov.week.id}
+            onStartRename={() => setRenamingId(ov.week.id)}
+            onEndRename={() => setRenamingId(null)}
+          />
+        ))}
+      </div>
+
+      {tray.length > 0 && <TraySection tray={tray} weeks={weeks.map((w) => w.week)} />}
+    </div>
   );
 }

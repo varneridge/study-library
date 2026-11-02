@@ -78,7 +78,7 @@ export interface ModuleOverview {
   module: ModuleRow;
   weeks: WeekOverview[];
   tray: ReadingView[];
-  detailsFoundCount: number;
+  found: ReadingView[];
   empty: boolean;
 }
 
@@ -246,12 +246,13 @@ export async function loadModuleOverview(
     const rawTray = await db.items.where("tray_module_id").equals(moduleId).toArray();
     const trayItems = live(rawTray);
     const tray = await readingViews(trayItems, new Map());
-    const detailsFoundCount = trayItems.filter((i) => pending(i)).length;
+    const foundItems = trayItems.filter((i) => pending(i));
+    const found = await readingViews(foundItems, new Map());
     return {
       module,
       weeks: [],
       tray,
-      detailsFoundCount,
+      found,
       empty: tray.length === 0,
     };
   }
@@ -350,17 +351,18 @@ export async function loadModuleOverview(
   const tray = await readingViews(trayItems, new Map());
 
   const allItems = [...liveItems, ...trayItems];
-  const detailsFoundCount = allItems.filter((i) => pending(i)).length;
+  const foundItems = allItems.filter((i) => pending(i));
+  const found = await readingViews(foundItems, new Map());
 
   const empty =
     tray.length === 0 &&
-    weekOverviews.every((w) => w.readingCount.total === 0 && w.sessions.length === 0);
+    weekOverviews.every((w) => w.readingCount.total === 0 && !w.thumb_key);
 
   return {
     module,
     weeks: weekOverviews,
     tray,
-    detailsFoundCount,
+    found,
     empty,
   };
 }
