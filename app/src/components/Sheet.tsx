@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "./icons";
 import { useCloseOnBack } from "../lib/ui";
+import { ModalRootContext, dismissTopLayer, useLayer, wasLayerRecentlyDismissed } from "../lib/layers";
 
 export interface SheetProps {
   open: boolean;
@@ -35,6 +36,11 @@ export function Sheet({
   const lastActiveRef = useRef<HTMLElement | null>(null);
 
   useCloseOnBack(open, onClose);
+  useLayer({
+    containerRef: ref,
+    enabled: open,
+    onEscape: onClose,
+  });
 
   useEffect(() => {
     const dialog = ref.current;
@@ -54,43 +60,48 @@ export function Sheet({
   if (!open) return null;
 
   return (
-    <dialog
-      ref={ref}
-      className={`sheet-dialog${tall ? " tall" : ""}${className ? ` ${className}` : ""}`}
-      aria-label={typeof title === "string" ? title : ariaLabel}
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        if (e.target !== ref.current) return;
-        const box = ref.current.getBoundingClientRect();
-        const inside =
-          e.clientX >= box.left &&
-          e.clientX <= box.right &&
-          e.clientY >= box.top &&
-          e.clientY <= box.bottom;
-        if (!inside) onClose();
-      }}
-    >
-      <div className="sheet-head">
-        <div className="sheet-title-group">
-          <h2 className="sheet-title">{title}</h2>
-          {subtitle && <p className="sheet-subtitle">{subtitle}</p>}
+    <ModalRootContext.Provider value={ref}>
+      <dialog
+        ref={ref}
+        className={`sheet-dialog${tall ? " tall" : ""}${className ? ` ${className}` : ""}`}
+        aria-label={typeof title === "string" ? title : ariaLabel}
+        onCancel={(e) => {
+          e.preventDefault();
+          if (!wasLayerRecentlyDismissed()) {
+            if (!dismissTopLayer()) onClose();
+          }
+        }}
+        onClick={(e) => {
+          if (e.target !== ref.current) return;
+          if (wasLayerRecentlyDismissed()) return;
+          const box = ref.current.getBoundingClientRect();
+          const inside =
+            e.clientX >= box.left &&
+            e.clientX <= box.right &&
+            e.clientY >= box.top &&
+            e.clientY <= box.bottom;
+          if (!inside) onClose();
+        }}
+      >
+        <div className="sheet-head">
+          <div className="sheet-title-group">
+            <h2 className="sheet-title">{title}</h2>
+            {subtitle && <p className="sheet-subtitle">{subtitle}</p>}
+          </div>
+          <button
+            type="button"
+            className="icon-button sheet-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <Icon name="close" />
+          </button>
         </div>
-        <button
-          type="button"
-          className="icon-button sheet-close"
-          aria-label="Close"
-          onClick={onClose}
-        >
-          <Icon name="close" />
-        </button>
-      </div>
 
-      <div className="sheet-body">{children}</div>
+        <div className="sheet-body">{children}</div>
 
-      {footer && <div className="sheet-foot">{footer}</div>}
-    </dialog>
+        {footer && <div className="sheet-foot">{footer}</div>}
+      </dialog>
+    </ModalRootContext.Provider>
   );
 }

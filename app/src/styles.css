@@ -1143,6 +1143,113 @@ a.where:hover { color: var(--ink); }
 .colour-names li { display: flex; gap: 0.6rem; align-items: center; }
 .colour-names .swatch { flex: none; width: 1.15rem; height: 1.15rem; border-radius: 50%; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 15%, transparent); }
 
+/* Settings desk layout with sticky contents sidebar */
+.settings-desk {
+  display: flex;
+  gap: 2.5rem;
+  align-items: flex-start;
+  margin-top: 1.5rem;
+  margin-bottom: 5rem;
+}
+.settings-sidebar {
+  position: sticky;
+  top: calc(var(--topbar-h, 3.25rem) + 1.5rem);
+  width: 14rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.settings-nav-item {
+  display: block;
+  padding: 0.45rem 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.settings-nav-item:hover {
+  color: var(--ink);
+  background: var(--tint-1);
+}
+.settings-nav-item.is-active {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--tint-2);
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+.settings-section {
+  scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 1.5rem);
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+.settings-section:last-child {
+  border-bottom: 0;
+  padding-bottom: 6rem;
+}
+.settings-section h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--serif);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--ink);
+}
+.settings-section.danger-section {
+  border-left: 3px solid var(--danger);
+  padding-left: 1.25rem;
+}
+.settings-sticky-bar {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.65rem 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+.settings-desk-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+.settings-bottom-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .settings-desk {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .settings-sidebar {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+  }
+  .settings-nav-item {
+    white-space: nowrap;
+  }
+}
+
 /* Settings redesign cards */
 .settings-grid {
   display: flex;
@@ -2605,8 +2712,8 @@ dialog.sheet-dialog::backdrop {
 }
 @media (min-width: 44.01rem) {
   dialog.sheet-dialog {
-    inset: auto auto 50% 50%;
-    transform: translate(-50%, 50%);
+    inset: 0;
+    margin: auto;
     max-width: 34rem;
     border-width: 1px;
     border-radius: var(--r-lg);
@@ -2729,3 +2836,204 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 :root[data-theme="dark"] :is(.stage-chip, .stage-tile):active:not(:disabled) {
   filter: brightness(1.15);
 }
+
+/* Job notes document editor */
+.job-notes-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 24rem;
+  padding: 0.5rem 0;
+}
+.job-notes-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+.job-notes-status {
+  font-size: var(--fs-xs);
+}
+.job-notes-textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 20rem;
+  padding: 0.75rem;
+  font-family: var(--sans);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  resize: vertical;
+}
+.job-notes-textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Custom DatePicker component */
+.date-picker-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.date-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.date-picker-trigger:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+.date-picker-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.date-picker-trigger.is-empty {
+  color: var(--muted);
+}
+.date-picker-dialog {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: 0.85rem;
+  z-index: 1000;
+  width: 18rem;
+}
+.date-picker-dialog.is-popover {
+  position: fixed;
+}
+.date-picker-dialog.is-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: 80dvh;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  border-bottom: 0;
+  padding: 1.25rem 1rem max(1rem, env(safe-area-inset-bottom, 1rem));
+}
+.date-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.date-picker-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  margin: 0;
+}
+.date-picker-nav {
+  display: flex;
+  gap: 0.25rem;
+}
+.date-picker-prev svg {
+  transform: rotate(90deg);
+}
+.date-picker-next svg {
+  transform: rotate(-90deg);
+}
+.date-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+.date-chip {
+  padding: 0.2rem 0.5rem;
+  font-size: var(--fs-xs);
+  background: var(--tint-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+  color: var(--ink);
+  cursor: pointer;
+}
+.date-chip:hover:not(:disabled) {
+  background: var(--tint-2);
+}
+.date-chip.is-active {
+  background: var(--accent);
+  color: var(--accent-contrast, #FFFFFF);
+  border-color: var(--accent);
+}
+.date-chip.is-clear {
+  color: var(--muted);
+  border: 0;
+  background: none;
+}
+.date-picker-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.date-picker-weekday {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--muted);
+  text-align: center;
+  padding: 0.25rem 0;
+}
+.date-picker-cell {
+  text-align: center;
+  padding: 1px;
+}
+.date-cell-btn {
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  font-size: var(--fs-xs);
+  border-radius: var(--r-xs);
+  color: var(--ink);
+  cursor: pointer;
+}
+.date-picker-dialog.is-sheet .date-cell-btn {
+  min-height: 2.75rem;
+  font-size: var(--fs-sm);
+}
+.date-cell-btn:hover:not(:disabled) {
+  background: var(--tint-2);
+}
+.date-cell-btn.is-outside {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.date-cell-btn.is-today {
+  font-weight: 700;
+  border: 1px solid var(--rule);
+}
+.date-cell-btn.is-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.date-cell-btn.is-selected {
+  background: var(--accent);
+  color: var(--accent-contrast, #FFFFFF);
+  font-weight: 600;
+}
+.date-picker-foot {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+

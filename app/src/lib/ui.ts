@@ -126,21 +126,42 @@ let overlaySeq = 0;
 interface OverlayEntry {
   id: number;
   close: () => void;
+  beforeClose?: () => Promise<boolean> | boolean;
   pushed: boolean;
   popped: boolean;
 }
 
 const overlayStack: OverlayEntry[] = [];
 
+export function hasOpenOverlay(): boolean {
+  return overlayStack.length > 0;
+}
+
+let overlayPopstateInProgress = false;
+
 if (typeof window !== "undefined") {
   if (window.history.state?.overlay) {
     window.history.replaceState(null, "");
   }
-  window.addEventListener("popstate", (e) => {
-    if (overlayStack.length === 0) return;
+  window.addEventListener("popstate", async (e) => {
+    if (overlayStack.length === 0 || overlayPopstateInProgress) return;
     const top = overlayStack[overlayStack.length - 1];
     // If the browser popped back to this overlay from an overlay above it, stay open.
     if (e.state?.overlay === top.id) return;
+
+    if (top.beforeClose) {
+      overlayPopstateInProgress = true;
+      try {
+        const allow = await top.beforeClose();
+        if (!allow) {
+          window.history.pushState({ overlay: top.id }, "");
+          return;
+        }
+      } finally {
+        overlayPopstateInProgress = false;
+      }
+    }
+
     top.popped = true;
     top.close();
   });
@@ -151,9 +172,15 @@ if (typeof window !== "undefined") {
 // closed any other way (Escape, Cancel, click outside). If an action inside
 // navigates, navigate() replaces the overlay entry so one Back returns to the
 // page you were on.
-export function useCloseOnBack(open: boolean, close: () => void): void {
+export function useCloseOnBack(
+  open: boolean,
+  close: () => void,
+  beforeClose?: () => Promise<boolean> | boolean
+): void {
   const closeRef = useRef(close);
   closeRef.current = close;
+  const beforeCloseRef = useRef(beforeClose);
+  beforeCloseRef.current = beforeClose;
 
   useEffect(() => {
     if (!open) return;
@@ -168,10 +195,16 @@ export function useCloseOnBack(open: boolean, close: () => void): void {
       // An overlay was closing and this one is replacing it in the same interaction
       // (e.g. Menu -> Editor/MovePicker/ReaderSheet). Update the existing entry.
       window.history.replaceState({ overlay: id }, "");
-      pushed = true;
+      pushed = false;
     }
 
-    const entry: OverlayEntry = { id, close: () => closeRef.current(), pushed, popped: false };
+    const entry: OverlayEntry = {
+      id,
+      close: () => closeRef.current(),
+      beforeClose: beforeCloseRef.current ? () => beforeCloseRef.current!() : undefined,
+      pushed,
+      popped: false,
+    };
     overlayStack.push(entry);
 
     return () => {
@@ -182,7 +215,7 @@ export function useCloseOnBack(open: boolean, close: () => void): void {
         if (entry.popped) return;
         if (overlayStack.length === 0 && window.history.state?.overlay) {
           window.history.back();
-        } else if (overlayStack.length > 0 && pushed && hasExistingOverlay) {
+        } else if (overlayStack.length > 0 && entry.pushed) {
           // If this was a nested overlay that pushed its own entry, retreat its entry.
           window.history.back();
         }

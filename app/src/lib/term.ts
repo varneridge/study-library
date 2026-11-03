@@ -4,6 +4,7 @@
 // usual pattern, and any year can be corrected in Settings.
 
 import { useSetting } from "./settings";
+import { formatISO } from "./civilDate";
 import { spanText } from "./dates";
 
 export interface TermDates { AT: string; WT: string }
@@ -33,7 +34,10 @@ export function defaultDates(year: number): TermDates {
   const start = new Date(Date.UTC(year, 8, 25));
   const at = new Date(start.getTime() + ((8 - start.getUTCDay()) % 7) * DAY);
   const wt = new Date(at.getTime() + 15 * 7 * DAY);
-  return { AT: at.toISOString().slice(0, 10), WT: wt.toISOString().slice(0, 10) };
+  return {
+    AT: formatISO(at.getUTCFullYear(), at.getUTCMonth() + 1, at.getUTCDate()),
+    WT: formatISO(wt.getUTCFullYear(), wt.getUTCMonth() + 1, wt.getUTCDate()),
+  };
 }
 
 export function teachingWeek(today: Date, dates: TermDates): TeachingWeek | null {
@@ -51,7 +55,8 @@ export function teachingWeek(today: Date, dates: TermDates): TeachingWeek | null
 export function useTermDates(): TermDates {
   const saved = useSetting<Partial<Record<number, TermDates>>>("term-dates", {});
   const year = yearOf(new Date());
-  return saved[year] ?? defaultDates(year);
+  const defaults = defaultDates(year);
+  return { ...defaults, ...(saved[year] || {}) };
 }
 
 export function useTeachingWeek(): TeachingWeek | null {

@@ -12,6 +12,9 @@ import {
 } from "../../lib/jobs";
 import type { ApplicationRow } from "../../lib/types";
 import { db } from "../../lib/db";
+import { DatePicker } from "../DatePicker";
+import { navigate } from "../../lib/router";
+import { confirmAction } from "../../lib/ui";
 
 export interface ApplicationFormProps {
   mode: "new" | "edit";
@@ -38,7 +41,7 @@ export function ApplicationForm({
 
   const isDirty = () => {
     if (mode === "new") {
-      return Boolean(employer.trim() || role.trim() || notes.trim() || nextDeadline);
+      return Boolean(employer.trim() || role.trim() || notes.trim() || nextDeadline || (applied && applied !== todayIso()));
     }
     if (!initialApp) return false;
     const current = {
@@ -46,7 +49,6 @@ export function ApplicationForm({
       role: role.trim(),
       applied: applied || null,
       next_deadline: nextDeadline || null,
-      notes: notes.trim() || null,
     };
     const patch = computeApplicationPatch(initialApp, current);
     return Object.keys(patch).length > 0;
@@ -73,7 +75,7 @@ export function ApplicationForm({
       role: role.trim(),
       applied: applied || null,
       next_deadline: nextDeadline || null,
-      notes: notes.trim() || null,
+      ...(mode === "new" ? { notes: notes.trim() || null } : {}),
     };
 
     if (mode === "edit" && initialApp) {
@@ -194,47 +196,81 @@ export function ApplicationForm({
         </label>
 
         <div className="field-pair">
-          <label className="field">
+          <div className="field">
             <span className="field-label">Applied</span>
-            <input
-              type="date"
-              value={applied}
-              onChange={(e) => {
-                setApplied(e.target.value);
+            <DatePicker
+              value={applied || null}
+              label="Applied date"
+              clearable
+              placeholder="Add applied date"
+              onChange={(d) => {
+                setApplied(d || "");
                 setConfirmDiscard(false);
                 if (errors.applied) setErrors((err) => ({ ...err, applied: undefined }));
               }}
             />
             {errors.applied && <span className="field-error">{errors.applied}</span>}
-          </label>
+          </div>
 
-          <label className="field">
+          <div className="field">
             <span className="field-label">Next deadline</span>
-            <input
-              type="date"
-              value={nextDeadline}
-              onChange={(e) => {
-                setNextDeadline(e.target.value);
+            <DatePicker
+              value={nextDeadline || null}
+              label="Next deadline"
+              clearable
+              placeholder="Add deadline"
+              onChange={(d) => {
+                setNextDeadline(d || "");
                 setConfirmDiscard(false);
                 if (errors.next_deadline) setErrors((err) => ({ ...err, next_deadline: undefined }));
               }}
             />
             {errors.next_deadline && <span className="field-error">{errors.next_deadline}</span>}
-          </label>
+          </div>
         </div>
 
-        <label className="field">
-          <span className="field-label">Notes</span>
-          <textarea
-            rows={3}
-            value={notes}
-            placeholder="Notes: contacts, interview times, what they asked"
-            onChange={(e) => {
-              setNotes(e.target.value);
-              setConfirmDiscard(false);
-            }}
-          />
-        </label>
+        {mode === "new" ? (
+          <label className="field">
+            <span className="field-label">Notes</span>
+            <textarea
+              rows={3}
+              value={notes}
+              placeholder="Notes: contacts, interview times, what they asked"
+              onChange={(e) => {
+                setNotes(e.target.value);
+                setConfirmDiscard(false);
+              }}
+            />
+          </label>
+        ) : (
+          <div className="field">
+            <span className="field-label">Notes</span>
+            {initialApp?.notes ? (
+              <p className="app-sheet-notes-text">{initialApp.notes}</p>
+            ) : (
+              <p className="app-sheet-notes-text muted">No notes yet.</p>
+            )}
+            <button
+              type="button"
+              className="quiet small"
+              style={{ marginTop: "0.25rem", alignSelf: "flex-start" }}
+              onClick={async () => {
+                if (isDirty()) {
+                  const ok = await confirmAction({
+                    title: "Unsaved changes",
+                    body: "You have unsaved changes in this form. If you leave to open the notes editor, your edits will be discarded.",
+                    confirm: "Discard edits and open notes",
+                    danger: true,
+                  });
+                  if (!ok) return;
+                }
+                if (initialApp?.id) navigate({ view: "jobs", app: initialApp.id, tab: "notes" }, true);
+              }}
+            >
+              Open notes editor
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="form-actions">

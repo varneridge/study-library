@@ -25,6 +25,7 @@ import { MoveSelect, ReadingRow } from "./ReadingRow";
 import { ModuleSettings } from "./ModuleSettings";
 import { Icon } from "./icons";
 import { setSetting, useSetting } from "../lib/settings";
+import { DatePicker } from "./DatePicker";
 
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
@@ -356,9 +357,9 @@ function KeyDates({ module }: { module: ModuleRow }) {
           <label className="field" style={{ flex: 1 }}><span>What</span>
             <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Chapter 2 draft" autoFocus enterKeyHint="next" />
           </label>
-          <label className="field"><span>When</span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </label>
+          <div className="field"><span>When</span>
+            <DatePicker value={date || null} onChange={(d) => setDate(d || "")} label="Key date" placeholder="Choose date" />
+          </div>
           <button className="button primary" disabled={saving || !label.trim() || !date} onClick={() => void add()}>{saving ? "Adding…" : "Add"}</button>
           <button className="quiet" disabled={saving} onClick={() => setAdding(false)}>Cancel</button>
         </div>

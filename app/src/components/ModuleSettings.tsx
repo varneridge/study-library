@@ -8,6 +8,7 @@ import { newId, update } from "../lib/sync";
 import type { Block, ModuleRow, WeekRow } from "../lib/types";
 import { confirmAction, showToast, useCloseOnBack } from "../lib/ui";
 import { uploadModulePicture } from "../lib/uploads";
+import { useUnsavedChangesGuard } from "../lib/formDraft";
 
 function toText(blocks: Block[] | null): string {
   return (blocks ?? []).map(blockText).join("\n\n");
@@ -25,7 +26,6 @@ function toBlocks(text: string): Block[] | null {
 // Editing a module: its code, title, description and reading weeks, and
 // deleting it.
 export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; weeks: WeekRow[]; onClose: () => void }) {
-  useCloseOnBack(true, onClose);
   const convert = async () => {
     const ok = await confirmAction({
       title: `Change ${module.code} to a dissertation?`,
@@ -45,6 +45,22 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
   const [pictureBusy, setPictureBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pickSeq = useRef(0);
+
+  const isDirty =
+    code.trim() !== module.code ||
+    (title.trim() || null) !== (module.title ?? null) ||
+    description !== original ||
+    imageKey !== (module.image_key ?? null);
+
+  const { confirmDiscardIfDirty, disarm } = useUnsavedChangesGuard(isDirty, "module settings");
+
+  const handleCancel = async () => {
+    if (await confirmDiscardIfDirty()) {
+      onClose();
+    }
+  };
+
+  useCloseOnBack(true, onClose, confirmDiscardIfDirty);
   useEffect(() => {
     return () => {
       pickSeq.current += 1;
@@ -117,13 +133,14 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
       typed: module.code,
     });
     if (!ok) return;
+    disarm();
     await withUndo(`${module.code} deleted.`, deleteModule(module));
     navigate({ view: "home" });
   }
 
   return (
-    <form className="settings-grid editor" style={{ marginTop: "1rem" }} onSubmit={save}>
-      <div className="settings-card">
+    <form className="settings-desk-form editor" style={{ marginTop: "1rem" }} onSubmit={save}>
+      <section className="settings-section">
         <h3>Module details</h3>
         <p className="small muted">Code, title and general convenor or course notes.</p>
         <div className="row" style={{ marginTop: "0.8rem" }}>
@@ -141,13 +158,9 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)}
             placeholder="Convenor, assessment, anything worth keeping to hand. A blank line starts a new paragraph." />
         </label>
-        <div className="row" style={{ marginTop: "0.5rem" }}>
-          <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save"}</button>
-          <button type="button" className="button" onClick={onClose} disabled={busy}>Cancel</button>
-        </div>
-      </div>
+      </section>
 
-      <div className="settings-card">
+      <section className="settings-section">
         <h3>Cover picture</h3>
         <p className="small muted">
           Shown on the card for this module on the home page. Cropped to 16:9.
@@ -193,10 +206,10 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
             onChange={onPickPicture}
           />
         </div>
-      </div>
+      </section>
 
       {module.kind !== "dissertation" && module.kind !== "library" && (
-        <div className="settings-card">
+        <section className="settings-section">
           <h3>Reading weeks</h3>
           <p className="small muted">
             Changes save straight away. A reading week keeps its readings and loses its empty sessions.
@@ -215,10 +228,10 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      <div className="settings-card settings-card-danger">
+      <section className="settings-section danger-section">
         <h3>Organisation & Danger zone</h3>
         {module.kind !== "dissertation" && module.kind !== "library" && (
           <div className="settings-subgroup">
@@ -242,6 +255,11 @@ export function ModuleSettings({ module, weeks, onClose }: { module: ModuleRow; 
             <button type="button" className="button danger" onClick={remove}>Delete {module.code}</button>
           </div>
         </div>
+      </section>
+
+      <div className="form-actions settings-bottom-bar" style={{ marginTop: "1.5rem" }}>
+        <button className="button primary" disabled={busy || pictureBusy || !code.trim()}>{busy ? "Saving…" : "Save changes"}</button>
+        <button type="button" className="button" onClick={handleCancel} disabled={busy}>Cancel</button>
       </div>
     </form>
   );

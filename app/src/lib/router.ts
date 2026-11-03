@@ -2,6 +2,7 @@
 // app stays a single page that the service worker can serve offline.
 
 import { useEffect, useState } from "react";
+import { hasOpenOverlay } from "./ui";
 
 export type Route =
   | { view: "home" }
@@ -15,7 +16,7 @@ export type Route =
   | { view: "search"; q?: string }
   | { view: "settings" }
   // The job search, kept apart from the study library.
-  | { view: "jobs"; app?: string; edit?: boolean; newApp?: boolean; entry?: string };
+  | { view: "jobs"; app?: string; edit?: boolean; newApp?: boolean; entry?: string; tab?: string };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
@@ -49,7 +50,8 @@ export function parseRoute(search: string): Route {
       const edit = params.get("edit") === "1" ? true : undefined;
       const newApp = params.get("new") === "1" ? true : undefined;
       const entry = params.get("entry") ?? undefined;
-      return { view, app, edit, newApp, entry };
+      const tab = params.get("tab") ?? undefined;
+      return { view, app, edit, newApp, entry, tab };
     }
     default:
       return { view: "home" };
@@ -74,41 +76,72 @@ export function href(route: Route): string {
     if (route.edit) params.set("edit", "1");
     if (route.newApp) params.set("new", "1");
     if (route.entry) params.set("entry", route.entry);
+    if (route.tab) params.set("tab", route.tab);
   }
   const query = params.toString();
   return query ? `/?${query}` : "/";
 }
 
-const listeners = new Set<() => void>();
+export type NavigationGuard = () => Promise<boolean> | boolean;
 
-export function navigate(route: Route, replace = false): void {
+const listeners = new Set<() => void>();
+let activeGuard: NavigationGuard | null = null;
+let currentAppliedUrl = typeof window !== "undefined" ? window.location.href : "/";
+let popstateGuarding = false;
+
+export function setNavigationGuard(guard: NavigationGuard | null): () => void {
+  activeGuard = guard;
+  return () => {
+    if (activeGuard === guard) activeGuard = null;
+  };
+}
+
+if (typeof window !== "undefined") {
+  currentAppliedUrl = window.location.href;
+  window.addEventListener("popstate", async () => {
+    if (popstateGuarding) return;
+    if (hasOpenOverlay()) return;
+    if (activeGuard) {
+      popstateGuarding = true;
+      try {
+        const allow = await activeGuard();
+        if (!allow) {
+          // Guard refused: restore previously applied URL without triggering another prompt
+          window.history.pushState(null, "", currentAppliedUrl);
+          return;
+        }
+      } finally {
+        popstateGuarding = false;
+      }
+    }
+    currentAppliedUrl = window.location.href;
+    listeners.forEach((listener) => listener());
+  });
+}
+
+export async function navigate(route: Route, replace = false): Promise<void> {
+  if (activeGuard) {
+    const allow = await activeGuard();
+    if (!allow) return;
+  }
   const url = href(route);
-  const isOverlay = Boolean(history.state?.overlay);
+  const isOverlay = Boolean(typeof history !== "undefined" && history.state?.overlay);
   if (replace || isOverlay) history.replaceState(null, "", url);
   else history.pushState(null, "", url);
+  currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
   listeners.forEach((listener) => listener());
-  if (!replace) window.scrollTo(0, 0);
+  if (!replace && typeof window !== "undefined") window.scrollTo(0, 0);
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseRoute(location.search));
+  const [route, setRoute] = useState(() => parseRoute(typeof location !== "undefined" ? location.search : ""));
   useEffect(() => {
-    let currentSearch = location.search;
     const update = () => {
-      if (location.search !== currentSearch) {
-        currentSearch = location.search;
-        setRoute(parseRoute(location.search));
-      }
-    };
-    const onManual = () => {
-      currentSearch = location.search;
       setRoute(parseRoute(location.search));
     };
-    listeners.add(onManual);
-    window.addEventListener("popstate", update);
+    listeners.add(update);
     return () => {
-      listeners.delete(onManual);
-      window.removeEventListener("popstate", update);
+      listeners.delete(update);
     };
   }, []);
   return route;

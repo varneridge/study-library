@@ -7,6 +7,8 @@ import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extens
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings, coverLabel } from "../src/lib/sections";
+import { todayLocal, parseISO, formatISO, daysInMonth, addDays, addMonths, weekdayMon0, nextMonday, monthGrid, parseUK, formatLong } from "../src/lib/civilDate";
+import { notesQueue } from "../src/lib/notesQueue";
 
 import { notesLabel } from "../src/lib/modules";
 import { storedAccent, ACCENTS } from "../src/lib/appearance";
@@ -29,6 +31,7 @@ import { registerProgressTests } from "./test_progress";
 import { registerSheetRouteTests } from "./test_sheet";
 import { registerJobLogicTests } from "./test_job_logic";
 import { registerSafetyTests } from "./test_safety";
+import { dismissTopLayer } from "../src/lib/layers";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -972,6 +975,97 @@ test("coverLabel returns title when present, or falls back to section/shelf/code
   assert.equal(coverLabel({ title: null, code: "S1", number: 2 }, "section"), "Section 2");
   assert.equal(coverLabel({ title: null, code: "S1", number: 3 }, "shelf"), "Shelf 3");
   assert.equal(coverLabel({ title: "  ", code: null, number: 4 }, "week"), "Week 4");
+});
+
+test("civilDate parseISO and formatISO handle bounds and validity", () => {
+  assert.deepEqual(parseISO("2026-06-15"), { year: 2026, month: 6, day: 15 });
+  assert.equal(formatISO(2026, 6, 15), "2026-06-15");
+  assert.equal(parseISO("2026-02-29"), null); // not a leap year
+  assert.deepEqual(parseISO("2028-02-29"), { year: 2028, month: 2, day: 29 }); // leap year
+  assert.equal(parseISO("2100-02-29"), null); // 2100 is not a leap year in Gregorian calendar
+  assert.equal(parseISO("1899-12-31"), null); // below min year
+  assert.equal(parseISO("2200-01-01"), null); // above max year
+  assert.equal(parseISO("not-a-date"), null);
+});
+
+test("civilDate todayLocal produces a valid ISO string", () => {
+  const today = todayLocal();
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(today));
+  assert.ok(parseISO(today) !== null);
+});
+
+test("civilDate addDays and addMonths handle month-end clamping and bounds", () => {
+  assert.equal(addDays("2026-06-15", 1), "2026-06-16");
+  assert.equal(addDays("2026-06-15", -1), "2026-06-14");
+  assert.equal(addDays("2026-02-28", 1), "2026-03-01");
+  assert.equal(addMonths("2026-01-31", 1), "2026-02-28");
+  assert.equal(addMonths("2028-01-31", 1), "2028-02-29");
+  assert.equal(addMonths("2100-01-31", 1), "2100-02-28");
+  assert.equal(addMonths("2026-03-31", -1), "2026-02-28");
+});
+
+test("civilDate weekdayMon0 and nextMonday", () => {
+  // 2026-06-15 is a Monday
+  assert.equal(weekdayMon0("2026-06-15"), 0);
+  assert.equal(weekdayMon0("2026-06-21"), 6); // Sunday
+  // nextMonday strictly after today: on Monday, next Monday is 7 days ahead
+  assert.equal(nextMonday("2026-06-15"), "2026-06-22");
+  // on Sunday 2026-06-21, next Monday is tomorrow
+  assert.equal(nextMonday("2026-06-21"), "2026-06-22");
+  // on Tuesday 2026-06-16, next Monday is 6 days ahead
+  assert.equal(nextMonday("2026-06-16"), "2026-06-22");
+});
+
+test("civilDate monthGrid returns fixed 42-cell array starting on Monday", () => {
+  const grid = monthGrid(2026, 6);
+  assert.equal(grid.length, 42);
+  assert.equal(weekdayMon0(grid[0].iso), 0); // Monday start
+  assert.ok(grid.some((c) => c.iso === "2026-06-01" && c.inMonth));
+  assert.ok(grid.some((c) => c.iso === "2026-06-30" && c.inMonth));
+});
+
+test("civilDate monthGrid produces 42 distinct cells for December 2199 without duplicate clamp keys", () => {
+  const grid = monthGrid(2199, 12);
+  assert.equal(grid.length, 42);
+  const keys = new Set(grid.map((c) => c.iso));
+  assert.equal(keys.size, 42);
+});
+
+test("civilDate parseUK parses DD/MM/YYYY, D/M/YY, ISO and rejects invalid dates", () => {
+  assert.equal(parseUK("15/06/2026"), "2026-06-15");
+  assert.equal(parseUK("15/6/26"), "2026-06-15");
+  assert.equal(parseUK("15.6.26"), "2026-06-15");
+  assert.equal(parseUK("15-6-26"), "2026-06-15");
+  assert.equal(parseUK("2026-06-15"), "2026-06-15");
+  assert.equal(parseUK("31/02/2026"), null); // invalid day in Feb
+  assert.equal(parseUK("15/06-2026"), null); // mismatched separators
+  assert.equal(parseUK(""), null);
+});
+
+test("civilDate formatLong produces deterministic format without comma variations", () => {
+  assert.equal(formatLong("2026-06-15"), "Monday 15 June 2026");
+});
+
+test("notesQueue synchronous in-memory read and write", () => {
+  assert.equal(notesQueue.get("app-test-1", "initial"), "initial");
+  notesQueue.set("app-test-1", "updated text", "initial");
+  assert.equal(notesQueue.get("app-test-1"), "updated text");
+});
+
+test("notesQueue: opening and closing notes without typing writes nothing", async () => {
+  const unsubscribe = notesQueue.subscribe("app-clean-1", () => {});
+  unsubscribe();
+  await notesQueue.flush("app-clean-1");
+  assert.equal(notesQueue.getStatus("app-clean-1"), "idle");
+});
+
+test("notesQueue: a clean queue prefers fallback from remote updates", () => {
+  notesQueue.set("app-remote-1", "Local draft", "Local draft");
+  assert.equal(notesQueue.get("app-remote-1", "Remote text B"), "Remote text B");
+});
+
+test("layers: dismissTopLayer returns false when no layer or no onEscape handler", () => {
+  assert.equal(dismissTopLayer(), false);
 });
 
 if (failed) {

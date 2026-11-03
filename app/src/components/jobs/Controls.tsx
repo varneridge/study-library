@@ -13,6 +13,8 @@ import { Icon } from "../icons";
 import { ChoiceCard } from "../ChoiceCard";
 import { EntryForm } from "./EntryForm";
 import { FileName } from "../FileName";
+import { DatePickerDialog } from "../DatePicker";
+import { parseUK } from "../../lib/civilDate";
 
 
 export type Slot = (typeof SLOTS)[number];
@@ -88,8 +90,6 @@ export function TextField({ value, onSave, label, placeholder, multiline, wrap, 
 export function DateField({ value, onSave, label, clearable, empty = "Add date", className }: {
   value: string | null; onSave: (value: string | null) => void; label: string; clearable?: boolean; empty?: string; className?: string;
 }) {
-  // "pointer" when opened by a click or tap, which also opens the picker;
-  // "keys" when opened from the keyboard, so the date can be typed.
   const [editing, setEditing] = useState<false | "pointer" | "keys">(false);
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -99,19 +99,17 @@ export function DateField({ value, onSave, label, clearable, empty = "Add date",
     if (!editing) return;
     const el = input.current;
     el?.focus();
-    if (editing === "pointer") {
-      try { el?.showPicker?.(); } catch { /* Some browsers only open it on a direct tap. */ }
-    }
   }, [editing]);
   const start = (how: "pointer" | "keys") => { settled.current = false; setDraft(value ?? ""); setEditing(how); };
   const finish = (keep: boolean, refocus = false) => {
     if (settled.current) return;
     settled.current = true;
-    if (keep && DATE_ONLY.test(draft) && draft !== value) onSave(draft);
+    const clean = parseUK(draft);
+    if (keep && clean && clean !== value) onSave(clean);
     setEditing(false);
     if (refocus) requestAnimationFrame(() => shown.current?.focus());
   };
-  if (editing) {
+  if (editing === "keys") {
     return (
       <span className="date-edit">
         <input
@@ -140,9 +138,30 @@ export function DateField({ value, onSave, label, clearable, empty = "Add date",
     );
   }
   return (
-    <button ref={shown} type="button" className={`date-show${value ? "" : " empty"}${className ? ` ${className}` : ""}`} aria-label={`${label}: ${value ? formatDate(value) : "none"}. Change`} onClick={(e) => start(e.detail === 0 ? "keys" : "pointer")}>
-      {value ? formatDate(value) : empty}
-    </button>
+    <>
+      <button ref={shown} type="button" className={`date-show${value ? "" : " empty"}${className ? ` ${className}` : ""}`} aria-label={`${label}: ${value ? formatDate(value) : "none"}. Change`} onClick={(e) => start(e.detail === 0 ? "keys" : "pointer")}>
+        {value ? formatDate(value) : empty}
+      </button>
+      {editing === "pointer" && (
+        <DatePickerDialog
+          triggerRef={shown}
+          value={value}
+          label={label}
+          clearable={clearable}
+          onSelect={(next) => {
+            setEditing(false);
+            if (next !== value) onSave(next);
+            requestAnimationFrame(() => shown.current?.focus());
+          }}
+          onDismiss={(returnFocus) => {
+            setEditing(false);
+            if (returnFocus !== false) {
+              requestAnimationFrame(() => shown.current?.focus());
+            }
+          }}
+        />
+      )}
+    </>
   );
 }
 

@@ -10,12 +10,13 @@ import {
   removeEvent,
   saveEntry,
   stageOf,
-  todayIso,
 } from "../../lib/jobs";
 import type { ApplicationEventRow, ApplicationRow } from "../../lib/types";
 import { showToast } from "../../lib/ui";
 import { Icon } from "../icons";
 import { StageCard } from "./Controls";
+import { DatePicker } from "../DatePicker";
+import { todayLocal } from "../../lib/civilDate";
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -32,7 +33,7 @@ export function EntryForm({
   onDone,
   variant = "inline",
 }: EntryFormProps) {
-  const today = todayIso();
+  const today = todayLocal();
   const timed = Boolean(entry && !DATE_ONLY.test(entry.at));
   const [stage, setStage] = useState(entry?.stage ?? app.stage);
   const [day, setDay] = useState(entry ? entryDate(entry.at) : today);
@@ -105,11 +106,12 @@ export function EntryForm({
         </span>
         <label className="field">
           <span className="field-label">Date</span>
-          <input
-            type="date"
-            value={day}
+          <DatePicker
+            value={day || null}
             max={today}
-            onChange={(e) => setDay(e.target.value)}
+            label="Entry date"
+            placeholder="Choose date"
+            onChange={(d) => setDay(d || "")}
           />
         </label>
         <label className="field">

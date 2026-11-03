@@ -372,6 +372,7 @@ export function JobsPage() {
         <AppSheet
           app={currentApp}
           events={eventsFor(currentApp.id)}
+          tab={jobRoute?.tab}
           onClose={() => navigate({ view: "jobs" })}
         />
       )}
