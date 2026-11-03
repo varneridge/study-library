@@ -1,5 +1,5 @@
 import * as pdfjs from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "react";
 import { fileBlob } from "../lib/files";
 import type { ReadingView } from "../lib/library";
@@ -16,6 +16,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   const [width, setWidth] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const renderTaskRef = useRef<RenderTask | null>(null);
   const view = decks[Math.min(deck, decks.length - 1)];
 
   useEffect(() => {
@@ -49,29 +50,73 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   useEffect(() => {
     if (!doc || !canvas.current || !box.current) return;
     let cancelled = false;
+
+    if (renderTaskRef.current) {
+      try {
+        renderTaskRef.current.cancel();
+      } catch {
+        // Ignore cancellation errors
+      }
+      renderTaskRef.current = null;
+    }
+
     void (async () => {
-      const pdfPage = await doc.getPage(page + 1);
-      if (cancelled) return;
-      const unit = pdfPage.getViewport({ scale: 1 });
-      // Fit the width, but never taller than the screen allows, so a
-      // portrait handout stays whole in view beside the notes.
-      const tallest = Math.max(240, window.innerHeight - 190);
-      const scale = Math.min(box.current!.clientWidth / unit.width, tallest / unit.height);
-      const viewport = pdfPage.getViewport({ scale });
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const target = canvas.current!;
-      target.width = Math.floor(viewport.width * ratio);
-      target.height = Math.floor(viewport.height * ratio);
-      target.style.width = `${viewport.width}px`;
-      target.style.height = `${viewport.height}px`;
-      await pdfPage.render({
-        canvasContext: target.getContext("2d")!,
-        viewport,
-        transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined,
-      }).promise.catch(() => undefined);
+      try {
+        const pdfPage = await doc.getPage(page + 1);
+        if (cancelled) return;
+        const unit = pdfPage.getViewport({ scale: 1 });
+        const boxWidth = box.current ? box.current.clientWidth : 0;
+        if (!boxWidth) return;
+        // Fit the width, but never taller than the screen allows, so a
+        // portrait handout stays whole in view beside the notes.
+        const tallest = Math.max(240, window.innerHeight - 190);
+        const scale = Math.min(boxWidth / unit.width, tallest / unit.height);
+        const viewport = pdfPage.getViewport({ scale });
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+
+        const offscreen = document.createElement("canvas");
+        offscreen.width = Math.floor(viewport.width * ratio);
+        offscreen.height = Math.floor(viewport.height * ratio);
+        const ctx = offscreen.getContext("2d");
+        if (!ctx) return;
+
+        const renderTask = pdfPage.render({
+          canvasContext: ctx,
+          viewport,
+          transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined,
+        });
+        renderTaskRef.current = renderTask;
+
+        await renderTask.promise;
+        if (cancelled) return;
+
+        const target = canvas.current;
+        if (!target) return;
+        target.width = offscreen.width;
+        target.height = offscreen.height;
+        target.style.width = `${viewport.width}px`;
+        target.style.height = `${viewport.height}px`;
+        const targetCtx = target.getContext("2d");
+        if (targetCtx) {
+          targetCtx.drawImage(offscreen, 0, 0);
+        }
+      } catch (err: unknown) {
+        if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "RenderingCancelledException") {
+          return;
+        }
+      }
     })();
+
     return () => {
       cancelled = true;
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch {
+          // Ignore cancellation errors
+        }
+        renderTaskRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, page, width]);
@@ -138,17 +183,35 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         }}
         onFocus={wake}
       >
-        {problem ? <p className="small muted">{problem}</p> : <canvas ref={canvas} role="img" aria-label={`Slide ${page + 1}${doc ? ` of ${doc.numPages}` : ""}`} />}
-        {doc && doc.numPages > 1 && (
-          <>
-            <button className="slide-arrow prev" aria-label="Previous slide" disabled={page === 0} onClick={() => go(page - 1)}>
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
-            </button>
-            <button className="slide-arrow next" aria-label="Next slide" disabled={page === doc.numPages - 1} onClick={() => go(page + 1)}>
-              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-            </button>
-            <span className="slide-count" aria-live="polite">{page + 1} / {doc.numPages}</span>
-          </>
+        {problem ? (
+          <p className="small muted">{problem}</p>
+        ) : (
+          <div className="slide-frame">
+            <canvas ref={canvas} role="img" aria-label={`Slide ${page + 1}${doc ? ` of ${doc.numPages}` : ""}`} />
+            {doc && doc.numPages > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="slide-arrow prev"
+                  aria-label="Previous slide"
+                  disabled={page === 0}
+                  onClick={() => go(page - 1)}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
+                </button>
+                <button
+                  type="button"
+                  className="slide-arrow next"
+                  aria-label="Next slide"
+                  disabled={page === doc.numPages - 1}
+                  onClick={() => go(page + 1)}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+                </button>
+                <span className="slide-count" aria-live="polite">{page + 1} / {doc.numPages}</span>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -20,6 +20,7 @@ from typing import Callable
 from ..api import Api
 from .speech import Transcriber
 from . import identify as finder
+from ..autotitle import maybe_autotitle_for_file
 
 log = logging.getLogger("study.processor")
 
@@ -235,6 +236,8 @@ def extract_text(ctx: Context, job: dict) -> None:
 
             if not thumb_key:
                 thumb_key = store_thumbnail(ctx, file, doc, tmp)
+
+            maybe_autotitle_for_file(ctx.api, file["id"], doc)
 
             sparse = sum(1 for text in pages if len(text.strip()) < MIN_TEXT_CHARS)
             payload = job["payload"]
@@ -561,6 +564,7 @@ def thumb(ctx: Context, job: dict) -> None:
             thumb_key = store_thumbnail(ctx, file, doc, tmp)
             if thumb_key:
                 log.info("file %s slide thumbnail ready: %s", file["id"], thumb_key)
+            maybe_autotitle_for_file(ctx.api, file["id"], doc)
 
 
 HANDLERS: dict[str, Callable[[Context, dict], None]] = {
