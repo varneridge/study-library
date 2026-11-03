@@ -34,18 +34,12 @@ with sync_playwright() as p:
     expect(page.locator(".reader")).to_be_visible()
     print("Opens the reading")
 
-    # Questions link to each other, and list the week's readings.
-    page.goto(BASE + "/")
-    page.locator(".module-row").first.click()
-    page.locator("#week-AT1 .week-title").click()
-    # A question opens its session, where it is answered.
+    # A session opens from the week across modules.
     page.goto(BASE + "/?v=across&term=AT&n=1")
-    page.locator(".across-session .questions a").first.click()
-    expect(page.locator(".session-page .question-row").first).to_be_visible()
-    page.screenshot(path=f"{shots}-2-question.png", full_page=True)
-    print("a question opens its session")
-
-    # Notes say what they can do.
+    page.locator(".across-session a").first.click()
+    expect(page.locator(".session-page")).to_be_visible()
+    page.screenshot(path=f"{shots}-2-session.png", full_page=True)
+    print("a session opens from the week across modules")
     page.locator(".session-notes .bn-editor[contenteditable='true']").wait_for()
     page.wait_for_timeout(500)
     page.locator(".session-notes .bn-editor").click()

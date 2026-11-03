@@ -16,7 +16,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "jobs")
 
 
-from helpers import stamp, until
+from helpers import pick_date, stamp, until
 
 
 def server_apps(page):
@@ -263,8 +263,10 @@ with sync_playwright() as p:
     # Files: open Details and attach a CV from its row; add a link and mark Qs
     # not required from their marks in the table, each through the slot card.
     dragonfly = row("Dragonfly Intelligence")
-    dragonfly.locator(".details-toggle").click()
-    details = dragonfly.locator(".app-details")
+    open_card = lambda: dragonfly.get_by_role("button", name="Open card for Dragonfly Intelligence").click()
+    close_card = lambda: page.locator("dialog.app-sheet[open]").get_by_role("button", name="Done").click()
+    open_card()
+    details = page.locator("dialog.app-sheet[open]")
     expect(details).to_be_visible()
     slot_card = page.locator("dialog.slot-card[open]")
     cv = details.locator(".slot-row").nth(0)
@@ -276,7 +278,8 @@ with sync_playwright() as p:
     href = dragonfly.locator(".c-slot .slot.attached").get_attribute("href")
     served = page.request.get(BASE + href)
     assert served.ok and served.body().startswith(b"%PDF") and "Samuel_Leigh_CV.pdf" in served.headers["content-disposition"], served.headers
-    rd = details.locator(".slot-row").nth(2)
+    close_card()
+    expect(page.locator("dialog.app-sheet[open]")).to_have_count(0)
     mark = lambda n: dragonfly.locator(".c-slot .slot").nth(n)
     # Add a link, then Cancel, changes nothing.
     mark(2).click()
@@ -289,7 +292,9 @@ with sync_playwright() as p:
     slot_card.get_by_role("button", name="Add a link").click()
     slot_card.locator("input[type=url]").fill("careers.dragonfly.co.uk/research-intern")
     page.keyboard.press("Enter")
-    expect(rd.locator(".slot-status a")).to_have_text("careers.dragonfly.co.uk/research-intern")
+    open_card()
+    expect(details.locator(".slot-row").nth(2).locator(".slot-status a")).to_have_text("careers.dragonfly.co.uk/research-intern")
+    close_card()
     # Not required, then Undo, then Not required again.
     mark(3).click()
     page.screenshot(path=f"{shots}-7-slot-panel.png")
@@ -300,8 +305,11 @@ with sync_playwright() as p:
     mark(3).click()
     slot_card.get_by_role("button", name="Not required").click()
     expect(dragonfly.locator(".c-slot .slot.na")).to_have_count(1)
-    details.get_by_label("Notes on Dragonfly Intelligence").fill("Recruiter: Hannah. HireVue has five questions.")
-    page.locator(".jobs-summary").click()
+    open_card()
+    details.get_by_role("button", name="Open notes").click()
+    details.locator(".job-notes-textarea").fill("Recruiter: Hannah. HireVue has five questions.")
+    details.get_by_role("button", name="Done").click()
+    close_card()
     until(page, """async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const a = (j.rows.applications || []).find(a => a.employer === 'Dragonfly Intelligence');
       return a && a.file_cv && a.file_cv.name === 'Samuel_Leigh_CV.pdf' && a.file_rd && a.file_rd.url && a.file_qs && a.file_qs.state === 'na' && a.notes; }""")
     page.screenshot(path=f"{shots}-2-details.png", full_page=True)
@@ -346,45 +354,50 @@ with sync_playwright() as p:
     print("changing the Applied date moved the first Applied entry with it")
 
     # The timeline in Details: add a past event, cancel another, edit one, remove one and Undo.
-    fast.locator(".details-toggle").click()
-    tl = fast.locator(".timeline")
+    fast.get_by_role("button", name="Open card for Civil Service").click()
+    app_sheet = page.locator("dialog.app-sheet[open]")
+    expect(app_sheet).to_be_visible()
+    tl = app_sheet.locator(".timeline")
     expect(tl.locator(".tl-entry")).to_have_count(1)
     expect(tl.locator(".tl-entry .tl-when").first).to_have_text(f"{(today - timedelta(days=7)).day} {(today - timedelta(days=7)).strftime('%b %Y')}")
     tl.get_by_role("button", name="Add a past event").click()
-    editor = tl.locator(".tl-editor")
-    editor.get_by_role("button", name=re.compile(r"^Stage for this entry")).click()
+    entry_sheet = page.locator("dialog.entry-sheet[open]")
+    expect(entry_sheet).to_be_visible()
+    entry_sheet.get_by_role("button", name=re.compile(r"^Stage for this entry")).click()
     stage_card.locator(".stage-grid").get_by_role("button", name="Online test: to complete", exact=True).click()
-    editor.get_by_label("Date", exact=True).fill(iso(today - timedelta(days=2)))
-    editor.get_by_role("button", name="Add event").click()
-    expect(tl.locator(".tl-editor")).to_have_count(0)
+    pick_date(page, entry_sheet.get_by_label("Entry date"), iso(today - timedelta(days=2)))
+    entry_sheet.get_by_role("button", name="Add event").click()
+    expect(entry_sheet).to_have_count(0)
     until_stages(page, "Civil Service", ["applied", "oa_todo"])
     # The stage itself is unchanged by a past event, and the timeline says it has no date for it.
-    expect(fast.locator(".stage-chip")).to_contain_text("Applied: awaiting response")
+    expect(app_sheet.locator(".stage-chip")).to_contain_text("Applied: awaiting response")
     tl.get_by_role("button", name="Add a past event").click()
-    tl.locator(".tl-editor").get_by_role("button", name="Cancel").click()
-    expect(tl.locator(".tl-editor")).to_have_count(0)
+    entry_sheet.get_by_role("button", name="Cancel").click()
+    expect(entry_sheet).to_have_count(0)
     until_stages(page, "Civil Service", ["applied", "oa_todo"])
     tl.get_by_role("button", name=re.compile(r"^Edit the entry for Online test")).click()
-    tl.locator(".tl-editor").get_by_label("Date", exact=True).fill(iso(today - timedelta(days=1)))
-    tl.locator(".tl-editor").get_by_role("button", name="Save entry").click()
+    pick_date(page, entry_sheet.get_by_label("Entry date"), iso(today - timedelta(days=1)))
+    entry_sheet.get_by_role("button", name="Save entry").click()
     until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.application_events || []).some(e => e.application_id === 'fast' && e.stage === 'oa_todo' && e.at === '{iso(today - timedelta(days=1))}' && !e.deleted); }}")
     page.screenshot(path=f"{shots}-8-timeline.png")
     tl.get_by_role("button", name=re.compile(r"^Edit the entry for Online test")).click()
-    tl.locator(".tl-editor").get_by_role("button", name="Remove entry").click()
+    entry_sheet.get_by_role("button", name="Remove entry").click()
     expect(page.locator(".toast")).to_contain_text("The current stage is unchanged.")
     until_stages(page, "Civil Service", ["applied"])
     page.locator(".toast").get_by_role("button", name="Undo").click()
     until_stages(page, "Civil Service", ["applied", "oa_todo"])
+    app_sheet.get_by_role("button", name="Done", exact=True).click()
+    expect(app_sheet).to_have_count(0)
     # A hand-added event is never replaced by the protection against mis-taps: a change after it adds an entry.
     pick(fast, "Online test: done, awaiting result")
     until_stages(page, "Civil Service", ["applied", "oa_todo", "oa_wait"])
-    fast.locator(".details-toggle").click()
     print("timeline: a past event added, another cancelled, one edited, removed and put back, and a change after it added")
 
     # Delete, undo, delete again, restore from Recently deleted.
     castore = row("Castore")
-    castore.locator(".details-toggle").click()
-    castore.get_by_role("button", name="Delete application").click()
+    castore.get_by_role("button", name="Open card for Castore").click()
+    expect(app_sheet).to_be_visible()
+    app_sheet.get_by_role("button", name="Delete application").click()
     expect(page.locator(".toast")).to_contain_text("Castore deleted.")
     expect(row("Castore")).to_have_count(0)
     until(page, """async () => {
@@ -394,14 +407,14 @@ with sync_playwright() as p:
     }""")
     page.locator(".toast").get_by_role("button", name="Undo").click()
     expect(row("Castore")).to_have_count(1)
-    # Undo brings it back as it was, with its Details still open.
-    expect(row("Castore").locator(".details-toggle")).to_have_attribute("aria-expanded", "true")
     until(page, """async () => {
         const j = await (await fetch('/api/sync/pull?since=0')).json();
         const evs = (j.rows.application_events || []).filter(e => e.application_id === 'castore');
         return evs.length > 0 && evs.every(e => !e.deleted);
     }""")
-    row("Castore").get_by_role("button", name="Delete application").click()
+    row("Castore").get_by_role("button", name="Open card for Castore").click()
+    expect(app_sheet).to_be_visible()
+    app_sheet.get_by_role("button", name="Delete application").click()
     expect(page.locator(".jobs-bin")).to_contain_text("Castore")
     until(page, """async () => {
         const j = await (await fetch('/api/sync/pull?since=0')).json();
@@ -445,17 +458,18 @@ with sync_playwright() as p:
         page.wait_for_timeout(300)
         page.screenshot(path=f"{shots}-3-{theme}.png")
 
-    # On a phone: cards that open to edit, with targets a finger can hit.
+    # On a phone: the table opens cards, with targets a finger can hit.
     phone = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, device_scale_factor=2)
     phone.on("pageerror", lambda e: errors.append(str(e)))
     phone.goto(BASE + "/?v=jobs")
-    expect(phone.locator(".app-card")).to_have_count(5)
+    expect(phone.locator("tbody.app")).to_have_count(5)
+    expect(phone.locator(".app-card")).to_have_count(0)
     assert phone.locator(".topbar nav a").inner_text() == "Study Library"
     # Castore is overdue, so it comes first.
-    expect(phone.locator(".app-card").first.locator(".card-employer")).to_have_text("Castore")
+    expect(phone.locator("tbody.app").first.locator(".c-employer textarea")).to_have_value("Castore")
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)
-    castore_card = phone.locator(".app-card[data-app='castore']")
-    castore_card.locator(".card-head").tap()
+    castore_row = phone.locator("tbody.app[data-app='castore']")
+    castore_row.get_by_role("button", name="Open card for Castore").tap()
     app_sheet = phone.locator("dialog.app-sheet[open]")
     expect(app_sheet).to_be_visible()
     assert phone.url.endswith("app=castore")
@@ -496,7 +510,7 @@ with sync_playwright() as p:
     print("phone sheet: read-first sheet, one sheet per file slot, Done at the foot")
 
     # Edit application sheet flow:
-    castore_card.locator(".card-head").tap()
+    castore_row.get_by_role("button", name="Open card for Castore").tap()
     expect(app_sheet).to_be_visible()
     app_sheet.get_by_role("button", name="Edit details").tap()
     edit_sheet = phone.locator("dialog.edit-app-sheet[open]")
@@ -535,8 +549,8 @@ with sync_playwright() as p:
     print("New and Edit application sheets: delta save, conflict free, direct landing")
 
     # Timeline entry sheet flow on phone:
-    bain_card = phone.locator(".app-card", has_text="Bain & Company")
-    bain_card.locator(".card-head").tap()
+    bain_row = phone.locator("tbody.app[data-employer='Bain & Company']")
+    bain_row.get_by_role("button", name="Open card for Bain & Company").tap()
     expect(bain_sheet).to_be_visible()
     bain_sheet.get_by_role("button", name="Add entry", exact=True).tap()
     entry_sheet = phone.locator("dialog.entry-sheet[open]")

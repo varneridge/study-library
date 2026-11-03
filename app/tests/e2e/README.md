@@ -18,7 +18,6 @@ These drive the real app in headless Chromium against the Worker running locally
 - `test_dragging.py` covers dragging readings, dropping files, undoing moves and Go to.
 - `test_mobile.py` covers the phone: the tab bar, touch targets, sheets, swiping, finger highlighting and the installable app.
 - `test_photos.py` covers photos added together becoming one reading, and OCR reading them.
-- `test_answers.py` covers answers written beneath seminar questions.
 - `test_ux.py` covers the 0.24 pass: this week marked, week dates, highlight counts, the Readings tile, the import table, Go to's Esc and Jobs on a phone.
 - `test_jobs.py` covers the job search, and checks the study side is unchanged.
 - `test_slides_and_modules.py` covers dragging slides between sessions, moving a reading to another module, the processor's status and a stale device saving its place.
@@ -55,7 +54,6 @@ python tests/e2e/test_notes_access.py http://127.0.0.1:8790
 python tests/e2e/test_slides_and_modules.py http://127.0.0.1:8790
 python tests/e2e/test_jobs.py http://127.0.0.1:8790
 python tests/e2e/test_ux.py http://127.0.0.1:8790
-python tests/e2e/test_answers.py http://127.0.0.1:8790
 python tests/e2e/test_mobile.py http://127.0.0.1:8790
 python tests/e2e/test_photos.py http://127.0.0.1:8790
 ```

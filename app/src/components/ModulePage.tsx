@@ -125,7 +125,7 @@ function WeekCoverImage({
     );
     return (
       <div className="week-card-cover-fallback">
-        <span className="week-card-cover-display">{label}</span>
+        <span className="week-card-cover-display" title={label}>{label}</span>
       </div>
     );
   }

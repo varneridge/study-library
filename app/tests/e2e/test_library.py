@@ -96,7 +96,7 @@ with sync_playwright() as p:
     other.goto(BASE + "/")
     other.locator(".module-row", has_text="HY335").click()
     expect(other.locator(".week-card").nth(0)).to_be_visible()
-    expect(other.get_by_text("Introductory Session")).to_be_visible()
+    expect(other.get_by_text("Introductory Session").first).to_be_visible()
     other.screenshot(path=f"{shots}-7-phone.png")
     print("second device synced")
 

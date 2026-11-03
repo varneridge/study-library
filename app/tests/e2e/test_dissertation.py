@@ -12,7 +12,7 @@ BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 
 
-from helpers import until
+from helpers import pick_date, until
 
 
 ROWS = "async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows"
@@ -86,7 +86,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.locator(".crumbs a").first.click()
     page.get_by_role("button", name="Add a date").click()
     page.get_by_label("What").fill("Chapter 2 draft")
-    page.get_by_label("When").fill((today + timedelta(days=5)).isoformat())
+    pick_date(page, page.get_by_role("button", name="Key date"), (today + timedelta(days=5)).isoformat())
     page.get_by_role("button", name="Add", exact=True).click()
     expect(page.locator(".key-date-list li")).to_contain_text("in 5 days")
     page.goto(BASE + "/")

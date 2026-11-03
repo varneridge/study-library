@@ -96,21 +96,6 @@ with sync_playwright() as p:
     phone.locator("#week-AT1 .week-title").tap()
     expect(phone.locator(".week-page")).to_be_visible()
 
-    # Typing: a field with the cursor puts the tab bar away for the keyboard.
-    phone.locator(".question-row.adder textarea").tap()
-    expect(bar).to_be_hidden()
-    font = phone.evaluate("parseFloat(getComputedStyle(document.activeElement).fontSize)")
-    assert font >= 16, font
-    phone.keyboard.type("How far was the Napoleonic state new?")
-    phone.evaluate("document.activeElement.blur()")
-    expect(bar).to_be_visible()
-    print("the tab bar steps aside while typing; the field is 16px, so iOS will not zoom")
-
-    # Questions carry no evidence link; the answer is written beneath them.
-    phone.wait_for_timeout(800)
-    expect(phone.locator(".question-row a.question-open")).to_have_count(0)
-    print("questions on a phone: no evidence link")
-
     # A reading's menu is a sheet from the foot of the screen, with Cancel.
     row = phone.locator(".week-page li.reading").first
     row.get_by_role("button", name="More actions").tap()

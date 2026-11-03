@@ -40,19 +40,7 @@ with sync_playwright() as p:
 
     # Seminar questions
     page.locator(".week").nth(0).locator(".week-title").click()
-    # Typed straight into the seminar, one per line.
-    adder = page.locator(".session").nth(1).get_by_label("Add a question")
-    adder.fill("1. How far did the Cold War shape Chinese policy?\n2) Was the Three Worlds theory new?")
-    adder.press("Enter")
-    expect(page.locator(".session").nth(1).locator(".question-row:not(.adder)")).to_have_count(2)
-    page.wait_for_timeout(1500)
-    page.screenshot(path=f"{shots}-0-week.png", full_page=True)
-    print("errors so far:", errors[:3])
-    print("questions in db:", page.evaluate("async () => { const r = await fetch('/api/sync/pull?since=0'); const j = await r.json(); return (j.rows.questions || []).map(q => q.body); }"))
-    expect(page.locator("ol.questions li:not(.adder)")).to_have_count(2)
-    print("questions added:", page.locator("ol.questions li:not(.adder) textarea").evaluate_all("els => els.map(e => e.value)"))
 
-    # Highlight and file it under question 1
     page.get_by_role("link", name="Chen, J. (2001) ‘Introduction’, in Mao’s China and the Cold War, pp. 1-16").click()
     page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 3", timeout=20000)
     page.wait_for_timeout(300)
@@ -75,15 +63,6 @@ with sync_playwright() as p:
     page.wait_for_timeout(900)
     page.screenshot(path=f"{shots}-1-reader-notes.png")
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
-
-    # A question's answer is written beneath it; there is no evidence to file.
-    q1 = page.locator(".question-row", has=page.get_by_label("Question 1", exact=True)).first
-    expect(q1.locator("a.question-open")).to_have_count(0)
-    q1.locator(".question-answer .bn-editor").click()
-    page.keyboard.type("Largely, though domestic politics mattered too.")
-    page.wait_for_timeout(900)
-    page.screenshot(path=f"{shots}-2-question.png", full_page=True)
-    print("questions: answered in place, with no evidence link")
 
     # Session mode with a live recording, from the week page it is already on.
     page.locator(".session").nth(0).locator(".session-title a").click()

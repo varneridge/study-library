@@ -131,7 +131,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
                 <ul className="readings">{view.summaries.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
               </>
             )}
-            {sessions.map(({ session, notes, slides, recordings, questions }) => {
+            {sessions.map(({ session, notes, slides, recordings }) => {
               const parts = [
                 notes.length && ", notes",
                 slides.length && ", slides",
@@ -145,16 +145,6 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
                       {parts.length > 0 ? parts.join("") : ": No notes yet"}
                     </span>
                   </p>
-                  {questions.length > 0 && (
-                    <ol className="questions small">
-                      {questions.map(({ question, answered }) => (
-                        <li key={question.id}>
-                          <Link to={{ view: "session", id: question.session_id }}>{question.body}</Link>
-                          {answered && <span className="count"> answered</span>}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
                 </div>
               );
             })}

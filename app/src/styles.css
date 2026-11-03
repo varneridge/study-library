@@ -511,8 +511,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
   font-family: var(--display);
   font-variation-settings: "opsz" 72;
   font-weight: 560;
-  font-size: clamp(1.15rem, 12cqi, 2.25rem);
-  line-height: 1.2;
+  font-size: clamp(1rem, 8cqi, 1.5rem);
+  line-height: 1.3;
   color: var(--ink);
   letter-spacing: -0.02em;
   display: -webkit-box;
@@ -2145,15 +2145,35 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 
 @media (max-width: 60rem) {
   .jobs-find { max-width: none; margin-left: 0; flex-basis: 100%; }
+  .apps { table-layout: auto; }
+  .apps col.w-applied,
+  .apps col.w-stage,
+  .apps col.w-deadline,
+  .apps col.w-slot,
+  .apps thead tr:first-child th:nth-child(3),
+  .apps thead tr:first-child th:nth-child(4),
+  .apps thead tr:first-child th:nth-child(5),
+  .apps thead th.files-head,
+  .apps thead tr:nth-child(2),
+  .apps td.c-applied,
+  .apps td.c-stage,
+  .apps td.c-deadline,
+  .apps td.c-slot {
+    display: none;
+  }
+  .apps td.c-employer { width: 44%; }
+  .apps td.c-role { width: auto; }
+  .apps td.c-more { width: 2.75rem; }
 }
 /* Touch screens, and the card layout on a phone: every control in the job
    search is at least 44 pixels, as Apple's guidelines ask. */
 @media (pointer: coarse), (max-width: 60rem) {
-  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button { min-height: 2.75rem; }
+  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button, .date-picker-trigger, .settings-nav-item { min-height: 2.75rem; }
+  .settings-nav-item { display: inline-flex; align-items: center; }
   .jobs .quiet { display: inline-flex; align-items: center; }
   .jobs .slot, .jobs .details-toggle, .jobs .card-enlarge { width: 2.75rem; height: 2.75rem; }
   .jobs .card-head { min-height: 2.75rem; }
-  .jobs select, .jobs input[type="text"], .jobs input[type="search"], .jobs input[type="url"], .jobs input[type="date"] { min-height: 2.75rem; }
+  .jobs select, .jobs input[type="text"], .jobs input[type="search"], .jobs input[type="url"], .jobs input[type="date"], .jobs textarea.cell-input { min-height: 2.75rem; }
 }
 @media print {
   .jobs-tools, .details-toggle, .card-enlarge, .jobs-head .button, .jobs-bin, .slot.empty span { display: none; }

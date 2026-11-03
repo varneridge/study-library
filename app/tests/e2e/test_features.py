@@ -15,7 +15,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "features")
 
 
-from helpers import page_colour, until
+from helpers import page_colour, save_settings, until
 
 
 def figure_pdf() -> Path:
@@ -337,7 +337,7 @@ with sync_playwright() as p:
     # Naming a highlight colour.
     page.goto(BASE + "/?v=settings")
     page.get_by_label("Name for green").fill("Evidence")
-    page.get_by_role("heading", name="Settings").click()
+    save_settings(page)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.settings || []).some(r => r.value && r.value['#5fb236'] === 'Evidence'); }")
     page.screenshot(path=f"{shots}-16-settings.png", full_page=True)
     page.goto(BASE + "/")

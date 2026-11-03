@@ -132,6 +132,8 @@ interface OverlayEntry {
 }
 
 const overlayStack: OverlayEntry[] = [];
+// The overlay that closed most recently, until the end of that interaction.
+let lastClosedEntry: OverlayEntry | null = null;
 
 export function hasOpenOverlay(): boolean {
   return overlayStack.length > 0;
@@ -193,9 +195,12 @@ export function useCloseOnBack(
       pushed = true;
     } else {
       // An overlay was closing and this one is replacing it in the same interaction
-      // (e.g. Menu -> Editor/MovePicker/ReaderSheet). Update the existing entry.
+      // (e.g. Menu -> Editor/MovePicker/ReaderSheet). Update the existing entry, and
+      // tell the closing overlay its history entry now belongs to this one, so its
+      // deferred cleanup does not go back and close this overlay at once.
       window.history.replaceState({ overlay: id }, "");
-      pushed = false;
+      pushed = true;
+      if (lastClosedEntry) lastClosedEntry.popped = true;
     }
 
     const entry: OverlayEntry = {
@@ -210,12 +215,13 @@ export function useCloseOnBack(
     return () => {
       const idx = overlayStack.findIndex((e) => e.id === id);
       if (idx !== -1) overlayStack.splice(idx, 1);
-
+      lastClosedEntry = entry;
       queueMicrotask(() => {
+        if (lastClosedEntry === entry) lastClosedEntry = null;
         if (entry.popped) return;
         if (overlayStack.length === 0 && window.history.state?.overlay) {
           window.history.back();
-        } else if (overlayStack.length > 0 && entry.pushed) {
+        } else if (overlayStack.length > 0 && pushed && hasExistingOverlay) {
           // If this was a nested overlay that pushed its own entry, retreat its entry.
           window.history.back();
         }

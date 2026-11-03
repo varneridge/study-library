@@ -9,7 +9,7 @@ BASE = sys.argv[1]
 shots = str(HERE / "shots" / "notes-access")
 
 
-from helpers import until
+from helpers import pick_date, save_settings, until
 
 
 with sync_playwright() as p:
@@ -79,14 +79,16 @@ with sync_playwright() as p:
 
     # Term dates can be corrected, and the week follows.
     page.goto(BASE + "/?v=settings")
-    page.get_by_label("Autumn Term week 1").fill("2026-10-05")
+    pick_date(page, page.get_by_label("Autumn Term week 1"), "2026-10-05")
+    save_settings(page)
     page.wait_for_timeout(500)
     page.get_by_role("link", name="This week").click()
     expect(page.locator(".picker button[aria-pressed='true']")).to_have_text("1")
     print("moving the term start moves the week")
     page.goto(BASE + "/?v=settings")
-    expect(page.get_by_label("Autumn Term week 1")).to_have_value("2026-10-05")
-    page.get_by_label("Autumn Term week 1").fill("2026-09-28")
+    expect(page.get_by_label("Autumn Term week 1")).to_contain_text("5 October 2026")
+    pick_date(page, page.get_by_label("Autumn Term week 1"), "2026-09-28")
+    save_settings(page)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const r = (j.rows.settings || []).find(x => x.id === 'term-dates'); return r && r.value['2026'].AT === '2026-09-28'; }")
 
     # Slides: faint arrows on the slide that fade when left alone.
@@ -126,15 +128,6 @@ with sync_playwright() as p:
     print("and once the pointer rests:", opacity())
     assert opacity() == 0
     expect(page.get_by_role("button", name="Previous slide")).to_be_enabled()
-
-    # Questions on the seminar page, typed straight in.
-    page.get_by_role("link", name="This week").click()
-    page.locator(".across-module", has_text="HY319").locator(".across-session", has_text="Seminar").locator("a").click()
-    page.get_by_label("Add a question").fill("Why did Napoleon want a Concordat?")
-    page.get_by_label("Add a question").press("Enter")
-    expect(page.get_by_label("Question 1", exact=True)).to_have_value("Why did Napoleon want a Concordat?")
-    expect(page.get_by_label("Add a question")).to_be_focused()
-    print("a seminar question typed straight onto the page")
 
     # Phone.
     phone = browser.new_page(viewport={"width": 390, "height": 844})

@@ -25,6 +25,7 @@ from datetime import date, timedelta
 from pathlib import Path
 import pymupdf
 from playwright.sync_api import sync_playwright, expect
+from helpers import pick_date
 
 HERE = Path(__file__).resolve().parent
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8790"
@@ -126,13 +127,17 @@ CHECKS = r"""
       }
     }
 
-    // 2b. Vertical overflow where text is clipped vertically
+    // 2b. Vertical overflow where text is clipped vertically (excluding intentional multi-line ellipsis with accessible full text)
     if (el.scrollHeight > el.clientHeight + 4 && (s.overflowY === 'hidden' || s.overflow === 'hidden' || s.overflowY === 'clip')) {
-      faults.push({
-        type: "text_clipped_vertically",
-        msg: `Text clipped vertically: ${name(el)} (scrollHeight ${el.scrollHeight} > clientHeight ${el.clientHeight})`,
-        selector: name(el)
-      });
+      const clamped = s.webkitLineClamp && s.webkitLineClamp !== 'none';
+      const full = el.getAttribute('title') || el.getAttribute('aria-label') || el.closest('[title]')?.getAttribute('title');
+      if (!clamped || !full) {
+        faults.push({
+          type: "text_clipped_vertically",
+          msg: `Text clipped vertically: ${name(el)} (scrollHeight ${el.scrollHeight} > clientHeight ${el.clientHeight})`,
+          selector: name(el)
+        });
+      }
     }
   }
 
@@ -394,14 +399,6 @@ def seed_database(browser):
         page.wait_for_timeout(1000)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length >= 3; }")
 
-    # Add seminar questions to seminar session
-    page.locator("section.session").nth(1).get_by_label("Add a question").fill(
-        "1. Who counts as a citizen or migrant across varying jurisdictions, and how do imperial legacies continue to govern contemporary border control?\n"
-        "2. To what extent does methodological nationalism distort historical explanations of transnational diaspora communities?\n"
-        "3. In evaluating migration statistics between 1880 and 1914, do gross flow indices provide a superior metric compared to net stock measures?"
-    )
-    page.locator("section.session").nth(1).get_by_label("Add a question").press("Enter")
-
     # Add lecture notes and transcript
     page.locator("section.session").first.locator(".session-title a").click()
     page.locator(".session-notes .bn-editor").click()
@@ -448,13 +445,13 @@ def seed_database(browser):
     page.locator(".crumbs a").first.click()
     page.get_by_role("button", name="Add a date").click()
     page.get_by_label("What").fill("First proposal and preliminary bibliography draft submission")
-    page.get_by_label("When").fill((today + timedelta(days=4)).isoformat())
+    pick_date(page, page.get_by_role("button", name="Key date"), (today + timedelta(days=4)).isoformat())
     page.get_by_role("button", name="Add", exact=True).click()
     page.wait_for_timeout(400)
 
     page.get_by_role("button", name="Add a date").click()
     page.get_by_label("What").fill("Final dissertation submission to Department of International History")
-    page.get_by_label("When").fill((today + timedelta(days=60)).isoformat())
+    pick_date(page, page.get_by_role("button", name="Key date"), (today + timedelta(days=60)).isoformat())
     page.get_by_role("button", name="Add", exact=True).click()
     page.wait_for_timeout(400)
 
@@ -775,14 +772,14 @@ def audit_behaviours(browser):
     p.goto(BASE + "/?v=jobs")
     p.wait_for_selector("h1")
     add_btn = p.get_by_role("button", name="Add application")
-    apps_before = p.locator("li.app-card").count()
+    apps_before = p.locator("tbody.app").count()
     add_btn.click()
     try:
         add_btn.click(timeout=300)
     except Exception:
         pass
     p.wait_for_timeout(600)
-    apps_after = p.locator("li.app-card").count()
+    apps_after = p.locator("tbody.app").count()
     if apps_after > apps_before + 1:
         shot_idx += 1
         shot_path = OUT / f"behaviour_add_not_disabled_{shot_idx}.png"
@@ -838,32 +835,6 @@ def audit_behaviours(browser):
             "screenshot": f"app/tests/e2e/shots/audit/{shot_path.name}"
         })
     p.keyboard.press("Escape")
-
-    # Rule 6: Keyboard never covers field being typed in on a phone
-    # Test on week page seminar question adder at bottom of page
-    p.goto(BASE + "/")
-    p.locator(".module-row", has_text="SP335").click()
-    p.locator("#week-AT1 .week-title").click()
-    p.wait_for_selector("textarea[aria-label='Add a question']")
-    adder = p.locator("textarea[aria-label='Add a question']")
-    adder.scroll_into_view_if_needed()
-    adder.focus()
-    p.wait_for_timeout(300)
-    # Check if adder is fully inside visible viewport
-    box = adder.bounding_box()
-    if box and (box['y'] + box['height'] > 844):
-        shot_idx += 1
-        shot_path = OUT / f"behaviour_field_covered_by_keyboard_{shot_idx}.png"
-        p.screenshot(path=str(shot_path))
-        findings.append({
-            "group": "keyboard_covers_field",
-            "message": "Active input at foot of page is partially covered by viewport boundary / keyboard zone",
-            "viewport": "390x844",
-            "theme": "light",
-            "page": "Week page",
-            "selector": "textarea[aria-label='Add a question']",
-            "screenshot": f"app/tests/e2e/shots/audit/{shot_path.name}"
-        })
 
     p.close()
     return findings

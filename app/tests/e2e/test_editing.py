@@ -157,38 +157,6 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     expect(page.get_by_role("heading", name="Class: Mao and the Three Worlds")).to_be_visible()
 
-    # Questions are typed in place: a list pastes in as one question a line.
-    seminar = page.locator("section.session", has_text="Class: Mao")
-    seminar.get_by_label("Add a question").fill("1. First question here\n2. Second question here\n3. Third question here")
-    seminar.get_by_label("Add a question").press("Enter")
-    rows = seminar.locator(".question-row:not(.adder) textarea")
-    expect(rows).to_have_count(3)
-    expect(rows.first).to_have_value("First question here")
-    # Reword in place.
-    rows.nth(1).click()
-    page.keyboard.press("End")
-    page.keyboard.type(" and more")
-    # Alt and Down moves the first question down.
-    rows.first.click()
-    page.keyboard.press("Alt+ArrowDown")
-    expect(rows.first).to_have_value("Second question here and more")
-    # Enter starts a new question after the one you are in.
-    rows.last.click()
-    page.keyboard.press("End")
-    page.keyboard.press("Enter")
-    page.keyboard.type("A fourth question")
-    page.keyboard.press("Tab")
-    expect(rows).to_have_count(4)
-    # Emptying a question and pressing Backspace removes it.
-    rows.last.click()
-    page.keyboard.press("Control+a")
-    page.keyboard.press("Delete")
-    page.keyboard.press("Backspace")
-    expect(rows).to_have_count(3)
-    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const qs = (j.rows.questions || []).filter(q => !q.deleted); return qs.length === 3 && qs.some(q => q.body === 'Second question here and more'); }")
-    page.screenshot(path=f"{shots}-6-questions.png", full_page=True)
-    print("questions typed, reworded, moved, added with Enter and removed with Backspace, in place")
-
     page.get_by_role("button", name="More actions for this week").click()
     page.get_by_role("menuitem", name="Add a combined session").click()
     expect(page.locator("section.session")).to_have_count(3)
@@ -197,14 +165,6 @@ with sync_playwright() as p:
     expect(page.locator("section.session")).to_have_count(2)
     page.screenshot(path=f"{shots}-7-week.png", full_page=True)
     print("sessions and questions edited")
-
-    # A question is deleted in the list, as text is: emptied, then Backspace.
-    first = page.locator("ol.questions li:not(.adder) textarea").first
-    first.click()
-    page.keyboard.press("Control+A")
-    page.keyboard.press("Backspace")
-    page.keyboard.press("Backspace")
-    expect(page.locator("ol.questions li:not(.adder)")).to_have_count(2)
 
     # Delete a whole module with typed confirmation, then restore it.
     open_module(page, "HY206")

@@ -51,3 +51,26 @@ def drop_files(page, selector, paths, release=True):
       for (const type of ['dragenter', 'dragover']) target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
       if (release) target.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
     }""", [selector, payload, release])
+
+def pick_date(page, trigger, iso):
+    """Chooses a date in the custom date picker: opens it, steps to the month, clicks the day."""
+    import datetime
+    d = datetime.date.fromisoformat(iso)
+    trigger.click()
+    dialog = page.locator(".date-picker-dialog")
+    expect(dialog).to_be_visible()
+    cell = dialog.locator(f"button[data-iso='{iso}']")
+    for _ in range(48):
+        if cell.count() and cell.first.is_visible():
+            break
+        title = dialog.locator(".date-picker-title").inner_text()
+        shown = datetime.datetime.strptime(title.strip(), "%B %Y").date()
+        later = (d.year, d.month) > (shown.year, shown.month)
+        dialog.locator(".date-picker-next" if later else ".date-picker-prev").click()
+    cell.first.click()
+
+
+def save_settings(page):
+    """Settings has one Save changes button at the foot."""
+    page.get_by_role("button", name="Save changes").click()
+    expect(page.locator(".toast")).to_contain_text("Settings saved")
