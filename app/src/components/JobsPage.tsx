@@ -18,9 +18,9 @@ import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
 import { shortDate } from "../lib/dates";
 import { DateField, Deadline, OrderButton, SlotMark, SlotRow, slotTitle, StageButton, TextField, Timeline } from "./jobs/Controls";
-import { AppList } from "./jobs/AppList";
 import { AppSheet } from "./jobs/AppSheet";
 import { ApplicationForm } from "./jobs/ApplicationForm";
+
 import { EntryForm } from "./jobs/EntryForm";
 import { Sheet } from "./Sheet";
 import { navigate, useRoute } from "../lib/router";
@@ -48,64 +48,6 @@ function useAppsHeaderHeight() {
   return setHead;
 }
 
-function Details({ app, events, onDone }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; onDone: () => void;
-}) {
-  const remove = async () => {
-    await deleteApplication(app.id);
-    showToast(`${app.employer || "Application"} deleted.`, { label: "Undo", run: () => void restoreApplication(app.id) });
-  };
-  const notes = (
-    <TextField
-      multiline value={app.notes ?? ""} label={`Notes on ${app.employer || "this application"}`}
-      placeholder="Notes: contacts, interview times, what they asked"
-      onSave={(v) => void saveApplication(app.id, { notes: v || null })}
-    />
-  );
-  const files = <ul className="slot-list" aria-label="Files">{SLOTS.map((slot) => <SlotRow key={slot.name} app={app} slot={slot} />)}</ul>;
-  return (
-    <div className="app-details app-card-surface">
-      <div className="app-details-header">
-        <div>
-          <h2 className="app-details-title">{app.employer || "Application"}</h2>
-          {app.role && <p className="small muted" style={{ margin: "0.15rem 0 0" }}>{app.role}</p>}
-        </div>
-        <div className="app-details-actions">
-          <button
-            type="button"
-            className="quiet"
-            onClick={() => navigate({ view: "jobs", app: app.id })}
-          >
-            Open modal
-          </button>
-          <button type="button" className="button small" onClick={onDone}>Done</button>
-        </div>
-      </div>
-      <div className="app-details-grid">
-        <div className="app-notes app-details-panel"><h3 className="detail-head">Notes</h3>{notes}</div>
-        <div className="app-timeline-panel app-details-panel"><Timeline app={app} events={events} /></div>
-        <div className="app-files app-details-panel"><h3 className="detail-head">Files</h3>{files}</div>
-      </div>
-      <div className="app-foot">
-        <button type="button" className="button" onClick={onDone}>Close</button>
-        <button type="button" className="quiet danger" onClick={remove}>Delete application</button>
-      </div>
-    </div>
-  );
-}
-
-function DetailsToggle({ open, onToggle, app }: { open: boolean; onToggle: () => void; app: ApplicationRow }) {
-  return (
-    <button
-      type="button" className={`icon-button details-toggle button-card-toggle${open ? " open" : ""}`}
-      aria-expanded={open} aria-label={`Details for ${app.employer || "this application"}`} title="Notes, files and Delete"
-      onClick={onToggle}
-    >
-      <Icon name="caret" />
-    </button>
-  );
-}
-
 // A new application with nothing typed in it is let go once you leave it.
 // One you filled in takes its place in the order instead.
 function useDiscardWhenLeft(id: string, fresh: boolean, onLeft: (gone: boolean) => void) {
@@ -122,8 +64,8 @@ function useDiscardWhenLeft(id: string, fresh: boolean, onLeft: (gone: boolean) 
   }, [id, fresh, onLeft]);
 }
 
-function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
-  app: ApplicationRow; events: ApplicationEventRow[]; open: boolean; fresh: boolean; onToggle: (to?: boolean) => void; onLeft: (gone: boolean) => void;
+function TableRow({ app, events, fresh, onLeft }: {
+  app: ApplicationRow; events: ApplicationEventRow[]; fresh: boolean; onLeft: (gone: boolean) => void;
 }) {
   const leave = useDiscardWhenLeft(app.id, fresh, onLeft);
   const since = currentStageSince(app, events);
@@ -134,7 +76,7 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
     showToast("New application cancelled.");
   };
   return (
-    <tbody className={`app${isOpen(app) ? "" : " closed"}${open ? " expanded" : ""}`} data-app={app.id} data-employer={app.employer} onBlur={leave}>
+    <tbody className={`app${isOpen(app) ? "" : " closed"}`} data-app={app.id} data-employer={app.employer} onBlur={leave}>
       <tr>
         <td className="c-employer">
           <TextField wrap className="cell-input strong" value={app.employer} label="Employer" placeholder="Employer" autoFocus={fresh} onSave={(v) => void saveApplication(app.id, { employer: v })} />
@@ -153,23 +95,22 @@ function TableRow({ app, events, open, fresh, onToggle, onLeft }: {
           {fresh ? (
             <button type="button" className="icon-button new-cancel" aria-label="Cancel the new application" title="Cancel" onClick={() => void cancelNew()}><Icon name="close" /></button>
           ) : (
-            <DetailsToggle open={open} app={app} onToggle={() => onToggle()} />
+            <button
+              type="button"
+              className="icon-button card-enlarge"
+              aria-label={`Open card for ${app.employer || "this application"}`}
+              title="Open card"
+              onClick={() => navigate({ view: "jobs", app: app.id })}
+            >
+              <Icon name="enlarge" />
+            </button>
           )}
         </td>
       </tr>
-      {open && (
-        <tr className="details-row">
-          <td colSpan={10}>
-            <Details
-              app={app} events={events}
-              onDone={() => { onToggle(false); requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-app="${app.id}"] .details-toggle`)?.focus()); }}
-            />
-          </td>
-        </tr>
-      )}
     </tbody>
   );
 }
+
 
 function SummaryLine({ apps }: { apps: ApplicationRow[] }) {
   const s = summarise(apps);
@@ -230,13 +171,12 @@ export function JobsPage() {
   }, [events]);
   const [filter, setFilter] = useState<Filter>("all");
   const [order, setOrder] = useState<Order>("deadline");
-  const [layout, setLayout] = useState<"table" | "cards">("table");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<Set<string>>(new Set());
   const [fresh, setFresh] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const addingRef = useRef(false);
   const find = useRef<HTMLInputElement>(null);
+
 
   const add = useCallback(async () => {
     if (addingRef.current) return;
@@ -282,16 +222,10 @@ export function JobsPage() {
 
   if (!all) return <div className="page wide" aria-busy="true" />;
 
-  const toggle = (id: string) => (to?: boolean) => setOpen((current) => {
-    const next = new Set(current);
-    const want = to ?? !next.has(id);
-    if (want) next.add(id); else next.delete(id);
-    return next;
-  });
-  const left = (id: string) => (gone: boolean) => {
+  const left = (id: string) => (_gone: boolean) => {
     setFresh((f) => (f === id ? null : f));
-    if (gone) setOpen((s) => { const n = new Set(s); n.delete(id); return n; });
   };
+
   const counts = { all: all.length, open: all.filter(isOpen).length, closed: all.filter((a) => !isOpen(a)).length };
   const closedHeading = order === "deadline" && filter === "all" && shown.some(isOpen) && shown.some((a) => !isOpen(a));
   const jobRoute = route.view === "jobs" ? route : null;
@@ -323,10 +257,6 @@ export function JobsPage() {
             ))}
           </div>
           <OrderButton order={order} onChange={setOrder} />
-          <div className="segmented wide-only" role="group" aria-label="Layout">
-            <button type="button" className="tool" aria-pressed={layout === "table"} onClick={() => setLayout("table")}>Table</button>
-            <button type="button" className="tool" aria-pressed={layout === "cards"} onClick={() => setLayout("cards")}>Cards</button>
-          </div>
           <input
             ref={find} type="search" className="jobs-find" placeholder="Find an employer or role" aria-label="Find an application (/)"
             inputMode="search" enterKeyHint="search" autoCorrect="off" spellCheck={false}
@@ -343,8 +273,6 @@ export function JobsPage() {
         </div>
       ) : shown.length === 0 ? (
         <p className="muted jobs-none">{query ? `Nothing matches “${query}”.` : filter === "open" ? "No open applications." : "No closed applications."}</p>
-      ) : narrow || layout === "cards" ? (
-        <AppList apps={shown} eventsFor={eventsFor} closedHeading={closedHeading} />
       ) : (
         <div className="apps-wrap">
           <table className="apps">
@@ -372,12 +300,13 @@ export function JobsPage() {
                 {closedHeading && !isOpen(app) && (i === 0 || isOpen(shown[i - 1])) && app.id !== fresh && (
                   <tbody className="closed-head"><tr><th colSpan={10} scope="rowgroup">Closed</th></tr></tbody>
                 )}
-                <TableRow app={app} events={eventsFor(app.id)} open={open.has(app.id)} fresh={fresh === app.id} onToggle={toggle(app.id)} onLeft={left(app.id)} />
+                <TableRow app={app} events={eventsFor(app.id)} fresh={fresh === app.id} onLeft={left(app.id)} />
               </Fragment>
             ))}
           </table>
         </div>
       )}
+
 
       {jobRoute?.newApp && (
         <Sheet

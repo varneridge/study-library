@@ -144,3 +144,23 @@ export function readingFileName(item: Pick<ItemRow, "kind" | "author" | "year" |
   const name = item.kind === "slides" ? item.title : item.kind === "primary" ? fullTitle(item) : shortTitle(item);
   return safeFileName(name, extensionFor(file.mime, file.original_name));
 }
+
+export function splitFileName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1 || name.length - dot > 8) return { stem: name, ext: "" };
+  return { stem: name.slice(0, dot), ext: name.slice(dot) };
+}
+
+export function truncateMiddle(name: string, max: number): string {
+  const all = Array.from(name);
+  if (max < 1 || all.length <= max) return all.length <= max ? name : "\u2026";
+  const { stem, ext } = splitFileName(name);
+  const extLen = Array.from(ext).length;
+  const useExt = max - extLen - 1 >= 2;
+  const body = useExt ? Array.from(stem) : all;
+  const budget = useExt ? max - extLen - 1 : max - 1;
+  const head = Math.ceil(budget * 0.6);
+  const tail = budget - head;
+  return body.slice(0, head).join("") + "\u2026" + (tail > 0 ? body.slice(-tail).join("") : "") + (useExt ? ext : "");
+}
+

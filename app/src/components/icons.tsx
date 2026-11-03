@@ -30,7 +30,9 @@ const paths: Record<string, React.ReactNode> = {
   pages: <><rect x="3.75" y="2.75" width="5.5" height="7" /><rect x="10.75" y="2.75" width="5.5" height="7" /><rect x="3.75" y="11.25" width="5.5" height="6" /><rect x="10.75" y="11.25" width="5.5" height="6" /></>,
   outline: <path d="M4 5h12M4 10h12M7 15h9M4 15h.5M4 10h.5" />,
   keyboard: <><rect x="2.75" y="5.25" width="14.5" height="9.5" /><path d="M5.5 8h1M9.5 8h1M13.5 8h1M5.5 11.5h9" /></>,
+  enlarge: <><path d="M13 3.5h3.5v3.5M7 16.5H3.5V13M16.5 3.5 11 9M3.5 16.5 9 11" /></>,
 };
+
 
 export type IconName = keyof typeof paths;
 

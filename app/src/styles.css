@@ -501,16 +501,40 @@ label.field { display: block; margin-bottom: 0.9rem; }
   align-items: flex-end;
   padding: 0.75rem;
   box-sizing: border-box;
+  container-type: inline-size;
 }
 .week-card-cover-display {
   font-family: var(--display);
   font-variation-settings: "opsz" 72;
   font-weight: 560;
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
-  line-height: 1.25;
+  font-size: clamp(1.15rem, 12cqi, 2.25rem);
+  line-height: 1.2;
   color: var(--ink);
   letter-spacing: -0.02em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
+
+.section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font: inherit;
+  color: inherit;
+  padding: 0.2rem 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.section-toggle:focus-visible { outline: 2px solid var(--accent); }
+.section-toggle .toggle-count { font-weight: 400; color: var(--muted); margin-left: 0.25rem; font-size: var(--fs-sm); }
+
+
 
 .this-week-pill {
   position: absolute;
@@ -1655,10 +1679,43 @@ img, canvas, video { max-width: 100%; }
 @media (max-width: 34rem) { .week-sessions { margin-left: 0.4rem; gap: 0.45rem; } }
 
 /* Slides: the arrows sit on the slide, faint, and fade out when idle. */
-.slides-head { display: flex; align-items: center; min-height: 1.6rem; margin-bottom: 0.35rem; }
+.slides-head { display: flex; align-items: center; justify-content: space-between; min-height: 1.6rem; margin-bottom: 0.35rem; }
 .slides-head select { width: auto; min-height: 1.8rem; font-size: var(--fs-sm); }
+.slide-enlarge { color: var(--muted); padding: 0.2rem; border-radius: var(--r-xs); }
+.slide-enlarge:hover, .slide-enlarge:focus-visible { color: var(--accent); background: var(--surface); }
+
+.slide-stage { position: relative; width: 100%; aspect-ratio: var(--slide-ar, 16 / 9); display: flex; justify-content: center; align-items: center; }
+.slide-frame { position: absolute; inset: 0; display: grid; place-items: center; max-width: 100%; }
+.slide-frame canvas { max-width: 100%; max-height: 100%; }
+
+/* Slide lightbox modal */
+.slide-lightbox {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column;
+  background: rgba(18, 20, 24, 0.92); backdrop-filter: blur(8px);
+}
+.slide-lightbox-backdrop { position: absolute; inset: 0; }
+.slide-lightbox-header {
+  position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.25rem; color: #FFFFFF; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.slide-lightbox-title { font-size: var(--fs-sm); font-weight: 500; }
+.slide-lightbox-count { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.7); }
+.slide-lightbox-close { background: rgba(255, 255, 255, 0.15); color: #FFFFFF; border: 0; }
+.slide-lightbox-close:hover { background: rgba(255, 255, 255, 0.25); }
+.slide-lightbox-content {
+  position: relative; z-index: 1; flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; overflow: hidden;
+}
+.slide-lightbox-content canvas { max-width: 95vw; max-height: 85vh; object-fit: contain; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
+.slide-lightbox .slide-arrow { opacity: 0.85; width: 2.75rem; height: 3.5rem; }
+.slide-lightbox .slide-arrow.prev { left: 1rem; }
+.slide-lightbox .slide-arrow.next { right: 1rem; }
+
 .slide-arrow {
-  position: absolute; top: 50%; translate: 0 -50%; transform: translateY(-50%); z-index: 2;
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+
+
   width: 2rem; height: 2.6rem; display: grid; place-items: center; padding: 0; border: 0;
   /* A dark translucent scrim with white glyph so arrows remain readable against any slide in every theme. */
   background: rgba(0, 0, 0, 0.45); color: #FFFFFF; border-radius: var(--r-xs);
@@ -1805,6 +1862,9 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .slot.over { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); }
 .details-toggle svg { transition: transform 0.15s ease; }
 .details-toggle.open svg { transform: rotate(180deg); }
+.card-enlarge { color: var(--muted); border-radius: var(--r-sm); }
+.card-enlarge:hover, .card-enlarge:focus-visible { color: var(--accent); background: var(--surface); }
+
 .details-open svg { transform: rotate(-90deg); }
 
 /* Details: notes, files and Delete, presented as an elevated card */
@@ -1861,10 +1921,15 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
   }
 }
 .app-details .app-notes textarea { min-height: 5rem; resize: vertical; font-size: var(--fs-sm); line-height: 1.5; }
+.truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filename { display: inline-flex; min-width: 0; max-width: 100%; vertical-align: bottom; }
+.filename-fixed { flex: none; white-space: nowrap; }
 .slot-list { list-style: none; margin: 0; padding: 0; }
 .slot-row { display: grid; gap: 0.15rem 0.75rem; font-size: var(--fs-sm); }
 .slot-label { font-weight: 600; }
-.slot-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: baseline; gap: 0.35rem; }
+.slot-status a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; }
+
 .app-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 0.5rem; border-top: 1px solid var(--rule); }
 .quiet.danger { color: var(--danger); }
 
@@ -1957,12 +2022,13 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 @media (pointer: coarse), (max-width: 60rem) {
   .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button { min-height: 2.75rem; }
   .jobs .quiet { display: inline-flex; align-items: center; }
-  .jobs .slot, .jobs .details-toggle { width: 2.75rem; height: 2.75rem; }
+  .jobs .slot, .jobs .details-toggle, .jobs .card-enlarge { width: 2.75rem; height: 2.75rem; }
   .jobs .card-head { min-height: 2.75rem; }
   .jobs select, .jobs input[type="text"], .jobs input[type="search"], .jobs input[type="url"], .jobs input[type="date"] { min-height: 2.75rem; }
 }
 @media print {
-  .jobs-tools, .details-toggle, .jobs-head .button, .jobs-bin, .slot.empty span { display: none; }
+  .jobs-tools, .details-toggle, .card-enlarge, .jobs-head .button, .jobs-bin, .slot.empty span { display: none; }
+
   .apps thead { position: static; }
 }
 
@@ -2298,7 +2364,8 @@ dialog.choice-card.sheet::backdrop { background: color-mix(in srgb, var(--ink) 3
 @media (prefers-reduced-motion: reduce) { dialog.choice-card.sheet { animation: none; } }
 .choice-head { margin-bottom: 0.8rem; }
 .choice-title { font-family: var(--sans); font-size: var(--fs-md); font-weight: 600; line-height: 1.3; margin: 0; }
-.choice-now { margin: 0.15rem 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.choice-now { margin: 0.15rem 0 0; font-size: var(--fs-sm); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .choice-foot { display: flex; justify-content: flex-end; margin-top: 0.9rem; }
 /* On a phone Cancel stays in view at the foot of the sheet, however long it is. */
 .choice-card.sheet .choice-foot {

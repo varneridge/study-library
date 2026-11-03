@@ -1,7 +1,8 @@
 import { navigate } from "../lib/router";
 import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
-import { moveSection, addSection, isDissertation, isLibrary, moduleHasSessions, saveKeyDates, countdown } from "../lib/sections";
+import { moveSection, addSection, isDissertation, isLibrary, moduleHasSessions, saveKeyDates, countdown, coverLabel, type CoverVariant } from "../lib/sections";
+
 import { Menu } from "./Menu";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
@@ -22,6 +23,9 @@ import { uploadModulePicture } from "../lib/uploads";
 import { downloadWeekArchive } from "../lib/weekArchive";
 import { MoveSelect, ReadingRow } from "./ReadingRow";
 import { ModuleSettings } from "./ModuleSettings";
+import { Icon } from "./icons";
+import { setSetting, useSetting } from "../lib/settings";
+
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
   const { read, total } = counts;
@@ -94,17 +98,47 @@ function TraySection({ tray, weeks }: { tray: ReadingView[]; weeks: WeekRow[] })
   );
 }
 
-function WeekCoverImage({ thumbKey, code, isSec, weekNumber }: { thumbKey: string | null; code: string; isSec: boolean; weekNumber: number }) {
-  const [failed, setFailed] = useState(false);
+function WeekCoverImage({
+
+  thumbKey,
+  title,
+  code,
+  isSec,
+  isShelf,
+  weekNumber,
+}: {
+  thumbKey: string | null;
+  title?: string | null;
+  code: string;
+  isSec: boolean;
+  isShelf?: boolean;
+  weekNumber: number;
+}) {
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const failed = thumbKey !== null && failedKey === thumbKey;
+
   if (!thumbKey || failed) {
+    const label = coverLabel(
+      { title, code, number: weekNumber },
+      isShelf ? "shelf" : isSec ? "section" : "week",
+    );
     return (
       <div className="week-card-cover-fallback">
-        <span className="week-card-cover-display">{isSec ? `Section ${weekNumber}` : code}</span>
+        <span className="week-card-cover-display">{label}</span>
       </div>
     );
   }
-  return <img src={`/api/objects/${thumbKey}`} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
+  return (
+    <img
+      src={`/api/objects/${thumbKey}`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailedKey(thumbKey)}
+    />
+  );
 }
+
 
 function WeekCard({
   overview,
@@ -126,7 +160,9 @@ function WeekCard({
   const coverPickerRef = useRef<HTMLInputElement>(null);
   const summary = formatReadingCount(readingCount);
   const isSec = isSection(week);
+  const isShelf = isLibrary(module);
   const code = weekCode(week);
+
 
   const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -185,7 +221,15 @@ function WeekCard({
         tabIndex={-1}
         ariaHidden={true}
       >
-        <WeekCoverImage thumbKey={thumb_key} code={code} isSec={isSec} weekNumber={week.number} />
+        <WeekCoverImage
+          thumbKey={thumb_key}
+          title={week.title}
+          code={code}
+          isSec={isSec}
+          isShelf={isShelf}
+          weekNumber={week.number}
+        />
+
       </Link>
       {isCurrentWeek && <span className="this-week-tag this-week-pill">This week</span>}
       <div className="week-card-actions">
@@ -327,11 +371,14 @@ export function ModulePage({ id }: { id: string }) {
   const now = useTeachingWeek();
   const dates = useTermDates();
   const data = useLiveQuery(() => loadModuleOverview(id, now), [id, now]);
+  const isCollapsed = useSetting<boolean>(`collapse:admin:${id}`, false);
+  const [forcedOpen, setForcedOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const scrolledRef = useRef(false);
   useTitle(data?.module.code);
+
 
   useEffect(() => {
     if (data && !scrolledRef.current) {
@@ -388,6 +435,19 @@ export function ModulePage({ id }: { id: string }) {
   const customSectionsOnly = dissertation || library;
   const customSections = weeks.filter((w) => w.week.term === "S");
   const termWeeks = weeks.filter((w) => w.week.term !== "S");
+  const adminOpen = !isCollapsed || forcedOpen;
+  const toggleAdmin = () => {
+    if (adminOpen) {
+      setForcedOpen(false);
+      setRenamingId(null);
+      void setSetting(`collapse:admin:${id}`, true);
+    } else {
+      setForcedOpen(false);
+      void setSetting(`collapse:admin:${id}`, false);
+    }
+  };
+
+
 
   return (
     <div className="page wide">
@@ -447,10 +507,22 @@ export function ModulePage({ id }: { id: string }) {
 
       {!customSectionsOnly && customSections.length > 0 && (
         <section className="section course-materials" style={{ marginTop: "1rem" }}>
-          <div className="section-head">
-            <h2>Course materials & admin</h2>
+          <div className="section-head" style={{ marginBottom: adminOpen ? "0.75rem" : 0 }}>
+            <h2 style={{ margin: 0 }}>
+              <button
+                type="button"
+                className="section-toggle"
+                aria-expanded={adminOpen}
+                aria-controls={`admin-grid-${module.id}`}
+                onClick={toggleAdmin}
+              >
+                <Icon name={adminOpen ? "down" : "caret"} size={16} />
+                <span>Course materials & admin</span>
+                <span className="toggle-count">({customSections.length})</span>
+              </button>
+            </h2>
           </div>
-          <div className="week-grid">
+          <div id={`admin-grid-${module.id}`} className="week-grid" hidden={!adminOpen}>
             {customSections.map((ov) => (
               <WeekCard
                 key={ov.week.id}
@@ -465,6 +537,8 @@ export function ModulePage({ id }: { id: string }) {
           </div>
         </section>
       )}
+
+
 
       {!customSectionsOnly && termWeeks.length > 0 && (
         <nav className="jump" aria-label="Weeks">

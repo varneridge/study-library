@@ -12,6 +12,8 @@ import { showToast } from "../../lib/ui";
 import { Icon } from "../icons";
 import { ChoiceCard } from "../ChoiceCard";
 import { EntryForm } from "./EntryForm";
+import { FileName } from "../FileName";
+
 
 export type Slot = (typeof SLOTS)[number];
 
@@ -357,9 +359,10 @@ export function SlotCard({ open, onClose, anchor, app, slot }: {
         <div className="choice-rows">
           {attached && link && (
             <button type="button" className="choice-row" onClick={() => { onClose(); window.open(link, "_blank", "noopener"); }}>
-              {value?.key ? `Open ${value.name ?? "the file"}` : "Open the link"}
+              {value?.key && value.name ? <span style={{ display: "flex", gap: "0.25rem", minWidth: 0, overflow: "hidden" }}>Open <FileName name={value.name} /></span> : value?.key ? "Open the file" : "Open the link"}
             </button>
           )}
+
           <button type="button" className="choice-row" onClick={() => picker.current?.click()}>
             {value?.state === "saved" && value.key ? "Replace the file" : "Attach a file"}
           </button>
@@ -427,11 +430,12 @@ export function SlotRow({ app, slot }: { app: ApplicationRow; slot: Slot }) {
   if (value?.state === "na") status = <span className="muted">Not required</span>;
   if (value?.state === "saved") {
     status = value.key
-      ? <a href={link!} target="_blank" rel="noopener">{value.name ?? "Open file"}</a>
+      ? <a href={link!} target="_blank" rel="noopener">{value.name ? <FileName name={value.name} /> : "Open file"}</a>
       : value.url
         ? <a href={link!} target="_blank" rel="noopener" className="slot-url">{value.url.replace(/^https?:\/\//, "")}</a>
         : <span>Sent, no file attached</span>;
   }
+
   return (
     <li className="slot-row">
       <span className="slot-label">{slot.label}</span>

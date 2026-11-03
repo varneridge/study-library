@@ -17,6 +17,20 @@ export const moduleHasNotes = (module: Pick<ModuleRow, "kind"> | null | undefine
 export const moduleHasSessions = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind !== "library";
 export const moduleHasMeetings = (module: Pick<ModuleRow, "kind"> | null | undefined) => module?.kind === "dissertation";
 
+export type CoverVariant = "week" | "section" | "shelf";
+
+export function coverLabel(
+  week: { title?: string | null; code?: string | null; number: number },
+  variant: CoverVariant,
+): string {
+  const title = week.title?.trim();
+  if (title) return title;
+  if (variant === "section") return `Section ${week.number}`;
+  if (variant === "shelf") return `Shelf ${week.number}`;
+  return week.code?.trim() || `Week ${week.number}`;
+}
+
+
 async function sectionsOf(moduleId: string): Promise<WeekRow[]> {
   return (await db.weeks.where("module_id").equals(moduleId).toArray()).filter((w) => !w.deleted && w.term === "S").sort(byWeek);
 }

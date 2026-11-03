@@ -3,10 +3,11 @@ process.env.TZ = "Europe/London";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { keyBetween, keysAfter } from "../src/lib/keys";
-import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName } from "../src/lib/names";
+import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extensionFor, readingFileName, splitFileName, truncateMiddle } from "../src/lib/names";
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
-import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../src/lib/sections";
+import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings, coverLabel } from "../src/lib/sections";
+
 import { notesLabel } from "../src/lib/modules";
 import { storedAccent, ACCENTS } from "../src/lib/appearance";
 import { crc32, createZip } from "../src/lib/zip";
@@ -949,7 +950,32 @@ test("zip builder creates valid zip bytes with crc32", () => {
   assert.equal(zip[3], 0x04);
 });
 
+test("splitFileName splits stem and extension correctly", () => {
+  assert.deepEqual(splitFileName("document.pdf"), { stem: "document", ext: ".pdf" });
+  assert.deepEqual(splitFileName("archive.tar.gz"), { stem: "archive.tar", ext: ".gz" });
+  assert.deepEqual(splitFileName(".env"), { stem: ".env", ext: "" });
+  assert.deepEqual(splitFileName("noextension"), { stem: "noextension", ext: "" });
+  assert.deepEqual(splitFileName("file.verylongextension"), { stem: "file.verylongextension", ext: "" });
+});
+
+test("truncateMiddle truncates long filenames while preserving extension", () => {
+  assert.equal(truncateMiddle("short.pdf", 20), "short.pdf");
+  const truncated = truncateMiddle("a_very_long_document_name_final_version.docx", 20);
+  assert.ok(truncated.endsWith(".docx"));
+  assert.ok(truncated.includes("\u2026"));
+  assert.ok(truncated.length <= 20);
+});
+
+test("coverLabel returns title when present, or falls back to section/shelf/code", () => {
+  assert.equal(coverLabel({ title: "My Special Topic", code: "AT1", number: 1 }, "week"), "My Special Topic");
+  assert.equal(coverLabel({ title: "", code: "AT1", number: 1 }, "week"), "AT1");
+  assert.equal(coverLabel({ title: null, code: "S1", number: 2 }, "section"), "Section 2");
+  assert.equal(coverLabel({ title: null, code: "S1", number: 3 }, "shelf"), "Shelf 3");
+  assert.equal(coverLabel({ title: "  ", code: null, number: 4 }, "week"), "Week 4");
+});
+
 if (failed) {
+
   console.log(`\n${failed} failed`);
   process.exit(1);
 }

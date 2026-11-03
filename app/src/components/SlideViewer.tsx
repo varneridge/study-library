@@ -4,19 +4,155 @@ import { useEffect, useRef, useState } from "react";
 import { fileBlob } from "../lib/files";
 import type { ReadingView } from "../lib/library";
 import { shortTitle } from "../lib/titles";
+import { Icon } from "./icons";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+function SlideLightbox({
+  doc,
+  page,
+  title,
+  onGo,
+  onClose,
+}: {
+  doc: PDFDocumentProxy;
+  page: number;
+  title: string;
+  onGo: (page: number) => void;
+  onClose: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const renderTaskRef = useRef<RenderTask | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      } else if (e.key === "ArrowRight" || e.key === "PageDown") {
+        onGo(Math.min(page + 1, doc.numPages - 1));
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        onGo(Math.max(page - 1, 0));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doc.numPages, page, onGo, onClose]);
+
+  useEffect(() => {
+    if (!canvasRef.current || !containerRef.current) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const prior = renderTaskRef.current;
+        if (prior) {
+          try { prior.cancel(); } catch { /* ignore */ }
+          await prior.promise.catch(() => {});
+          if (cancelled) return;
+        }
+
+        const pdfPage = await doc.getPage(page + 1);
+        if (cancelled) return;
+        const unit = pdfPage.getViewport({ scale: 1 });
+        const maxWidth = window.innerWidth * 0.92;
+        const maxHeight = window.innerHeight * 0.85;
+        const scale = Math.min(maxWidth / unit.width, maxHeight / unit.height);
+        const viewport = pdfPage.getViewport({ scale });
+        let ratio = Math.min(window.devicePixelRatio || 1, 2);
+        const maxPixels = 16_000_000;
+        const pixelArea = viewport.width * ratio * (viewport.height * ratio);
+        if (pixelArea > maxPixels) {
+          ratio *= Math.sqrt(maxPixels / pixelArea);
+        }
+
+        const target = canvasRef.current;
+        if (!target) return;
+        target.width = Math.floor(viewport.width * ratio);
+        target.height = Math.floor(viewport.height * ratio);
+        target.style.width = `${viewport.width}px`;
+        target.style.height = `${viewport.height}px`;
+
+        const ctx = target.getContext("2d");
+        if (!ctx) return;
+
+        const renderTask = pdfPage.render({
+          canvasContext: ctx,
+          viewport,
+          transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined,
+        });
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+      } catch (err: unknown) {
+        if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "RenderingCancelledException") {
+          return;
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch { /* ignore */ }
+      }
+    };
+  }, [doc, page]);
+
+
+  return (
+    <div className="slide-lightbox" role="dialog" aria-modal="true" aria-label={`Enlarged slides: ${title}`}>
+      <div className="slide-lightbox-backdrop" onClick={onClose} />
+      <div className="slide-lightbox-header">
+        <span className="slide-lightbox-title">{title}</span>
+        <span className="slide-lightbox-count">{page + 1} / {doc.numPages}</span>
+        <button type="button" className="button small slide-lightbox-close" onClick={onClose} aria-label="Close enlarged slides">
+          Close
+        </button>
+      </div>
+      <div ref={containerRef} className="slide-lightbox-content">
+        <canvas ref={canvasRef} />
+        {doc.numPages > 1 && (
+          <>
+            <button
+              type="button"
+              className="slide-arrow prev"
+              aria-label="Previous slide"
+              disabled={page === 0}
+              onClick={() => onGo(page - 1)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
+            </button>
+            <button
+              type="button"
+              className="slide-arrow next"
+              aria-label="Next slide"
+              disabled={page === doc.numPages - 1}
+              onClick={() => onGo(page + 1)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // One slide at a time. Turning a slide during a recording stores a mark.
 export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   const [deck, setDeck] = useState(0);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(0);
+  const [enlarged, setEnlarged] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [width, setWidth] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
+  const genRef = useRef(0);
+  const enlargeButtonRef = useRef<HTMLButtonElement>(null);
   const view = decks[Math.min(deck, decks.length - 1)];
 
   useEffect(() => {
@@ -24,6 +160,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
     let loaded: PDFDocumentProxy | null = null;
     setDoc(null);
     setPage(0);
+    setAspectRatio(null);
     void (async () => {
       try {
         const blob = view.file?.mime === "application/pdf" ? await fileBlob(view.file)
@@ -36,6 +173,12 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         if (!cancelled) {
           setDoc(loaded);
           setProblem(null);
+          void loaded.getPage(1).then((p) => {
+            const vp = p.getViewport({ scale: 1 });
+            if (!cancelled && vp.width && vp.height) {
+              setAspectRatio(vp.width / vp.height);
+            }
+          }).catch(() => {});
         }
       } catch {
         if (!cancelled) setProblem("These slides could not be opened.");
@@ -50,20 +193,20 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   useEffect(() => {
     if (!doc || !canvas.current || !box.current) return;
     let cancelled = false;
-
-    if (renderTaskRef.current) {
-      try {
-        renderTaskRef.current.cancel();
-      } catch {
-        // Ignore cancellation errors
-      }
-      renderTaskRef.current = null;
-    }
+    const currentGen = ++genRef.current;
 
     void (async () => {
       try {
+        const prior = renderTaskRef.current;
+        if (prior) {
+          try { prior.cancel(); } catch { /* ignore */ }
+          await prior.promise.catch(() => {});
+          if (cancelled || currentGen !== genRef.current) return;
+        }
+
         const pdfPage = await doc.getPage(page + 1);
-        if (cancelled) return;
+        if (cancelled || currentGen !== genRef.current) return;
+
         const unit = pdfPage.getViewport({ scale: 1 });
         const boxWidth = box.current ? box.current.clientWidth : 0;
         if (!boxWidth) return;
@@ -88,7 +231,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         renderTaskRef.current = renderTask;
 
         await renderTask.promise;
-        if (cancelled) return;
+        if (cancelled || currentGen !== genRef.current) return;
 
         const target = canvas.current;
         if (!target) return;
@@ -121,6 +264,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, page, width]);
 
+
   // The slide is drawn again when its column changes width.
   useEffect(() => {
     const element = box.current;
@@ -131,6 +275,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   }, []);
 
   useEffect(() => {
+    if (enlarged) return;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea, select, [contenteditable='true']")) return;
@@ -139,7 +284,8 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc]);
+  }, [doc, enlarged]);
+
 
   // The arrows sit on the slide itself, faint, and fade away while you are
   // not using them. A tap, a move of the pointer or a key brings them back.
@@ -169,6 +315,18 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         ) : (
           <span className="small muted">{shortTitle(view.item)}</span>
         )}
+        {doc && (
+          <button
+            ref={enlargeButtonRef}
+            type="button"
+            className="icon-button slide-enlarge"
+            aria-label="Enlarge slides"
+            title="Enlarge slides"
+            onClick={() => setEnlarged(true)}
+          >
+            <Icon name="enlarge" size={16} />
+          </button>
+        )}
       </div>
       <div
         ref={box}
@@ -186,8 +344,13 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         {problem ? (
           <p className="small muted">{problem}</p>
         ) : (
-          <div className="slide-frame">
-            <canvas ref={canvas} role="img" aria-label={`Slide ${page + 1}${doc ? ` of ${doc.numPages}` : ""}`} />
+          <div
+            className="slide-stage"
+            style={{ "--slide-ar": aspectRatio ? `${aspectRatio}` : "16 / 9" } as React.CSSProperties}
+          >
+            <div className="slide-frame">
+              <canvas ref={canvas} role="img" aria-label={`Slide ${page + 1}${doc ? ` of ${doc.numPages}` : ""}`} />
+            </div>
             {doc && doc.numPages > 1 && (
               <>
                 <button
@@ -214,6 +377,19 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
           </div>
         )}
       </div>
+      {enlarged && doc && (
+        <SlideLightbox
+          doc={doc}
+          page={page}
+          title={shortTitle(view.item)}
+          onGo={go}
+          onClose={() => {
+            setEnlarged(false);
+            requestAnimationFrame(() => enlargeButtonRef.current?.focus());
+          }}
+        />
+      )}
     </div>
   );
+
 }
