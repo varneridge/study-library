@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 
 
 class WeekCandidate(NamedTuple):
+    week: dict
     week_id: str
     week_number: int
     term: str
@@ -67,6 +68,7 @@ def find_untitled_weeks_with_slides(api: Api) -> list[WeekCandidate]:
 
         candidates.append(
             WeekCandidate(
+                week=week,
                 week_id=week_id,
                 week_number=week.get("number", 0),
                 term=week.get("term", ""),
@@ -112,7 +114,7 @@ def run_autotitle(api: Api, dry_run: bool = False) -> list[tuple[str, str, str]]
                 changes.append({
                     "table": "weeks",
                     "row": {
-                        "id": c.week_id,
+                        **c.week,
                         "title": title,
                         "modified_at": stamp(),
                     },
@@ -178,7 +180,7 @@ def maybe_autotitle_for_file(api: Api, file_id: str, doc) -> str | None:
             api.push([{
                 "table": "weeks",
                 "row": {
-                    "id": week_id,
+                    **week,
                     "title": title,
                     "modified_at": stamp(),
                 },
