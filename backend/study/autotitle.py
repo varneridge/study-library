@@ -177,7 +177,7 @@ def maybe_autotitle_for_file(api: Api, file_id: str, doc) -> str | None:
             title = derive_week_title(text1, course_codes=[mod_code] if mod_code else ())
 
         if title:
-            api.push([{
+            failures = api.push([{
                 "table": "weeks",
                 "row": {
                     **week,
@@ -186,6 +186,9 @@ def maybe_autotitle_for_file(api: Api, file_id: str, doc) -> str | None:
                 },
                 "cols": ["title"],
             }])
+            if failures:
+                log.error("sync push failed while autotitling week %s: %s", week_id, failures)
+                return None
             log.info("week %s %s%s autonamed: %r", mod_code, week.get("term"), week.get("number"), title)
             return title
     except Exception as exc:
