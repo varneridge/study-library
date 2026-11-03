@@ -33,6 +33,34 @@ export function whenLifted(fn: () => void): () => void {
 
 export const touchScreen = () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
 
+export interface CaretResult {
+  node: Node;
+  offset: number;
+}
+
+// Portable caret position lookup across browsers (document.caretPositionFromPoint
+// in Firefox and modern Chromium; caretRangeFromPoint in WebKit/Blink).
+export function caretAt(x: number, y: number): CaretResult | null {
+  if (typeof document === "undefined") return null;
+  const doc = document as unknown as {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const pos = doc.caretPositionFromPoint(x, y);
+    if (pos && pos.offsetNode) {
+      return { node: pos.offsetNode, offset: pos.offset };
+    }
+  }
+  if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(x, y);
+    if (range && range.startContainer) {
+      return { node: range.startContainer, offset: range.startOffset };
+    }
+  }
+  return null;
+}
+
 // How long a selection must sit still before it counts: longer on touch,
 // where iOS does not always tell the page that a handle is still held.
 export const settleDelay = () => (touchScreen() ? 700 : 250);

@@ -15,7 +15,6 @@ import { commit, newId, update } from "../lib/sync";
 import type { FileRow, ModuleRow, RecordingRow, SessionRow, WeekRow } from "../lib/types";
 import { recordingState } from "./Recording";
 import { Menu } from "./Menu";
-import { QuestionList } from "./QuestionList";
 import { addSession, deleteSession, moveSession, sessionHasContent, setReadingWeek, withUndo, deleteSessionAsking, deleteSection } from "../lib/edits";
 import { navigate } from "../lib/router";
 import { confirmAction, showToast, typing, useNarrow, useTitle, useSwipe } from "../lib/ui";
@@ -215,8 +214,6 @@ function SessionBlock({
         />
       </div>
       <SessionSlides sessionId={session.id} fallback={slides} />
-      {/* Questions are typed straight in, as on the session page. */}
-      <QuestionList sessionId={session.id} questions={questions} always={session.kind !== "lecture"} />
       {recordings.map((r) => (
         <p key={r.id} className="small muted" style={{ margin: "0.5rem 0 0" }}>
           <Link to={{ view: "session", id: session.id }}>{recordingLine(r)}</Link>

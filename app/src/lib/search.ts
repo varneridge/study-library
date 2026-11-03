@@ -71,7 +71,7 @@ export interface HighlightGroup { item: ItemRow; place: Place | null; highlights
 export interface NoteGroup {
   key: string;
   label: string;
-  route: { view: "session" | "reader" | "question" | "week"; id: string };
+  route: { view: "session" | "reader" | "week"; id: string };
   module: ModuleRow | null;
   snippets: string[];
   count: number;

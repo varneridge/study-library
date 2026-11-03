@@ -197,7 +197,7 @@ function WeekCard({
     <article
       id={`week-${code}`}
       data-drop-week={week.id}
-      className={`week-card week${isCurrentWeek ? " this-week" : ""}${fileOver ? " drop-over" : ""}`}
+      className={`week-card week${isShelf ? " is-shelf is-library" : ""}${isCurrentWeek ? " this-week" : ""}${fileOver ? " drop-over" : ""}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();

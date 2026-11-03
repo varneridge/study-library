@@ -11,8 +11,7 @@ export type Route =
   | { view: "reader"; id: string; page?: number; q?: string }
   | { view: "import"; id: string }
   | { view: "across"; term?: string; number?: number }
-  | { view: "session"; id: string; t?: number; turn?: number }
-  | { view: "question"; id: string }
+  | { view: "session"; id: string; rec?: string; t?: number; turn?: number }
   | { view: "search"; q?: string }
   | { view: "settings" }
   // The job search, kept apart from the study library.
@@ -28,19 +27,29 @@ export function parseRoute(search: string): Route {
     case "import":
       return id ? { view, id } : { view: "home" };
     case "reader": {
-      const page = Number(params.get("page"));
+      const pageStr = params.get("page");
+      const pageNum = pageStr !== null && pageStr.trim() !== "" ? Number(pageStr) : NaN;
+      const validPage = Number.isInteger(pageNum) && pageNum >= 0 ? pageNum : undefined;
       return id
-        ? { view, id, page: Number.isFinite(page) && params.has("page") ? page : undefined, q: params.get("q") ?? undefined }
+        ? { view, id, page: validPage, q: params.get("q") ?? undefined }
         : { view: "home" };
     }
     case "across":
       return { view, term: params.get("term") ?? undefined, number: Number(params.get("n")) || undefined };
-    case "session":
+    case "session": {
+      const tStr = params.get("t");
+      const tNum = tStr !== null && tStr.trim() !== "" ? Number(tStr) : NaN;
+      const validT = Number.isFinite(tNum) && tNum >= 0 ? tNum : undefined;
+
+      const turnStr = params.get("turn");
+      const turnNum = turnStr !== null && turnStr.trim() !== "" ? Number(turnStr) : NaN;
+      const validTurn = Number.isInteger(turnNum) && turnNum >= 0 ? turnNum : undefined;
+
+      const rec = params.get("rec") ?? undefined;
       return id
-        ? { view, id, t: params.has("t") ? Number(params.get("t")) : undefined, turn: params.has("turn") ? Number(params.get("turn")) : undefined }
+        ? { view, id, rec, t: validT, turn: validTurn }
         : { view: "home" };
-    case "question":
-      return id ? { view, id } : { view: "home" };
+    }
     case "search":
       return { view, q: params.get("q") ?? undefined };
     case "settings":
@@ -64,8 +73,11 @@ export function href(route: Route): string {
   if ("id" in route) params.set("id", route.id);
   if (route.view === "reader" && route.page !== undefined) params.set("page", String(route.page));
   if (route.view === "reader" && route.q) params.set("q", route.q);
-  if (route.view === "session" && route.t !== undefined) params.set("t", String(Math.floor(route.t)));
-  if (route.view === "session" && route.turn !== undefined) params.set("turn", String(route.turn));
+  if (route.view === "session") {
+    if (route.rec) params.set("rec", route.rec);
+    if (route.t !== undefined) params.set("t", String(Math.floor(route.t)));
+    if (route.turn !== undefined) params.set("turn", String(route.turn));
+  }
   if (route.view === "search" && route.q) params.set("q", route.q);
   if (route.view === "across") {
     if (route.term) params.set("term", route.term);
@@ -131,6 +143,15 @@ export async function navigate(route: Route, replace = false): Promise<void> {
   currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
   listeners.forEach((listener) => listener());
   if (!replace && typeof window !== "undefined") window.scrollTo(0, 0);
+}
+
+// Mirrors the route into the URL query without triggering navigation guards or route listeners
+export function syncUrl(route: Route): void {
+  const url = href(route);
+  if (typeof history !== "undefined") {
+    history.replaceState(history.state, "", url);
+  }
+  currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
 }
 
 export function useRoute(): Route {

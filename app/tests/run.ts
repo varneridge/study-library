@@ -8,6 +8,7 @@ import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings, coverLabel } from "../src/lib/sections";
 import { todayLocal, parseISO, formatISO, daysInMonth, addDays, addMonths, weekdayMon0, nextMonday, monthGrid, parseUK, formatLong } from "../src/lib/civilDate";
+import { parseRoute } from "../src/lib/router";
 import { notesQueue } from "../src/lib/notesQueue";
 
 import { notesLabel } from "../src/lib/modules";
@@ -1066,6 +1067,13 @@ test("notesQueue: a clean queue prefers fallback from remote updates", () => {
 
 test("layers: dismissTopLayer returns false when no layer or no onEscape handler", () => {
   assert.equal(dismissTopLayer(), false);
+});
+
+test("route parameters reject negative and fractional pages and bad times", () => {
+  assert.equal((parseRoute("?v=reader&id=x&page=-3") as { page?: number }).page, undefined);
+  assert.equal((parseRoute("?v=reader&id=x&page=1.5") as { page?: number }).page, undefined);
+  assert.equal((parseRoute("?v=session&id=s&t=abc") as { t?: number }).t, undefined);
+  assert.equal((parseRoute("?v=session&id=s&rec=r1&t=5") as { rec?: string }).rec, "r1");
 });
 
 if (failed) {

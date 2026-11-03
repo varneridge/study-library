@@ -6,7 +6,7 @@ import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef } from "rea
 import { mergeRects } from "./pages";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
-import { fingerDown, SETTLE_NOW, settleDelay, whenLifted } from "../../lib/selection";
+import { caretAt, fingerDown, SETTLE_NOW, settleDelay, whenLifted } from "../../lib/selection";
 
 export interface TextSelection { page: number; rects: number[][]; text: string; x: number; y: number }
 
@@ -269,10 +269,10 @@ export function TextView({
       let hit: { node: Node; char: number; el: HTMLElement } | null = null;
       for (let y = top + 4; y < top + 160 && !hit; y += 8) {
         for (const px of [x, box.left + box.width / 2]) {
-          const caret = document.caretRangeFromPoint?.(px, y);
-          const node = caret?.startContainer;
+          const caret = caretAt(px, y);
+          const node = caret?.node;
           const el = node?.parentElement?.closest<HTMLElement>("[data-o]");
-          if (caret && node && node.nodeType === Node.TEXT_NODE && el) { hit = { node, char: caret.startOffset, el }; break; }
+          if (caret && node && node.nodeType === Node.TEXT_NODE && el) { hit = { node, char: caret.offset, el }; break; }
         }
       }
       if (!hit) return;

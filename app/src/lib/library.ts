@@ -321,7 +321,7 @@ export async function loadModuleOverview(
     if (!thumb_key) {
       for (const wi of wis) {
         const it = itemMap.get(wi.item_id);
-        if (it && it.kind === "slides" && it.file_id) {
+        if (it && (it.kind === "slides" || module.kind === "library") && it.file_id) {
           const file = fileMap.get(it.file_id);
           if (file?.thumb_key) {
             thumb_key = file.thumb_key;

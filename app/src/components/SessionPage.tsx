@@ -21,7 +21,6 @@ import { Menu } from "./Menu";
 import { importTranscript } from "../lib/transcriptImport";
 import { showToast } from "../lib/ui";
 import { noteSessionOpened } from "../lib/settings";
-import { QuestionList } from "./QuestionList";
 import { ReadingRow } from "./ReadingRow";
 import { useNarrow, useTitle } from "../lib/ui";
 
@@ -58,7 +57,7 @@ export async function addRecordingFile(sessionId: string, file: File) {
   });
 }
 
-export function SessionPage({ id, t, turn }: { id: string; t?: number; turn?: number }) {
+export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?: number; turn?: number }) {
   // Remembered as opened, so the home page can offer it again.
   useEffect(() => { void noteSessionOpened(id); }, [id]);
   const data = useLiveQuery(() => loadSession(id), [id]);
@@ -268,30 +267,24 @@ export function SessionPage({ id, t, turn }: { id: string; t?: number; turn?: nu
         )}
       </div>
 
-      {(view.session.kind !== "lecture" || view.questions.length > 0) && (
-        <section className="section">
-          <div className="section-head">
-            <h2>{view.session.kind === "lecture" ? "Questions" : "Seminar questions"}</h2>
-            <span className="spacer" />
-            <span className="small muted questions-hint">Enter for the next question. Alt and an arrow to move one.</span>
-          </div>
-          <QuestionList sessionId={view.session.id} questions={view.questions} always />
-        </section>
-      )}
-
-      {view.recordings.map((recording) => recording.turns && !recording.file_id ? (
-        <ImportedPanel key={recording.id} recording={recording} title={`${module.code} ${weekCode(week)} ${label}`} focusTurn={turn} />
-      ) : (
-        <RecordingPanel
-          key={recording.id}
-          recording={recording}
-          file={audio.get(recording.id)}
-          register={register}
-          focusTurn={turn}
-          startAt={recording.id === latest?.id ? t : undefined}
-          title={`${module.code} ${weekCode(week)} ${label}`}
-        />
-      ))}
+      {view.recordings.map((recording) => {
+        const isTargetRec = rec ? recording.id === rec : recording.id === latest?.id;
+        const panelStartAt = isTargetRec ? t : undefined;
+        const panelFocusTurn = (rec ? recording.id === rec : true) ? turn : undefined;
+        return recording.turns && !recording.file_id ? (
+          <ImportedPanel key={recording.id} recording={recording} title={`${module.code} ${weekCode(week)} ${label}`} focusTurn={panelFocusTurn} />
+        ) : (
+          <RecordingPanel
+            key={recording.id}
+            recording={recording}
+            file={audio.get(recording.id)}
+            register={register}
+            focusTurn={panelFocusTurn}
+            startAt={panelStartAt}
+            title={`${module.code} ${weekCode(week)} ${label}`}
+          />
+        );
+      })}
 
       {/* On to the session before or after, as a week page goes to the next week. */}
       {around && (around.previous || around.next) && (

@@ -87,9 +87,6 @@ async function entries(): Promise<Entry[]> {
       route: { view: "reader", id: i.id }, text: `${fullTitle(i)} ${place.label}`, rank: i.last_opened_at ? 2 : 3,
     });
   }
-  for (const q of (await db.questions.toArray()).filter((q) => !q.deleted)) {
-    out.push({ key: `q${q.id}`, kind: "Question", label: q.body, route: { view: "session", id: q.session_id }, text: q.body, rank: 4 });
-  }
   out.push(
     { key: "a-search", kind: "Go to", label: "Search", route: { view: "search" }, text: "search find", rank: 5 },
     { key: "a-across", kind: "Go to", label: "This week", route: { view: "across" }, text: "this week across modules", rank: 5 },

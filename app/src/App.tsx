@@ -136,7 +136,6 @@ function ModuleLinks({ route }: { route: Route }) {
   const lookedUpModule = useLiveQuery(async () => {
     if (route.view === "week") return (await db.weeks.get(route.id))?.module_id ?? null;
     let sessionId = route.view === "session" ? route.id : null;
-    if (route.view === "question") sessionId = (await db.questions.get(route.id))?.session_id ?? null;
     if (sessionId) {
       const session = await db.sessions.get(sessionId);
       return session ? (await db.weeks.get(session.week_id))?.module_id ?? null : null;
@@ -146,7 +145,7 @@ function ModuleLinks({ route }: { route: Route }) {
   const currentModule =
     route.view === "module" || route.view === "import"
       ? route.id
-      : route.view === "week" || route.view === "session" || route.view === "question"
+      : route.view === "week" || route.view === "session"
         ? lookedUpModule
         : null;
   // The home page lists every module itself, so the bar does not repeat them there.
@@ -217,14 +216,6 @@ function useTypingClass() {
   }, []);
 }
 
-// Questions no longer have pages of their own: a question and its answer
-// live on its session's page. A link saved before goes there instead.
-function QuestionRedirect({ id }: { id: string }) {
-  useEffect(() => {
-    void db.questions.get(id).then((q) => navigate(q && !q.deleted ? { view: "session", id: q.session_id } : { view: "home" }, true));
-  }, [id]);
-  return null;
-}
 
 export function App() {
   const route = useRoute();
@@ -349,8 +340,7 @@ export function App() {
       {route.view === "import" && <ImportPage id={route.id} />}
       {route.view === "across" && <AcrossPage term={route.term} number={route.number} />}
       {route.view === "settings" && <Settings />}
-      {route.view === "session" && <SessionPage id={route.id} t={route.t} turn={route.turn} />}
-      {route.view === "question" && <QuestionRedirect id={route.id} />}
+      {route.view === "session" && <SessionPage id={route.id} rec={route.rec} t={route.t} turn={route.turn} />}
       {route.view === "search" && <SearchPage q={route.q} />}
       </ErrorBoundary>
       </main>

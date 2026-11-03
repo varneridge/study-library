@@ -28,7 +28,6 @@ async function placeOf(route: Route): Promise<{ moduleId: string | null; weekId:
   let sessionId: string | null = null;
   let weekId: string | null = null;
   if (route.view === "session") sessionId = route.id;
-  if (route.view === "question") sessionId = (await db.questions.get(route.id))?.session_id ?? null;
   if (route.view === "reader") {
     const link = (await db.week_items.where("item_id").equals(route.id).toArray()).find((l) => !l.deleted);
     weekId = link?.week_id ?? null;

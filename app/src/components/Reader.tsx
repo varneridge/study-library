@@ -118,8 +118,27 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     void update("items", id, { last_opened_at: new Date().toISOString() });
   }, [data, id]);
 
+  // Synchronise find query when navigated with q param
+  useEffect(() => {
+    if (q) {
+      setFinding(true);
+      setQuery(q);
+    }
+  }, [q]);
+
   // Open the document from the local cache, or download it once.
   useEffect(() => {
+    setDoc(null);
+    setSizes([]);
+    setReflowed(null);
+    setColumn(null);
+    setHeadings([]);
+    setHits([]);
+    setHit(-1);
+    viewports.current.clear();
+    texts.current.clear();
+    restored.current = false;
+
     if (!data) return;
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;

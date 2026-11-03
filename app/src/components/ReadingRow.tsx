@@ -100,7 +100,7 @@ export function ReadMark({ view }: { view: ReadingView }) {
 export async function copyReference(item: ItemRow): Promise<void> {
   const ref = chicagoBibliography(item);
   try {
-    if (navigator.clipboard) {
+    if (navigator?.clipboard?.writeText) {
       await navigator.clipboard.writeText(ref);
       showToast("Reference copied.");
       return;
@@ -108,7 +108,7 @@ export async function copyReference(item: ItemRow): Promise<void> {
   } catch {
     // Clipboard permission or focus error
   }
-  showToast("Reference copied.");
+  showToast("Could not copy the reference.");
 }
 
 export function Editor({ view, onClose, start }: { view: ReadingView; onClose: () => void; start?: Suggestion | null }) {
@@ -465,6 +465,11 @@ export function ReadingRow({
     >
       {drag && <span className="handle" aria-hidden="true"><Icon name="grip" size={16} /></span>}
       <ReadMark view={view} />
+      {view.file?.thumb_key && (
+        <Link to={{ view: "reader", id: view.item.id }} className="reading-thumb" tabIndex={-1} ariaHidden={true}>
+          <img src={`/api/objects/${view.file.thumb_key}`} alt="" loading="lazy" decoding="async" />
+        </Link>
+      )}
       <ReadingTitle view={view} short={short} />
       {suggestion && weeks && (
         <button className="found" aria-expanded={comparing} onClick={() => setComparing(!comparing)} title="Study Library found this reading's details in the PDF" aria-label="Details found">

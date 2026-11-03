@@ -4,7 +4,7 @@ import { Link } from "../App";
 import { db } from "../lib/db";
 import { byPosition } from "../lib/keys";
 import { clock } from "../lib/recorder";
-import { href, navigate, type Route } from "../lib/router";
+import { href, navigate, syncUrl, type Route } from "../lib/router";
 import {
   MARK_END, MARK_START, searchLocal, searchRemote, type LocalResults, type RemoteResults,
 } from "../lib/search";
@@ -71,7 +71,7 @@ export function SearchPage({ q = "" }: { q?: string }) {
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(async () => {
-      navigate({ view: "search", q: query || undefined }, true);
+      syncUrl({ view: "search", q: query || undefined });
       setOffline(!navigator.onLine);
       setSearching(true);
       const [l, r] = await Promise.all([
@@ -99,13 +99,13 @@ export function SearchPage({ q = "" }: { q?: string }) {
 
   // Enter opens the first result, in the order shown.
   first.current =
-    (titles[0] && { view: "reader", id: titles[0].item.id }) ||
-    (highlights[0] && { view: "reader", id: highlights[0].item.id, page: highlights[0].highlights[0].highlight.page }) ||
+    (titles[0] && { view: "reader", id: titles[0].item.id, q: query }) ||
+    (highlights[0] && { view: "reader", id: highlights[0].item.id, page: highlights[0].highlights[0].highlight.page, q: query }) ||
     (notes[0] && notes[0].route) ||
     (pages[0] && { view: "reader", id: pages[0].item.id, page: pages[0].pages[0].page, q: query }) ||
     (transcripts[0] && (transcripts[0].imported
-      ? { view: "session", id: transcripts[0].sessionId, turn: transcripts[0].hits[0].start }
-      : { view: "session", id: transcripts[0].sessionId, t: transcripts[0].hits[0].start })) ||
+      ? { view: "session", id: transcripts[0].sessionId, rec: transcripts[0].recordingId, turn: transcripts[0].hits[0].start }
+      : { view: "session", id: transcripts[0].sessionId, rec: transcripts[0].recordingId, t: transcripts[0].hits[0].start })) ||
     null;
 
   return (
@@ -166,7 +166,7 @@ export function SearchPage({ q = "" }: { q?: string }) {
             {titles.map((h) => (
               <li key={h.item.id}>
                 <div className="hit-head">
-                  <Link to={{ view: "reader", id: h.item.id }}>{fullTitle(h.item)}</Link>
+                  <Link to={{ view: "reader", id: h.item.id, q: query }}>{fullTitle(h.item)}</Link>
                   <Where label={h.place?.label} />
                 </div>
               </li>
@@ -186,8 +186,8 @@ export function SearchPage({ q = "" }: { q?: string }) {
                 </div>
                 {group.highlights.map(({ highlight, text }) => (
                   <a
-                    key={highlight.id} className="hit-line" href={href({ view: "reader", id: group.item.id, page: highlight.page })}
-                    onClick={(e) => { e.preventDefault(); navigate({ view: "reader", id: group.item.id, page: highlight.page }); }}
+                    key={highlight.id} className="hit-line" href={href({ view: "reader", id: group.item.id, page: highlight.page, q: query })}
+                    onClick={(e) => { e.preventDefault(); navigate({ view: "reader", id: group.item.id, page: highlight.page, q: query }); }}
                   >
                     <span className="at" style={{ borderColor: highlight.colour }}>p. {highlight.page + 1}</span>
                     <Snippet text={text} />
@@ -258,8 +258,8 @@ export function SearchPage({ q = "" }: { q?: string }) {
                 <div className="hit-head"><span className="hit-title">{group.label}</span></div>
                 {group.hits.slice(0, 4).map((h, i) => {
                   const to: Route = group.imported
-                    ? { view: "session", id: group.sessionId, turn: h.start }
-                    : { view: "session", id: group.sessionId, t: h.start };
+                    ? { view: "session", id: group.sessionId, rec: group.recordingId, turn: h.start }
+                    : { view: "session", id: group.sessionId, rec: group.recordingId, t: h.start };
                   return (
                   <a
                     key={i} className="hit-line" href={href(to)}
