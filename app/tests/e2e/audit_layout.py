@@ -388,7 +388,7 @@ def seed_database(browser):
     page.keyboard.press("Enter")
     page.wait_for_timeout(400)
     readings = [str(FILES / f) for f in os.listdir(FILES) if f.endswith(".pdf") and f.startswith("(AT")]
-    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(readings)
+    page.locator(".week-page input[type=file][multiple]").first.set_input_files(readings)
 
     # Upload slides to first lecture session
     lecture = page.locator("section.session").first

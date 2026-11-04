@@ -13,6 +13,7 @@ let running = 0;
 
 export const MIME_BY_EXTENSION: Record<string, string> = {
   mp4: "video/mp4",
+  m4v: "video/mp4",
   mov: "video/quicktime",
   m4a: "audio/mp4",
   mp3: "audio/mpeg",
@@ -28,7 +29,13 @@ export const MIME_BY_EXTENSION: Record<string, string> = {
   epub: "application/epub+zip",
 };
 
-export function mimeFor(file: File): string | null {
+export function mimeFor(file: Pick<File, "name" | "type">): string | null {
+  const rawType = (file.type || "").split(";")[0].trim().toLowerCase();
+  if (rawType === "video/x-m4v" || rawType === "video/mp4") return "video/mp4";
+  if (rawType === "video/webm") return "video/webm";
+  if (rawType === "video/quicktime") return "video/quicktime";
+  if (rawType === "audio/x-m4a" || rawType === "audio/mp4") return "audio/mp4";
+  if (rawType === "audio/webm") return "audio/webm";
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   return MIME_BY_EXTENSION[extension] ?? null;
 }
@@ -187,7 +194,7 @@ async function finish(upload: PendingUpload, key: string) {
       row: {
         id: upload.file_id, sha256: upload.sha256, r2_key: key, mime: upload.mime, bytes: upload.bytes,
         original_name: upload.name, page_count: null,
-        text_status: upload.recording_id ? ("ready" as const) : ("pending" as const),
+        text_status: upload.recording_id || upload.mime.startsWith("video/") ? ("ready" as const) : ("pending" as const),
       },
     };
     // The file row goes first, so nothing ever points at a missing file.

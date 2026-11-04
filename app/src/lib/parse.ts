@@ -90,5 +90,5 @@ function secondary(rest: string, term: Term, week: number): Parsed {
 
 // Strip a file extension before parsing a filename.
 export function stripExtension(name: string): string {
-  return name.replace(/\.(pdf|pptx?|docx?)$/i, "");
+  return name.replace(/\.(pdf|pptx?|docx?|epub|mp4|m4v|mov|webm)$/i, "");
 }

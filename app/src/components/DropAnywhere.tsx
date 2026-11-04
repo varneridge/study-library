@@ -40,6 +40,7 @@ async function placeOf(route: Route): Promise<{ moduleId: string | null; weekId:
 }
 
 const isMedia = (file: File) => /^(audio|video)\//.test(mimeFor(file) ?? file.type ?? "");
+const isAudioOnly = (file: File) => /^audio\//.test(mimeFor(file) ?? file.type ?? "");
 
 function Sheet({ files, initial, onClose }: {
   files: File[]; initial: { moduleId: string | null; weekId: string | null }; onClose: () => void;
@@ -55,7 +56,7 @@ function Sheet({ files, initial, onClose }: {
   const [where, setWhere] = useState(initial.weekId ?? (named ? "named" : "tray"));
   const [addAs, setAddAs] = useState<"auto" | "primary" | "secondary" | "summary">("auto");
   const [busy, setBusy] = useState(false);
-  const usable = files.filter((f) => mimeFor(f) && !isMedia(f));
+  const usable = files.filter((f) => mimeFor(f) && !isAudioOnly(f));
 
   useEffect(() => {
     ref.current?.showModal();

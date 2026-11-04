@@ -29,6 +29,8 @@ import { counts, citable } from "../lib/progress";
 import { deleteLabel } from "../lib/kinds";
 import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, toPdfRect, type Crop, type Size, type Theme } from "./reader/pages";
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
+import { isVideoMime } from "../lib/video";
+import { VideoReader } from "./VideoReader";
 
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 4;
@@ -43,6 +45,17 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 
 export function Reader({ id, page, q }: { id: string; page?: number; q?: string }) {
   const data = useLiveQuery(() => loadReader(id), [id]);
+  if (data === undefined) return null;
+  if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
+  if (isVideoMime(data.file?.mime ?? data.upload?.mime)) {
+    return <VideoReader data={data} q={q} />;
+  }
+  return <PdfReader id={id} data={data} page={page} q={q} />;
+}
+
+type LoadedReaderData = NonNullable<Awaited<ReturnType<typeof loadReader>>>;
+
+function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; page?: number; q?: string }) {
   const [sheet, setSheet] = useState<"edit" | "move" | null>(null);
   const replacer = useRef<HTMLInputElement>(null);
   const dataRef = useRef(data);
@@ -139,7 +152,7 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
     texts.current.clear();
     restored.current = false;
 
-    if (!data) return;
+    if (!data || isVideoMime(data.file?.mime ?? data.upload?.mime)) return;
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;
     void (async () => {
@@ -697,9 +710,6 @@ export function Reader({ id, page, q }: { id: string; page?: number; q?: string 
       await commit([{ table: "highlights", row: { ...h, deleted: false } }]);
     }
   }, []);
-
-  if (data === undefined) return null;
-  if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
 
   const { item, week, highlights, previous, next, link, session, file, upload } = data;
   // The reading as a row would show it, for the actions it shares with one.

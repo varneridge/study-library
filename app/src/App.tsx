@@ -29,6 +29,8 @@ import { useLiveQuery } from "dexie-react-hooks";
 // reading is first opened rather than with the home page.
 const Reader = lazy(() => import("./components/Reader").then((m) => ({ default: m.Reader })));
 const opening = <PageLoading label="Opening the reading" />;
+const WordProcessor = lazy(() => import("./components/WordProcessor").then((m) => ({ default: m.WordProcessor })));
+const openingEssay = <PageLoading label="Opening the word processor" />;
 // The job search is its own part of the app, loaded when first opened.
 const JobsPage = lazy(() => import("./components/JobsPage").then((m) => ({ default: m.JobsPage })));
 
@@ -270,6 +272,10 @@ export function App() {
 
   if (route.view === "reader") {
     return <><main id="main"><ErrorBoundary key={route.id} label="reading"><Suspense fallback={opening}><Reader key={route.id} id={route.id} page={route.page} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><DropAnywhere route={route} /><RecorderPill route={route} /></>;
+  }
+
+  if (route.view === "essay") {
+    return <><main id="main"><ErrorBoundary key={route.id} label="word processor"><Suspense fallback={openingEssay}><WordProcessor key={route.id} id={route.id} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><RecorderPill route={route} /></>;
   }
 
   if (route.view === "jobs") {

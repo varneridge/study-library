@@ -21,10 +21,11 @@ import { db } from "../lib/db";
 import { Icon } from "./icons";
 import { byPosition, keysAfter } from "../lib/keys";
 import type { ItemKind, ItemRow, Suggestion, WeekRow, WorkKind } from "../lib/types";
+import { attachVideoTranscript, isVideoMime, parseVideoMeta, removeVideoTranscript, TRANSCRIPT_ACCEPT } from "../lib/video";
 
 export function readable(view: ReadingView): boolean {
-  if (view.file?.mime === "application/pdf") return true;
-  return view.upload?.mime === "application/pdf";
+  if (view.file?.mime === "application/pdf" || isVideoMime(view.file?.mime)) return true;
+  return view.upload?.mime === "application/pdf" || isVideoMime(view.upload?.mime);
 }
 
 function useProgress(id: string | undefined) {
@@ -45,6 +46,10 @@ function State({ view }: { view: ReadingView }) {
     return <span className="state">{progress !== undefined ? `Uploading ${Math.round(progress * 100)}%` : "Waiting to upload"}</span>;
   }
   if (!file) return null;
+  if (isVideoMime(file.mime)) {
+    const vmeta = parseVideoMeta(file.meta);
+    return vmeta.transcript_text ? <span className="state">Transcript attached</span> : null;
+  }
   if (file.text_status === "failed") {
     return <span className="state problem">Processing failed. <button className="link" onClick={() => retryFile(file.id)}>Retry</button></span>;
   }
@@ -448,7 +453,10 @@ export function ReadingRow({
   const [editFrom, setEditFrom] = useState<Suggestion | null>(null);
   const suggestion = pending(view.item);
   const replacer = useRef<HTMLInputElement>(null);
+  const transcriptPicker = useRef<HTMLInputElement>(null);
   const online = useOnline();
+  const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
+  const hasVideoTranscript = Boolean(isVideo && view.file && parseVideoMeta(view.file.meta).transcript_text);
 
   return (
     <li
@@ -484,6 +492,8 @@ export function ReadingRow({
         <Menu
           items={[
             { label: "Edit details", onSelect: () => { setEditFrom(null); setEditing(true); } },
+            { label: hasVideoTranscript ? "Replace transcript" : "Attach transcript", onSelect: () => transcriptPicker.current?.click(), hidden: !isVideo || !view.file },
+            { label: "Remove transcript", onSelect: () => void removeVideoTranscript(view.file!).then(() => showToast("Transcript removed.")), hidden: !hasVideoTranscript || !view.file, danger: true },
             { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: !citable(view.item) },
             { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !citable(view.item) || !view.file || view.file.mime !== "application/pdf" },
             { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
@@ -507,6 +517,20 @@ export function ReadingRow({
         ref={replacer} type="file" hidden accept={READING_ACCEPT}
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void replaceFile(view, f); }}
       />
+      {isVideo && (
+        <input
+          ref={transcriptPicker} type="file" hidden accept={TRANSCRIPT_ACCEPT}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f && view.file) {
+              void attachVideoTranscript(view.file, f)
+                .then(() => showToast(`Transcript attached (${f.name}).`))
+                .catch((err) => showToast(err instanceof Error ? err.message : "Could not attach transcript."));
+            }
+          }}
+        />
+      )}
       {comparing && suggestion && !editing && (
         <div className="compare" style={{ flexBasis: "100%" }}>
           <p className="small muted">Found {viaLabel(suggestion.via)}:</p>

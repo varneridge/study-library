@@ -100,5 +100,5 @@ export async function combinePhotos(files: File[]): Promise<File[]> {
   return [...files.filter((f) => !isImage(f)), pdf];
 }
 
-// What file pickers for readings accept: documents, and pictures to combine.
-export const READING_ACCEPT = ".pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif";
+// What file pickers for readings accept: documents, videos, and pictures to combine.
+export const READING_ACCEPT = ".pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif,.mp4,.m4v,.mov,.webm,video/mp4,video/webm,video/quicktime";

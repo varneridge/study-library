@@ -9,6 +9,7 @@ export type Route =
   | { view: "module"; id: string }
   | { view: "week"; id: string }
   | { view: "reader"; id: string; page?: number; q?: string }
+  | { view: "essay"; id: string; q?: string }
   | { view: "import"; id: string }
   | { view: "across"; term?: string; number?: number }
   | { view: "session"; id: string; rec?: string; t?: number; turn?: number }
@@ -26,6 +27,8 @@ export function parseRoute(search: string): Route {
     case "week":
     case "import":
       return id ? { view, id } : { view: "home" };
+    case "essay":
+      return id ? { view, id, q: params.get("q") ?? undefined } : { view: "home" };
     case "reader": {
       const pageStr = params.get("page");
       const pageNum = pageStr !== null && pageStr.trim() !== "" ? Number(pageStr) : NaN;
@@ -72,7 +75,7 @@ export function href(route: Route): string {
   if (route.view !== "home") params.set("v", route.view);
   if ("id" in route) params.set("id", route.id);
   if (route.view === "reader" && route.page !== undefined) params.set("page", String(route.page));
-  if (route.view === "reader" && route.q) params.set("q", route.q);
+  if ((route.view === "reader" || route.view === "essay") && route.q) params.set("q", route.q);
   if (route.view === "session") {
     if (route.rec) params.set("rec", route.rec);
     if (route.t !== undefined) params.set("t", String(Math.floor(route.t)));

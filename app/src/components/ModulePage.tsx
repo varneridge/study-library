@@ -26,6 +26,7 @@ import { ModuleSettings } from "./ModuleSettings";
 import { Icon } from "./icons";
 import { setSetting, useSetting } from "../lib/settings";
 import { DatePicker } from "./DatePicker";
+import { AssessmentSection } from "./AssessmentSection";
 
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
@@ -538,6 +539,8 @@ export function ModulePage({ id }: { id: string }) {
           </div>
         </section>
       )}
+
+      {!library && <AssessmentSection module={module} />}
 
 
 

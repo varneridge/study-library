@@ -179,7 +179,7 @@ with sync_playwright() as p:
     page.locator("body").click(position={"x": 5, "y": 300})
     page.keyboard.press("]")
     expect(page.locator(".crumbs")).to_contain_text("AT2")
-    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(str(figure_pdf()))
+    page.locator("input[type=file][accept^='.pdf,.epub']").first.set_input_files(str(figure_pdf()))
     expect(page.locator("li.reading", has_text="Westad").first).to_be_visible()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).some(f => (f.original_name || '').includes('Westad')); }", 40)
     page.locator("li.reading a.name", has_text="Westad").first.click()

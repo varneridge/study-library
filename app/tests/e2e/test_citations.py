@@ -73,7 +73,7 @@ with sync_playwright() as p:
     page.get_by_label("Title").fill("The International History of the Cold War")
     page.get_by_role("button", name="Create module").click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files([str(unnamed), str(named), str(article)])
+    page.locator("input[type=file][accept^='.pdf,.epub']").first.set_input_files([str(unnamed), str(named), str(article)])
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 3; }", 40)
     before = page.locator(".week-page li.reading .name").all_inner_texts()
     print("as added:", before)

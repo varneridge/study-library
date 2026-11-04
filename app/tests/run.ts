@@ -1074,7 +1074,251 @@ test("route parameters reject negative and fractional pages and bad times", () =
   assert.equal((parseRoute("?v=reader&id=x&page=1.5") as { page?: number }).page, undefined);
   assert.equal((parseRoute("?v=session&id=s&t=abc") as { t?: number }).t, undefined);
   assert.equal((parseRoute("?v=session&id=s&rec=r1&t=5") as { rec?: string }).rec, "r1");
+  assert.deepEqual(parseRoute("?v=essay&id=mod1&q=versailles"), { view: "essay", id: "mod1", q: "versailles" });
 });
+
+{
+  const name = "video MIME detection and metadata parsing handle mp4, m4v, mov, webm and transcripts";
+  try {
+    const { mimeFor } = await import("../src/lib/uploads");
+    const { isVideoMime, parseVideoMeta } = await import("../src/lib/video");
+
+    assert.equal(mimeFor({ name: "Documentary.mp4", type: "" }), "video/mp4");
+    assert.equal(mimeFor({ name: "Lecture.m4v", type: "" }), "video/mp4");
+    assert.equal(mimeFor({ name: "Archive_Reel.mov", type: "" }), "video/quicktime");
+    assert.equal(mimeFor({ name: "Speech.webm", type: "video/webm" }), "video/webm");
+    assert.equal(mimeFor({ name: "Recording.webm", type: "audio/webm" }), "audio/webm");
+
+    assert.equal(isVideoMime("video/mp4"), true);
+    assert.equal(isVideoMime("video/quicktime"), true);
+    assert.equal(isVideoMime("video/webm"), true);
+    assert.equal(isVideoMime("audio/webm"), false);
+    assert.equal(isVideoMime("application/pdf"), false);
+
+    const parsed = parseVideoMeta(JSON.stringify({
+      duration: 185,
+      transcript_name: "speech.txt",
+      transcript_text: "00:12 Opening remarks.\n\n01:45 The treaty terms.",
+      transcript_updated_at: "2026-11-03T12:00:00.000Z",
+    }));
+    assert.equal(parsed.duration, 185);
+    assert.equal(parsed.transcript_name, "speech.txt");
+    assert.ok(parsed.transcript_text?.includes("The treaty terms."));
+
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
+
+{
+  const name = "docx writer and reader round-trip native Word footnotes, review comments, formatting and word counts";
+  try {
+    const {
+      toDocxBytes,
+      fromDocxBytes,
+      extractDocxText,
+      readZipEntries,
+      countDocxWords,
+      computeFootnoteNumbers,
+    } = await import("../src/lib/docx");
+    const { formatChicagoFootnote } = await import("../src/lib/assessment");
+
+    const sampleDoc = {
+      blocks: [
+        {
+          id: "b1",
+          type: "heading1" as const,
+          runs: [{ type: "text" as const, text: "Origins of the July Crisis" }],
+        },
+        {
+          id: "b2",
+          type: "paragraph" as const,
+          runs: [
+            { type: "text" as const, text: "Austria-Hungary issued the ultimatum " },
+            { type: "text" as const, text: "with Berlin's backing\u000B", bold: true, highlight: "yellow", commentIds: ["c1"] },
+            { type: "footnote_ref" as const, footnoteId: "fn-first" },
+            { type: "text" as const, text: " and mobilised rapidly." },
+            { type: "footnote_ref" as const, footnoteId: "fn-second" },
+          ],
+        },
+        {
+          id: "b3",
+          type: "blockquote" as const,
+          runs: [{ type: "text" as const, text: "A leap into the dark." }],
+        },
+      ],
+      footnotes: [
+        {
+          id: "fn-first",
+          text: "Christopher Clark, The Sleepwalkers (London, 2012), p. 412.",
+        },
+        {
+          id: "fn-second",
+          text: "Clark, The Sleepwalkers, p. 450.",
+        },
+      ],
+      comments: [
+        {
+          id: "c1",
+          author: "Supervisor",
+          date: "2026-11-03T10:00:00.000Z",
+          text: "Expand on Hoyos's mission here.",
+          resolved: true,
+        },
+      ],
+      settings: {
+        font: "Times New Roman" as const,
+        fontSizePt: 12,
+        lineSpacing: 1.5 as const,
+        includeFootnotesInCount: true,
+        includeQuotesInCount: true,
+      },
+    };
+
+    const fnMap = computeFootnoteNumbers(sampleDoc);
+    assert.equal(fnMap.get("fn-first"), 1);
+    assert.equal(fnMap.get("fn-second"), 2);
+
+    const bytes = toDocxBytes(sampleDoc, { title: "July Crisis Essay" });
+    const entries = await readZipEntries(bytes);
+    const dec = new TextDecoder();
+
+    assert.ok(entries.has("[Content_Types].xml"));
+    assert.ok(entries.has("word/document.xml"));
+    assert.ok(entries.has("word/footnotes.xml"));
+    assert.ok(entries.has("word/comments.xml"));
+    assert.ok(entries.has("word/commentsExtended.xml"));
+
+    const footnotesXml = dec.decode(entries.get("word/footnotes.xml")!);
+    assert.ok(footnotesXml.includes('w:type="separator" w:id="-1"'), "has separator footnote -1");
+    assert.ok(footnotesXml.includes('w:type="continuationSeparator" w:id="0"'), "has continuationSeparator 0");
+    assert.ok(footnotesXml.includes("<w:footnoteRef/>"), "includes w:footnoteRef marker");
+    assert.ok(footnotesXml.includes('w:id="1"'), "sequential footnote id 1");
+    assert.ok(footnotesXml.includes('w:id="2"'), "sequential footnote id 2");
+
+    const docXml = dec.decode(entries.get("word/document.xml")!);
+    assert.ok(!docXml.includes("\u000B"), "illegal XML 1.0 control char stripped");
+    assert.ok(docXml.includes('xml:space="preserve"'), "preserves leading/trailing whitespace on w:t");
+
+    const roundTripped = await fromDocxBytes(bytes);
+    assert.equal(roundTripped.blocks.length, 3);
+    assert.equal(roundTripped.blocks[0].type, "heading1");
+    assert.equal(roundTripped.footnotes.length, 2);
+    assert.ok(roundTripped.footnotes[0].text.includes("The Sleepwalkers"));
+    assert.equal(roundTripped.comments.length, 1);
+    assert.equal(roundTripped.comments[0].resolved, true);
+    assert.equal(roundTripped.comments[0].text, "Expand on Hoyos's mission here.");
+
+    const cleanBytes = toDocxBytes(sampleDoc, { excludeResolvedComments: true });
+    const cleanRoundTrip = await fromDocxBytes(cleanBytes);
+    assert.equal(cleanRoundTrip.comments.length, 0);
+
+    const plain = await extractDocxText(bytes);
+    assert.ok(plain.includes("Origins of the July Crisis"));
+    assert.ok(plain.includes("A leap into the dark."));
+
+    const countsAll = countDocxWords(sampleDoc);
+    const countsBodyOnly = countDocxWords({
+      ...sampleDoc,
+      settings: { ...sampleDoc.settings, includeFootnotesInCount: false, includeQuotesInCount: false },
+    });
+    assert.ok(countsAll.total > countsBodyOnly.total);
+    assert.equal(countsBodyOnly.total, countsAll.body);
+
+    const fakeItem = {
+      id: "i1",
+      title: "The Sleepwalkers",
+      author: "Clark, Christopher",
+      year: 2012,
+      kind: "secondary" as const,
+      publisher: "Allen Lane",
+      place: "London",
+    } as never;
+    const fullFn = formatChicagoFootnote(fakeItem, "p. 412", false);
+    const shortFn = formatChicagoFootnote(fakeItem, "p. 450", true);
+    assert.ok(fullFn.startsWith("Christopher Clark, The Sleepwalkers"), `Expected Chicago note order, got: ${fullFn}`);
+    assert.ok(fullFn.includes("412."));
+    assert.equal(shortFn, "Clark, The Sleepwalkers, p. 450.");
+
+    // Verify self-closing <w:del/>, <w:p/> and <w:numId w:val="0"/> in fromDocxBytes
+    const enc = new TextEncoder();
+    const customXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p/>
+    <w:p>
+      <w:pPr>
+        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>
+        <w:rPr><w:del w:id="1" w:author="Ed"/></w:rPr>
+      </w:pPr>
+      <w:r><w:t>Live text survives</w:t></w:r>
+      <w:del w:id="2" w:author="Ed"><w:r><w:delText>Deleted text</w:delText></w:r></w:del>
+    </w:p>
+  </w:body>
+</w:document>`;
+    const customZip = createZip([{ name: "word/document.xml", data: enc.encode(customXml) }]);
+    const parsedCustom = await fromDocxBytes(customZip);
+    assert.equal(parsedCustom.blocks.length, 2, "empty <w:p/> and following <w:p> are separate blocks");
+    assert.equal(parsedCustom.blocks[1].type, "paragraph", "numId=0 stays paragraph");
+    assert.equal(parsedCustom.blocks[1].runs[0].text, "Live text survives", "self-closing w:del does not eat live runs");
+
+    // Verify offset-aware run splicing, mid-paragraph footnote insertion, splitting and range formatting
+    const {
+      spliceRunsOnTextEdit,
+      insertRunAtOffset,
+      splitBlockRunsAtOffset,
+      formatRunsInRange,
+    } = await import("../src/lib/docx");
+
+    const initialRuns = [
+      { type: "text" as const, text: "Hello " },
+      { type: "text" as const, text: "brave", bold: true, commentIds: ["c-1"] },
+      { type: "footnote_ref" as const, footnoteId: "fn-1" },
+      { type: "text" as const, text: " world." },
+    ];
+    const editedRuns = spliceRunsOnTextEdit(initialRuns, "Hello very brave new world.");
+    assert.equal(
+      editedRuns.filter((r) => r.type === "text").map((r) => r.text).join(""),
+      "Hello very brave new world.",
+    );
+    assert.ok(editedRuns.some((r) => r.type === "footnote_ref" && r.footnoteId === "fn-1"), "footnote_ref preserved");
+    assert.ok(editedRuns.some((r) => r.type === "text" && r.bold && r.commentIds?.includes("c-1")), "bold + comment preserved");
+
+    const withMidFn = insertRunAtOffset(
+      [{ type: "text" as const, text: "First clause, second clause." }],
+      13,
+      { type: "footnote_ref", footnoteId: "fn-mid" },
+    );
+    assert.equal(withMidFn.length, 3);
+    assert.equal(withMidFn[0].text, "First clause,");
+    assert.equal(withMidFn[1].type, "footnote_ref");
+    assert.equal(withMidFn[2].text, " second clause.");
+
+    const split = splitBlockRunsAtOffset(withMidFn, 13);
+    assert.ok(split.before.some((r) => r.type === "footnote_ref" && r.footnoteId === "fn-mid"));
+    assert.equal(split.after[0].text, " second clause.");
+
+    const formattedRange = formatRunsInRange(
+      [{ type: "text" as const, text: "The quick brown fox" }],
+      4,
+      9,
+      (r) => ({ ...r, italic: true }),
+    );
+    assert.equal(formattedRange.length, 3);
+    assert.equal(formattedRange[0].text, "The ");
+    assert.equal(formattedRange[0].italic, undefined);
+    assert.equal(formattedRange[1].text, "quick");
+    assert.equal(formattedRange[1].italic, true);
+    assert.equal(formattedRange[2].text, " brown fox");
+
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
 
 if (failed) {
 

@@ -44,7 +44,7 @@ with sync_playwright() as p:
     page.get_by_label("Code").fill("HY319")
     page.get_by_role("button", name="Create module").click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first.set_input_files(files[:1])
+    page.locator("input[type=file][accept^='.pdf,.epub']").first.set_input_files(files[:1])
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 1; }", 40)
     page.locator("li.reading a.name").first.click()
     page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 3", timeout=20000)

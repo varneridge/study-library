@@ -12,6 +12,7 @@ import { api } from "./sync";
 import { fullTitle } from "./titles";
 import { speakerLabel } from "./transcriptImport";
 import type { HighlightRow, ItemRow, ModuleRow, NoteRow } from "./types";
+import { isVideoMime, parseVideoMeta } from "./video";
 
 export const MARK_START = "\u0001";
 export const MARK_END = "\u0002";
@@ -71,7 +72,7 @@ export interface HighlightGroup { item: ItemRow; place: Place | null; highlights
 export interface NoteGroup {
   key: string;
   label: string;
-  route: { view: "session" | "reader" | "week"; id: string };
+  route: { view: "session" | "reader" | "week" | "module" | "essay"; id: string; q?: string };
   module: ModuleRow | null;
   snippets: string[];
   count: number;
@@ -133,6 +134,12 @@ export async function searchLocal(query: string): Promise<LocalResults> {
       label = `Notes on ${item ? fullTitle(item) : "a reading"}${place ? `, ${place.label}` : ""}`;
       module = place?.module ?? null;
       route = { view: "reader", id: note.item_id };
+    } else if (note.week_id?.startsWith("assessment-notes:")) {
+      const modId = note.week_id.slice("assessment-notes:".length);
+      module = (await db.modules.get(modId)) ?? null;
+      if (!module || module.deleted) continue;
+      label = `Assessment notes, ${module.code}`;
+      route = { view: "module", id: modId };
     } else if (note.week_id) {
       // A dissertation section's own notes.
       const week = await db.weeks.get(note.week_id);
@@ -149,6 +156,32 @@ export async function searchLocal(query: string): Promise<LocalResults> {
       route = { view: "session", id: question.session_id };
     }
     noteGroups.push({ key: note.id, label, route, module, snippets: snippets.slice(0, 3), count: snippets.length });
+  }
+
+  // Search manual transcripts attached to video readings
+  const filesById = new Map((await db.files.toArray()).filter((f) => !f.deleted).map((f) => [f.id, f]));
+  for (const item of items.values()) {
+    if (!item.file_id) continue;
+    const file = filesById.get(item.file_id);
+    if (!file || !isVideoMime(file.mime)) continue;
+    const vmeta = parseVideoMeta(file.meta);
+    if (!vmeta.transcript_text) continue;
+    const matchingSnippets = vmeta.transcript_text
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter((p) => p && matches(p, query))
+      .map((p) => marked(p, query));
+    if (matchingSnippets.length > 0) {
+      const place = (await placesOf([item.id])).get(item.id) ?? null;
+      noteGroups.push({
+        key: `video-transcript:${item.id}`,
+        label: `Transcript on ${fullTitle(item)}${place ? `, ${place.label}` : ""}`,
+        route: { view: "reader", id: item.id, q: query },
+        module: place?.module ?? null,
+        snippets: matchingSnippets.slice(0, 3),
+        count: matchingSnippets.length,
+      });
+    }
   }
 
   return {

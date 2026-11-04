@@ -100,7 +100,7 @@ with sync_playwright() as p:
     expect(page.locator(".crumbs")).to_contain_text("AT1")
 
     # Add files to AT1.
-    file_input = page.locator("input[type=file][accept='.pdf,.epub,.pptx,.ppt,.docx,.doc,image/*,.heic,.heif']").first
+    file_input = page.locator("input[type=file][accept^='.pdf,.epub']").first
     expect(file_input).to_be_attached()
     file_input.set_input_files(files)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 3; }", 40)
