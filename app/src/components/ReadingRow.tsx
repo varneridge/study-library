@@ -22,6 +22,8 @@ import { Icon } from "./icons";
 import { byPosition, keysAfter } from "../lib/keys";
 import type { ItemKind, ItemRow, Suggestion, WeekRow, WorkKind } from "../lib/types";
 import { attachVideoTranscript, isVideoMime, parseVideoMeta, removeVideoTranscript, TRANSCRIPT_ACCEPT } from "../lib/video";
+import { coverShape, isTileMode, isVideoView, type ReadingViewMode } from "../lib/views";
+import { requestVideoThumb } from "../lib/videoThumbs";
 
 export function readable(view: ReadingView): boolean {
   if (view.file?.mime === "application/pdf" || isVideoMime(view.file?.mime)) return true;
@@ -423,11 +425,38 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
   );
 }
 
+// A reading's picture: the cover or first page the processor drew, or a
+// video's frame, with a play button over any video. Compact rows show it only
+// when there is one; normal rows keep a place for it so titles line up; icons
+// and large icons show it as the tile, with the title set in its place when
+// there is no picture yet.
+function Cover({ view, mode }: { view: ReadingView; mode: ReadingViewMode }) {
+  const key = view.file?.thumb_key ?? null;
+  const [failed, setFailed] = useState<string | null>(null);
+  const video = isVideoView(view);
+  const tile = isTileMode(mode);
+  const picture = key && failed !== key ? key : null;
+  if (!picture && !video && mode === "compact") return null;
+  const body = (
+    <>
+      {picture
+        ? <img src={`/api/objects/${picture}`} alt="" loading="lazy" decoding="async" onError={() => setFailed(picture)} />
+        : tile ? <span className="reading-cover-fallback">{titleParts(view.item).main || shortTitle(view.item)}</span> : null}
+      {video && <span className="play-badge"><Icon name="play" size={20} /></span>}
+    </>
+  );
+  const className = `reading-cover shape-${coverShape(view)}${picture ? "" : " is-empty"}`;
+  if (!readable(view)) return <span className={className} aria-hidden="true">{body}</span>;
+  return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true}>{body}</Link>;
+}
+
 export function ReadingRow({
-  view, short, weeks: given, drag, extra,
+  view, short, weeks: given, drag, extra, mode = "compact",
 }: {
   view: ReadingView;
   short?: boolean;
+  // How the folder lays its readings out. Rows unless a page says otherwise.
+  mode?: ReadingViewMode;
   weeks?: WeekRow[];
   extra?: React.ReactNode;
   // From the drag-and-drop library: the row is the thing you pick up.
@@ -457,6 +486,11 @@ export function ReadingRow({
   const online = useOnline();
   const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
   const hasVideoTranscript = Boolean(isVideo && view.file && parseVideoMeta(view.file.meta).transcript_text);
+  const tile = isTileMode(mode);
+  // A video with no picture yet gets one, taken on this device.
+  useEffect(() => {
+    if (isVideo && view.file && !view.file.thumb_key) requestVideoThumb(view.file, view.upload?.blob ?? null);
+  }, [isVideo, view.file, view.upload?.blob]);
 
   return (
     <li
@@ -469,24 +503,25 @@ export function ReadingRow({
       // The row stays a list item for screen readers. The library's own
       // description tells them it can be picked up with the space bar.
       role={undefined}
-      className={`reading${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
+      className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (editing || moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
     >
       {drag && <span className="handle" aria-hidden="true"><Icon name="grip" size={16} /></span>}
+      {tile && <Cover view={view} mode={mode} />}
       <ReadMark view={view} />
-      {view.file?.thumb_key && (
-        <Link to={{ view: "reader", id: view.item.id }} className="reading-thumb" tabIndex={-1} ariaHidden={true}>
-          <img src={`/api/objects/${view.file.thumb_key}`} alt="" loading="lazy" decoding="async" />
-        </Link>
-      )}
+      {!tile && <Cover view={view} mode={mode} />}
       <ReadingTitle view={view} short={short} />
-      {suggestion && weeks && (
-        <button className="found" aria-expanded={comparing} onClick={() => setComparing(!comparing)} title="Study Library found this reading's details in the PDF" aria-label="Details found">
-          <span className="wide-only">Details found</span><span className="narrow-only">Details</span>
-        </button>
-      )}
-      <Progress view={view} />
-      <State view={view} />
-      {!online && !view.cached && readable(view) && <span className="state">Not saved on this device</span>}
+      {/* What the reading's state is. In rows these sit inline, as before; in
+          tiles they take a line of their own beneath the title. */}
+      <span className="reading-meta">
+        {suggestion && weeks && (
+          <button className="found" aria-expanded={comparing} onClick={() => setComparing(!comparing)} title="Study Library found this reading's details in the PDF" aria-label="Details found">
+            <span className="wide-only">Details found</span><span className="narrow-only">Details</span>
+          </button>
+        )}
+        <Progress view={view} />
+        <State view={view} />
+        {!online && !view.cached && readable(view) && <span className="state">Not saved on this device</span>}
+      </span>
       {extra}
       {weeks && (
         <Menu
@@ -546,7 +581,7 @@ export function ReadingRow({
         </div>
       )}
       {(editing || moving) && (
-        <div style={{ flexBasis: "100%" }}>
+        <div className="reading-edit" style={{ flexBasis: "100%" }}>
           {editing && <Editor view={view} start={editFrom} onClose={() => { setEditing(false); setEditFrom(null); }} />}
           {moving && weeks && <MovePicker view={view} onMoved={() => setMoving(false)} />}
         </div>

@@ -107,8 +107,9 @@ app.post("/api/files/:id/bump", async (c) => {
 // Reads every scan again with the current OCR. Settings offers it.
 app.post("/api/rescan", async (c) => c.json({ queued: await queueRescan(c.env) }));
 
-// Queues thumbnail generation for every file that lacks one. Non-destructive.
-app.post("/api/thumbs", async (c) => c.json({ queued: await queueThumbs(c.env) }));
+// Queues thumbnail generation for every file that lacks one, or with
+// ?covers=1 draws every reading's cover again, cropped. Non-destructive.
+app.post("/api/thumbs", async (c) => c.json({ queued: await queueThumbs(c.env, c.req.query("covers") === "1") }));
 
 app.post("/api/files/:id/retry", async (c) => {
   return c.json({ ok: await retryFile(c.env, c.req.param("id")) });

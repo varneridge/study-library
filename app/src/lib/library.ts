@@ -70,6 +70,8 @@ export interface WeekOverview {
   week: WeekRow;
   readingCount: { read: number; total: number };
   thumb_key: string | null;
+  // A shelf's first few book covers, shown side by side and whole.
+  thumb_keys: string[];
   sessions: { session: SessionRow; hasNotes: boolean }[];
   isCurrentWeek: boolean;
 }
@@ -280,8 +282,9 @@ export async function loadModuleOverview(
   const sessionsWithNotes = new Set(liveNotes.map((n) => n.session_id));
 
   // Find slide deck files with thumb_key
+  // A shelf's covers come from its books, so a library reads those files too.
   const relevantFileIds = liveItems
-    .filter((i) => i.kind === "slides" && i.file_id)
+    .filter((i) => (i.kind === "slides" || module.kind === "library") && i.file_id)
     .map((i) => i.file_id as string);
 
   const files = relevantFileIds.length > 0
@@ -316,17 +319,23 @@ export async function loadModuleOverview(
       .filter((i): i is ItemRow => Boolean(i && !i.deleted));
     const counts = readCount(readingItems);
 
-    // Thumbnail candidate: week custom cover, then first slide deck with a thumb_key
+    // A week's picture is its own cover, or else its first slide deck's. A
+    // shelf shows its first few book covers side by side, whole, so a
+    // portrait cover is never cut down to fit a landscape card.
+    const library = module.kind === "library";
     let thumb_key: string | null = week.image_key ?? null;
+    const thumb_keys: string[] = [];
     if (!thumb_key) {
       for (const wi of wis) {
         const it = itemMap.get(wi.item_id);
-        if (it && (it.kind === "slides" || module.kind === "library") && it.file_id) {
-          const file = fileMap.get(it.file_id);
-          if (file?.thumb_key) {
-            thumb_key = file.thumb_key;
-            break;
-          }
+        const file = it?.file_id ? fileMap.get(it.file_id) : undefined;
+        if (!it || !file?.thumb_key) continue;
+        if (library) {
+          if (!thumb_keys.includes(file.thumb_key)) thumb_keys.push(file.thumb_key);
+          if (thumb_keys.length === 3) break;
+        } else if (it.kind === "slides") {
+          thumb_key = file.thumb_key;
+          break;
         }
       }
     }
@@ -342,6 +351,7 @@ export async function loadModuleOverview(
       week,
       readingCount: counts,
       thumb_key,
+      thumb_keys,
       sessions: sessOverviews,
       isCurrentWeek,
     };
@@ -358,7 +368,7 @@ export async function loadModuleOverview(
 
   const empty =
     tray.length === 0 &&
-    weekOverviews.every((w) => w.readingCount.total === 0 && !w.thumb_key);
+    weekOverviews.every((w) => w.readingCount.total === 0 && !w.thumb_key && !w.thumb_keys.length);
 
   return {
     module,

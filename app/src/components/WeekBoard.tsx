@@ -12,7 +12,7 @@ import {
   closestCenter, pointerWithin, DndContext, type CollisionDetection, DragOverlay, useDroppable,
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { rectSortingStrategy, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useMemo, useState } from "react";
 import type { ReadingView } from "../lib/library";
@@ -22,6 +22,9 @@ import { shortTitle } from "../lib/titles";
 import type { WeekRow } from "../lib/types";
 import { KIND_GROUP, KIND_LABEL } from "../lib/kinds";
 import { ReadingRow } from "./ReadingRow";
+import { ViewSwitcher } from "./ViewSwitcher";
+import { setSetting, useSetting } from "../lib/settings";
+import { defaultViewMode, isTileMode, parseViewMode, viewSettingKey, type ReadingViewMode } from "../lib/views";
 
 type ListKey = "primary" | "secondary" | "summary" | "flat";
 
@@ -33,11 +36,11 @@ export const collide: CollisionDetection = (args) => {
 };
 
 // A reading that can be picked up. The slide board uses it too.
-export function Sortable({ view, weeks, short }: { view: ReadingView; weeks: WeekRow[]; short?: boolean }) {
+export function Sortable({ view, weeks, short, mode }: { view: ReadingView; weeks: WeekRow[]; short?: boolean; mode?: ReadingViewMode }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: view.link!.id });
   return (
     <ReadingRow
-      view={view} weeks={weeks} short={short}
+      view={view} weeks={weeks} short={short} mode={mode}
       drag={{
         setNodeRef, attributes, listeners: listeners as never, dragging: isDragging,
         style: { transform: CSS.Translate.toString(transform), transition },
@@ -46,7 +49,7 @@ export function Sortable({ view, weeks, short }: { view: ReadingView; weeks: Wee
   );
 }
 
-function List({ id, label, views, weeks, dragging, isLibrary }: { id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean }) {
+function List({ id, label, views, weeks, dragging, isLibrary, mode }: { id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean; mode: ReadingViewMode }) {
   const { setNodeRef, isOver } = useDroppable({ id: `list:${id}` });
   // An empty list only shows while something is being dragged, as a place to drop.
   if (!views.length && !dragging) return null;
@@ -55,9 +58,10 @@ function List({ id, label, views, weeks, dragging, isLibrary }: { id: ListKey; l
   return (
     <div className="section" data-drop={dropKind}>
       {label && <p className="group-label">{label}</p>}
-      <SortableContext items={views.map((v) => v.link!.id)} strategy={verticalListSortingStrategy}>
-        <ul ref={setNodeRef} className={`readings${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
-          {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} />)}
+      {/* Tiles move about a grid, rows up and down a list. */}
+      <SortableContext items={views.map((v) => v.link!.id)} strategy={isTileMode(mode) ? rectSortingStrategy : verticalListSortingStrategy}>
+        <ul ref={setNodeRef} className={`readings view-${mode}${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
+          {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} mode={mode} />)}
           {!views.length && <li className="drop-hint">Drop here to make it {hintText}</li>}
         </ul>
       </SortableContext>
@@ -180,17 +184,27 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
   const primaryLabel = isLibrary ? "Primary sources" : KIND_GROUP.primary;
   const secondaryLabel = isLibrary ? "Secondary readings" : KIND_GROUP.secondary;
 
+  // The folder's view, as File Explorer keeps one for each folder.
+  const everything = useMemo(() => [...primaries, ...readings, ...summaries], [primaries, readings, summaries]);
+  const stored = parseViewMode(useSetting<unknown>(viewSettingKey(week.id), null));
+  const mode = stored ?? defaultViewMode({ library: Boolean(isLibrary), views: everything });
+
   return (
     <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragOver={onOver} onDragEnd={onEnd} onDragCancel={() => setActive(null)}>
+      {everything.length > 0 && (
+        <div className="board-tools">
+          <ViewSwitcher mode={mode} onChange={(next) => void setSetting(viewSettingKey(week.id), next)} />
+        </div>
+      )}
       {isSyllabus ? (
-        <List id="flat" label="Documents" views={viewsOf("flat")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} />
+        <List id="flat" label="Documents" views={viewsOf("flat")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
       ) : (
 
         <>
-          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} />
-          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} />
+          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
+          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
 
-          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} />
+          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
         </>
       )}
       {active && <MoveDock weeks={sorted} current={week} />}

@@ -67,6 +67,15 @@ async function generateThumbs() {
   }
 }
 
+async function cropCovers() {
+  try {
+    const { queued } = (await (await api("/api/thumbs?covers=1", { method: "POST" })).json()) as { queued: number };
+    showToast(queued ? `${queued} ${queued === 1 ? "cover" : "covers"} will be cropped to their print.` : "No reading covers to crop.");
+  } catch {
+    showToast("Could not queue the covers. Check you are online.");
+  }
+}
+
 function ProcessorState() {
   const status = useProcessorStatus();
   if (!status) return null;
@@ -88,10 +97,11 @@ function ProcessorState() {
       {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
       <p className="small muted" style={{ marginTop: "1rem" }}>
         Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
-        straightened, two-page spreads split.
+        straightened, two-page spreads split. Covers made before covers were cropped to their print can be cropped too.
       </p>
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
+        <button className="button" onClick={() => void cropCovers()}>Crop reading covers</button>
         <button className="button quiet" onClick={() => void rescan()}>Read every scan again</button>
       </div>
     </>
@@ -117,6 +127,7 @@ function TermDatesSetting({
           <DatePicker
             value={dates.AT || null}
             label="Autumn Term week 1"
+            hint="Choose the Monday of week 1. This week and the home page count from it."
             placeholder="Choose date"
             onChange={(d) => onChange("AT", d || "")}
           />
@@ -126,6 +137,7 @@ function TermDatesSetting({
           <DatePicker
             value={dates.WT || null}
             label="Winter Term week 1"
+            hint="Choose the Monday of week 1. This week and the home page count from it."
             placeholder="Choose date"
             onChange={(d) => onChange("WT", d || "")}
           />

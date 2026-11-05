@@ -31,6 +31,13 @@ const paths: Record<string, React.ReactNode> = {
   outline: <path d="M4 5h12M4 10h12M7 15h9M4 15h.5M4 10h.5" />,
   keyboard: <><rect x="2.75" y="5.25" width="14.5" height="9.5" /><path d="M5.5 8h1M9.5 8h1M13.5 8h1M5.5 11.5h9" /></>,
   enlarge: <><path d="M13 3.5h3.5v3.5M7 16.5H3.5V13M16.5 3.5 11 9M3.5 16.5 9 11" /></>,
+  // The play button over a video's picture.
+  play: <path d="M7.25 5.25v9.5L15 10z" fill="currentColor" />,
+  // The four ways to lay out a folder's readings.
+  viewCompact: <path d="M3.5 4.75h13M3.5 8.25h13M3.5 11.75h13M3.5 15.25h13" />,
+  viewNormal: <><rect x="3.25" y="3.75" width="4.5" height="4.5" /><rect x="3.25" y="11.75" width="4.5" height="4.5" /><path d="M10.25 5h6.5M10.25 7h4M10.25 13h6.5M10.25 15h4" /></>,
+  viewIcons: <><rect x="3.25" y="3.25" width="5.5" height="5.5" /><rect x="11.25" y="3.25" width="5.5" height="5.5" /><rect x="3.25" y="11.25" width="5.5" height="5.5" /><rect x="11.25" y="11.25" width="5.5" height="5.5" /></>,
+  viewLarge: <><rect x="3.25" y="3.25" width="13.5" height="9.75" /><path d="M3.25 16.25h8.5" /></>,
 };
 
 
