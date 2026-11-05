@@ -10,7 +10,7 @@ shots = str(HERE / "shots" / "sessions")
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))[:2]
 BACKEND = str(HERE.parents[2] / "backend")
 
-from helpers import until
+from helpers import add_files, until
 
 def process():
     env = {**os.environ, "STUDY_URL": BASE, "PROCESSOR_KEY": "local-processor-key",
@@ -32,9 +32,7 @@ with sync_playwright() as p:
     page.get_by_label("Title").fill("Napoleon and Europe")
     page.get_by_role("button", name="Create module").click()
     expect(page.locator(".week")).to_have_count(22)
-    page.get_by_role("link", name="Import readings").click()
-    page.locator("input[type=file][accept]").set_input_files(files)
-    page.get_by_role("button", name="Import 2 files").click()
+    add_files(page, files)
     until(page, "async () => ((await (await fetch('/api/sync/pull?since=0')).json()).rows.files || []).length === 2")
     process()
 

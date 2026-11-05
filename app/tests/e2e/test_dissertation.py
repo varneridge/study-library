@@ -12,7 +12,7 @@ BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 
 
-from helpers import pick_date, until
+from helpers import add_files, pick_date, until
 
 
 ROWS = "async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows"
@@ -107,9 +107,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     shutil.copy(files[-1], named)
     page.goto(BASE + "/")
     page.locator(".module-row", has_text="HY300").click()
-    page.get_by_role("link", name="Import readings").click()
-    page.locator("input[type=file][accept]").last.set_input_files([str(named)])
-    page.get_by_role("button", name="Import 1 file").click()
+    add_files(page, [str(named)])
     until(page, f"""async () => {{ const r = await ({ROWS})();
       const week = r.weeks.find(w => w.title === 'Chapter 2');
       const item = (r.items || []).find(i => i.author && i.author.startsWith('Kirby'));

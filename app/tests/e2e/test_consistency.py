@@ -11,7 +11,7 @@ BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 
 
-from helpers import until
+from helpers import add_files, until
 
 
 def menu_items(page, scope):
@@ -32,9 +32,7 @@ with sync_playwright() as p:
     page.get_by_label("Title").fill("Napoleon and Europe")
     page.get_by_role("button", name="Create module").click()
     expect(page.get_by_role("heading", name="HY319")).to_be_visible()
-    page.get_by_role("link", name="Import readings").click()
-    page.locator("input[type=file][accept]").set_input_files(files[:2])
-    page.get_by_role("button", name="Import 2 files").click()
+    add_files(page, files[:2])
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).length === 2; }")
 
     # The lecture's own page adds slides, as its row on the week page does.

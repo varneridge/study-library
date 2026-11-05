@@ -13,7 +13,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "mobile")
 
 
-from helpers import until
+from helpers import add_files, until
 
 
 def swipe(page, dx):
@@ -34,9 +34,7 @@ with sync_playwright() as p:
     desk.get_by_label("Title").fill("Napoleon and Europe")
     desk.get_by_role("button", name="Create module").click()
     expect(desk.get_by_role("heading", name="HY319")).to_be_visible()
-    desk.get_by_role("link", name="Import readings").click()
-    desk.locator("input[type=file][accept]").set_input_files(files)
-    desk.get_by_role("button", name="Import 3 files").click()
+    add_files(desk, files)
     until(desk, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).length === 3; }")
     # The tab bar is only for phones.
     expect(desk.locator(".tab-bar")).to_be_hidden()

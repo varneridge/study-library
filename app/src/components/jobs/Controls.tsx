@@ -87,8 +87,10 @@ export function TextField({ value, onSave, label, placeholder, multiline, wrap, 
 // Escape or Cancel puts back what was there. On a touch screen the picker's
 // choice is kept as soon as it is made, as leaving the field there is less
 // certain.
-export function DateField({ value, onSave, label, clearable, empty = "Add date", className }: {
+export function DateField({ value, onSave, label, title, hint, clearable, empty = "Add date", className }: {
   value: string | null; onSave: (value: string | null) => void; label: string; clearable?: boolean; empty?: string; className?: string;
+  // The date card's title and the line beneath it, saying what the date is for.
+  title?: string; hint?: string;
 }) {
   const [editing, setEditing] = useState<false | "pointer" | "keys">(false);
   const [draft, setDraft] = useState("");
@@ -147,6 +149,8 @@ export function DateField({ value, onSave, label, clearable, empty = "Add date",
           triggerRef={shown}
           value={value}
           label={label}
+          title={title}
+          hint={hint}
           clearable={clearable}
           onSelect={(next) => {
             setEditing(false);
@@ -276,7 +280,7 @@ export function Deadline({ app, editable = true }: { app: ApplicationRow; editab
   return (
     <span className={`deadline state-${state}`}>
       {editable
-        ? <DateField value={app.next_deadline} label="Next deadline" clearable empty="None" className="deadline-date" onSave={(v) => void saveApplication(app.id, { next_deadline: v })} />
+        ? <DateField value={app.next_deadline} label="Next deadline" title={`Next deadline for ${app.employer || "this application"}`} hint="Applications are ordered by what is due next." clearable empty="None" className="deadline-date" onSave={(v) => void saveApplication(app.id, { next_deadline: v })} />
         : <span className="deadline-date">{app.next_deadline ? formatDate(app.next_deadline) : ""}</span>}
       {words && <span className="deadline-words">{words}</span>}
     </span>

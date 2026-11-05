@@ -60,18 +60,10 @@ def check_alignment(page, is_jobs=False):
         range.setEnd(textNode, 1);
         const firstLetterLeft = range.getBoundingClientRect().left;
 
-        let rightEdge;
-        if (isJobs) {
-            const jobsText = document.querySelector('.jobs-bar nav a .wide-only') || document.querySelector('.jobs-bar nav a');
-            if (!jobsText) return { ok: false, error: 'no jobs nav' };
-            const r = document.createRange();
-            r.selectNodeContents(jobsText);
-            rightEdge = r.getBoundingClientRect().right;
-        } else {
-            const lastGlyphParts = document.querySelectorAll('.topbar-tools .topbar-btn:last-child svg > *');
-            if (!lastGlyphParts.length) return { ok: false, error: 'no settings icon glyph' };
-            rightEdge = Math.max(...Array.from(lastGlyphParts).map(el => el.getBoundingClientRect().right));
-        }
+        // Both sides end with the same tools, so the Settings glyph closes the bar on each.
+        const lastGlyphParts = document.querySelectorAll('.topbar-tools .topbar-btn:last-child svg > *');
+        if (!lastGlyphParts.length) return { ok: false, error: 'no settings icon glyph' };
+        const rightEdge = Math.max(...Array.from(lastGlyphParts).map(el => el.getBoundingClientRect().right));
 
         const leftDiff = Math.abs(firstLetterLeft - pageTextLeft);
         const rightDiff = Math.abs(rightEdge - pageTextRight);
@@ -96,7 +88,7 @@ def check_single_line_and_height(page):
         const barH = bar.getBoundingClientRect().height;
         const hOk = Math.abs(barH - expectedH) <= 1;
 
-        const items = Array.from(bar.querySelectorAll('.brand, .modules-nav a, .topbar-across, .to-jobs, .topbar-btn, .jobs-bar nav a'))
+        const items = Array.from(bar.querySelectorAll('.brand, .modules-nav a, .topbar-across, .side-switch a, .topbar-btn'))
             .filter(el => el.offsetParent !== null);
         const tops = items.map(el => el.getBoundingClientRect().top);
         const maxTop = Math.max(...tops);
@@ -111,7 +103,7 @@ def check_minimum_gaps(page):
     """Assert no two neighbouring items in top bar are less than 4px apart."""
     res = page.evaluate("""() => {
         const bar = document.querySelector('.topbar');
-        const items = Array.from(bar.querySelectorAll('.brand, .topbar-sep, .modules-nav a, .topbar-across, .to-jobs, .topbar-btn, .jobs-bar nav a'))
+        const items = Array.from(bar.querySelectorAll('.brand, .topbar-sep, .modules-nav a, .topbar-across, .side-switch, .topbar-btn'))
             .filter(el => el.offsetParent !== null);
         items.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
 
@@ -162,8 +154,9 @@ def check_pills(page, expected_pill_count, brand_current=False):
         const brandBg = brand ? getComputedStyle(brand).backgroundColor : null;
         const brandOk = (brandCurrent ? brandAria === 'page' : brandAria === null) && brandBg === 'rgba(0, 0, 0, 0)';
 
+        // The switch's raised side is checked on its own, by check_switch.
         const controls = Array.from(document.querySelectorAll('.topbar a, .topbar button'))
-            .filter(el => el.offsetParent !== null);
+            .filter(el => el.offsetParent !== null && !el.closest('.side-switch'));
         const filled = controls.filter(el => getComputedStyle(el).backgroundColor !== 'rgba(0, 0, 0, 0)');
         const navCurrent = document.querySelectorAll('.topbar [aria-current="page"]:not(.brand)');
         return {
@@ -179,6 +172,21 @@ def check_pills(page, expected_pill_count, brand_current=False):
     assert res["filledCount"] == expected_pill_count and res["navCurrentCount"] == expected_pill_count, (
         f"Expected {expected_pill_count} pills, got: {res}"
     )
+
+
+def check_switch(page, side):
+    """Assert the switch shows exactly one side as current, raised, and that it is the side we are on."""
+    res = page.evaluate("""() => {
+        const current = Array.from(document.querySelectorAll('.topbar .side-switch a[aria-current="true"]'));
+        return {
+            count: current.length,
+            classes: current.map(a => a.className),
+            backgrounds: current.map(a => getComputedStyle(a).backgroundColor),
+        };
+    }""")
+    want = "to-jobs" if side == "jobs" else "side-study"
+    assert res["count"] == 1 and want in res["classes"][0], f"The switch should show {side}: {res}"
+    assert res["backgrounds"][0] != "rgba(0, 0, 0, 0)", f"The current side should be raised: {res}"
 
 
 with sync_playwright() as p:
@@ -233,8 +241,9 @@ with sync_playwright() as p:
             check_alignment(page, is_jobs=False)
             check_minimum_gaps(page)
             check_pills(page, expected_pill_count=0, brand_current=True)
-            # Tab order on home: Study Library -> This week -> Job search -> Go to -> Search -> Settings (6 items)
-            check_tab_order(page, expected_count=6)
+            check_switch(page, "study")
+            # Tab order on home: Study Library -> This week -> Study -> Job search -> Go to -> Search -> Settings (7 items)
+            check_tab_order(page, expected_count=7)
             settle_and_shoot(page, shots / f"topbar-w{w}-{theme}-home.png")
 
             # --- MODULE PAGE ---
@@ -246,8 +255,9 @@ with sync_playwright() as p:
             check_alignment(page, is_jobs=False)
             check_minimum_gaps(page)
             check_pills(page, expected_pill_count=1, brand_current=False)
-            # Tab order on module: Study Library -> HY116 -> HY240 -> HY300 -> This week -> Job search -> Go to -> Search -> Settings (9 items)
-            check_tab_order(page, expected_count=9)
+            check_switch(page, "study")
+            # Tab order on module: Study Library -> HY116 -> HY240 -> HY300 -> This week -> Study -> Job search -> Go to -> Search -> Settings (10 items)
+            check_tab_order(page, expected_count=10)
             settle_and_shoot(page, shots / f"topbar-w{w}-{theme}-module.png")
 
             # --- THIS WEEK PAGE ---
@@ -279,8 +289,9 @@ with sync_playwright() as p:
             check_single_line_and_height(page)
             check_alignment(page, is_jobs=True)
             check_pills(page, expected_pill_count=0, brand_current=True)
-            # Tab order on jobs: Job search -> Back to Study Library (2 items)
-            check_tab_order(page, expected_count=2)
+            check_switch(page, "jobs")
+            # Tab order on jobs: Job search -> Study -> Job search -> Go to -> Search -> Settings (6 items)
+            check_tab_order(page, expected_count=6)
             if w == 1440 and theme == "light":
                 settle_and_shoot(page, shots / "topbar-w1440-light-jobs.png")
             elif w == 1440 and theme == "dark":
@@ -360,7 +371,7 @@ with sync_playwright() as p:
                 brandLeft: brand.left,
                 gotoLeft: gotoBtn.left,
                 jobsLeft: jobs.left,
-                ok: brand.left < 25 && gotoBtn.left > 240 && jobs.left > gotoBtn.right
+                ok: brand.left < 25 && gotoBtn.left > 150 && jobs.left > gotoBtn.right && jobs.right <= 390
             };
         }""")
         assert phone_positions["ok"], f"Phone bar item positions unexpected: {phone_positions}"
@@ -376,6 +387,15 @@ with sync_playwright() as p:
         expect(p390.locator(".topbar .navs")).to_be_hidden()
         expect(p390.locator(".topbar .topbar-tools")).to_be_hidden()
         settle_and_shoot(p390, shots / f"topbar-w390-{theme}-module.png")
+
+        # The job search on a phone keeps the same brand position, Go to and switch.
+        p390.goto(BASE + "/?v=jobs")
+        expect(p390.locator(".topbar .brand")).to_have_text("Job search")
+        expect(p390.locator(".topbar .goto-button")).to_be_visible()
+        expect(p390.locator(".topbar .side-switch .side-study")).to_be_visible()
+        expect(p390.locator(".topbar .topbar-tools")).to_be_hidden()
+        check_switch(p390, "jobs")
+        settle_and_shoot(p390, shots / f"topbar-w390-{theme}-jobs.png")
         ctx390.close()
 
     browser.close()

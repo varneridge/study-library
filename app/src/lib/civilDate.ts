@@ -150,6 +150,12 @@ export function parseUK(str: string): ISODate | null {
 
 // Assembles weekday, day, month and year with single spaces via formatToParts.
 // Guarantees deterministic format across engines (e.g. "Monday 15 June 2026").
+// What a date card says about the date already chosen, beneath its title.
+export function chosenDateText(value: string | null | undefined): string {
+  const long = value ? formatLong(value) : "";
+  return long ? `Now: ${long}` : "No date chosen yet";
+}
+
 export function formatLong(iso: ISODate): string {
   const p = parseISO(iso);
   if (!p) return "";

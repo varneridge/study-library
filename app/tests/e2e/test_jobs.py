@@ -85,7 +85,7 @@ with sync_playwright() as p:
         app_event("ev-fast", "fast", "applied", iso(today - timedelta(days=5))),
     ])
 
-    # The study side, before: its top bar and pages are unchanged but for one link.
+    # The study side, before: its top bar has the switch to the job search.
     page.goto(BASE + "/")
     assert page.locator(".topbar a.to-jobs").inner_text() == "Job search"
     expect(page.locator(".topbar a.topbar-across")).to_have_text("This week")
@@ -98,7 +98,9 @@ with sync_playwright() as p:
     expect(page.get_by_role("heading", name="Applications")).to_be_visible()
     assert page.url.endswith("/?v=jobs")
     expect(page.locator(".topbar .brand")).to_have_text("Job search")
-    expect(page.locator(".topbar nav")).to_have_count(1)
+    expect(page.locator(".topbar .side-switch")).to_have_count(1)
+    expect(page.locator(".topbar .side-switch a.to-jobs")).to_have_attribute("aria-current", "true")
+    expect(page.get_by_role("link", name="Settings", exact=True)).to_be_visible()
     assert page.title() == "Job search · Study Library", page.title()
     expect(page.locator(".jobs-summary")).to_contain_text("4 applications. 3 open, 1 overdue, 1 due within a week, 1 closed.")
     print("summary:", page.locator(".jobs-summary").text_content())
@@ -440,7 +442,7 @@ with sync_playwright() as p:
     expect(page.locator(".drop-sheet, .drop-mark")).to_have_count(0)
 
     # Back to the study side, which is as it was.
-    page.locator(".topbar nav a", has_text="Study Library").click()
+    page.locator(".topbar .side-switch .side-study").click()
     expect(page.locator(".topbar .brand")).to_have_text("Study Library")
     assert page.url.rstrip("/").endswith(BASE.split("//")[1]) or page.url.endswith("/"), page.url
     expect(page.get_by_role("link", name="Search", exact=True)).to_be_visible()
@@ -464,7 +466,7 @@ with sync_playwright() as p:
     phone.goto(BASE + "/?v=jobs")
     expect(phone.locator("tbody.app")).to_have_count(5)
     expect(phone.locator(".app-card")).to_have_count(0)
-    assert phone.locator(".topbar nav a").inner_text() == "Study Library"
+    assert phone.locator(".topbar .side-study").inner_text() == "Study"
     # Castore is overdue, so it comes first.
     expect(phone.locator("tbody.app").first.locator(".c-employer textarea")).to_have_value("Castore")
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)

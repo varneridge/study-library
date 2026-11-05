@@ -84,7 +84,7 @@ function TableRow({ app, events, fresh, onLeft }: {
         <td className="c-role">
           <TextField wrap className="cell-input" value={app.role} label="Role" placeholder="Role" onSave={(v) => void saveApplication(app.id, { role: v })} />
         </td>
-        <td className="c-applied"><DateField value={app.applied} label="Applied" onSave={(v) => void saveAppliedDate(app, v)} /></td>
+        <td className="c-applied"><DateField value={app.applied} label="Applied" title={`Date you applied to ${app.employer || "this employer"}`} onSave={(v) => void saveAppliedDate(app, v)} /></td>
         <td className="c-stage">
           <StageButton app={app} since={since} />
           {since && isOpen(app) && <span className="stage-since">{inStageWords(since)}</span>}

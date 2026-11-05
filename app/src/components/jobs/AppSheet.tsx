@@ -245,29 +245,29 @@ export function AppSheet({
       {isNotesMode ? (
         <JobNotesEditor app={app} onBack={closeNotes} />
       ) : (
+        // On a phone the sections run in one column. On a laptop the card is
+        // wider: where it stands across the top, the timeline down the left,
+        // and the files and notes on the right.
         <div className="app-sheet-body">
-          <div className="app-sheet-section app-sheet-meta-group">
-            <div className="app-sheet-field">
+          <section className="app-sheet-status" aria-label="Where it stands">
+            <div className="app-sheet-field app-sheet-stage-field">
               <span className="field-label">Stage</span>
               <div className="app-sheet-stage-wrap">
                 <StageButton app={app} since={since} />
                 {sinceWords && <span className="stage-since muted">{sinceWords}</span>}
               </div>
             </div>
-
-            <div className="field-pair">
-              <div className="app-sheet-field">
-                <span className="field-label">Applied</span>
-                <span className="app-sheet-val">{app.applied ? formatDate(app.applied) : "Not recorded"}</span>
-              </div>
-              <div className="app-sheet-field">
-                <span className="field-label">Next deadline</span>
-                <Deadline app={app} />
-              </div>
+            <div className="app-sheet-field">
+              <span className="field-label">Applied</span>
+              <span className="app-sheet-val">{app.applied ? formatDate(app.applied) : "Not recorded"}</span>
             </div>
-          </div>
+            <div className="app-sheet-field">
+              <span className="field-label">Next deadline</span>
+              <Deadline app={app} />
+            </div>
+          </section>
 
-          <div className="app-sheet-section">
+          <div className="app-sheet-section app-sheet-files">
             <h3 className="detail-head">Files</h3>
             <ul className="slot-list" aria-label="Files">
               {SLOTS.map((slot) => (
@@ -276,25 +276,21 @@ export function AppSheet({
             </ul>
           </div>
 
-          <div className="app-sheet-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
-              <h3 className="detail-head" style={{ margin: 0 }}>Notes</h3>
-              <button
-                type="button"
-                className="quiet small"
-                onClick={openNotes}
-              >
+          <div className="app-sheet-section app-sheet-notes">
+            <div className="app-sheet-section-head">
+              <h3 className="detail-head">Notes</h3>
+              <button type="button" className="quiet small" onClick={openNotes}>
                 Open notes
               </button>
             </div>
             {app.notes ? (
               <p className="app-sheet-notes-text">{app.notes}</p>
             ) : (
-              <p className="app-sheet-notes-text muted">No notes yet.</p>
+              <p className="app-sheet-notes-text muted">No notes yet. Contacts, interview questions and what to prepare go here.</p>
             )}
           </div>
 
-          <div className="app-sheet-section">
+          <div className="app-sheet-section app-sheet-timeline">
             <Timeline
               app={app}
               events={events}

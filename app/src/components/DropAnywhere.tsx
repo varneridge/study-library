@@ -24,7 +24,7 @@ import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
 // Which module and week the current screen belongs to, if any.
 async function placeOf(route: Route): Promise<{ moduleId: string | null; weekId: string | null; sessionId: string | null }> {
   const none = { moduleId: null, weekId: null, sessionId: null };
-  if (route.view === "module" || route.view === "import") return { ...none, moduleId: route.id };
+  if (route.view === "module") return { ...none, moduleId: route.id };
   let sessionId: string | null = null;
   let weekId: string | null = null;
   if (route.view === "session") sessionId = route.id;
@@ -52,8 +52,12 @@ function Sheet({ files, initial, onClose }: {
   const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), [], [] as ModuleRow[]);
   const [weeks, setWeeks] = useState<WeekRow[]>([]);
   const [moduleId, setModuleId] = useState(initial.moduleId ?? "");
-  const named = files.some((f) => parseTitle(stripExtension(f.name)).term);
-  const [where, setWhere] = useState(initial.weekId ?? (named ? "named" : "tray"));
+  const namedByTerm = files.some((f) => parseTitle(stripExtension(f.name)).term);
+  const [where, setWhere] = useState(initial.weekId ?? (namedByTerm ? "named" : "tray"));
+  // Which module's weeks are loaded, so Add waits for them, and whether the
+  // week has been chosen by hand, so the best guess never overrides it.
+  const [weeksOf, setWeeksOf] = useState<string | null>(null);
+  const touched = useRef(false);
   const [addAs, setAddAs] = useState<"auto" | "primary" | "secondary" | "summary">("auto");
   const [busy, setBusy] = useState(false);
   const usable = files.filter((f) => mimeFor(f) && !isAudioOnly(f));
@@ -68,8 +72,22 @@ function Sheet({ files, initial, onClose }: {
 
   useEffect(() => {
     if (!moduleId) return;
-    void db.weeks.where("module_id").equals(moduleId).toArray().then((all) => setWeeks(all.filter((w) => !w.deleted).sort(byWeek)));
+    let live = true;
+    void db.weeks.where("module_id").equals(moduleId).toArray().then((all) => {
+      if (!live) return;
+      setWeeks(all.filter((w) => !w.deleted).sort(byWeek));
+      setWeeksOf(moduleId);
+    });
+    return () => { live = false; };
   }, [moduleId]);
+
+  // A file that names a week, or a section as in "(Chapter 2) Kirby", goes
+  // there, so once the weeks are known "As in the file names" is the guess.
+  const named = namedByTerm || usable.some((f) => planFile(f, weeks).weekId !== null);
+  useEffect(() => {
+    if (touched.current || initial.weekId || weeksOf !== moduleId) return;
+    setWhere(named ? "named" : "tray");
+  }, [named, weeksOf, moduleId, initial.weekId]);
 
   async function add() {
     const module = modules.find((m) => m.id === moduleId);
@@ -121,7 +139,7 @@ function Sheet({ files, initial, onClose }: {
           </label>
           <label className="field" style={{ flex: 1 }}>
             <span>{isLibrary(modules.find((m) => m.id === moduleId)) ? "Shelf" : "Week"}</span>
-            <select value={where} onChange={(e) => setWhere(e.target.value)}>
+            <select value={where} onChange={(e) => { touched.current = true; setWhere(e.target.value); }}>
               {named && !isLibrary(modules.find((m) => m.id === moduleId)) && <option value="named">As in the file names</option>}
               <option value="tray">Unsorted, to sort later</option>
               {weeks.map((w) => <option key={w.id} value={w.id}>{weekCode(w)}{titleAfter(w, ", ")}</option>)}
@@ -150,7 +168,7 @@ function Sheet({ files, initial, onClose }: {
       )}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: "0.75rem" }}>
         <button className="quiet" onClick={onClose}>Cancel</button>
-        <button ref={addButton} className="button primary" disabled={busy || !usable.length || !moduleId} onClick={add}>Add</button>
+        <button ref={addButton} className="button primary" disabled={busy || !usable.length || !moduleId || weeksOf !== moduleId} onClick={add}>Add</button>
       </div>
     </dialog>
   );
@@ -220,7 +238,7 @@ export function DropAnywhere({ route }: { route: Route }) {
   }, []);
 
   // Week and module pages show their own, more precise, drop marks.
-  const ownMarks = route.view === "week" || route.view === "import";
+  const ownMarks = route.view === "week";
   return (
     <>
       {over && !ownMarks && (

@@ -1,7 +1,7 @@
 """Version 0.24: the UX pass. This week marked on the module and week pages,
 week dates, highlight counts on readings, the home page's Readings tile,
-Go to closing with one Esc, the import table and its bar, page ranges read
-as pages, and the job search reachable from a phone's top bar."""
+Go to closing with one Esc, files added by dropping them on the module page,
+page ranges read as pages, and the job search reachable from a phone's top bar."""
 import glob, sys, time
 from datetime import date, timedelta
 from pathlib import Path
@@ -14,7 +14,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "ux")
 
 
-from helpers import stamp, until
+from helpers import add_files, stamp, until
 
 
 with sync_playwright() as p:
@@ -45,27 +45,17 @@ with sync_playwright() as p:
     assert hover_bg != active_bg, f"Expected button active bg to differ from hover, got hover={hover_bg}, active={active_bg}"
     expect(page.get_by_role("heading", name="HY319")).to_be_visible()
 
-    # The import table: names kept short, the Import button always in view,
-    # and a page range with no source read as pages.
-    page.get_by_role("link", name="Import readings").click()
-    page.locator("input[type=file][accept]").set_input_files(files)
-    expect(page.locator("table.review tbody tr")).to_have_count(3)
-    cell = page.locator("table.review td.file").first.bounding_box()
-    assert cell["width"] <= 11 * 16 + 1, cell
-    chen = page.locator("table.review tbody tr", has=page.locator(".file-name", has_text="Chen"))
-    pages_value = chen.locator("td").nth(8).locator("input").input_value()
-    source_value = chen.locator("td").nth(7).locator("input").input_value()
-    assert pages_value == "1-16" and source_value.startswith("in Mao"), (source_value, pages_value)
-    bar = page.locator(".import-bar")
-    assert page.evaluate("getComputedStyle(document.querySelector('.import-bar')).position") == "sticky"
-    page.screenshot(path=f"{shots}-1-import.png")
-    bar.get_by_role("button", name="Import 3 files").click()
+    # Files dropped on the module page go to the weeks in their names, and a
+    # page range with no source is read as pages. There is no import page.
+    expect(page.get_by_role("link", name="Import readings")).to_have_count(0)
+    add_files(page, files)
     expect(page.get_by_role("heading", name="HY319")).to_be_visible()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).length === 3; }")
     rows = page.evaluate("async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows")
     chen_item = next(i for i in rows["items"] if i["author"] and i["author"].startswith("Chen"))
     assert chen_item["pages"] == "1-16", chen_item
-    print("import: names clamped, the bar stays in view, 'pp. 1-16' saved as pages")
+    page.screenshot(path=f"{shots}-1-added.png")
+    print("added by dropping on the module page, with 'pp. 1-16' saved as pages")
 
     # This week, on the module page.
     page.reload()

@@ -5,7 +5,7 @@ HERE = Path(__file__).resolve().parent
 (HERE / 'shots').mkdir(exist_ok=True)
 
 from playwright.sync_api import sync_playwright, expect
-from helpers import page_colour, until
+from helpers import add_files, page_colour, until
 
 BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
@@ -30,16 +30,7 @@ with sync_playwright() as p:
     expect(page.locator(".week")).to_have_count(22)
     print("module created with 22 weeks")
 
-    page.get_by_role("link", name="Import readings").click()
-    page.locator("input[type=file][accept]").set_input_files(files)
-    expect(page.locator("table.review tbody tr")).to_have_count(3)
-    weeks = page.locator("table.review tbody tr td:nth-child(2) select").evaluate_all(
-        "els => els.map(e => e.options[e.selectedIndex].text)")
-    kinds = page.locator("table.review tbody tr td:nth-child(3) select").evaluate_all(
-        "els => els.map(e => e.options[e.selectedIndex].text)")
-    print("review weeks", weeks, "types", kinds)
-    page.screenshot(path=f"{shots}-2-import.png", full_page=True)
-    page.get_by_role("button", name="Import 3 files").click()
+    add_files(page, files)
     expect(page.get_by_role("heading", name="HY335")).to_be_visible()
 
     # Wait for uploads to finish.

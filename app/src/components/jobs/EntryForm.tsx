@@ -110,6 +110,8 @@ export function EntryForm({
             value={day || null}
             max={today}
             label="Entry date"
+            title={`Date of this entry for ${app.employer || "this application"}`}
+            hint="The day this step happened. Days after today can’t be chosen."
             placeholder="Choose date"
             onChange={(d) => setDay(d || "")}
           />

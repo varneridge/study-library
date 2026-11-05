@@ -201,6 +201,7 @@ export function ApplicationForm({
             <DatePicker
               value={applied || null}
               label="Applied date"
+              title="Date you applied"
               clearable
               placeholder="Add applied date"
               onChange={(d) => {
@@ -217,6 +218,7 @@ export function ApplicationForm({
             <DatePicker
               value={nextDeadline || null}
               label="Next deadline"
+              hint="Applications are ordered by what is due next."
               clearable
               placeholder="Add deadline"
               onChange={(d) => {

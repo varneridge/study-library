@@ -52,6 +52,22 @@ def drop_files(page, selector, paths, release=True):
       if (release) target.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
     }""", [selector, payload, release])
 
+def add_files(page, paths, week=None):
+    """Adds files from the module page that is open, by dropping them on it,
+    as a person would now that the import page has gone. The sheet that asks
+    where they go opens with its best guess, the weeks in their names, and
+    Add waits until the module's weeks are known."""
+    drop_files(page, "#main h1", paths)
+    sheet = page.locator("dialog.add-sheet[open]")
+    expect(sheet).to_be_visible()
+    if week:
+        sheet.get_by_label("Week").select_option(label=week)
+    add = sheet.get_by_role("button", name="Add", exact=True)
+    expect(add).to_be_enabled()
+    add.click()
+    expect(sheet).to_have_count(0)
+
+
 def pick_date(page, trigger, iso):
     """Chooses a date in the custom date picker: opens it, steps to the month, clicks the day."""
     import datetime
