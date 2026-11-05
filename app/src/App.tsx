@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AcrossPage } from "./components/AcrossPage";
 import { Home } from "./components/Home";
-import { ImportPage } from "./components/ImportPage";
 import { ModulePage } from "./components/ModulePage";
+import { AssessmentPage } from "./components/AssessmentPage";
 import { SearchPage } from "./components/SearchPage";
 import { SessionPage } from "./components/SessionPage";
 import { Settings } from "./components/Settings";
@@ -34,16 +34,18 @@ const openingEssay = <PageLoading label="Opening the word processor" />;
 // The job search is its own part of the app, loaded when first opened.
 const JobsPage = lazy(() => import("./components/JobsPage").then((m) => ({ default: m.JobsPage })));
 
-export function Link({ to, children, className, current, title, label, tabIndex, ariaHidden }: {
+export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
   tabIndex?: number; ariaHidden?: boolean;
+  // The side of the app you are on, in the switch, rather than this very page.
+  currentSide?: boolean;
 }) {
   return (
     <a
       className={className}
       title={title}
       aria-label={label}
-      aria-current={current ? "page" : undefined}
+      aria-current={current ? "page" : currentSide ? "true" : undefined}
       tabIndex={tabIndex}
       aria-hidden={ariaHidden ? true : undefined}
       href={href(to)}
@@ -145,7 +147,7 @@ function ModuleLinks({ route }: { route: Route }) {
     return null;
   }, [route]);
   const currentModule =
-    route.view === "module" || route.view === "import"
+    route.view === "module" || route.view === "assessment"
       ? route.id
       : route.view === "week" || route.view === "session"
         ? lookedUpModule
@@ -219,6 +221,57 @@ function useTypingClass() {
 }
 
 
+// Study Library and the job search share one top bar. The brand names the
+// side you are on and leads to its home, the switch moves between the two
+// sides, and Go to, Search and Settings sit in the same place on both.
+function SideSwitch({ jobs }: { jobs: boolean }) {
+  return (
+    <nav className="side-switch" aria-label="Study or job search">
+      <Link to={{ view: "home" }} className="side-study" currentSide={!jobs}>Study</Link>
+      <Link to={{ view: "jobs" }} className="to-jobs" currentSide={jobs}>
+        <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
+      </Link>
+    </nav>
+  );
+}
+
+function TopBar({ route }: { route: Route }) {
+  const jobs = route.view === "jobs";
+  return (
+    <header className={`topbar${jobs ? " jobs-bar wide" : ""}`}>
+      {jobs
+        ? <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
+        : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
+      <SyncStatus />
+      {/* On a phone the tab bar does the navigating; Go to stays up here. */}
+      <button className="icon-button narrow-only goto-button" aria-label="Go to a module, week or reading" title="Go to" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+        <Icon name="goto" size={22} />
+      </button>
+      {!jobs && (
+        <div className="navs">
+          <ModuleLinks route={route} />
+          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
+        </div>
+      )}
+      <SideSwitch jobs={jobs} />
+      <nav className="topbar-tools" aria-label="Tools">
+        <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
+          <span className="sr-only">Go to</span>
+          <Icon name="goto" size={18} />
+        </button>
+        <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
+          <span className="sr-only">Search</span>
+          <Icon name="search" size={18} />
+        </Link>
+        <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
+          <span className="sr-only">Settings</span>
+          <Icon name="settings" size={18} />
+        </Link>
+      </nav>
+    </header>
+  );
+}
+
 export function App() {
   const route = useRoute();
   useTypingClass();
@@ -282,15 +335,7 @@ export function App() {
     return (
       <>
         <a className="skip" href="#main">Skip to content</a>
-        <header className="topbar jobs-bar wide">
-          <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
-          <SyncStatus />
-          <nav className="topbar-nav" aria-label="Leave the job search">
-            <Link to={{ view: "home" }} title="Back to your modules, readings and notes">
-              <span className="wide-only">Back to Study Library</span><span className="narrow-only">Study Library</span>
-            </Link>
-          </nav>
-        </header>
+        <TopBar route={route} />
         <ExpiredBanner />
         <main id="main" tabIndex={-1}>
           <ErrorBoundary key="jobs" label="job search">
@@ -300,6 +345,7 @@ export function App() {
           </ErrorBoundary>
         </main>
         <Overlays />
+        <Palette />
         <RecorderPill route={route} />
       </>
     );
@@ -308,42 +354,14 @@ export function App() {
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
-      <header className="topbar">
-        <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>
-        <SyncStatus />
-        {/* On a phone the tab bar does the navigating; Go to stays up here. */}
-        <button className="icon-button narrow-only goto-button" aria-label="Go to a module, week or reading" title="Go to" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
-          <Icon name="goto" size={22} />
-        </button>
-        <div className="navs">
-          <ModuleLinks route={route} />
-          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
-        </div>
-        <Link to={{ view: "jobs" }} className="to-jobs">
-          <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
-        </Link>
-        <nav className="topbar-tools" aria-label="Tools">
-          <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
-            <span className="sr-only">Go to</span>
-            <Icon name="goto" size={18} />
-          </button>
-          <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
-            <span className="sr-only">Search</span>
-            <Icon name="search" size={18} />
-          </Link>
-          <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
-            <span className="sr-only">Settings</span>
-            <Icon name="settings" size={18} />
-          </Link>
-        </nav>
-      </header>
+      <TopBar route={route} />
       <ExpiredBanner />
       <main id="main" tabIndex={-1}>
       <ErrorBoundary key={href(route)}>
       {route.view === "home" && <Home />}
       {route.view === "module" && <ModulePage id={route.id} />}
       {route.view === "week" && <WeekPage id={route.id} />}
-      {route.view === "import" && <ImportPage id={route.id} />}
+      {route.view === "assessment" && <AssessmentPage id={route.id} />}
       {route.view === "across" && <AcrossPage term={route.term} number={route.number} />}
       {route.view === "settings" && <Settings />}
       {route.view === "session" && <SessionPage id={route.id} rec={route.rec} t={route.t} turn={route.turn} />}

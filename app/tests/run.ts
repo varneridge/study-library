@@ -7,7 +7,7 @@ import { slidesBase, isPlaceName, freeName, fileGivenTitle, safeFileName, extens
 import { parseTitle } from "../src/lib/parse";
 import { fullTitle, shortTitle, chicagoBibliography, chicagoNote, parsePeople } from "../src/lib/titles";
 import { isDissertation, isLibrary, hasCustomSections, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings, coverLabel } from "../src/lib/sections";
-import { todayLocal, parseISO, formatISO, daysInMonth, addDays, addMonths, weekdayMon0, nextMonday, monthGrid, parseUK, formatLong } from "../src/lib/civilDate";
+import { todayLocal, parseISO, formatISO, daysInMonth, addDays, addMonths, weekdayMon0, nextMonday, monthGrid, parseUK, formatLong, chosenDateText } from "../src/lib/civilDate";
 import { parseRoute } from "../src/lib/router";
 import { notesQueue } from "../src/lib/notesQueue";
 
@@ -33,6 +33,12 @@ import { registerSheetRouteTests } from "./test_sheet";
 import { registerJobLogicTests } from "./test_job_logic";
 import { registerSafetyTests } from "./test_safety";
 import { dismissTopLayer } from "../src/lib/layers";
+import { coverShape, defaultViewMode, isTileMode, parseViewMode, VIEW_MODES, viewSettingKey } from "../src/lib/views";
+import { videoFrameTime } from "../src/lib/videoThumbs";
+import { estimatedSizes, sameSize, shouldStream, STREAM_FROM_BYTES } from "../src/lib/pdfOpen";
+import { viaLabel } from "../src/lib/citations";
+import { foldedBlockIds, foldStyles } from "../src/lib/folds";
+import { draftExcerpt, wordProgress } from "../src/lib/assessment";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -1319,6 +1325,175 @@ test("route parameters reject negative and fractional pages and bad times", () =
     console.log(`FAIL ${name}\n${(error as Error).message}`);
   }
 }
+
+test("an old link to the import page opens its module", () => {
+  assert.deepEqual(parseRoute("?v=import&id=m1"), { view: "module", id: "m1" });
+  assert.deepEqual(parseRoute("?v=import"), { view: "home" });
+});
+
+test("the module page offers no Import readings button", () => {
+  const source = readFileSync(new URL("../src/components/ModulePage.tsx", import.meta.url), "utf8");
+  assert.ok(!source.includes("Import readings"), "ModulePage still mentions Import readings");
+  assert.ok(!source.includes('view: "import"'), "ModulePage still links to the import page");
+});
+
+test("the date card says what the date is now", () => {
+  assert.equal(chosenDateText("2026-10-12"), "Now: Monday 12 October 2026");
+  assert.equal(chosenDateText(null), "No date chosen yet");
+  assert.equal(chosenDateText("not a date"), "No date chosen yet");
+});
+
+test("the date card has no quick chips and a Clear date button apart from Cancel", () => {
+  const source = readFileSync(new URL("../src/components/DatePicker.tsx", import.meta.url), "utf8");
+  for (const gone of ["Next Monday", "Tomorrow", "date-picker-chips", "quickChips"]) {
+    assert.ok(!source.includes(gone), `DatePicker still has ${gone}`);
+  }
+  assert.ok(source.includes("Clear date") && source.includes("date-picker-foot"), "Clear date belongs in the card's foot");
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.ok(!css.includes(".date-chip"), "the quick chips' styles remain");
+  assert.ok(css.includes(".date-picker-dialog.is-card"), "the centred card has no styles");
+});
+
+test("one top bar serves both sides, with the switch between them", () => {
+  const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.equal((source.match(/<header className=/g) ?? []).length, 1, "there should be one top bar");
+  assert.equal((source.match(/<TopBar route=\{route\} \/>/g) ?? []).length, 2, "both sides should use TopBar");
+  assert.ok(!source.includes("Back to Study Library"), "the old way back from the job search remains");
+});
+
+test("a folder's view opens as File Explorer's would", () => {
+  const pdf = { file: { mime: "application/pdf" }, upload: null } as never;
+  const video = { file: { mime: "video/mp4" }, upload: null } as never;
+  assert.equal(defaultViewMode({ library: false, views: [pdf, pdf] }), "compact");
+  assert.equal(defaultViewMode({ library: true, views: [pdf] }), "icons");
+  assert.equal(defaultViewMode({ library: false, views: [video, video] }), "large");
+  assert.equal(defaultViewMode({ library: true, views: [video] }), "large");
+  assert.equal(defaultViewMode({ library: false, views: [video, pdf] }), "compact");
+  assert.equal(defaultViewMode({ library: false, views: [] }), "compact");
+});
+
+test("view choices are checked and kept for each folder", () => {
+  assert.deepEqual(VIEW_MODES.map((m) => m.label), ["Compact", "Normal", "Icons", "Large icons"]);
+  assert.equal(parseViewMode("icons"), "icons");
+  assert.equal(parseViewMode("details"), null);
+  assert.equal(parseViewMode(null), null);
+  assert.equal(viewSettingKey("w1"), "view:w1");
+  assert.ok(isTileMode("icons") && isTileMode("large") && !isTileMode("normal") && !isTileMode("compact"));
+});
+
+test("videos and slides have wide pictures, readings have pages", () => {
+  const item = (kind: string) => ({ kind }) as never;
+  assert.equal(coverShape({ item: item("secondary"), file: { mime: "video/webm" }, upload: null } as never), "wide");
+  assert.equal(coverShape({ item: item("slides"), file: { mime: "application/pdf" }, upload: null } as never), "wide");
+  assert.equal(coverShape({ item: item("primary"), file: { mime: "application/pdf" }, upload: null } as never), "page");
+});
+
+test("a video's frame is taken a tenth of the way in, within the first minute", () => {
+  assert.equal(videoFrameTime(100), 10);
+  assert.equal(videoFrameTime(3600), 60);
+  assert.equal(videoFrameTime(4), 1);
+  assert.equal(videoFrameTime(1), 0.5);
+  assert.equal(videoFrameTime(Number.NaN), 1);
+  assert.equal(videoFrameTime(null), 1);
+});
+
+test("shelves keep their own shape, with their pictures shown whole", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.ok(/\.week-card\.is-shelf \.week-card-cover,\s*\.week-card\.is-library \.week-card-cover \{\s*aspect-ratio: 2 \/ 3;/.test(css), "a shelf card lost its own shape");
+  assert.ok(/\.week-card-cover \.shelf-covers img \{[^}]*object-fit: contain/.test(css), "a shelf's cover is cut to the card");
+  assert.ok(/\.week-card\.is-shelf \.week-card-cover > img \{[^}]*object-fit: contain/.test(css), "a shelf's own picture is cut to the card");
+});
+
+test("a large reading not on this device opens a piece at a time", () => {
+  assert.equal(shouldStream(STREAM_FROM_BYTES, false, true), true);
+  assert.equal(shouldStream(STREAM_FROM_BYTES - 1, false, true), false);
+  assert.equal(shouldStream(STREAM_FROM_BYTES * 4, true, true), false);
+  assert.equal(shouldStream(STREAM_FROM_BYTES * 4, false, false), false);
+  assert.equal(shouldStream(null, false, true), false);
+});
+
+test("a long book starts with every page the size of its first", () => {
+  const sizes = estimatedSizes({ width: 432, height: 648 }, 3);
+  assert.deepEqual(sizes, [{ width: 432, height: 648 }, { width: 432, height: 648 }, { width: 432, height: 648 }]);
+  sizes[0].width = 1;
+  assert.equal(sizes[1].width, 432, "each page has a size of its own");
+  assert.ok(sameSize({ width: 432, height: 648 }, { width: 432.2, height: 647.9 }));
+  assert.ok(!sameSize({ width: 432, height: 648 }, { width: 648, height: 432 }));
+});
+
+test("details found from an ISBN say so", () => {
+  assert.match(viaLabel("isbn"), /ISBN/);
+  assert.match(viaLabel("isbn-chapter"), /book it comes from/);
+});
+
+test("a folded collapsible heading hides its whole section", () => {
+  const blocks = [
+    { id: "h1", type: "heading", level: 2, toggleable: true, open: false },
+    { id: "p1", type: "paragraph" },
+    { id: "h2", type: "heading", level: 3 },
+    { id: "p2", type: "bulletListItem" },
+    { id: "h3", type: "heading", level: 2 },
+    { id: "p3", type: "paragraph" },
+  ];
+  assert.deepEqual(foldedBlockIds(blocks), ["p1", "h2", "p2"]);
+  assert.deepEqual(foldedBlockIds(blocks.map((b) => (b.id === "h1" ? { ...b, open: true } : b))), []);
+  // A heading that is not collapsible never folds, and a higher one ends a fold.
+  assert.deepEqual(foldedBlockIds([{ id: "a", type: "heading", level: 2, open: false }, { id: "b", type: "paragraph" }]), []);
+  assert.deepEqual(foldedBlockIds([
+    { id: "a", type: "heading", level: 3, toggleable: true, open: false },
+    { id: "b", type: "paragraph" },
+    { id: "c", type: "heading", level: 1 },
+    { id: "d", type: "paragraph" },
+  ]), ["b"]);
+  assert.equal(foldStyles("s1", []), "");
+  assert.equal(foldStyles("s1", ["b"]), '[data-fold-scope="s1"] .bn-block-outer[data-id="b"] { display: none; }');
+});
+
+test("collapsible headings are offered in the notes' block menu", () => {
+  const source = readFileSync(new URL("../src/components/NoteEditor.tsx", import.meta.url), "utf8");
+  for (const key of ["toggle_heading", "toggle_heading_2", "toggle_heading_3"]) assert.ok(source.includes(`"${key}"`), key);
+  assert.ok(source.includes("Collapsible heading 1"));
+});
+
+test("the assessment page has a route of its own", () => {
+  assert.deepEqual(parseRoute("?v=assessment&id=m1"), { view: "assessment", id: "m1" });
+  assert.deepEqual(parseRoute("?v=assessment"), { view: "home" });
+});
+
+test("the draft's opening and the word count read as a student expects", () => {
+  const doc = {
+    blocks: [
+      { id: "1", type: "heading1" as const, runs: [{ type: "text" as const, text: "Introduction" }] },
+      { id: "2", type: "paragraph" as const, runs: [{ type: "text" as const, text: "Austria-Hungary delivered the ultimatum." }, { type: "footnote_ref" as const, footnoteId: "f" }] },
+      { id: "3", type: "paragraph" as const, runs: [{ type: "text" as const, text: "Serbia replied within two days." }] },
+    ],
+    footnotes: [], comments: [],
+  };
+  assert.equal(draftExcerpt(doc), "Austria-Hungary delivered the ultimatum. Serbia replied within two days.");
+  assert.equal(draftExcerpt(doc, 30), "Austria-Hungary delivered the\u2026");
+  assert.deepEqual(wordProgress(1250, 2500), { share: 0.5, words: "1,250 of 2,500 words" });
+  assert.deepEqual(wordProgress(1, null), { share: 0, words: "1 word" });
+  assert.equal(wordProgress(3000, 2500).share, 1);
+});
+
+test("Assessment & essay sits under Course materials & assessments", () => {
+  const source = readFileSync(new URL("../src/components/ModulePage.tsx", import.meta.url), "utf8");
+  assert.ok(source.includes("Course materials & assessments"));
+  assert.ok(source.includes("<AssessmentCard module={module} />"));
+  assert.ok(!source.includes("AssessmentSection"), "the old inline section remains");
+});
+
+test("the application card's notes button keeps one name", () => {
+  const source = readFileSync(new URL("../src/components/jobs/AppSheet.tsx", import.meta.url), "utf8");
+  assert.ok(source.includes("Open notes") && !source.includes("Add notes"));
+});
+
+test("the essay question is labelled once, and its card title is a touch target", () => {
+  const page = readFileSync(new URL("../src/components/AssessmentPage.tsx", import.meta.url), "utf8");
+  assert.equal((page.match(/Essay question/g) ?? []).length, 1, "only the question's own label says Essay question");
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.ok(/\.essay-card-title \{[^}]*min-height: 2\.75rem/.test(css), "the card title is too small to tap");
+});
 
 if (failed) {
 

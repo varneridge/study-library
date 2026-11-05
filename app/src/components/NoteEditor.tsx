@@ -17,7 +17,8 @@ import { uploadImage } from "../lib/uploads";
 import { showToast } from "../lib/ui";
 import { useDark } from "../lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useCallback, useContext, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useCallback, useContext, useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { foldedBlockIds, foldStyles } from "../lib/folds";
 import { colourLabel, useColourNames } from "../lib/settings";
 import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
 import { href, navigate } from "../lib/router";
@@ -153,8 +154,19 @@ interface Loaded {
 // What an empty line says, so the editor explains itself.
 const PLACEHOLDER = "Write here. Type / for headings, lists and pictures, or @ to cite a reading.";
 
-// The block menu keeps what notes on history need.
-const KEPT = new Set(["heading", "heading_2", "heading_3", "quote", "numbered_list", "bullet_list", "paragraph", "table", "image", "divider"]);
+// The block menu keeps what notes on history need, collapsible headings among them.
+const KEPT = new Set([
+  "heading", "heading_2", "heading_3", "toggle_heading", "toggle_heading_2", "toggle_heading_3",
+  "quote", "numbered_list", "bullet_list", "paragraph", "table", "image", "divider",
+]);
+
+// Collapsible headings, named for what they do, in sentence case.
+const SLASH_MENU = {
+  ...en.slash_menu,
+  toggle_heading: { ...en.slash_menu.toggle_heading, title: "Collapsible heading 1", subtext: "A heading whose section folds away" },
+  toggle_heading_2: { ...en.slash_menu.toggle_heading_2, title: "Collapsible heading 2", subtext: "A section heading that folds away" },
+  toggle_heading_3: { ...en.slash_menu.toggle_heading_3, title: "Collapsible heading 3", subtext: "A subheading that folds away" },
+};
 
 // Typing @ offers readings to cite, most recently opened first.
 async function readingSuggestions(
@@ -186,6 +198,8 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const container = useRef<HTMLDivElement>(null);
   const dark = useDark();
+  const foldScope = useId();
+  const [foldCss, setFoldCss] = useState("");
 
   const editor = useCreateBlockNote(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -193,6 +207,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       schema,
       dictionary: {
         ...en,
+        slash_menu: SLASH_MENU,
         // An empty editor says what it is for; each new empty line explains / and @.
         placeholders: { ...en.placeholders, emptyDocument: placeholder ?? PLACEHOLDER, default: PLACEHOLDER },
       },
@@ -455,9 +470,51 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     }
   };
 
+  // A folded collapsible heading hides its whole section. Which headings are
+  // open is read from BlockNote's own toggle buttons, so a fold stays as it
+  // was left on this device; a new collapsible heading starts open, so
+  // turning a heading into one never makes the writing beneath it vanish.
+  useEffect(() => {
+    const root = container.current;
+    if (!root) return;
+    let frame = 0;
+    const refresh = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const blocks = (editor.document as unknown as { id: string; type: string; props?: { level?: number; isToggleable?: boolean } }[]).map((b) => {
+          const toggleable = b.type === "heading" && Boolean(b.props?.isToggleable);
+          let open: boolean | undefined;
+          if (toggleable) {
+            const wrapper = root.querySelector<HTMLElement>(`.bn-block-outer[data-id="${b.id}"] .bn-toggle-wrapper`);
+            let known = true;
+            try { known = localStorage.getItem(`toggle-${b.id}`) !== null; } catch { /* private browsing */ }
+            if (wrapper && !known) {
+              try { localStorage.setItem(`toggle-${b.id}`, "true"); } catch { /* private browsing */ }
+              wrapper.setAttribute("data-show-children", "true");
+            }
+            open = wrapper ? wrapper.getAttribute("data-show-children") !== "false" : true;
+          }
+          return { id: b.id, type: b.type, level: b.props?.level, toggleable, open };
+        });
+        const next = foldStyles(foldScope, foldedBlockIds(blocks));
+        setFoldCss((was) => (was === next ? was : next));
+      });
+    };
+    refresh();
+    const stop = editor.onChange(refresh);
+    const observer = new MutationObserver(refresh);
+    observer.observe(root, { subtree: true, attributes: true, attributeFilter: ["data-show-children"] });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      if (typeof stop === "function") stop();
+    };
+  }, [editor, foldScope]);
+
   return (
     <div
       ref={container}
+      data-fold-scope={foldScope}
       className={`note-editor${compact ? " compact" : ""}`}
       aria-label={label}
       onClick={handleContainerClick}
@@ -473,6 +530,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
         }
       }}
     >
+      {foldCss && <style>{foldCss}</style>}
       <BlockNoteView editor={editor} theme={dark ? "dark" : "light"} slashMenu={false}>
         <SuggestionMenuController
           triggerCharacter="/"

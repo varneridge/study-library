@@ -1,6 +1,8 @@
-"""Sprint 4 & 5: Video readings with manual transcripts, collapsible
-Assessment & essay section, and dedicated Word processor with native
-OpenXML (.docx) footnotes and review comments."""
+"""Video readings with manual transcripts; Assessment & essay as a card under
+Course materials & assessments, opening a page laid out as a history student
+works, with collapsible headings in its plan that fold their whole section;
+and the Word processor with native OpenXML (.docx) footnotes and review
+comments."""
 import sys, tempfile, zipfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -68,20 +70,59 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(page.locator("mark.find-hit.current")).to_have_text("Belgrade")
     print("video reading uploaded, manual transcript attached, and search highlights matches")
 
-    # --- SPRINT 5: Collapsible Assessment & essay section + Word processor ---
+    # --- Assessment & essay, under Course materials & assessments ---
     page.goto(BASE + "/")
     page.locator(".module-row, .module-card", has_text="HY240").first.click()
     expect(page.get_by_role("heading", name="HY240", exact=True)).to_be_visible()
 
-    toggle = page.locator(".assessment-section .section-toggle")
-    expect(toggle).to_be_visible()
-    expect(toggle).to_have_attribute("aria-expanded", "false")
-    toggle.click()
+    materials = page.locator(".course-materials")
+    toggle = materials.locator(".section-toggle")
+    expect(toggle).to_contain_text("Course materials & assessments")
     expect(toggle).to_have_attribute("aria-expanded", "true")
+    # The assessment is a card like the syllabus or a week, not a week itself.
+    expect(page.locator(".week")).to_have_count(22)
+    card = materials.locator(".essay-card")
+    expect(card).to_be_visible()
+    card.get_by_role("link", name="Assessment & essay").click()
+    expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
+    assert "v=assessment" in page.url, page.url
 
-    # Open the dedicated Word processor
-    page.locator(".assessment-section").get_by_role("link", name="Open word processor").first.click()
+    # The page in the order the work is done: the question, the draft and the
+    # plan, beside the deadline, the word count, the sources and the snapshots.
+    for name in ["Draft", "Plan and argument", "Deadline", "Word count", "Sources", "Snapshots"]:
+        expect(page.get_by_role("heading", name=name, exact=True)).to_be_visible()
+    question = "How far was Germany responsible for the outbreak of war in 1914?"
+    page.get_by_label("Essay question").fill(question)
+    expect(page.locator(".essay-panel", has_text="Word count")).to_contain_text("0 of 2,500 words")
+    page.screenshot(path=str(HERE / "shots" / "assessment-1-page.png"), full_page=True)
+
+    # A collapsible heading in the plan folds its whole section, up to the
+    # next heading of the same level.
+    plan = page.locator(".essay-plan .bn-editor")
+    plan.click()
+    page.keyboard.type("/collapsible heading 2")
+    page.keyboard.press("Enter")
+    page.keyboard.type("Causes")
+    page.keyboard.press("Enter")
+    page.keyboard.type("The alliance system bound the powers together.")
+    page.keyboard.press("Enter")
+    page.keyboard.type("/heading 2")
+    page.keyboard.press("Enter")
+    page.keyboard.type("Consequences")
+    section = page.locator(".essay-plan .bn-block-outer", has_text="The alliance system bound the powers together.")
+    later = page.locator(".essay-plan .bn-block-outer", has_text="Consequences")
+    expect(section).to_be_visible()
+    page.locator(".essay-plan .bn-block-outer", has_text="Causes").locator(".bn-toggle-button").first.click()
+    expect(section).to_be_hidden()
+    expect(later).to_be_visible()
+    page.locator(".essay-plan .bn-block-outer", has_text="Causes").locator(".bn-toggle-button").first.click()
+    expect(section).to_be_visible()
+    print("a collapsible heading folds its whole section and opens again")
+
+    # Open the dedicated Word processor, where the question is the essay's title.
+    page.get_by_role("link", name="Open word processor").click()
     expect(page.locator(".word-processor")).to_be_visible()
+    expect(page.get_by_label("Essay title")).to_have_value(question)
 
     # Set essay title and type body text
     title_input = page.get_by_label("Essay title")
@@ -136,6 +177,14 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
         assert "Check the Vienna Hoyos mission primary telegrams." in com_xml
 
     print("exported .docx verified with native Word footnotes and review comments")
+
+    # Back on the Assessment & essay page, the draft and the snapshot show.
+    page.locator(".word-back").click()
+    expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
+    expect(page.locator(".essay-draft")).to_contain_text("Austria-Hungary delivered the ultimatum")
+    expect(page.locator(".essay-snapshot-list li")).to_have_count(1)
+    expect(page.get_by_label("Essay question")).to_have_value("July Crisis Historiography Essay")
+    print("the assessment page shows the draft's opening and its snapshot")
     assert not errors, f"Page errors: {errors}"
     print("ok")
     browser.close()

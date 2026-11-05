@@ -548,6 +548,7 @@ def run_audit():
             ("10-jobs", BASE + "/?v=jobs"),
             ("11-dissertation-module", diss_module_url),
             ("12-dissertation-section", diss_section_url),
+            ("13-assessment", taught_module_url.replace("v=module", "v=assessment")),
         ]
 
         all_findings = []

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
+import { Icon } from "./icons";
 import {
   coalesceRuns,
   countDocxWords,
@@ -501,8 +502,9 @@ export function WordProcessor({ id, q }: { id: string; q?: string }) {
     <div className="word-processor">
       <header className="word-topbar">
         <div className="word-topbar-left">
-          <Link to={{ view: "module", id }} className="button quiet small">
-            ← {module?.code ?? "Module"}
+          <Link to={{ view: "assessment", id }} className="button quiet small word-back" label={`Back to ${module?.code ?? "the module"} Assessment & essay`}>
+            <Icon name="back" size={16} />
+            <span>Assessment & essay</span>
           </Link>
           <input
             type="text"

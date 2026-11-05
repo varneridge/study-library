@@ -177,9 +177,7 @@ button { cursor: pointer; }
 .brand:hover,
 .modules-nav a:hover,
 .topbar-across:hover,
-.topbar-btn:hover,
-.topbar > .to-jobs:hover,
-.jobs-bar nav a:hover {
+.topbar-btn:hover {
   background: var(--surface);
   color: var(--ink);
 }
@@ -190,8 +188,7 @@ button { cursor: pointer; }
   display: flex; align-items: center; gap: 0.25rem;
   overflow-x: auto; scrollbar-width: none; min-width: 0; flex-shrink: 1;
 }
-.topbar :where(.modules-nav a, .topbar-across, .to-jobs),
-.jobs-bar :where(nav a) {
+.topbar :where(.modules-nav a, .topbar-across) {
   text-decoration: none; color: var(--muted); font-variant-numeric: tabular-nums;
   height: 2rem; padding: 0 0.5rem; border-radius: var(--r-sm);
   display: inline-flex; align-items: center; font-size: var(--fs-sm); font-weight: 500;
@@ -231,7 +228,29 @@ button { cursor: pointer; }
   clip: rect(0, 0, 0, 0);
   pointer-events: none;
 }
-.jobs-bar nav { margin-left: auto; display: flex; align-items: center; margin-right: -0.5rem; }
+/* Study or job search: one switch, the same on both sides, with the side
+   you are on raised as a segmented control shows its choice. */
+.side-switch {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px; flex-shrink: 0;
+  margin-left: 0.25rem; background: var(--surface); border-radius: var(--r-sm);
+}
+.side-switch a {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 1.75rem; padding: 0 0.6rem; border-radius: var(--r-xs);
+  color: var(--muted); text-decoration: none; font-size: var(--fs-sm); font-weight: 500; white-space: nowrap;
+  transition-property: background-color, color;
+  transition-duration: var(--dur-1);
+  transition-timing-function: var(--ease-out);
+}
+.side-switch a:hover { color: var(--ink); }
+.side-switch a[aria-current="true"] {
+  background: var(--card); color: var(--ink);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+@media (min-width: 44.001rem) {
+  /* The job search has no module links, so the switch takes their place on the right. */
+  .jobs-bar > .side-switch { margin-left: auto; }
+}
 .banner {
   display: flex; gap: 1rem; align-items: center; justify-content: space-between;
   padding: 0.6rem 1.25rem; background: var(--accent-soft); border-bottom: 1px solid var(--rule); font-size: var(--fs-sm);
@@ -486,6 +505,20 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .week-card.is-library .week-card-cover {
   aspect-ratio: 2 / 3;
 }
+/* A shelf keeps its own shape. Its picture is shown whole rather than cut
+   to the card: its first book's cover, which the processor crops to its
+   print, or a cover picture chosen for it. */
+.week-card-cover .shelf-covers {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; box-sizing: border-box; padding: 8% 10%;
+  background: var(--surface-hover);
+}
+.week-card-cover .shelf-covers img {
+  width: auto; height: auto; max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-xs);
+}
+.week-card.is-shelf .week-card-cover > img { object-fit: contain; background: var(--surface-hover); }
 .week-card-cover img {
   width: 100%;
   height: 100%;
@@ -703,23 +736,67 @@ label.field { display: block; margin-bottom: 0.9rem; }
   content: ""; position: absolute; left: 0.24rem; top: 0.06rem; width: 0.2rem; height: 0.42rem;
   border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
-.reading-thumb {
-  position: relative;
-  width: 2.2rem;
-  aspect-ratio: 2 / 3;
-  flex: none;
-  border-radius: var(--r-xs, 2px);
-  overflow: hidden;
-  background: var(--surface-hover);
-  border: 1px solid var(--rule);
-  align-self: center;
-  display: block;
+/* A reading's picture: its cover or first page, a video's frame or a
+   slide. Rows show it small, and icons and large icons show it as the tile. */
+.reading-cover {
+  position: relative; display: block; flex: none; align-self: center; overflow: hidden;
+  background: var(--surface-hover); border: 1px solid var(--rule); border-radius: var(--r-xs);
+  color: inherit; text-decoration: none;
 }
-.reading-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.reading-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reading.mode-compact .reading-cover { width: 1.75rem; aspect-ratio: 3 / 4; }
+.reading.mode-compact .reading-cover.shape-wide { width: 3.1rem; aspect-ratio: 16 / 9; }
+.reading.mode-normal .reading-cover { width: 3.25rem; aspect-ratio: 3 / 4; }
+.reading.mode-normal .reading-cover.shape-wide { width: 5.75rem; aspect-ratio: 16 / 9; }
+.reading-cover-fallback {
+  position: absolute; inset: 0; box-sizing: border-box; padding: 0.65rem;
+  display: flex; align-items: flex-end; overflow: hidden;
+  font-family: var(--display); font-weight: 560; font-size: var(--fs-sm); line-height: 1.25; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* A video's play button, in the middle of its picture, at every size. */
+.play-badge {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 2.75rem; aspect-ratio: 1; border-radius: 999px;
+  display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--ink) 62%, transparent); color: var(--paper);
+}
+.play-badge svg { width: 52%; height: 52%; }
+.reading.mode-compact .play-badge { width: 1.15rem; }
+.reading.mode-normal .play-badge { width: 1.9rem; }
+.reading.mode-large .play-badge { width: 3.5rem; }
+.reading.mode-normal { align-items: center; }
+.readings > li.reading.mode-normal { padding-block: 0.7rem; }
+/* In rows a reading's state sits inline beside its title, as it always has. */
+.reading .reading-meta { display: contents; }
+
+/* Icons and large icons: tiles in a grid, a little smaller than week cards
+   for icons, and larger for large icons. */
+.readings.view-icons, .readings.view-large { display: grid; gap: 0.75rem; align-items: start; }
+.readings.view-icons { grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); }
+.readings.view-large { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.readings > li.reading.tile {
+  margin-inline: 0; padding: 0.5rem; border-radius: var(--r-md);
+  flex-wrap: wrap; align-items: flex-start; gap: 0.45rem 0.5rem;
+}
+.reading.tile .reading-cover { order: -1; flex: 0 0 100%; width: 100%; aspect-ratio: 3 / 4; border-radius: var(--r-sm); background: var(--surface); }
+.reading.tile .reading-cover.shape-wide { aspect-ratio: 16 / 9; }
+.reading.tile .reading-cover.shape-page img { object-fit: contain; }
+.reading.tile .name { font-size: var(--fs-sm); line-height: 1.35; }
+.reading.mode-large .name { font-size: var(--fs-md); }
+.reading.tile .name .main { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.reading.tile .name .sub { font-size: var(--fs-xs); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.reading.tile .reading-meta { order: 2; display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; flex: 0 0 100%; }
+.reading.tile .reading-meta:empty { display: none; }
+.reading.tile > .compare, .reading.tile > .reading-edit { order: 3; }
+.reading.tile .handle { display: none; }
+/* Editing a tile's details opens it across the whole grid. */
+.reading.tile.expanded { grid-column: 1 / -1; }
+
+.board-tools { display: flex; justify-content: flex-end; margin: 1.5rem 0 -1.25rem; }
+.view-switcher .tool { display: inline-flex; align-items: center; justify-content: center; padding: 0.3rem 0.5rem; }
+@media (pointer: coarse) {
+  .view-switcher .tool { min-width: 2.75rem; min-height: 2.75rem; }
 }
 .reading .name { flex: 1; font-family: var(--serif); text-decoration: none; min-width: 0; }
 .reading .name .main { display: block; }
@@ -757,21 +834,6 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .dropzone { position: relative; min-height: 50vh; }
 .dropzone.over { outline: none; }
 
-/* Import */
-.table-wrap { overflow-x: auto; }
-table.review { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
-table.review th { text-align: left; font-weight: 600; padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
-table.review td { border-bottom: 1px solid var(--rule); padding: 0.35rem 0.5rem 0.35rem 0; vertical-align: top; }
-/* The parsed fields say what each file is, so its name is a reference,
-   two lines at most, in full on hover. */
-table.review td.file { width: 11rem; max-width: 11rem; color: var(--muted); font-size: var(--fs-xs); }
-table.review .file-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.import-bar {
-  position: sticky; z-index: 4; background: var(--paper); border-top: 1px solid var(--rule);
-  padding: 0.75rem 0 calc(0.75rem + env(safe-area-inset-bottom, 0px));
-}
-table.review input, table.review select { padding: 0.25rem 0.35rem; min-width: 6rem; }
-table.review tr.flag td.file { color: var(--danger); }
 .pick { border: 1px dashed var(--faint); border-radius: var(--r-sm); padding: 2rem 1rem; text-align: center; margin: 1.25rem 0; }
 .pick.over { border-color: var(--accent); background: var(--accent-soft); }
 
@@ -1890,8 +1952,9 @@ img, canvas, video { max-width: 100%; }
    rather than filled cells, so the table still reads as a page. */
 .jobs-bar .brand { letter-spacing: 0.01em; }
 @media (max-width: 44rem) {
-  /* On a phone it sits opposite the brand; the other links take the next row. */
-  .topbar > .to-jobs { margin-left: 0.75rem; padding-left: 0; border-left: 0; }
+  /* On a phone the switch sits opposite the brand, beside Go to, on both sides. */
+  .topbar > .side-switch { margin-left: 0.5rem; }
+  .jobs-bar > .topbar-tools { display: none; }
 }
 .jobs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .jobs-summary { margin: 0.35rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
@@ -2113,6 +2176,14 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 
 /* Application sheet */
 .app-sheet-body { display: flex; flex-direction: column; gap: 1.25rem; }
+/* Where the application stands, together on one soft panel. */
+.app-sheet-status {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem 1.25rem;
+  padding: 0.9rem 1rem; background: var(--surface); border-radius: var(--r-md);
+}
+.app-sheet-status .app-sheet-stage-field { grid-column: 1 / -1; }
+.app-sheet-section-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.app-sheet-section-head .detail-head { margin: 0; }
 .app-sheet-section { display: flex; flex-direction: column; gap: 0.5rem; }
 .app-sheet-field { display: grid; gap: 0.25rem; color: var(--muted); }
 .app-sheet-field .field-label { display: block; font-size: var(--fs-sm); font-weight: 500; }
@@ -2265,7 +2336,6 @@ body.recording-active .toast-region { bottom: calc(5rem + max(var(--bottom-inset
 .rec-pill { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 .move-dock { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
-.import-bar { bottom: var(--bottom-inset, 0px); }
 
 /* Touch: 44-point targets, a pressed state in place of hover, no tap delay. */
 @media (pointer: coarse), (max-width: 48rem) {
@@ -2281,7 +2351,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .reading a.name, .recent .name, .module-row, .list .name, .list li > a, .session-link, .session-open, .notes-more, .topbar nav a, .topbar-across, .across-session a {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
-  .topbar-btn, .topbar > .to-jobs { min-width: 2.75rem; min-height: 2.75rem; justify-content: center; }
+  .topbar-btn, .topbar .side-switch a { min-width: 2.75rem; min-height: 2.75rem; justify-content: center; }
   .topbar-tools { margin-right: -0.875rem; }
   .session-link { min-width: 2.75rem; padding-inline: 0.5rem; justify-content: center; }
   .modules-nav a { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; padding-inline: 0.4rem; }
@@ -2322,7 +2392,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .question-row textarea { min-height: 2.75rem; }
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) { font-size: max(1rem, 16px); }
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="date"]), select) { min-height: 2.75rem; }
-  .topbar .brand, .topbar > .to-jobs, .skip { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .topbar .brand, .topbar .side-switch a, .skip { min-height: 2.75rem; display: inline-flex; align-items: center; }
   .jump button, .picker button { min-height: 2.75rem; }
   .search-page h3 a, .search-page .hit-head a, .search-page li > a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 }
@@ -2947,138 +3017,79 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .date-picker-trigger.is-empty {
   color: var(--muted);
 }
-.date-picker-dialog {
-  background: var(--card);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-md);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  padding: 0.85rem;
-  z-index: 1000;
-  width: 18rem;
+/* The date card: a modal card in the middle of the screen on a laptop, a
+   sheet from the foot on a phone, as the stage card is. */
+.date-picker-scrim {
+  position: fixed; inset: 0; z-index: 999;
+  background: color-mix(in srgb, var(--ink) 30%, transparent);
+  animation: date-fade-in var(--dur-1) var(--ease-out);
 }
-.date-picker-dialog.is-popover {
-  position: fixed;
+.date-picker-dialog {
+  position: fixed; z-index: 1000; box-sizing: border-box;
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--rule); box-shadow: var(--shadow-float);
+  overflow: auto; text-align: left;
+}
+.date-picker-dialog.is-card {
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(22rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem);
+  border-radius: var(--r-lg); padding: 1.1rem 1.2rem 1rem;
+  animation: date-fade-in var(--dur-1) var(--ease-out);
 }
 .date-picker-dialog.is-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  max-height: 80dvh;
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
-  border-bottom: 0;
-  padding: 1.25rem 1rem max(1rem, env(safe-area-inset-bottom, 1rem));
+  left: 0; right: 0; bottom: 0; width: 100%; max-height: 85dvh;
+  border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 1.1rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  animation: sheet-in 0.18s ease-out;
 }
+@keyframes date-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .date-picker-scrim, .date-picker-dialog.is-card, .date-picker-dialog.is-sheet { animation: none; }
+}
+.date-picker-head { margin-bottom: 0.9rem; }
+.date-picker-head .choice-now { white-space: normal; }
+.date-picker-hint { margin: 0.35rem 0 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--muted); }
 .date-picker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-bottom: 0.35rem;
 }
 .date-picker-title {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  margin: 0;
+  flex: 1; margin: 0; text-align: center;
+  font-family: var(--sans); font-size: var(--fs-sm); font-weight: 600;
 }
-.date-picker-nav {
-  display: flex;
-  gap: 0.25rem;
-}
-.date-picker-prev svg {
-  transform: rotate(90deg);
-}
-.date-picker-next svg {
-  transform: rotate(-90deg);
-}
-.date-picker-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.65rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--rule);
-}
-.date-chip {
-  padding: 0.2rem 0.5rem;
-  font-size: var(--fs-xs);
-  background: var(--tint-1);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-xs);
-  color: var(--ink);
-  cursor: pointer;
-}
-.date-chip:hover:not(:disabled) {
-  background: var(--tint-2);
-}
-.date-chip.is-active {
-  background: var(--accent);
-  color: var(--accent-contrast, #FFFFFF);
-  border-color: var(--accent);
-}
-.date-chip.is-clear {
-  color: var(--muted);
-  border: 0;
-  background: none;
-}
-.date-picker-grid {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
+.date-picker-prev svg { transform: rotate(90deg); }
+.date-picker-next svg { transform: rotate(-90deg); }
+.date-picker-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .date-picker-weekday {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--muted);
-  text-align: center;
-  padding: 0.25rem 0;
+  font-size: var(--fs-xs); font-weight: 500; color: var(--muted);
+  text-align: center; padding: 0.25rem 0;
 }
-.date-picker-cell {
-  text-align: center;
-  padding: 1px;
-}
+.date-picker-cell { text-align: center; padding: 1px; }
 .date-cell-btn {
-  width: 100%;
-  aspect-ratio: 1;
-  min-height: 2rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: none;
-  font-size: var(--fs-xs);
-  border-radius: var(--r-xs);
-  color: var(--ink);
-  cursor: pointer;
+  width: 100%; aspect-ratio: 1; min-height: 2.4rem;
+  display: grid; place-items: center;
+  border: 0; background: none; border-radius: var(--r-sm);
+  font-size: var(--fs-sm); color: var(--ink); cursor: pointer;
+  font-variant-numeric: tabular-nums;
 }
-.date-picker-dialog.is-sheet .date-cell-btn {
-  min-height: 2.75rem;
-  font-size: var(--fs-sm);
-}
-.date-cell-btn:hover:not(:disabled) {
-  background: var(--tint-2);
-}
-.date-cell-btn.is-outside {
-  color: var(--muted);
-  opacity: 0.6;
-}
-.date-cell-btn.is-today {
-  font-weight: 700;
-  border: 1px solid var(--rule);
-}
-.date-cell-btn.is-focused {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-.date-cell-btn.is-selected {
-  background: var(--accent);
-  color: var(--accent-contrast, #FFFFFF);
-  font-weight: 600;
-}
+.date-picker-dialog.is-sheet .date-cell-btn { min-height: 2.75rem; }
+.date-cell-btn:hover:not(:disabled) { background: var(--surface); }
+.date-cell-btn.is-outside { color: var(--faint); }
+.date-cell-btn.is-today { font-weight: 700; box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.date-cell-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.date-cell-btn.is-selected,
+.date-cell-btn.is-selected:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); font-weight: 600; box-shadow: none; }
+.date-cell-btn:disabled { color: var(--faint); opacity: 0.45; cursor: default; }
+/* Clear date and Cancel at the foot, apart, with Clear a real button that says what it does. */
 .date-picker-foot {
-  margin-top: 1rem;
-  display: flex;
-  justify-content: flex-end;
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid var(--rule);
 }
+.date-picker-foot .spacer { flex: 1; }
+.date-picker-clear { gap: 0.4rem; }
+.date-picker-clear svg { color: var(--muted); }
+.date-picker-dialog.is-sheet .date-picker-foot .button { flex: 1; min-height: 2.75rem; }
+.date-picker-dialog.is-sheet .date-picker-foot .spacer { display: none; }
 
 /* ==========================================================================
    Sprint 4: Video Reader & Manual Transcripts
@@ -3159,6 +3170,16 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .video-pane-head h2 {
   margin: 0;
   font-size: var(--fs-md);
+}
+/* A transcript as pages or as text, in the same pane as before. */
+.transcript-scroller { max-height: 60dvh; min-height: 16rem; border-radius: var(--r-sm); background: var(--surface); }
+.transcript-scroller.as-text { background: var(--tv-paper, var(--card)); }
+.transcript-scroller .transcript-pages { padding: 0.75rem 0.5rem 1.5rem; gap: 10px; }
+.transcript-scroller .text-view { padding: 1.25rem 1rem 2rem; font-size: calc(1rem * var(--tv-size, 1)); }
+.transcript-note { margin: 0.5rem 0.75rem; }
+.transcript-layout .tool { padding: 0.25rem 0.65rem; font-size: var(--fs-xs); }
+@media (pointer: coarse) {
+  .transcript-layout .tool { min-height: 2.75rem; }
 }
 .video-transcript-body {
   max-height: 60dvh;
@@ -3682,3 +3703,128 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 }
 
 
+/* The application card on a laptop, from 0.41: wide enough to read at a
+   glance, with where it stands across the top, the timeline down the left,
+   and the files and notes beside it. Delete sits apart, at the far left of
+   the foot. */
+@media (min-width: 60rem) {
+  dialog.sheet-dialog.app-sheet { width: 100%; max-width: min(64rem, calc(100vw - 3rem)); }
+  .app-sheet .sheet-head { padding: 1.3rem 1.75rem 1rem; }
+  .app-sheet .sheet-title { font-family: var(--display); font-size: var(--fs-xl); font-weight: 560; }
+  .app-sheet .sheet-subtitle { font-size: var(--fs-sm); }
+  .app-sheet .sheet-body { padding: 1.5rem 1.75rem; }
+  .app-sheet .sheet-foot { padding-inline: 1.75rem; }
+  .app-sheet-body {
+    display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    grid-template-areas: "status status" "timeline files" "timeline notes";
+    gap: 1.5rem 2.25rem; align-items: start;
+  }
+  .app-sheet-status {
+    grid-area: status; grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+    padding: 1rem 1.25rem;
+  }
+  .app-sheet-status .app-sheet-stage-field { grid-column: auto; }
+  .app-sheet-timeline { grid-area: timeline; }
+  .app-sheet-files { grid-area: files; }
+  .app-sheet-notes { grid-area: notes; }
+  .app-sheet-notes .app-sheet-notes-text { max-height: 16rem; overflow: auto; }
+  .app-sheet-foot { flex-direction: row-reverse; align-items: center; justify-content: space-between; }
+  .app-sheet-foot-actions { width: auto; justify-content: flex-end; }
+}
+
+/* Collapsible headings, from 0.41: they fold their whole section, so the
+   empty-toggle prompt BlockNote shows beneath a heading is not needed. */
+.note-editor [data-content-type="heading"] .bn-toggle-add-block-button { display: none; }
+
+/* Assessment & essay on the module page: a card opened like a week. */
+.essay-card {
+  position: relative; display: flex; flex-direction: column; height: 100%;
+  background: var(--surface); border-radius: var(--r-md); overflow: hidden;
+}
+.essay-card:has(a:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .essay-card:hover { background: var(--surface-hover); } }
+.essay-card-cover {
+  position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.6rem;
+  aspect-ratio: 16 / 9; box-sizing: border-box; padding: 0.75rem;
+  background: var(--surface-hover); border-bottom: 1px solid var(--rule);
+  color: inherit; text-decoration: none; container-type: inline-size;
+}
+.essay-card-question {
+  font-family: var(--serif); font-size: clamp(0.95rem, 6.5cqi, 1.2rem); line-height: 1.3; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.essay-card-question.is-empty { color: var(--muted); }
+.essay-card.due-soon .week-card-code { color: var(--accent); }
+
+/* The Assessment & essay page: the question, draft and plan on the left;
+   the deadline, word count, sources and snapshots beside them. */
+.essay-layout {
+  display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(16rem, 1fr);
+  gap: 2rem 2.5rem; align-items: start; margin-top: 1.75rem;
+}
+.essay-main, .essay-aside { display: flex; flex-direction: column; min-width: 0; }
+.essay-main { gap: 2rem; }
+.essay-aside { gap: 1rem; }
+.essay-panel { background: var(--surface); border-radius: var(--r-md); padding: 1rem 1.1rem 1.1rem; }
+.essay-panel h2, .essay-plan h2 { font-size: var(--fs-lg); margin: 0 0 0.6rem; }
+.essay-panel-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin-bottom: 0.6rem; }
+.essay-panel-head h2 { margin: 0; flex: 1; }
+.essay-hint { margin: 0.35rem 0 0.75rem; }
+.essay-question { display: grid; gap: 0.35rem; }
+.essay-question textarea {
+  width: 100%; box-sizing: border-box; min-height: 4.5rem; resize: vertical; field-sizing: content;
+  font-family: var(--serif); font-size: var(--fs-lg); line-height: 1.45;
+}
+.essay-stats { display: inline-flex; flex-wrap: wrap; gap: 0.2rem 0.9rem; font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.essay-excerpt {
+  margin: 0; max-width: 40rem; font-family: var(--serif); line-height: 1.6; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+.essay-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.9rem; }
+.essay-bar { display: block; height: 0.4rem; border-radius: 999px; background: var(--surface-hover); overflow: hidden; margin: 0.4rem 0 0.6rem; }
+.essay-bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.essay-card-bar { margin: 0; background: var(--rule); height: 0.3rem; }
+.essay-progress-words { margin: 0; font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
+.essay-target { display: grid; gap: 0.3rem; margin-top: 0.75rem; max-width: 9rem; font-size: var(--fs-sm); color: var(--muted); }
+.essay-due { margin: 0.6rem 0 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.essay-due.soon, .essay-due.today { color: var(--accent); font-weight: 600; }
+.essay-due.past { color: var(--danger); }
+.essay-source-group h3 { font-family: var(--sans); font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin: 0.75rem 0 0.25rem; }
+.essay-source-group:first-child h3 { margin-top: 0; }
+.essay-source-list, .essay-snapshot-list { list-style: none; margin: 0; padding: 0; }
+.essay-source-list li, .essay-snapshot-list li {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0.5rem; margin-inline: -0.5rem; border-radius: var(--r-sm);
+}
+@media (hover: hover) {
+  .essay-source-list li:hover, .essay-snapshot-list li:hover { background: var(--surface-hover); }
+}
+.essay-source-list a {
+  flex: 1; min-width: 0; color: var(--ink); text-decoration: none;
+  font-family: var(--serif); font-size: var(--fs-sm); line-height: 1.4;
+}
+.essay-source-list a:hover { text-decoration: underline; text-underline-offset: 0.18em; }
+.essay-snapshot-form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.essay-snapshot-form input { flex: 1; min-width: 0; }
+.essay-snapshot-list .name { flex: 1; min-width: 0; display: grid; gap: 0.1rem; }
+.essay-snapshot-list .when { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.essay-sources-sheet .essay-source-group h3 { margin-top: 0.5rem; }
+.word-back { gap: 0.35rem; }
+/* On a phone it is one column, in the order the work is done. */
+@media (max-width: 52rem) {
+  .essay-layout { grid-template-columns: 1fr; gap: 1.25rem; }
+  .essay-main, .essay-aside { display: contents; }
+  .essay-question-block { order: 1; }
+  .essay-deadline { order: 2; }
+  .essay-words { order: 3; }
+  .essay-draft { order: 4; }
+  .essay-plan { order: 5; }
+  .essay-sources { order: 6; }
+  .essay-snapshots { order: 7; }
+}
+
+/* On a touch screen the Assessment & essay card's title is a 44-point
+   target, as a week card's title is. */
+@media (pointer: coarse), (max-width: 48rem) {
+  .essay-card-title { display: flex; align-items: center; min-height: 2.75rem; }
+}

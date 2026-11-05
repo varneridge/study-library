@@ -370,6 +370,8 @@ When a PDF's text is ready, the processor works out its citation from the first 
 3. The title set largest on the first page, with the names beneath it. If Crossref has a work with that title, its full record is used. If not, the title and names are offered as they are.
 4. The PDF's own title and author fields, when they look real and not like "Microsoft Word - essay.docx". These are also checked against Crossref.
 
+**Books name themselves from their ISBN.** From 0.41 the first eight pages and the last two are searched for an ISBN, checked by its check digit, and looked up with Crossref, then Open Library, then Google Books, none of which needs a key. A PDF of 60 pages or more is taken for the whole book, ahead of any DOI in its bibliography. A shorter one is taken for a chapter of the book, titled from its own first page, with the book as its source.
+
 No language model is used. Crossref's records are free and public, and need no key.
 
 Everything found is put in one standard form. Authors are "Surname, I.", with two joined by "and" and more by commas and a final "and". Page ranges are shortened as reading lists write them, so 433-458 becomes 433-58. Short titles use "Chen", "Chen and Westad", or "Chen et al." for three or more.
@@ -421,7 +423,7 @@ On a session page, recordings become the session's recording and documents becom
 ### Small things that save steps
 
 - **Home** shows how far through each module you are, and the next unread reading. "Next" starts from the week you last opened, so it follows where you are.
-- **An empty module** says how to begin, and Import readings becomes its main button.
+- **An empty module** says how to begin: drop files anywhere on the page, or open a week and choose **Add files**.
 - **Question pages** link to the previous and next question, and list the week's readings. The answer is written in a box, so an empty answer still looks like a place to write.
 - **Notes** say on an empty line that / opens the block menu and @ cites a reading.
 - **Search** remembers recent searches, shown when the box is empty.
@@ -533,7 +535,7 @@ Check LSE's rules on recording teaching, and ask before recording seminars where
 ### Adding readings
 
 - **One or two files**: drop them onto the week page, or use **Add files**.
-- **A whole module**: on the module page, choose **Import readings**, then **Choose a folder**. Check the review table, then import. Each file's name is cut to two lines, in full on hover, because the columns beside it already say what it is. The **Import** button stays at the foot of the screen, however long the list. A name ending ", pp. 1-24" with no source gives pages 1 to 24; before 0.24 it put "pp. 1-24" in the source field, which showed the same but was wrong underneath.
+- **A whole module**: drop the files anywhere on the module page. A short sheet asks where they go, with **As in the file names** chosen whenever a name gives its week or section, as "(AT3) Author, 'Title'" or "(Chapter 2) Author (Year) 'Title'" do; the rest wait in Unsorted. A name ending ", pp. 1-24" with no source gives pages 1 to 24. The import page and its review table were retired in 0.41.
 - **Slides**: use **Add slides** on the session.
 
 ### Importing from Zotero
@@ -568,7 +570,7 @@ That is a dry run. Check the list, then run the same command with `--apply` adde
 2. Press **Add application**, or N. Type the employer and the role. It starts dated today, awaiting a response.
 3. As it moves on, change its stage and set the next deadline. The page orders itself by what is due.
 4. Open its Details to attach the CV and cover letter you sent, or drop a file on its slot.
-5. **Back to Study Library** returns you to your modules. Section 18 has the detail.
+5. **Study**, in the switch in the top bar, returns you to your modules. Section 18 has the detail.
 
 ### Reading offline
 
@@ -835,6 +837,9 @@ study-library/
         TranscriptView.tsx     an imported transcript, turn by turn
         Overlays.tsx           the undo notice and confirmation dialog
         ModuleSettings.tsx     editing and deleting a module
+        AssessmentPage.tsx     Assessment & essay: its card on the module page and its own page
+        ViewSwitcher.tsx       compact, normal, icons and large icons for a folder's readings
+        TranscriptDocument.tsx a video's transcript as pages or as text
       lib/
         db.ts                  the IndexedDB store
         edits.ts               deleting, restoring and reordering
@@ -849,6 +854,10 @@ study-library/
         settings.ts            synced settings, such as highlight colour names
         status.ts              whether the processor is running
         jobs.ts                the job search's stages, deadlines, order and files
+        views.ts               each folder's view and its defaults
+        videoThumbs.ts         a video's frame, taken on the device, as its picture
+        pdfOpen.ts             opening large PDFs a piece at a time
+        folds.ts               collapsible headings folding their whole section
         sync.ts                outbox, push and pull
         library.ts             data for each screen
         importing.ts           turning files into readings
@@ -1000,9 +1009,25 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Last-write-wins still decides between two edits to the same row. If a phone left offline for a day sends an edit older than one made since on the laptop, the phone's edit is turned down even if it changed a different field. The phone then shows the laptop's version.
 - The microphone warning only notices complete silence. A microphone that works but is pointed the wrong way still records a quiet room without warning.
 - The processor's status is how long since it last asked for work. It cannot tell a processor that is running but failing every job; those jobs show **Retry** as before.
+- A video's frame is taken by the first device to show it while online. A format the browser cannot play, such as some .mov files in Chrome, keeps a plain tile with its play button.
+- Transcripts attached before 0.41 kept only their text. Attach one again to see it as pages.
+- Timestamps in a transcript jump the video only in a plain text transcript, not in its pages or text layout. Find marks matches there but does not step through them.
+- Reading a large book a piece at a time needs the server's range requests to reach the device unchanged. Where they do not, it is downloaded whole, as before.
+- A short PDF with a book's ISBN is taken for a chapter of that book; one that is really a whole short book is offered as a chapter, to be corrected in Edit details.
+- A collapsible heading's fold is remembered on each device, not synced.
 
 **Possible next steps**
 
+- Reading views, covers, books, transcripts, the top bar, dates, the job card and Assessment & essay completed in 0.41.0:
+  - Readings laid out as File Explorer lays out files (`ViewSwitcher.tsx`, `views.ts`): compact, normal, icons and large icons, remembered for each week, section and shelf in the synced settings. A week opens as compact rows, a shelf as icons a little smaller than the week cards, and a folder of videos as large icons. Tiles can still be dragged, and editing a tile's details opens it across the grid.
+  - Video readings with a frame taken on the device a tenth of the way in (`videoThumbs.ts`), stored like a cover picture and queued while offline, with a play button over it at every size and as the player's poster.
+  - Book and reading covers cropped to their print by the processor (`cover_clip` and `print_box` in `processor/jobs.py`), ignoring specks and leaving slides and blank pages whole; **Crop reading covers** in Settings redraws those made before. Shelves keep their own 2:3 shape, and show their first cover, or a picture chosen for them and cut to 2:3, whole.
+  - Large books opening quickly (`pdfOpen.ts`): from 8 MB, a reading not on the device opens from the server a piece at a time and is kept whole afterwards; a document over 80 pages shows at once with every page the size of its first while the real sizes follow; a week's readings over 25 MB are not fetched in the background.
+  - Books named from their ISBN (`find_isbns`, `lookup_isbn` and `from_isbn` in `processor/identify.py`): ISBN-10 and ISBN-13 found by their check digits in the front matter, looked up with Crossref, then Open Library, then Google Books, all free and needing no key. A PDF of 60 pages or more is the whole book, ahead of any DOI in its bibliography; a shorter one is a chapter of the book. A whole book's details fill in a reading by themselves, as Crossref's do.
+  - A video's transcript kept as a file of its own when it is a PDF or Word document, shown as pages or set as text exactly as a reading is (`TranscriptDocument.tsx`), with the choice remembered; the storage sweep keeps any transcript a video points at.
+  - One top bar for both sides of the app, with a **Study** and **Job search** switch; the date picker as a card in the middle of the screen saying what the date is for, with **Clear date** apart from Cancel and no quick chips; the application card on a laptop 64rem wide in two columns; the Import readings button and the import page retired, with files dropped on a module page going to the weeks and sections in their names.
+  - Collapsible headings in notes that fold their whole section up to the next heading of the same level or higher (`folds.ts`), starting open, offered as **Collapsible heading 1** to **3**.
+  - Assessment & essay as a card under **Course materials & assessments**, opening its own page (`AssessmentPage.tsx`, `?v=assessment`): the essay question, the draft's opening and counts, and the plan and argument, beside the deadline, the word count against its target, the primary and secondary sources with the bibliography, and snapshots. The word processor's way back returns to it.
 - Video readings, module Assessment & essay section, dedicated Word processor, UK calendar date picker, settings layout and job search improvements completed in 0.40.0:
   - Seminar questions and question answers retired from the UI and search (data sits safely in notes); single-list syllabus and admin weeks without primary/secondary/summary kind split; dynamic typographic covers updating live when titles change; middle-truncation on long filenames in job slot rows and choice cards; 2:3 book cover proportions and thumbnails on Library shelves; enlarge modal (`SlideEnlargeModal`) and anchored arrows on slide previews.
   - Custom UK calendar `DatePicker` (`civilDate.ts`, Monday-first 42-cell grid, quick chips, DD/MM/YYYY input) across all date fields; unified single-Save forms (`ModuleSettings`, `SettingsPage` with sticky sidebar TOC and flat sections); collapsible Course materials & admin and Assessment & essay sections; Search click-to-highlight forwarding `?q=` into the PDF reader, video transcript reader, note editor, session transcript and essay processor; Job search simplified to table + modal card (`AppSheet`) with dedicated rich notes (`NoteEditor` via `notesQueue.ts`) and enlarge card trigger.
@@ -1129,6 +1154,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.38.1 | Interface craft and tactile feedback polish: 4px spacing scale, whole-pixel type tokens, translucent ink tints, scale(0.97) press feedback, tabular figures, physical keycaps, top bar and table header observation, and notes label formatting |
 | 0.39.0 | Colour palettes and module tints, redesigned Settings cards, jobs application details redesign with desktop cards switcher, ZIP week content downloads, EPUB intake and conversion, missing thumbnail generation and custom covers, library shelves clean-up, direct syllabus document addition, purposeful animation foundations, slide thumbnails on week cards, stable double-buffered slide viewer, and automatic week titling from slides |
 | 0.40.0 | Video readings with HTTP 206 streaming and manual transcripts; Assessment & essay section on modules with curated primary/secondary references, plans/notes and snapshot history; dedicated Word processor with native OpenXML `.docx` import/export, real Word footnotes, Chicago 18th edition citations and Word-compatible Review comments; custom UK calendar date picker; seminar questions retired; flat Settings with sidebar contents and single Save; collapsible Course materials & admin; 2:3 book covers on Library shelves; slide preview enlarge modal; search-to-highlight (`?q=`) across readers and notes; and Job search unified around table + modal card with rich notes |
+| 0.41.0 | Readings laid out as compact, normal, icons or large icons for each folder; video frames as thumbnails with a play button; covers cropped to their print and shelves showing theirs whole; large books opening a piece at a time; books named from their ISBN; video transcripts as pages or text; one top bar with a Study and Job search switch; the date picker as a centred card with Clear date; a wider two-column application card; the import page retired; collapsible headings folding their whole section; and Assessment & essay as a card under Course materials & assessments with its own page |
 
 ## 18. The job search
 
@@ -1136,7 +1162,7 @@ A separate part of the app for managing job applications. It shares the app's si
 
 ### Getting there and back
 
-**Job search** sits at the right of the study top bar, set apart by a thin rule. On a phone it is **Jobs**, on the first row opposite the brand, so it is never pushed out of sight by the row of other links. Inside the job search, the top bar shows only **Job search** and **Back to Study Library**, so it is always clear which part you are in. Its address is `/?v=jobs`, so it can be bookmarked or added to a phone's home screen on its own.
+Study Library and the job search share one top bar. The brand names the side you are on, a switch of **Study** and **Job search** moves between them with the side you are on raised, and Go to, Search and Settings sit in the same place on both. On a phone the switch reads **Study** and **Jobs**, on the first row beside Go to. Its address is `/?v=jobs`, so it can be bookmarked or added to a phone's home screen on its own.
 
 ### What an application holds
 
@@ -1277,7 +1303,7 @@ Version 0.27 rebuilt the app for fingers rather than a mouse and keyboard, follo
 
 ### Photos as readings
 
-Pictures can be added wherever readings are: on a week, by dropping them, on the import page, or as a replacement file. Pictures added together become **one** PDF reading, a page each, in the order chosen, so six photos of a chapter are one reading. This happens on the device, so it works offline. One picture keeps its own name; several are named for the day and the number of pages, such as "Photos 14 Oct 2026 (6 pages)", and can be renamed like any reading. On a phone, the file picker offers the camera and the photo library.
+Pictures can be added wherever readings are: on a week, by dropping them on a week or module page, or as a replacement file. Pictures added together become **one** PDF reading, a page each, in the order chosen, so six photos of a chapter are one reading. This happens on the device, so it works offline. One picture keeps its own name; several are named for the day and the number of pages, such as "Photos 14 Oct 2026 (6 pages)", and can be renamed like any reading. On a phone, the file picker offers the camera and the photo library.
 
 ### OCR
 

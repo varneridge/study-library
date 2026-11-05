@@ -10,7 +10,8 @@ export type Route =
   | { view: "week"; id: string }
   | { view: "reader"; id: string; page?: number; q?: string }
   | { view: "essay"; id: string; q?: string }
-  | { view: "import"; id: string }
+  // A module's Assessment & essay page.
+  | { view: "assessment"; id: string }
   | { view: "across"; term?: string; number?: number }
   | { view: "session"; id: string; rec?: string; t?: number; turn?: number }
   | { view: "search"; q?: string }
@@ -25,8 +26,12 @@ export function parseRoute(search: string): Route {
   switch (view) {
     case "module":
     case "week":
-    case "import":
+    case "assessment":
       return id ? { view, id } : { view: "home" };
+    // The import page has gone. An old link to it opens its module, where
+    // files dropped on the page go to the weeks in their names.
+    case "import":
+      return id ? { view: "module", id } : { view: "home" };
     case "essay":
       return id ? { view, id, q: params.get("q") ?? undefined } : { view: "home" };
     case "reader": {

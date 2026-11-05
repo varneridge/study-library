@@ -323,3 +323,27 @@ export function formatChicagoFootnote(
   }
   return chicagoNote(item, loc);
 }
+
+// The opening of the draft, for the assessment page: its first paragraphs,
+// headings left out, cut at a word near the limit.
+export function draftExcerpt(doc: DocxDocument, limit = 420): string {
+  const parts: string[] = [];
+  for (const block of doc.blocks) {
+    if (block.type === "page_break" || block.type.startsWith("heading")) continue;
+    const text = block.runs.map((r) => (r.type === "text" ? r.text ?? "" : "")).join("").replace(/\s+/g, " ").trim();
+    if (text) parts.push(text);
+    if (parts.join(" ").length >= limit) break;
+  }
+  const joined = parts.join(" ");
+  if (joined.length <= limit) return joined;
+  const cut = joined.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > limit * 0.6 ? cut.slice(0, space) : cut).replace(/[,;:.\s]+$/, "")}\u2026`;
+}
+
+// How far the draft is towards its word target, for a bar and its words.
+export function wordProgress(words: number, target: number | null | undefined): { share: number; words: string } {
+  const count = `${words.toLocaleString("en-GB")} ${words === 1 ? "word" : "words"}`;
+  if (!target || target <= 0) return { share: 0, words: count };
+  return { share: Math.min(1, words / target), words: `${words.toLocaleString("en-GB")} of ${target.toLocaleString("en-GB")} words` };
+}

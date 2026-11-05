@@ -26,7 +26,7 @@ import { ModuleSettings } from "./ModuleSettings";
 import { Icon } from "./icons";
 import { setSetting, useSetting } from "../lib/settings";
 import { DatePicker } from "./DatePicker";
-import { AssessmentSection } from "./AssessmentSection";
+import { AssessmentCard } from "./AssessmentPage";
 
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
@@ -108,8 +108,10 @@ function WeekCoverImage({
   isSec,
   isShelf,
   weekNumber,
+  covers,
 }: {
   thumbKey: string | null;
+  covers?: string[];
   title?: string | null;
   code: string;
   isSec: boolean;
@@ -118,6 +120,26 @@ function WeekCoverImage({
 }) {
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const failed = thumbKey !== null && failedKey === thumbKey;
+  const [failedCovers, setFailedCovers] = useState<string[]>([]);
+  const shown = (covers ?? []).filter((key) => !failedCovers.includes(key));
+
+  if ((!thumbKey || failed) && shown.length) {
+    return (
+      <div className="shelf-covers">
+        {/* One cover, whole; the next takes its place if it cannot be shown. */}
+        {shown.slice(0, 1).map((key) => (
+          <img
+            key={key}
+            src={`/api/objects/${key}`}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailedCovers((was) => [...was, key])}
+          />
+        ))}
+      </div>
+    );
+  }
 
   if (!thumbKey || failed) {
     const label = coverLabel(
@@ -157,7 +179,7 @@ function WeekCard({
   onStartRename: () => void;
   onEndRename: () => void;
 }) {
-  const { week, readingCount, thumb_key, sessions, isCurrentWeek } = overview;
+  const { week, readingCount, thumb_key, thumb_keys, sessions, isCurrentWeek } = overview;
   const [fileOver, setFileOver] = useState(false);
   const coverPickerRef = useRef<HTMLInputElement>(null);
   const summary = formatReadingCount(readingCount);
@@ -171,7 +193,8 @@ function WeekCard({
     e.target.value = "";
     if (!file) return;
     try {
-      const key = await uploadModulePicture(file);
+      // A shelf's picture is cut to the shelf's own upright shape.
+      const key = await uploadModulePicture(file, isShelf ? 2 / 3 : undefined);
       await update("weeks", week.id, { image_key: key });
       showToast("Cover picture set.");
     } catch (err) {
@@ -230,6 +253,7 @@ function WeekCard({
           isSec={isSec}
           isShelf={isShelf}
           weekNumber={week.number}
+          covers={thumb_keys}
         />
 
       </Link>
@@ -359,7 +383,7 @@ function KeyDates({ module }: { module: ModuleRow }) {
             <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Chapter 2 draft" autoFocus enterKeyHint="next" />
           </label>
           <div className="field"><span>When</span>
-            <DatePicker value={date || null} onChange={(d) => setDate(d || "")} label="Key date" placeholder="Choose date" />
+            <DatePicker value={date || null} onChange={(d) => setDate(d || "")} label="Key date" placeholder="Choose date" title={label.trim() ? `Date for ${label.trim()}` : "Date for this key date"} hint="It counts down on the home page." />
           </div>
           <button className="button primary" disabled={saving || !label.trim() || !date} onClick={() => void add()}>{saving ? "Adding…" : "Add"}</button>
           <button className="quiet" disabled={saving} onClick={() => setAdding(false)}>Cancel</button>
@@ -408,7 +432,7 @@ export function ModulePage({ id }: { id: string }) {
     const isSaveData = (navigator as unknown as { connection?: { saveData?: boolean } }).connection?.saveData === true;
     if (typeof window !== "undefined" && navigator.onLine && !isSaveData && "caches" in window) {
       const keysToPrefetch = data.weeks
-        .map((w) => w.thumb_key)
+        .flatMap((w) => [w.thumb_key, ...w.thumb_keys])
         .filter((k): k is string => Boolean(k))
         .slice(0, 8);
       if (keysToPrefetch.length > 0) {
@@ -473,7 +497,6 @@ export function ModulePage({ id }: { id: string }) {
             Add syllabus / admin section
           </button>
         )}
-        <Link to={{ view: "import", id: module.id }} className={`button${empty ? " primary" : ""}`}>Import readings</Link>
       </div>
       {module.title && <p className="lede">{module.title}</p>}
       {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
@@ -502,12 +525,13 @@ export function ModulePage({ id }: { id: string }) {
 
       {empty && !customSectionsOnly && (
         <div className="first-steps">
-          <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>Import readings lets you check them first.</p>
+          <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>You can also open a week and choose Add files.</p>
           <p className="small muted">Files named like "(AT3) Author, 'Title'" go to their weeks by themselves. The rest wait in Unsorted.</p>
         </div>
       )}
 
-      {!customSectionsOnly && customSections.length > 0 && (
+      {/* The syllabus, admin and the assessment, each a card opened like a week. */}
+      {!library && (
         <section className="section course-materials" style={{ marginTop: "1rem" }}>
           <div className="section-head" style={{ marginBottom: adminOpen ? "0.75rem" : 0 }}>
             <h2 style={{ margin: 0 }}>
@@ -519,13 +543,13 @@ export function ModulePage({ id }: { id: string }) {
                 onClick={toggleAdmin}
               >
                 <Icon name={adminOpen ? "down" : "caret"} size={16} />
-                <span>Course materials & admin</span>
-                <span className="toggle-count">({customSections.length})</span>
+                <span>Course materials & assessments</span>
+                <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + 1})</span>
               </button>
             </h2>
           </div>
           <div id={`admin-grid-${module.id}`} className="week-grid" hidden={!adminOpen}>
-            {customSections.map((ov) => (
+            {!customSectionsOnly && customSections.map((ov) => (
               <WeekCard
                 key={ov.week.id}
                 overview={ov}
@@ -536,11 +560,10 @@ export function ModulePage({ id }: { id: string }) {
                 onEndRename={() => setRenamingId(null)}
               />
             ))}
+            <AssessmentCard module={module} />
           </div>
         </section>
       )}
-
-      {!library && <AssessmentSection module={module} />}
 
 
 
