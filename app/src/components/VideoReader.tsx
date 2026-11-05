@@ -20,6 +20,8 @@ import {
   TRANSCRIPT_ACCEPT,
 } from "../lib/video";
 import { NotesLoading } from "./ErrorBoundary";
+import { setSetting, useSetting } from "../lib/settings";
+import { TranscriptDocument, type TranscriptLayout } from "./TranscriptDocument";
 import { Icon, IconButton } from "./icons";
 import { Menu } from "./Menu";
 import { ReaderSheet } from "./reader/Controls";
@@ -152,6 +154,25 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
   }, [q]);
 
   const meta = useMemo(() => parseVideoMeta(file?.meta), [file?.meta]);
+
+  // The transcript as a document, when it is a PDF, or a Word document the
+  // processor has turned into one. Until then its text is shown as it is.
+  const transcriptDoc = useLiveQuery(async () => {
+    const id = meta.transcript_file_id;
+    if (!id) return null;
+    const original = await db.files.get(id);
+    if (original && !original.deleted && original.mime === "application/pdf") return { file: original, blob: null, waiting: false };
+    if (!original) {
+      const uploading = (await db.uploads.toArray()).find((u) => u.file_id === id);
+      if (uploading?.mime === "application/pdf") return { file: null, blob: uploading.blob, waiting: false };
+    }
+    const converted = await db.files.get(`${id}:pdf`);
+    if (converted && !converted.deleted) return { file: converted, blob: null, waiting: false };
+    return { file: null, blob: null, waiting: true };
+  }, [meta.transcript_file_id], null);
+  const storedLayout = useSetting<string>("transcript-layout", "pages");
+  const transcriptLayout: TranscriptLayout = storedLayout === "text" ? "text" : "pages";
+  const asDocument = Boolean(transcriptDoc && !transcriptDoc.waiting);
   const transcriptParagraphs = useMemo(() => {
     if (!meta.transcript_text) return [];
     return meta.transcript_text
@@ -500,6 +521,7 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
                 controls
                 playsInline
                 preload="metadata"
+                poster={file?.thumb_key ? `/api/objects/${file.thumb_key}` : undefined}
                 src={videoSrc}
                 onLoadedMetadata={handleLoadedMetadata}
                 onTimeUpdate={() => persistPlaybackSpot(false)}
@@ -513,12 +535,22 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
         <section className="video-transcript-pane" aria-label="Transcript">
           <div className="video-pane-head">
             <div>
-              <h2>Transcript / text version</h2>
+              <h2>Transcript</h2>
               {meta.transcript_name && (
                 <span className="small muted">{meta.transcript_name}</span>
               )}
             </div>
             <div className="row" style={{ gap: "0.4rem" }}>
+              {asDocument && (
+                <div className="segmented transcript-layout" role="group" aria-label="Show the transcript as">
+                  <button type="button" className="tool" aria-pressed={transcriptLayout === "pages"} onClick={() => void setSetting("transcript-layout", "pages")}>
+                    Pages
+                  </button>
+                  <button type="button" className="tool" aria-pressed={transcriptLayout === "text"} onClick={() => void setSetting("transcript-layout", "text")}>
+                    Text
+                  </button>
+                </div>
+              )}
               {file && (
                 <button
                   type="button"
@@ -540,6 +572,18 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
             </div>
           </div>
 
+          {transcriptDoc?.waiting && transcriptParagraphs.length > 0 && (
+            <p className="small muted transcript-note">The Word document is being turned into pages. Its text shows here until then.</p>
+          )}
+          {asDocument && transcriptDoc ? (
+            <TranscriptDocument
+              file={transcriptDoc.file}
+              blob={transcriptDoc.blob}
+              layout={transcriptLayout}
+              query={finding ? query : ""}
+              name={(meta.transcript_name ?? "Transcript").replace(/\.[a-z0-9]+$/i, "")}
+            />
+          ) : (
           <div ref={transcriptBodyRef} className="video-transcript-body">
             {transcriptParagraphs.length === 0 ? (
               <div className="video-transcript-empty">
@@ -570,6 +614,7 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
               ))
             )}
           </div>
+          )}
         </section>
       </div>
 

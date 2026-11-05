@@ -6,7 +6,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import * as pdfjs from "pdfjs-dist";
 import type { PageViewport, PDFDocumentProxy } from "pdfjs-dist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { fileBlob } from "../lib/files";
+import { EXACT_SIZES_UP_TO, exactPageSizes, openPdf, openPdfData, pageSizes } from "../lib/pdfOpen";
 import { loadReader, placesOf } from "../lib/library";
 import { navigate } from "../lib/router";
 import { bumpFile, commit, insert, newId, sendNow, update } from "../lib/sync";
@@ -157,20 +157,14 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     let loaded: PDFDocumentProxy | null = null;
     void (async () => {
       try {
-        let blob: Blob;
-        if (data.file?.mime === "application/pdf") blob = await fileBlob(data.file);
-        else if (data.upload?.mime === "application/pdf") blob = data.upload.blob;
+        if (data.file?.mime === "application/pdf") loaded = await openPdf(data.file);
+        else if (data.upload?.mime === "application/pdf") loaded = await openPdfData(data.upload.blob);
         else {
           setProblem(data.file ? "This file is still being converted to PDF." : "This file has not finished uploading.");
           return;
         }
-        loaded = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
-        const all = await Promise.all(
-          Array.from({ length: loaded.numPages }, async (_, i) => {
-            const viewport = (await loaded!.getPage(i + 1)).getViewport({ scale: 1 });
-            return { width: viewport.width, height: viewport.height };
-          }),
-        );
+        const opened = loaded;
+        const all = await pageSizes(opened);
         if (cancelled) return;
         restored.current = false;
         viewports.current.clear();
@@ -178,6 +172,14 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         setSizes(all);
         setDoc(loaded);
         setProblem(null);
+        // A long book shows at once with every page the size of its first;
+        // any pages of another size are put right in the background, and
+        // the place you are reading stays where it is.
+        if (opened.numPages > EXACT_SIZES_UP_TO) {
+          void exactPageSizes(opened, all[0], () => cancelled)
+            .then((exact) => { if (exact && !cancelled) setSizes(exact); })
+            .catch(() => undefined);
+        }
         void textColumn(loaded).then((c) => { if (!cancelled) setColumn(c); }).catch(() => undefined);
         void outline(loaded).then((h) => { if (!cancelled) setHeadings(h); });
         if (data.file && data.file.text_status !== "ready") void bumpFile(data.file.id);
@@ -272,11 +274,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   }, [doc, sizes, data, page, fit, goToPage, goToSpotPages]);
 
   // Keep exactly the same place when the pages change size: zooming,
-  // fitting to a new width, trimming margins or turning a phone.
+  // fitting to a new width, trimming margins, turning a phone, or a long
+  // book's real page sizes arriving.
   useLayoutEffect(() => {
     if (!restored.current || layoutRef.current !== "pages" || !spotRef.current) return;
     goToSpotPages(spotRef.current);
-  }, [scale, crop, goToSpotPages]);
+  }, [scale, crop, sizes, goToSpotPages]);
 
   const changeZoom = useCallback((next: number | null) => {
     setZoom(next === null ? null : clamp(next));

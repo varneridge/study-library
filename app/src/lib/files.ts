@@ -34,10 +34,14 @@ export async function isCached(file: FileRow): Promise<boolean> {
   return Boolean(cached && cached.r2_key === file.r2_key);
 }
 
+// Larger than this, a reading is not fetched in the background when its
+// week opens: it opens from the server a piece at a time instead.
+export const PREFETCH_MAX_BYTES = 25 * 1024 * 1024;
+
 // Fetch files in the background, a few at a time, skipping what is cached.
-export async function prefetch(files: FileRow[]): Promise<void> {
+export async function prefetch(files: FileRow[], maxBytes = Number.POSITIVE_INFINITY): Promise<void> {
   if (!navigator.onLine) return;
-  const queue = files.filter((f) => f.mime === "application/pdf");
+  const queue = files.filter((f) => f.mime === "application/pdf" && (f.bytes ?? 0) <= maxBytes);
   const workers = Array.from({ length: 3 }, async () => {
     for (let file = queue.shift(); file; file = queue.shift()) {
       if (!(await isCached(file))) await fileBlob(file).catch(() => undefined);

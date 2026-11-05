@@ -144,7 +144,7 @@ processor.post("/files/:id/identified", async (c) => {
     const previous = item.suggested;
     if (previous?.dismissed && fields.every((f) => same(previous[f], citation[f]))) continue;
     // Only records that state their citation outright fill a reading in by themselves.
-    const unnamed = item.kind === "secondary" && !item.author && !item.year && ["crossref", "crossref-title", "jstor"].includes(via);
+    const unnamed = item.kind === "secondary" && !item.author && !item.year && ["crossref", "crossref-title", "jstor", "isbn"].includes(via);
     if (unnamed) {
       const before = Object.fromEntries(allFields.map((f) => [f, item[f] ?? null]));
       statements.push(c.env.DB.prepare(

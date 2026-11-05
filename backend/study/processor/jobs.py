@@ -172,7 +172,96 @@ def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
     return split
 
 
+# A pixel this light counts as blank paper when a cover is cropped.
+BLANK_LEVEL = 235
+# A row or column counts as printed when this share of it is darker.
+PRINT_DENSITY = 0.003
+
+
+def _print_span(profile: list[float], limit: float, size: int) -> tuple[int, int] | None:
+    """The run of rows or columns that holds a page's print.
+
+    Printed runs closer than 2% of the page join up. A light, narrow run at
+    either end, such as a speck of dust or a stray mark by the edge, is left
+    out, so it cannot hold a white margin in place.
+    """
+    gap = max(2, round(size * 0.02))
+    runs: list[list[float]] = []
+    for index, value in enumerate(profile):
+        if value <= limit:
+            continue
+        if runs and index - runs[-1][1] <= gap:
+            runs[-1][1] = index + 1
+            runs[-1][2] += value
+        else:
+            runs.append([index, index + 1, value])
+    if not runs:
+        return None
+    total = sum(run[2] for run in runs)
+
+    def slight(run: list[float]) -> bool:
+        return run[2] < total * 0.015 and (run[1] - run[0]) < size * 0.03
+
+    while len(runs) > 1 and slight(runs[0]):
+        runs.pop(0)
+    while len(runs) > 1 and slight(runs[-1]):
+        runs.pop()
+    return int(runs[0][0]), int(runs[-1][1])
+
+
+def print_box(img) -> tuple[int, int, int, int] | None:
+    """The box around an image's print, ignoring specks, or None for a blank page."""
+    from PIL import Image
+
+    mask = img.convert("L").point(lambda v: 255 if v < BLANK_LEVEL else 0)
+    width, height = mask.size
+    # Shrinking the mask to one row, then one column, averages each column and row.
+    columns = list(mask.resize((width, 1), Image.BOX).tobytes())
+    rows = list(mask.resize((1, height), Image.BOX).tobytes())
+    limit = 255 * PRINT_DENSITY
+    x = _print_span(columns, limit, width)
+    y = _print_span(rows, limit, height)
+    if not x or not y:
+        return None
+    return x[0], y[0], x[1], y[1]
+
+
+def cover_clip(page):
+    """The part of a portrait page that holds its print, with a thin even
+    margin, or None when there is no white margin worth taking away.
+
+    Book covers and scanned pages often sit in a wide white border, which
+    makes them look small and lost as a thumbnail. Landscape slides are left
+    whole, as their white space is part of their design.
+    """
+    import pymupdf
+    from PIL import Image
+
+    rect = page.rect
+    if rect.width <= 0 or rect.height <= rect.width * 1.05:
+        return None
+    scale = min(1.0, 320 / rect.width)
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
+    img = Image.frombytes("RGB" if pix.n >= 3 else "L", [pix.width, pix.height], pix.samples)
+    box = print_box(img)
+    if not box:
+        return None
+    w, h = img.size
+    x0, y0, x1, y1 = box
+    # A page with only a line or two of print is drawn whole.
+    if (x1 - x0) < w * 0.3 or (y1 - y0) < h * 0.3:
+        return None
+    pad = 0.015 * max(w, h)
+    x0, y0 = max(0.0, x0 - pad), max(0.0, y0 - pad)
+    x1, y1 = min(float(w), x1 + pad), min(float(h), y1 + pad)
+    if x0 <= w * 0.01 and y0 <= h * 0.01 and x1 >= w * 0.99 and y1 >= h * 0.99:
+        return None
+    return pymupdf.Rect(rect.x0 + x0 / scale, rect.y0 + y0 / scale, rect.x0 + x1 / scale, rect.y0 + y1 / scale)
+
+
 def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
+    """Draws the first page, or the page after a JSTOR cover sheet, as a
+    WebP thumbnail. A portrait page is cropped to its print first."""
     if len(doc) == 0:
         return False
     # Skip JSTOR/publisher cover sheet if multi-page
@@ -185,11 +274,13 @@ def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int 
     rect = page.rect
     if rect.width <= 0 or rect.height <= 0:
         return False
-    scale = min(2.0, max(0.1, width / rect.width))
     import pymupdf
     from PIL import Image
+    clip = cover_clip(page)
+    area = clip if clip is not None else rect
+    scale = min(2.0, max(0.1, width / area.width))
     matrix = pymupdf.Matrix(scale, scale)
-    pix = page.get_pixmap(matrix=matrix, alpha=False)
+    pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
     mode = "RGB" if pix.n >= 3 else "L"
     img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
     img.save(thumb_path, "WEBP", quality=quality)
@@ -543,8 +634,11 @@ def identify(ctx: Context, job: dict) -> None:
                 if idx >= 0 and idx not in page_indices:
                     page_indices.append(idx)
             text = "\n".join(doc[i].get_text("text") for i in page_indices)
+            # A book prints its ISBN on the copyright page, a few pages in.
+            front = [i for i in range(min(8, n)) if i not in page_indices]
+            isbn_text = "\n".join([text, *(doc[i].get_text("text") for i in front)])
             lines = finder.first_page_lines(doc)
-            citation, via = finder.identify(text, meta, lines, ctx.online, doc=doc)
+            citation, via = finder.identify(text, meta, lines, ctx.online, doc=doc, isbn_text=isbn_text)
     if citation:
         ctx.api.identified(file["id"], citation, via)
     log.info("file %s identified %s", file["id"], f"by {via}" if via else "as unknown")
@@ -563,8 +657,10 @@ def thumb(ctx: Context, job: dict) -> None:
         with pymupdf.open(path) as doc:
             thumb_key = store_thumbnail(ctx, file, doc, tmp)
             if thumb_key:
-                log.info("file %s slide thumbnail ready: %s", file["id"], thumb_key)
-            maybe_autotitle_for_file(ctx.api, file["id"], doc)
+                log.info("file %s thumbnail ready: %s", file["id"], thumb_key)
+            # Cropping covers again only redraws them; week titles are already settled.
+            if not job["payload"].get("covers"):
+                maybe_autotitle_for_file(ctx.api, file["id"], doc)
 
 
 HANDLERS: dict[str, Callable[[Context, dict], None]] = {

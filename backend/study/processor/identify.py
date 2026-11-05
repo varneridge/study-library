@@ -7,6 +7,11 @@ first:
 1. A DOI printed in the PDF, looked up with Crossref.
 2. A structured cover sheet or header: JSTOR articles and books, CLA/LSE
    digitisation sheets, Taylor & Francis, Wilson Center, or FRUS.
+2b. An ISBN printed in its front matter, looked up with Crossref, Open
+   Library or Google Books, all free and needing no key. A whole book is
+   tried this way first, since a DOI in its last pages is usually another
+   work's, from its bibliography. A short PDF with a book's ISBN is read as a
+   chapter of that book, titled from its own first page.
 3. The title set largest on the first page, with the names beneath it. If
    Crossref has a work with that title, its full record is used.
 4. The PDF's own title and author fields, when they look real.
@@ -204,6 +209,193 @@ def search_crossref(title: str, author: str | None) -> dict | None:
     return None
 
 
+# ISBNs, labelled or bare. Separators may be spaces, hyphens or the other
+# dashes typesetters use, written here as escapes.
+ISBN_LABELLED = re.compile(r"\bISBN(?:-?1[03])?[\s:.#]*([0-9][0-9Xx \-\u2010-\u2015]{8,22})", re.I)
+ISBN_BARE = re.compile(r"(?<![0-9Xx])(97[89](?:[ \-\u2010-\u2015]?[0-9]){10})(?![0-9])")
+# From this many pages a PDF with an ISBN is the whole book.
+BOOK_PAGES = 60
+
+
+def _isbn_digits(raw: str) -> str:
+    return re.sub(r"[^0-9X]", "", raw.upper())
+
+
+def valid_isbn13(digits: str) -> bool:
+    return len(digits) == 13 and digits.isdigit() and sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(digits)) % 10 == 0
+
+
+def valid_isbn10(digits: str) -> bool:
+    if len(digits) != 10 or not digits[:9].isdigit() or not (digits[9].isdigit() or digits[9] == "X"):
+        return False
+    total = sum((10 - i) * int(d) for i, d in enumerate(digits[:9])) + (10 if digits[9] == "X" else int(digits[9]))
+    return total % 11 == 0
+
+
+def isbn13(digits10: str) -> str:
+    """An ISBN-10 written as the ISBN-13 that catalogues search by."""
+    core = "978" + digits10[:9]
+    check = (10 - sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(core)) % 10) % 10
+    return core + str(check)
+
+
+def find_isbns(text: str) -> list[str]:
+    """Every ISBN in the text as an ISBN-13, labelled ones first, each one
+    checked by its check digit so a phone number or page count never counts."""
+    found: list[str] = []
+
+    def keep(raw: str) -> None:
+        digits = _isbn_digits(raw)
+        # A run beginning 978 or 979 is an ISBN-13 or nothing; any other is an ISBN-10.
+        if digits.startswith(("978", "979")) and len(digits) >= 13:
+            if not valid_isbn13(digits[:13]):
+                return
+            value = digits[:13]
+        elif len(digits) >= 10 and valid_isbn10(digits[:10]):
+            value = isbn13(digits[:10])
+        else:
+            return
+        if value not in found:
+            found.append(value)
+
+    for match in ISBN_LABELLED.finditer(text or ""):
+        keep(match.group(1))
+    for match in ISBN_BARE.finditer(text or ""):
+        keep(match.group(1))
+    return found
+
+
+def _year_of(value) -> int | None:
+    match = YEAR.search(str(value or ""))
+    return int(match.group(1)) if match else None
+
+
+def _book(title: str, subtitle: str | None, names: list[str], publisher: str | None, year: int | None) -> dict | None:
+    full = f"{title}: {subtitle}" if subtitle and subtitle.lower() not in (title or "").lower() else title
+    full = clean_title(full or "")
+    if not full:
+        return None
+    return {
+        "work_kind": "book",
+        "author": format_authors([split_name(n) for n in names if n]) if names else None,
+        "editor": None,
+        "year": year,
+        "title": full,
+        "source": None,
+        "publisher": publisher or None,
+        "volume": None,
+        "issue": None,
+        "pages": None,
+        "doc_date": None,
+        "doi": None,
+    }
+
+
+def isbn_from_crossref(isbn: str) -> dict | None:
+    """Crossref holds most academic presses' books, with their DOIs."""
+    try:
+        response = requests.get(
+            "https://api.crossref.org/works", timeout=15, headers=HEADERS,
+            params={"filter": f"isbn:{isbn}", "rows": 5},
+        )
+        if response.status_code != 200:
+            return None
+        items = response.json()["message"]["items"]
+    except (requests.RequestException, ValueError, KeyError):
+        return None
+    for work in items:
+        # The same ISBN also finds the book's chapters; only the book counts.
+        if work.get("type") in ("book", "monograph", "edited-book", "reference-book"):
+            record = from_work(work)
+            if record:
+                record["work_kind"] = "book"
+                return record
+    return None
+
+
+def isbn_from_open_library(isbn: str) -> dict | None:
+    try:
+        response = requests.get(
+            "https://openlibrary.org/api/books", timeout=15, headers=HEADERS,
+            params={"bibkeys": f"ISBN:{isbn}", "format": "json", "jscmd": "data"},
+        )
+        if response.status_code != 200:
+            return None
+        data = response.json().get(f"ISBN:{isbn}")
+    except (requests.RequestException, ValueError, AttributeError):
+        return None
+    if not data:
+        return None
+    names = [a.get("name") for a in data.get("authors") or [] if isinstance(a, dict)]
+    publishers = data.get("publishers") or []
+    publisher = publishers[0].get("name") if publishers and isinstance(publishers[0], dict) else None
+    return _book(data.get("title") or "", data.get("subtitle"), names, publisher, _year_of(data.get("publish_date")))
+
+
+def isbn_from_google_books(isbn: str) -> dict | None:
+    try:
+        response = requests.get(
+            "https://www.googleapis.com/books/v1/volumes", timeout=15, headers=HEADERS,
+            params={"q": f"isbn:{isbn}"},
+        )
+        if response.status_code != 200:
+            return None
+        items = response.json().get("items") or []
+    except (requests.RequestException, ValueError, AttributeError):
+        return None
+    for entry in items:
+        info = entry.get("volumeInfo") or {}
+        codes = {_isbn_digits(i.get("identifier", "")) for i in info.get("industryIdentifiers") or []}
+        if codes and isbn not in codes and not any(len(c) == 10 and isbn13(c) == isbn for c in codes):
+            continue
+        return _book(info.get("title") or "", info.get("subtitle"), info.get("authors") or [], info.get("publisher"), _year_of(info.get("publishedDate")))
+    return None
+
+
+def lookup_isbn(isbn: str) -> dict | None:
+    """A book's record from the first catalogue that knows its ISBN."""
+    for look in (isbn_from_crossref, isbn_from_open_library, isbn_from_google_books):
+        record = look(isbn)
+        if record:
+            return record
+    return None
+
+
+def _same_main_title(a: str, b: str) -> bool:
+    return bool(a and b) and (title_matches(a, b) or title_matches(b, a) or _plain(a.split(":")[0]) == _plain(b.split(":")[0]))
+
+
+def from_isbn(text: str, laid_out: dict | None, page_count: int | None) -> tuple[dict, str] | None:
+    """A book's details from the ISBN printed in it. A short PDF carrying a
+    book's ISBN is usually a chapter scanned from it, so its own title comes
+    from its first page and the book becomes its source."""
+    for isbn in find_isbns(text)[:3]:
+        book = lookup_isbn(isbn)
+        if not book:
+            continue
+        whole = (
+            page_count is None or page_count >= BOOK_PAGES or not laid_out
+            or _same_main_title(laid_out.get("title") or "", book["title"])
+        )
+        if whole:
+            return book, "isbn"
+        own_author = laid_out.get("author")
+        editor = book.get("editor")
+        if own_author and book.get("author") and own_author != book["author"]:
+            editor = book["author"]
+        return {
+            **book,
+            "work_kind": "chapter",
+            "title": laid_out["title"],
+            "author": own_author or book.get("author"),
+            "editor": editor,
+            "source": book["title"],
+            "doi": None,
+            "pages": laid_out.get("pages"),
+        }, "isbn-chapter"
+    return None
+
+
 def from_jstor(text: str) -> dict | None:
     """Extracts citation from a JSTOR journal or book chapter cover sheet."""
     if re.search(r"Chapter Title:", text, re.I) or re.search(r"Book Title:", text, re.I):
@@ -371,7 +563,7 @@ def from_tandf(text: str) -> dict | None:
     cite = re.sub(r"\s+", " ", m.group(1)).strip()
 
     cm = re.search(
-        r"^(.+?)\s*\((\d{4})\)\s*(.+?),\s*([A-Za-z\s&'-]+),\s*(\d+)(?::(\d+))?,\s*(?:pp\.\s*)?(\d+[-–]\d+)",
+        r"^(.+?)\s*\((\d{4})\)\s*(.+?),\s*([A-Za-z\s&'-]+),\s*(\d+)(?::(\d+))?,\s*(?:pp\.\s*)?(\d+[-\u2013]\d+)",
         cite,
     )
     doi_match = re.search(r"(?:DOI:|https?://doi\.org/)\s*(10\.\S+)", text, re.I)
@@ -380,7 +572,7 @@ def from_tandf(text: str) -> dict | None:
     if cm:
         raw_author, year, title, journal, vol, iss, raw_pages = cm.groups()
         names = re.split(r",\s*(?=[A-Z])|\s+and\s+", raw_author)
-        first, last = re.split(r"[-–]", raw_pages)
+        first, last = re.split(r"[-\u2013]", raw_pages)
         return {
             "work_kind": "article",
             "author": format_authors([split_name(n) for n in names if n.strip()]),
@@ -597,8 +789,19 @@ def from_metadata(meta: dict) -> dict | None:
     }
 
 
-def identify(text: str, meta: dict, lines: list | None = None, online: bool = True, doc=None) -> tuple[dict | None, str | None]:
-    """Returns the citation found and how it was found."""
+def identify(text: str, meta: dict, lines: list | None = None, online: bool = True, doc=None,
+             isbn_text: str | None = None) -> tuple[dict | None, str | None]:
+    """Returns the citation found and how it was found. isbn_text is the
+    front matter as well, where a book prints its ISBN."""
+    page_count = len(doc) if doc is not None else None
+    isbn_source = isbn_text or text
+    # A whole book is named by its ISBN before anything else: a DOI in its
+    # last pages is usually another work's, from its bibliography.
+    if online and page_count is not None and page_count >= BOOK_PAGES:
+        found_book = from_isbn(isbn_source, from_layout(lines or [], text), page_count)
+        if found_book:
+            return found_book
+
     doi = DOI.search(text)
     if doi and online:
         found = from_crossref(doi.group(1).rstrip(".,;)]"))
@@ -634,6 +837,14 @@ def identify(text: str, meta: dict, lines: list | None = None, online: bool = Tr
         return found, "frus"
 
     laid_out = from_layout(lines or [], text)
+    if online and (page_count is None or page_count < BOOK_PAGES):
+        found_isbn = from_isbn(isbn_source, laid_out, page_count)
+        if found_isbn:
+            record, via = found_isbn
+            if via == "isbn-chapter" and not record.get("pages") and doc:
+                record["pages"] = extract_printed_pages(doc)
+            return record, via
+
     if laid_out:
         if online:
             record = search_crossref(laid_out["title"], laid_out["author"])

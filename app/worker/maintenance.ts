@@ -58,14 +58,19 @@ export async function purge(env: Env): Promise<void> {
 // Deleting a reading or a recording leaves its file row alone, so restoring
 // brings the file back. Once nothing points at a file, not even a deleted
 // row waiting to be purged, it is marked deleted and goes in a later purge.
-// Pictures in notes have no file row, so they are never touched here.
+// Pictures in notes have no file row, so they are never touched here. A
+// video's transcript file counts as pointed at while its video keeps it.
 export async function releaseUnusedFiles(env: Env): Promise<number> {
   const result = await env.DB.prepare(
     `UPDATE files SET deleted = 1, ${TOUCH}
       WHERE deleted = 0
         AND modified_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${UNUSED_DAYS} days')
         AND NOT EXISTS (SELECT 1 FROM items i WHERE i.file_id = files.id OR i.original_file_id = files.id)
-        AND NOT EXISTS (SELECT 1 FROM recordings r WHERE r.file_id = files.id)`,
+        AND NOT EXISTS (SELECT 1 FROM recordings r WHERE r.file_id = files.id)
+        -- A video's transcript, and the PDF a Word transcript was turned into.
+        AND NOT EXISTS (SELECT 1 FROM files v WHERE v.deleted = 0
+                         AND CASE WHEN json_valid(v.meta) THEN json_extract(v.meta, '$.transcript_file_id') END
+                             IN (files.id, replace(files.id, ':pdf', '')))`,
   ).run();
   return result.meta?.changes ?? 0;
 }

@@ -107,7 +107,7 @@ export interface Suggestion {
   pages: string | null;
   doc_date?: string | null;
   doi?: string | null;
-  via: "crossref" | "crossref-title" | "jstor" | "layout" | "metadata" | string;
+  via: "crossref" | "crossref-title" | "jstor" | "isbn" | "isbn-chapter" | "layout" | "metadata" | string;
   applied?: boolean;
   dismissed?: boolean;
   previous?: {

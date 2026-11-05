@@ -5,7 +5,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "../App";
 import { db } from "../lib/db";
-import { prefetch } from "../lib/files";
+import { prefetch, PREFETCH_MAX_BYTES } from "../lib/files";
 import { applyPlans, planFile, addSlides, SLIDES_ACCEPT } from "../lib/importing";
 import { byPosition, keyBetween, keysAfter } from "../lib/keys";
 import { clock } from "../lib/recorder";
@@ -265,7 +265,7 @@ export function WeekPage({ id }: { id: string }) {
     e.target.value = "";
     if (!file || !data) return;
     try {
-      const key = await uploadModulePicture(file);
+      const key = await uploadModulePicture(file, isLibrary(data.module) ? 2 / 3 : undefined);
       await update("weeks", data.view.week.id, { image_key: key });
       showToast("Cover picture set.");
     } catch (err) {
@@ -289,7 +289,9 @@ export function WeekPage({ id }: { id: string }) {
       const links = (await db.week_items.where("week_id").anyOf(ids).toArray()).filter((l) => !l.deleted);
       const items = (await db.items.bulkGet(links.map((l) => l.item_id))).filter(Boolean);
       const files = (await db.files.bulkGet(items.map((i) => i!.file_id).filter(Boolean) as string[])).filter(Boolean) as FileRow[];
-      await prefetch(files);
+      // Large books open from the server a piece at a time, so they are not
+      // fetched whole in the background just because their week was opened.
+      await prefetch(files, PREFETCH_MAX_BYTES);
     })();
   }, [data, id]);
 

@@ -290,9 +290,10 @@ function loadImg(file: File): Promise<HTMLImageElement> {
   });
 }
 
-// Resizes and centre-crops a module picture to 16:9 (960x540) on canvas,
-// preserving orientation and encoding as WebP with JPEG fallback.
-export async function resizeModulePicture(file: File): Promise<{ blob: Blob; ext: "webp" | "jpg"; sha: string; key: string }> {
+// Resizes and centre-crops a module picture to 16:9 (960x540) on canvas, or
+// to an upright 2:3 (640x960) for a library shelf, preserving orientation and
+// encoding as WebP with JPEG fallback.
+export async function resizeModulePicture(file: File, aspect = 16 / 9): Promise<{ blob: Blob; ext: "webp" | "jpg"; sha: string; key: string }> {
   let source: ImageBitmap | HTMLImageElement;
   try {
     if (typeof createImageBitmap === "function") {
@@ -315,9 +316,10 @@ export async function resizeModulePicture(file: File): Promise<{ blob: Blob; ext
     throw new Error("Could not read image dimensions.");
   }
 
-  const targetW = 960;
-  const targetH = 540;
-  const targetAspect = 16 / 9;
+  const upright = aspect < 1;
+  const targetW = upright ? 640 : 960;
+  const targetH = upright ? 960 : 540;
+  const targetAspect = aspect;
   const sourceAspect = sw / sh;
 
   let cropW = sw;
@@ -411,8 +413,8 @@ export async function queuePictureUpload(key: string, blob: Blob, sha: string): 
   void pump();
 }
 
-export async function uploadModulePicture(file: File): Promise<string> {
-  const { blob, sha, key } = await resizeModulePicture(file);
+export async function uploadModulePicture(file: File, aspect?: number): Promise<string> {
+  const { blob, sha, key } = await resizeModulePicture(file, aspect);
   await cachePicture(key, blob);
   await queuePictureUpload(key, blob, sha);
   return key;

@@ -12,6 +12,8 @@ export function viaLabel(via: Suggestion["via"]): string {
     case "crossref-title": return "by matching the title on its first page with Crossref";
     case "layout": return "from the title and names on its first page";
     case "metadata": return "from the PDF's own details";
+    case "isbn": return "from the ISBN printed in it, checked with a library catalogue";
+    case "isbn-chapter": return "from the ISBN of the book it comes from, with the title on its first page";
     default: return "from the PDF";
   }
 }
