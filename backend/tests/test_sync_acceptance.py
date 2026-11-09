@@ -18,6 +18,7 @@ import io
 import json
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -63,19 +64,24 @@ def test_safe_component_keeps_ordinary_names_readable():
     assert common.safe_component("Société Générale") == "Société Générale"
 
 
-def test_folder_names_are_unique_and_stable_across_renames():
+def test_folder_names_follow_the_workspace_convention():
+    assert jobs.app_folder_name(app()) == "2026-10-01 - Acme - Analyst"
+    assert jobs.app_folder_name(app(), date(2026, 9, 2)) == "2026-09-02 - Acme - Analyst"
+
+
+def test_twin_applications_get_distinct_folders(tmp_path):
     first = app(id="11111111-aaaa-4000-8000-000000000001")
     twin = app(id="22222222-bbbb-4000-8000-000000000002")
-    assert jobs.app_folder_name(first) != jobs.app_folder_name(twin)
-    assert jobs.app_folder_name(first).casefold() != jobs.app_folder_name(twin).casefold()
-    renamed = dict(first, employer="Acme Holdings")
-    assert jobs.app_folder_name(first).endswith(" [11111111]")
-    assert jobs.app_folder_name(renamed).endswith(" [11111111]")  # the id, not the label, is the identity
+    syncer = common.Syncer(tmp_path, common.Manifest(tmp_path / "m.json"), lambda key: [], common.Report())
+    plan = jobs.plan_folders([first, twin], syncer)
+    names = {plan.target[first["id"]], plan.target[twin["id"]]}
+    assert names == {"2026-10-01 - Acme - Analyst [11111111]", "2026-10-01 - Acme - Analyst [22222222]"}
+    syncer.close()
 
 
 def test_blank_employer_and_role_still_get_a_usable_folder():
     name = jobs.app_folder_name(app(employer="", role="   "))
-    assert name == "Untitled [0f3c9a2e]"
+    assert name == "2026-10-01 - Untitled"
 
 
 # M2: slot files are named by slot and stored type, never by the uploaded name
@@ -242,12 +248,12 @@ def test_first_run_builds_the_tree_and_fetches_a_shared_file_once(jobs_world):
     fake, dest, state, cv = jobs_world
     code, output = run_command(jobs, fake, dest, state)
     assert code == 0, output
-    acme = dest / "Acme - Analyst [a1aaaaaa]"
+    acme = dest / "2026-10-01 - Acme - Analyst"
     assert (acme / "CV.pdf").read_bytes() == cv
     assert (acme / "Cover letter.docx").exists()
     assert (acme / "Role description.url").read_text().startswith("[InternetShortcut]")
     assert "Applied: awaiting response" in (acme / "application.md").read_text()
-    assert (dest / "Beta - Trainee [b2bbbbbb]" / "CV.pdf").read_bytes() == cv
+    assert (dest / "2026-10-01 - Beta - Trainee" / "CV.pdf").read_bytes() == cv
     assert (dest / "index.csv").read_bytes().startswith(b"\xef\xbb\xbf")
     assert "Acme" in (dest / "index.md").read_text()
     assert len(fake.fetches) == 2, "the CV shared by two applications should be fetched once"
@@ -268,7 +274,7 @@ def test_second_run_changes_nothing_and_fetches_nothing(jobs_world):
 def test_a_local_edit_is_kept_and_the_new_version_saved_beside_it(jobs_world):
     fake, dest, state, _ = jobs_world
     run_command(jobs, fake, dest, state)
-    cv_path = dest / "Acme - Analyst [a1aaaaaa]" / "CV.pdf"
+    cv_path = dest / "2026-10-01 - Acme - Analyst" / "CV.pdf"
     cv_path.write_bytes(b"my own edits")
     new_key, new_cv = blob("%PDF-1.7 revised cv")
     fake.objects[new_key] = new_cv
@@ -289,17 +295,17 @@ def test_a_replaced_slot_overwrites_an_untouched_copy(jobs_world):
     fake.tables["applications"]["b2"]["file_cv"] = {"state": "saved", "key": new_key, "name": "cv2.pdf",
                                                     "mime": PDF, "bytes": len(new_cv)}
     assert run_command(jobs, fake, dest, state)[0] == 0
-    assert (dest / "Beta - Trainee [b2bbbbbb]" / "CV.pdf").read_bytes() == new_cv
+    assert (dest / "2026-10-01 - Beta - Trainee" / "CV.pdf").read_bytes() == new_cv
 
 
 def test_renaming_an_employer_renames_the_folder_and_keeps_extra_files(jobs_world):
     fake, dest, state, _ = jobs_world
     run_command(jobs, fake, dest, state)
-    (dest / "Acme - Analyst [a1aaaaaa]" / "my prep.txt").write_text("mine")
+    (dest / "2026-10-01 - Acme - Analyst" / "my prep.txt").write_text("mine")
     fake.tables["applications"]["a1"]["employer"] = "Acme Holdings"
     assert run_command(jobs, fake, dest, state)[0] == 0
-    assert not (dest / "Acme - Analyst [a1aaaaaa]").exists()
-    assert (dest / "Acme Holdings - Analyst [a1aaaaaa]" / "my prep.txt").read_text() == "mine"
+    assert not (dest / "2026-10-01 - Acme - Analyst").exists()
+    assert (dest / "2026-10-01 - Acme Holdings - Analyst" / "my prep.txt").read_text() == "mine"
 
 
 def test_a_deleted_application_is_moved_aside_not_removed(jobs_world):
@@ -307,8 +313,8 @@ def test_a_deleted_application_is_moved_aside_not_removed(jobs_world):
     run_command(jobs, fake, dest, state)
     fake.tables["applications"]["b2"]["deleted"] = True
     assert run_command(jobs, fake, dest, state)[0] == 0
-    assert not (dest / "Beta - Trainee [b2bbbbbb]").exists()
-    assert (dest / "_Deleted" / "Beta - Trainee [b2bbbbbb]" / "CV.pdf").exists()
+    assert not (dest / "2026-10-01 - Beta - Trainee").exists()
+    assert (dest / "_Deleted" / "2026-10-01 - Beta - Trainee" / "CV.pdf").exists()
 
 
 def test_a_cleared_slot_moves_its_file_to_old(jobs_world):
@@ -316,7 +322,7 @@ def test_a_cleared_slot_moves_its_file_to_old(jobs_world):
     run_command(jobs, fake, dest, state)
     fake.tables["applications"]["a1"]["file_cl"] = None
     assert run_command(jobs, fake, dest, state)[0] == 0
-    assert (dest / "Acme - Analyst [a1aaaaaa]" / "_Old" / "Cover letter.docx").exists()
+    assert (dest / "2026-10-01 - Acme - Analyst" / "_Old" / "Cover letter.docx").exists()
 
 
 def test_an_empty_pull_cannot_sweep_every_folder_aside(jobs_world):
@@ -327,7 +333,7 @@ def test_an_empty_pull_cannot_sweep_every_folder_aside(jobs_world):
     fake.tables["applications"] = {}
     code, output = run_command(jobs, fake, dest, state)
     assert code == 2 and "--allow-mass-retire" in output
-    assert (dest / "Acme - Analyst [a1aaaaaa]").is_dir()
+    assert (dest / "2026-10-01 - Acme - Analyst [a1aaaaaa]").is_dir()
 
 
 def test_a_failed_download_keeps_the_good_copy_and_does_not_retire_it(jobs_world):
@@ -340,8 +346,8 @@ def test_a_failed_download_keeps_the_good_copy_and_does_not_retire_it(jobs_world
                                                     "mime": PDF, "bytes": len(new_cv)}
     code, output = run_command(jobs, fake, dest, state)
     assert code == 1 and "error" in output
-    assert (dest / "Beta - Trainee [b2bbbbbb]" / "CV.pdf").read_bytes() == cv
-    assert not (dest / "Beta - Trainee [b2bbbbbb]" / "_Old").exists()
+    assert (dest / "2026-10-01 - Beta - Trainee" / "CV.pdf").read_bytes() == cv
+    assert not (dest / "2026-10-01 - Beta - Trainee" / "_Old").exists()
 
 
 def test_a_retryable_failure_is_retried(jobs_world):
@@ -357,7 +363,7 @@ def test_a_retryable_failure_is_retried(jobs_world):
 
     fake.object_chunks = flaky
     assert run_command(jobs, fake, dest, state)[0] == 0
-    assert (dest / "Acme - Analyst [a1aaaaaa]" / "CV.pdf").read_bytes() == cv
+    assert (dest / "2026-10-01 - Acme - Analyst" / "CV.pdf").read_bytes() == cv
 
 
 def test_a_tampered_object_is_refused(jobs_world):
@@ -366,7 +372,7 @@ def test_a_tampered_object_is_refused(jobs_world):
     fake.objects[key] = b"not what the digest says"
     code, output = run_command(jobs, fake, dest, state)
     assert code == 1 and "SHA-256" in output
-    assert not (dest / "Acme - Analyst [a1aaaaaa]" / "Cover letter.docx").exists()
+    assert not (dest / "2026-10-01 - Acme - Analyst" / "Cover letter.docx").exists()
 
 
 def test_dry_run_writes_nothing(jobs_world):

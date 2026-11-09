@@ -1,4 +1,4 @@
-# filename: review/backend/sync/common.py
+# filename: backend/sync/common.py
 """The shared core of the local sync commands.
 
 Both commands mirror rows from the Worker into a Google Drive folder, so both
@@ -400,7 +400,8 @@ def load_env(path: Path) -> None:
 
 def api_for_sync(env_path: Path) -> Api:
     """A client with the Access service token only. The sync never sends the
-    processor key, because a read-only mirror has no use for its powers."""
+    processor key, because the mirror and the jobs push both use routes that
+    the Access token alone may call, and neither has any use for its powers."""
     load_env(env_path)
     base = os.environ.get("STUDY_URL")
     client_id = os.environ.get("CF_ACCESS_CLIENT_ID")
@@ -419,8 +420,9 @@ def default_state_dir() -> Path:
     return Path(base) / "StudySync" if base else Path.home() / ".local" / "state" / "studysync"
 
 
-def resolve_dest(text: str) -> Path:
-    """The destination as an absolute path on this system. Under WSL a
+def resolve_dest(text: str, flag: str = "--dest") -> Path:
+    """A destination as an absolute path on this system, named in errors by
+    the option it came from. Under WSL a
     Windows path such as G:\\My Drive\\... is a relative POSIX name, which
     would quietly build the tree in the working folder, so it is mapped to its
     drvfs mount instead, and refused if that drive is not mounted."""
@@ -434,7 +436,7 @@ def resolve_dest(text: str) -> Path:
         return mount.joinpath(*[part for part in re.split(r"[\\/]+", drive.group(2)) if part])
     path = Path(text)
     if not path.is_absolute():
-        raise SyncError(f"--dest must be an absolute path, not {text!r}")
+        raise SyncError(f"{flag} must be an absolute path, not {text!r}")
     return path
 
 
@@ -494,7 +496,9 @@ class Report:
 class Manifest:
     """What the sync last wrote: each managed folder by the id of its row, and
     each managed file with its digest, size, modification time and source
-    key. Size and time let an unchanged file skip re-hashing on later runs."""
+    key. Size and time let an unchanged file skip re-hashing on later runs.
+    extras holds whatever a command needs to remember between runs about
+    its own rows, which this module stores without interpreting."""
 
     VERSION = 1
 
@@ -502,11 +506,13 @@ class Manifest:
         self.path = Path(path)
         self.folders: dict[str, str] = {}
         self.files: dict[str, dict] = {}
+        self.extras: dict = {}
         if self.path.exists():
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if data.get("version") == self.VERSION:
                 self.folders = dict(data.get("folders", {}))
                 self.files = dict(data.get("files", {}))
+                self.extras = dict(data.get("extras", {}))
 
     def rekey_prefix(self, old: str, new: str) -> None:
         def moved(rel: str) -> str:
@@ -520,8 +526,8 @@ class Manifest:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = json.dumps({"version": self.VERSION, "folders": self.folders, "files": self.files},
-                          indent=1, sort_keys=True).encode("utf-8")
+        data = json.dumps({"version": self.VERSION, "folders": self.folders, "files": self.files,
+                           "extras": self.extras}, indent=1, sort_keys=True).encode("utf-8")
         atomic_write_chunks(self.path, [data])
 
 
@@ -625,6 +631,26 @@ class Syncer:
             sha = with_retries(lambda: atomic_write_chunks(scratch, self.fetch(key), digest, size))
             self._downloads[key] = (scratch, sha)
         return self._downloads[key]
+
+    def seed(self, key: str, path: Path, sha: str) -> None:
+        """Copies a local file that holds an object's bytes into scratch space,
+        checked against its digest, so a file this run has just uploaded is
+        not fetched back. The copy is taken at once because the original may
+        be renamed or edited before the mirror reaches it."""
+        if key not in self._downloads:
+            scratch = self._scratch / hashlib.sha256(key.encode()).hexdigest()
+            self._downloads[key] = (scratch, atomic_write_chunks(scratch, file_chunks(Path(path)), sha))
+
+    def mirrors(self, rel: str) -> bool:
+        """Whether the file at rel is still exactly what the sync last wrote
+        there, as opposed to a file of the user's or one they have edited."""
+        entry = self.manifest.files.get(rel)
+        if not entry:
+            return False
+        try:
+            return self._local_sha(self.path(rel), entry) == entry.get("sha")
+        except (OSError, SyncError):
+            return False
 
     def put_bytes(self, rel: str, data: bytes) -> None:
         sha = hashlib.sha256(data).hexdigest()
