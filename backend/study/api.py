@@ -1,13 +1,17 @@
 """Client for the Study Library Worker API.
 
-Used by the processor and the Zotero importer. Requests pass Cloudflare Access
-with a service token, and processor endpoints also need the processor key.
+Used by the processor, the Zotero importer and the local sync commands in
+sync/. Requests pass Cloudflare Access with a service token, and processor
+endpoints also need the processor key.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
+
+from urllib.parse import quote
 
 import requests
 
@@ -15,7 +19,12 @@ PUSH_BATCH = 200
 
 
 class ApiError(Exception):
-    pass
+    """A request the Worker refused or redirected. status is the HTTP code,
+    or None for a redirect, so callers can tell a retryable 503 from a 403."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def stamp(after: str | None = None) -> str:
@@ -51,7 +60,10 @@ class Api:
         if response.is_redirect:
             raise ApiError(f"{method} {path} was redirected. Check the Access service token.")
         if response.status_code >= 400:
-            raise ApiError(f"{method} {path} returned {response.status_code}: {response.text[:500]}")
+            status = response.status_code
+            text = response.text[:500]
+            response.close()
+            raise ApiError(f"{method} {path} returned {status}: {text}", status)
         return response
 
     def _json(self, method: str, path: str, **kwargs):
@@ -68,6 +80,10 @@ class Api:
                 bucket = tables.setdefault(table, {})
                 for row in rows:
                     bucket[row["id"]] = row
+            # A page that claims more but does not move the cursor would repeat
+            # for ever, so it is treated as a fault rather than retried.
+            if result["more"] and result["cursor"] == since:
+                raise ApiError(f"sync pull did not advance past cursor {since}")
             since = result["cursor"]
             if not result["more"]:
                 return tables
@@ -85,6 +101,13 @@ class Api:
                                 headers={"Content-Type": mime})
         return result["key"]
 
+    def object_chunks(self, key: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+        """The bytes of a stored object, through the same route the reader
+        uses, so no processor key is needed. The key is quoted, and the
+        connection is closed even if the caller stops reading part way."""
+        with self._request("GET", f"/api/objects/{quote(key, safe='/')}", stream=True) as response:
+            yield from response.iter_content(chunk_size)
+
     # Processor
 
     def claim(self) -> dict | None:
@@ -99,17 +122,31 @@ class Api:
     def file(self, file_id: str) -> dict | None:
         response = self.session.get(f"{self.base}/api/processor/files/{file_id}", timeout=self.timeout,
                                     allow_redirects=False)
+        if response.is_redirect:
+            raise ApiError(f"GET file {file_id} was redirected. Check the Access service token.")
         if response.status_code == 404:
             return None
         if response.status_code >= 400:
-            raise ApiError(f"GET file {file_id} returned {response.status_code}")
+            raise ApiError(f"GET file {file_id} returned {response.status_code}", response.status_code)
         return response.json()["file"]
 
     def download(self, key: str, path: str) -> None:
+        """Writes to a .part file beside the target and renames it into place
+        only once every byte has arrived, so an interrupted download never
+        leaves a truncated file that a later run would take as complete."""
+        partial = path + ".part"
         response = self._request("GET", f"/api/processor/objects/{key}", stream=True)
-        with open(path, "wb") as handle:
-            for chunk in response.iter_content(1024 * 1024):
-                handle.write(chunk)
+        try:
+            with open(partial, "wb") as handle:
+                for chunk in response.iter_content(1024 * 1024):
+                    handle.write(chunk)
+            os.replace(partial, path)
+        except BaseException:
+            if os.path.exists(partial):
+                os.remove(partial)
+            raise
+        finally:
+            response.close()
 
     def put_object(self, path: str, key: str, content_type: str) -> None:
         with open(path, "rb") as handle:
@@ -129,7 +166,7 @@ class Api:
         if response.status_code == 404:
             return None
         if response.status_code >= 400 or response.is_redirect:
-            raise ApiError(f"GET {key} returned {response.status_code}")
+            raise ApiError(f"GET {key} returned {response.status_code}", response.status_code)
         return response.content.decode("utf-8")
 
     def put_text(self, key: str, text: str) -> None:

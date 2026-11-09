@@ -1,7 +1,7 @@
 {
   "name": "study-library",
   "private": true,
-  "version": "0.41.0",
+  "version": "0.41.1",
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
@@ -14,7 +14,9 @@
     "test": "tsx tests/run.ts",
     "e2e": "wsl bash scripts/e2e.sh",
     "test:backend": "wsl bash -c \"rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv --exclude backend/audit --exclude app/tests/e2e/shots --exclude app/tests/e2e/files ../ ~/study-library/ && cd ~/study-library/app && npm install --silent && cd ../backend && . ~/.venvs/study/bin/activate && python -m pytest -q\"",
-    "test:all": "npm run typecheck && npm test"
+    "test:all": "npm run typecheck && npm test",
+    "sync:jobs": "wsl bash scripts/sync.sh jobs",
+    "sync:study": "wsl bash scripts/sync.sh study"
   },
   "dependencies": {
     "@blocknote/core": "^0.55.0",
