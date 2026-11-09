@@ -23,6 +23,7 @@ const paths: Record<string, React.ReactNode> = {
   more: <><circle cx="4.5" cy="10" r="0.9" fill="currentColor" /><circle cx="10" cy="10" r="0.9" fill="currentColor" /><circle cx="15.5" cy="10" r="0.9" fill="currentColor" /></>,
   notes: <><path d="M5 2.75h7l3 3v11.5H5Z" /><path d="M12 2.75v3h3M7.5 9.5h5M7.5 12h5M7.5 14.5h3" /></>,
   caret: <path d="m6.5 8.5 3.5 3.5 3.5-3.5" />,
+  plus: <path d="M10 4.5v11M4.5 10h11" />,
   // Two columns of dots, the usual sign that a row can be picked up.
   grip: <><circle cx="7.5" cy="5.5" r="1" fill="currentColor" /><circle cx="12.5" cy="5.5" r="1" fill="currentColor" /><circle cx="7.5" cy="10" r="1" fill="currentColor" /><circle cx="12.5" cy="10" r="1" fill="currentColor" /><circle cx="7.5" cy="14.5" r="1" fill="currentColor" /><circle cx="12.5" cy="14.5" r="1" fill="currentColor" /></>,
   close: <path d="m5.5 5.5 9 9M14.5 5.5l-9 9" />,

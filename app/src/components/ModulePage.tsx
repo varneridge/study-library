@@ -489,17 +489,6 @@ export function ModulePage({ id }: { id: string }) {
           </button>
         )}
         <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
-        {!customSectionsOnly && (
-          <button
-            className="button quiet"
-            onClick={async () => {
-              const newWeekId = await addSection(module.id, "Syllabus & Admin");
-              navigate({ view: "week", id: newWeekId });
-            }}
-          >
-            Add syllabus / admin section
-          </button>
-        )}
       </div>
       {module.title && <p className="lede">{module.title}</p>}
       {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
@@ -514,17 +503,6 @@ export function ModulePage({ id }: { id: string }) {
       {dissertation && <KeyDates module={module} />}
       {customSectionsOnly && (
         <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0", gap: "0.5rem" }}>
-          {!hasAssessment && !library && (
-            <button
-              className="button quiet small"
-              onClick={async () => {
-                await enableModuleAssessment(module.id, module.code);
-                showToast("Assessment & essay section added.");
-              }}
-            >
-              Add assessment & essay
-            </button>
-          )}
           <button
             className="button small"
             onClick={async () => {
@@ -561,19 +539,37 @@ export function ModulePage({ id }: { id: string }) {
                 <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + (hasAssessment ? 1 : 0)})</span>
               </button>
             </h2>
-            {!hasAssessment && (
-              <button
-                type="button"
-                className="button quiet small"
-                onClick={async () => {
-                  await enableModuleAssessment(module.id, module.code);
-                  showToast("Assessment & essay section added.");
-                }}
-              >
-                <Icon name="plus" size={14} />
-                Add assessment & essay
-              </button>
-            )}
+            <Menu
+              label="Add to course materials"
+              trigger={
+                <>
+                  <Icon name="plus" size={14} />
+                  <span>Add</span>
+                  <Icon name="caret" size={12} />
+                </>
+              }
+              items={[
+                {
+                  label: "Syllabus / admin section",
+                  onSelect: async () => {
+                    await addSection(module.id, "Syllabus & Admin");
+                    setForcedOpen(true);
+                    void setSetting(`collapse:admin:${id}`, false);
+                    showToast("Syllabus / admin section added.");
+                  },
+                },
+                {
+                  label: "Assessment & essay",
+                  hidden: hasAssessment,
+                  onSelect: async () => {
+                    await enableModuleAssessment(module.id, module.code);
+                    setForcedOpen(true);
+                    void setSetting(`collapse:admin:${id}`, false);
+                    showToast("Assessment & essay section added.");
+                  },
+                },
+              ]}
+            />
           </div>
           <div id={`admin-grid-${module.id}`} className="week-grid" hidden={!adminOpen}>
             {!customSectionsOnly && customSections.map((ov) => (

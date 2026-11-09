@@ -79,12 +79,16 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     toggle = materials.locator(".section-toggle")
     expect(toggle).to_contain_text("Course materials & assessments")
     expect(toggle).to_have_attribute("aria-expanded", "true")
-    # The assessment is addable like custom sections, not present by default.
-    add_btn = materials.get_by_role("button", name="Add assessment & essay")
+    # One dropdown menu in Course materials & assessments offers both Syllabus/admin and Assessment & essay.
+    expect(page.get_by_role("button", name="Add syllabus / admin section")).to_have_count(0)
+    add_btn = materials.get_by_role("button", name="Add to course materials")
     if add_btn.is_visible():
         add_btn.click()
+        page.get_by_role("menuitem", name="Assessment & essay").click()
     card = materials.locator(".essay-card")
     expect(card).to_be_visible()
+    # Adding stays on the main module page rather than navigating into the new unit:
+    assert "v=assessment" not in page.url, page.url
     card.get_by_role("link", name="Assessment & essay").click()
     expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
     assert "v=assessment" in page.url, page.url

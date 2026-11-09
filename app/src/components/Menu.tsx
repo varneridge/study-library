@@ -11,7 +11,17 @@ export interface MenuItem {
 }
 
 // A "more actions" menu. Closes on a click elsewhere or on Escape.
-export function Menu({ items, label = "More actions" }: { items: MenuItem[]; label?: string }) {
+export function Menu({
+  items,
+  label = "More actions",
+  trigger,
+  className,
+}: {
+  items: MenuItem[];
+  label?: string;
+  trigger?: ReactNode;
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -89,8 +99,18 @@ export function Menu({ items, label = "More actions" }: { items: MenuItem[]; lab
   const host = sheetHost();
   const portal = (node: ReactNode) => (host ? createPortal(node, host) : node);
   return (
-    <div className="menu" ref={ref}>
-      <button ref={buttonRef} className="quiet menu-button" aria-label={label} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name="more" size={18} /></button>
+    <div className={`menu${className ? ` ${className}` : ""}`} ref={ref}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`quiet menu-button${trigger ? " has-label" : ""}`}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {trigger ?? <Icon name="more" size={18} />}
+      </button>
       {/* On a phone the menu is a sheet over a dimmed page; tapping the page closes it. */}
       {open && portal(<div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />)}
       {open && portal(
