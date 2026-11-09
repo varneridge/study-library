@@ -333,9 +333,6 @@ export async function loadModuleOverview(
         if (library) {
           if (!thumb_keys.includes(file.thumb_key)) thumb_keys.push(file.thumb_key);
           if (thumb_keys.length === 3) break;
-        } else if (it.kind === "slides") {
-          thumb_key = file.thumb_key;
-          break;
         }
       }
     }

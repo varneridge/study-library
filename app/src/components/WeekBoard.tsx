@@ -36,11 +36,11 @@ export const collide: CollisionDetection = (args) => {
 };
 
 // A reading that can be picked up. The slide board uses it too.
-export function Sortable({ view, weeks, short, mode }: { view: ReadingView; weeks: WeekRow[]; short?: boolean; mode?: ReadingViewMode }) {
+export function Sortable({ view, weeks, short, mode, isLibrary }: { view: ReadingView; weeks: WeekRow[]; short?: boolean; mode?: ReadingViewMode; isLibrary?: boolean }) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: view.link!.id });
   return (
     <ReadingRow
-      view={view} weeks={weeks} short={short} mode={mode}
+      view={view} weeks={weeks} short={short} mode={mode} isLibrary={isLibrary}
       drag={{
         setNodeRef, attributes, listeners: listeners as never, dragging: isDragging,
         style: { transform: CSS.Translate.toString(transform), transition },
@@ -61,7 +61,7 @@ function List({ id, label, views, weeks, dragging, isLibrary, mode }: { id: List
       {/* Tiles move about a grid, rows up and down a list. */}
       <SortableContext items={views.map((v) => v.link!.id)} strategy={isTileMode(mode) ? rectSortingStrategy : verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`readings view-${mode}${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
-          {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} mode={mode} />)}
+          {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} mode={mode} isLibrary={isLibrary} />)}
           {!views.length && <li className="drop-hint">Drop here to make it {hintText}</li>}
         </ul>
       </SortableContext>

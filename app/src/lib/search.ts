@@ -13,13 +13,14 @@ import { fullTitle } from "./titles";
 import { speakerLabel } from "./transcriptImport";
 import type { HighlightRow, ItemRow, ModuleRow, NoteRow } from "./types";
 import { isVideoMime, parseVideoMeta } from "./video";
+import { searchFold } from "./textnorm";
 
 export const MARK_START = "\u0001";
 export const MARK_END = "\u0002";
 
-// Folds case and accents, so "Etat" finds "État".
+// Folds case and accents, so "Etat" finds "État", and repairs ligatures.
 // Curly quotes match straight ones, one character for one, so excerpts line up.
-const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").replace(/[\u2018\u2019]/g, "'").toLowerCase();
+const fold = (text: string) => searchFold(text.replace(/[\u2018\u2019]/g, "'"));
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function tokens(input: string): { text: string; phrase: boolean }[] {

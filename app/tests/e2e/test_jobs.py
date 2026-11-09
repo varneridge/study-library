@@ -464,14 +464,13 @@ with sync_playwright() as p:
     phone = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, device_scale_factor=2)
     phone.on("pageerror", lambda e: errors.append(str(e)))
     phone.goto(BASE + "/?v=jobs")
-    expect(phone.locator("tbody.app")).to_have_count(5)
-    expect(phone.locator(".app-card")).to_have_count(0)
+    # On a phone: the list displays prominent cards with stages and deadlines.
+    expect(phone.locator(".app-card")).to_have_count(5)
     assert phone.locator(".topbar .side-study").inner_text() == "Study"
     # Castore is overdue, so it comes first.
-    expect(phone.locator("tbody.app").first.locator(".c-employer textarea")).to_have_value("Castore")
+    expect(phone.locator(".app-card").first).to_contain_text("Castore")
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)
-    castore_row = phone.locator("tbody.app[data-app='castore']")
-    castore_row.get_by_role("button", name="Open card for Castore").tap()
+    phone.locator(".app-card[href*='app=castore']").tap()
     app_sheet = phone.locator("dialog.app-sheet[open]")
     expect(app_sheet).to_be_visible()
     assert phone.url.endswith("app=castore")
@@ -512,7 +511,7 @@ with sync_playwright() as p:
     print("phone sheet: read-first sheet, one sheet per file slot, Done at the foot")
 
     # Edit application sheet flow:
-    castore_row.get_by_role("button", name="Open card for Castore").tap()
+    phone.locator(".app-card[href*='app=castore']").tap()
     expect(app_sheet).to_be_visible()
     app_sheet.get_by_role("button", name="Edit details").tap()
     edit_sheet = phone.locator("dialog.edit-app-sheet[open]")
@@ -551,8 +550,8 @@ with sync_playwright() as p:
     print("New and Edit application sheets: delta save, conflict free, direct landing")
 
     # Timeline entry sheet flow on phone:
-    bain_row = phone.locator("tbody.app[data-employer='Bain & Company']")
-    bain_row.get_by_role("button", name="Open card for Bain & Company").tap()
+    bain_card = phone.locator(".app-card[data-employer='Bain & Company']")
+    bain_card.tap()
     expect(bain_sheet).to_be_visible()
     bain_sheet.get_by_role("button", name="Add entry", exact=True).tap()
     entry_sheet = phone.locator("dialog.entry-sheet[open]")

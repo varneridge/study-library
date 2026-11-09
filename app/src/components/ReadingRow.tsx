@@ -430,10 +430,11 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
 // when there is one; normal rows keep a place for it so titles line up; icons
 // and large icons show it as the tile, with the title set in its place when
 // there is no picture yet.
-function Cover({ view, mode }: { view: ReadingView; mode: ReadingViewMode }) {
-  const key = view.file?.thumb_key ?? null;
+function Cover({ view, mode, isLibrary }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null);
   const video = isVideoView(view);
+  if (!video && !isLibrary) return null;
+  const key = view.file?.thumb_key ?? null;
   const tile = isTileMode(mode);
   const picture = key && failed !== key ? key : null;
   if (!picture && !video && mode === "compact") return null;
@@ -451,7 +452,7 @@ function Cover({ view, mode }: { view: ReadingView; mode: ReadingViewMode }) {
 }
 
 export function ReadingRow({
-  view, short, weeks: given, drag, extra, mode = "compact",
+  view, short, weeks: given, drag, extra, mode = "compact", isLibrary = false,
 }: {
   view: ReadingView;
   short?: boolean;
@@ -459,6 +460,7 @@ export function ReadingRow({
   mode?: ReadingViewMode;
   weeks?: WeekRow[];
   extra?: React.ReactNode;
+  isLibrary?: boolean;
   // From the drag-and-drop library: the row is the thing you pick up.
   drag?: {
     setNodeRef: (el: HTMLElement | null) => void;
@@ -506,9 +508,9 @@ export function ReadingRow({
       className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (editing || moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
     >
       {drag && <span className="handle" aria-hidden="true"><Icon name="grip" size={16} /></span>}
-      {tile && <Cover view={view} mode={mode} />}
+      {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       <ReadMark view={view} />
-      {!tile && <Cover view={view} mode={mode} />}
+      {!tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       <ReadingTitle view={view} short={short} />
       {/* What the reading's state is. In rows these sit inline, as before; in
           tiles they take a line of their own beneath the title. */}

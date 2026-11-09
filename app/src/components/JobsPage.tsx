@@ -20,6 +20,7 @@ import { shortDate } from "../lib/dates";
 import { DateField, Deadline, OrderButton, SlotMark, SlotRow, slotTitle, StageButton, TextField, Timeline } from "./jobs/Controls";
 import { AppSheet } from "./jobs/AppSheet";
 import { ApplicationForm } from "./jobs/ApplicationForm";
+import { AppList } from "./jobs/AppList";
 
 import { EntryForm } from "./jobs/EntryForm";
 import { Sheet } from "./Sheet";
@@ -230,6 +231,7 @@ export function JobsPage() {
   const closedHeading = order === "deadline" && filter === "all" && shown.some(isOpen) && shown.some((a) => !isOpen(a));
   const jobRoute = route.view === "jobs" ? route : null;
   const currentApp = jobRoute?.app ? all.find((a) => a.id === jobRoute.app) : undefined;
+  const isNarrow = narrow;
 
   return (
     <div className="page wide jobs">
@@ -273,6 +275,8 @@ export function JobsPage() {
         </div>
       ) : shown.length === 0 ? (
         <p className="muted jobs-none">{query ? `Nothing matches “${query}”.` : filter === "open" ? "No open applications." : "No closed applications."}</p>
+      ) : isNarrow ? (
+        <AppList apps={shown} eventsFor={eventsFor} closedHeading={closedHeading} />
       ) : (
         <div className="apps-wrap">
           <table className="apps">

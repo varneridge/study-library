@@ -1,13 +1,13 @@
 {
   "name": "study-library",
   "private": true,
-  "version": "0.41.1",
+  "version": "0.42.0",
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/copy-pdf-worker.mjs",
     "dev": "vite",
     "dev:api": "wrangler dev --port 8787",
-    "build": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && vite build",
+    "build": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json && vite build && node scripts/chunk-wasm-assets.mjs --dist dist --dir wordcraft",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:local": "wrangler d1 migrations apply DB --local",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",

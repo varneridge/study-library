@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ..api import Api
+from ..textnorm import repair_text
 from .speech import Transcriber
 from . import identify as finder
 from ..autotitle import maybe_autotitle_for_file
@@ -322,7 +323,7 @@ def extract_text(ctx: Context, job: dict) -> None:
         path = os.path.join(tmp, "in.pdf")
         ctx.api.download(file["r2_key"], path)
         with pymupdf.open(path) as doc:
-            pages = [page.get_text("text").replace("\x00", "") for page in doc]
+            pages = [repair_text(page.get_text("text").replace("\x00", "")) for page in doc]
             page_count = len(pages)
 
             if not thumb_key:

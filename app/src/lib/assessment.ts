@@ -38,10 +38,12 @@ export interface AssessmentSnapshot {
 }
 
 export interface AssessmentData {
+  enabled?: boolean;
   title: string;
   wordTarget?: number | null;
   dueDate?: string | null;
   draft: DocxDocument;
+  docx?: Uint8Array | null;
   referenceItemIds: string[];
   previousDrafts: AssessmentSnapshot[];
   rev: number;
@@ -346,4 +348,18 @@ export function wordProgress(words: number, target: number | null | undefined): 
   const count = `${words.toLocaleString("en-GB")} ${words === 1 ? "word" : "words"}`;
   if (!target || target <= 0) return { share: 0, words: count };
   return { share: Math.min(1, words / target), words: `${words.toLocaleString("en-GB")} of ${target.toLocaleString("en-GB")} words` };
+}
+
+export { isAssessmentEnabled } from "./assessmentEnabled";
+
+export async function enableModuleAssessment(moduleId: string, moduleCode?: string): Promise<AssessmentData> {
+  return saveModuleAssessment(moduleId, (current) => ({
+    ...current,
+    enabled: true,
+  }), { moduleCode });
+}
+
+export async function deleteModuleAssessment(moduleId: string): Promise<void> {
+  const key = assessmentSettingKey(moduleId);
+  await db.settings.delete(key);
 }

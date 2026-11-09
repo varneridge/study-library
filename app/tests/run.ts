@@ -39,6 +39,9 @@ import { estimatedSizes, sameSize, shouldStream, STREAM_FROM_BYTES } from "../sr
 import { viaLabel } from "../src/lib/citations";
 import { foldedBlockIds, foldStyles } from "../src/lib/folds";
 import { draftExcerpt, wordProgress } from "../src/lib/assessment";
+import { repairText, searchFold } from "../src/lib/textnorm";
+import { isAssessmentEnabled } from "../src/lib/assessmentEnabled";
+import { describeDeadline, pickNextDeadline } from "../src/lib/jobsCard";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -1493,6 +1496,30 @@ test("the essay question is labelled once, and its card title is a touch target"
   assert.equal((page.match(/Essay question/g) ?? []).length, 1, "only the question's own label says Essay question");
   const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.ok(/\.essay-card-title \{[^}]*min-height: 2\.75rem/.test(css), "the card title is too small to tap");
+});
+
+test("textnorm repairs ligatures and Calibri glyphs in context", () => {
+  assert.equal(repairText("ﬁnal ﬂow oﬀer eﬃcient baﬄe ﬅop ﬆop ſun"), "final flow offer efficient baffle stop stop sun");
+  assert.equal(repairText("informaƟon leŌ aŌer"), "information left after");
+  assert.equal(repairText("café résumé"), "café résumé");
+  assert.equal(repairText("Ōsaka"), "Ōsaka");
+  assert.equal(searchFold("Café ﬁnal Straße"), "cafe final strasse");
+  assert.equal(searchFold("informaƟon"), "information");
+});
+
+test("assessmentEnabled distinguishes empty defaults from user work", () => {
+  assert.equal(isAssessmentEnabled({ enabled: true }), true);
+  assert.equal(isAssessmentEnabled({ enabled: false, title: "Custom" }), false);
+  assert.equal(isAssessmentEnabled({ title: "Assessment", wordTarget: 2000, draft: { text: "" } }), false);
+  assert.equal(isAssessmentEnabled({ title: "Custom Topic", wordTarget: 2000 }), true);
+  assert.equal(isAssessmentEnabled({ wordCount: 150 }), true);
+});
+
+test("jobsCard describes deadlines and urgency", () => {
+  const now = new Date(2026, 10, 9, 12, 0);
+  assert.equal(describeDeadline(new Date(2026, 10, 9, 8), now)?.urgency, "today");
+  assert.equal(describeDeadline(new Date(2026, 10, 10), now)?.urgency, "soon");
+  assert.equal(describeDeadline(new Date(2026, 10, 5), now)?.urgency, "overdue");
 });
 
 if (failed) {

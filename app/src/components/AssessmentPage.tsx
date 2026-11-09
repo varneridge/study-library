@@ -8,6 +8,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
+import { navigate } from "../lib/router";
 import {
   assessmentNotesKey,
   deleteDraftSnapshot,
@@ -17,6 +18,7 @@ import {
   importAssessmentDocxFile,
   restoreDraftSnapshot,
   saveDraftSnapshot,
+  deleteModuleAssessment,
   saveModuleAssessment,
   useModuleAssessment,
   wordProgress,
@@ -178,10 +180,26 @@ function AssessmentBody({ module }: { module: ModuleRow }) {
     </li>
   );
 
+  const handleDeleteAssessment = async () => {
+    if (window.confirm("Delete this assessment and its draft? This cannot be undone.")) {
+      await deleteModuleAssessment(module.id);
+      showToast("Assessment & essay section removed.");
+      navigate({ view: "module", id: module.id });
+    }
+  };
+
   return (
     <div className="page wide essay-page">
-      <div className="crumbs">
-        <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> Assessment & essay
+      <div className="crumbs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> Assessment & essay
+        </div>
+        <Menu
+          label="Assessment actions"
+          items={[
+            { label: "Delete assessment", danger: true, onSelect: () => void handleDeleteAssessment() },
+          ]}
+        />
       </div>
       <div className="section-head essay-head">
         <h1>Assessment & essay</h1>

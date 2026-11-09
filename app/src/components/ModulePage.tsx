@@ -27,6 +27,7 @@ import { Icon } from "./icons";
 import { setSetting, useSetting } from "../lib/settings";
 import { DatePicker } from "./DatePicker";
 import { AssessmentCard } from "./AssessmentPage";
+import { assessmentSettingKey, enableModuleAssessment, isAssessmentEnabled } from "../lib/assessment";
 
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
@@ -398,6 +399,8 @@ export function ModulePage({ id }: { id: string }) {
   const dates = useTermDates();
   const data = useLiveQuery(() => loadModuleOverview(id, now), [id, now]);
   const isCollapsed = useSetting<boolean>(`collapse:admin:${id}`, false);
+  const assessmentRow = useLiveQuery(() => db.settings.get(assessmentSettingKey(id)), [id]);
+  const hasAssessment = isAssessmentEnabled(assessmentRow);
   const [forcedOpen, setForcedOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -510,7 +513,18 @@ export function ModulePage({ id }: { id: string }) {
 
       {dissertation && <KeyDates module={module} />}
       {customSectionsOnly && (
-        <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0" }}>
+        <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0", gap: "0.5rem" }}>
+          {!hasAssessment && !library && (
+            <button
+              className="button quiet small"
+              onClick={async () => {
+                await enableModuleAssessment(module.id, module.code);
+                showToast("Assessment & essay section added.");
+              }}
+            >
+              Add assessment & essay
+            </button>
+          )}
           <button
             className="button small"
             onClick={async () => {
@@ -544,9 +558,22 @@ export function ModulePage({ id }: { id: string }) {
               >
                 <Icon name={adminOpen ? "down" : "caret"} size={16} />
                 <span>Course materials & assessments</span>
-                <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + 1})</span>
+                <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + (hasAssessment ? 1 : 0)})</span>
               </button>
             </h2>
+            {!hasAssessment && (
+              <button
+                type="button"
+                className="button quiet small"
+                onClick={async () => {
+                  await enableModuleAssessment(module.id, module.code);
+                  showToast("Assessment & essay section added.");
+                }}
+              >
+                <Icon name="plus" size={14} />
+                Add assessment & essay
+              </button>
+            )}
           </div>
           <div id={`admin-grid-${module.id}`} className="week-grid" hidden={!adminOpen}>
             {!customSectionsOnly && customSections.map((ov) => (
@@ -560,7 +587,7 @@ export function ModulePage({ id }: { id: string }) {
                 onEndRename={() => setRenamingId(null)}
               />
             ))}
-            <AssessmentCard module={module} />
+            {hasAssessment && <AssessmentCard module={module} />}
           </div>
         </section>
       )}

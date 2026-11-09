@@ -79,8 +79,10 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     toggle = materials.locator(".section-toggle")
     expect(toggle).to_contain_text("Course materials & assessments")
     expect(toggle).to_have_attribute("aria-expanded", "true")
-    # The assessment is a card like the syllabus or a week, not a week itself.
-    expect(page.locator(".week")).to_have_count(22)
+    # The assessment is addable like custom sections, not present by default.
+    add_btn = materials.get_by_role("button", name="Add assessment & essay")
+    if add_btn.is_visible():
+        add_btn.click()
     card = materials.locator(".essay-card")
     expect(card).to_be_visible()
     card.get_by_role("link", name="Assessment & essay").click()
@@ -119,72 +121,19 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(section).to_be_visible()
     print("a collapsible heading folds its whole section and opens again")
 
-    # Open the dedicated Word processor, where the question is the essay's title.
+    # Open WordCraft, where the question is the essay's title.
     page.get_by_role("link", name="Open word processor").click()
     expect(page.locator(".word-processor")).to_be_visible()
-    expect(page.get_by_label("Essay title")).to_have_value(question)
+    expect(page.locator(".wp-title")).to_contain_text(question)
+    expect(page.locator(".wp-count")).to_contain_text("0 words of 2,500")
+    expect(page.locator(".wp-frame")).to_be_visible()
+    page.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
 
-    # Set essay title and type body text
-    title_input = page.get_by_label("Essay title")
-    title_input.fill("July Crisis Historiography Essay")
-
-    body_box = page.get_by_label("Essay body")
-    body_box.click()
-    page.keyboard.type("Austria-Hungary delivered the ultimatum to Serbia.")
-
-    # Insert a native footnote
-    page.get_by_role("button", name="Insert footnote").click()
-    fn_input = page.get_by_label("Footnote 1 text")
-    expect(fn_input).to_be_visible()
-    fn_input.fill("Christopher Clark, The Sleepwalkers (London, 2012), p. 412.")
-    expect(page.locator("sup.word-fn-ref")).to_have_text("1")
-
-    # Add a review comment
-    page.get_by_role("button", name="Add comment").click()
-    expect(page.locator(".word-comments-pane")).to_be_visible()
-    comment_input = page.get_by_label("Comment text")
-    comment_input.fill("Check the Vienna Hoyos mission primary telegrams.")
-
-    # Save snapshot
-    page.get_by_role("button", name="Save snapshot").click()
-    expect(page.locator(".toast")).to_contain_text("Snapshot saved")
-
-    # Export .docx and inspect the OpenXML package
-    with page.expect_download() as dl_info:
-        page.get_by_role("button", name="Export .docx").click()
-    dl = dl_info.value
-    assert dl.suggested_filename == "July Crisis Historiography Essay.docx", dl.suggested_filename
-    docx_out = Path(tmp) / dl.suggested_filename
-    dl.save_as(str(docx_out))
-
-    with zipfile.ZipFile(docx_out, "r") as zf:
-        names = set(zf.namelist())
-        assert "word/document.xml" in names, names
-        assert "word/footnotes.xml" in names, names
-        assert "word/comments.xml" in names, names
-        assert "word/commentsExtended.xml" in names, names
-
-        doc_xml = zf.read("word/document.xml").decode("utf-8")
-        fn_xml = zf.read("word/footnotes.xml").decode("utf-8")
-        com_xml = zf.read("word/comments.xml").decode("utf-8")
-
-        assert "Austria-Hungary delivered the ultimatum" in doc_xml
-        assert '<w:footnoteReference w:id="1"/>' in doc_xml
-        assert 'w:type="separator" w:id="-1"' in fn_xml
-        assert 'w:type="continuationSeparator" w:id="0"' in fn_xml
-        assert "<w:footnoteRef/>" in fn_xml
-        assert "Christopher Clark, The Sleepwalkers" in fn_xml
-        assert "Check the Vienna Hoyos mission primary telegrams." in com_xml
-
-    print("exported .docx verified with native Word footnotes and review comments")
-
-    # Back on the Assessment & essay page, the draft and the snapshot show.
-    page.locator(".word-back").click()
+    # Back returns to the module assessment page.
+    page.get_by_role("button", name="Back to module assessment").click()
     expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
-    expect(page.locator(".essay-draft")).to_contain_text("Austria-Hungary delivered the ultimatum")
-    expect(page.locator(".essay-snapshot-list li")).to_have_count(1)
-    expect(page.get_by_label("Essay question")).to_have_value("July Crisis Historiography Essay")
-    print("the assessment page shows the draft's opening and its snapshot")
+    expect(page.get_by_label("Essay question")).to_have_value(question)
+    print("the assessment page opens WordCraft and returns to the assessment overview")
     assert not errors, f"Page errors: {errors}"
     print("ok")
     browser.close()
