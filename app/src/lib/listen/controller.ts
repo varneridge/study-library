@@ -16,9 +16,16 @@
 // - Cached audio URLs are revoked only when the audio leaves the cache.
 // - Speed is the media element's playbackRate with pitch preserved, so a speed
 //   change, manual or from the gradual speed up, never needs new audio.
+// - The view (the scroller and the surface the words are painted on) can be
+//   replaced at any time with attachView, as the Reader does when the layout
+//   changes between text and pages; the word being read is painted in the new
+//   view at once, so the highlight never stays behind in a view that has gone.
+// - Following keeps the spoken word in the middle third of the scroller. The
+//   reader's own scrolling stops it until they press Recentre, tap a word,
+//   skip, or press play.
 
 import { alignWords, tokeniseWords } from "./align";
-import { type HighlightPainter, type RunIndex, FollowGate, followWordDelta, paragraphTopDelta } from "./highlight";
+import { type ListenSurface, type PageSpan, type ScreenBox, FollowGate, followDelta, offView } from "./highlight";
 import { DEFAULT_RAMP, quantiseRate, rampRate } from "./rate";
 import {
   pageToScriptNearest,
@@ -62,6 +69,16 @@ export interface ListenSnapshot {
   paragraph: number;
   totalParagraphs: number;
   currentPage: number;
+  /** The view is following the spoken word; false once the reader has scrolled away themselves. */
+  following: boolean;
+  /** Where the spoken word is while following is off and it is out of sight, else null. */
+  away: "above" | "below" | null;
+}
+
+/** Where Listen paints and follows the text: the Reader's scroller and the surface of the layout on screen. */
+export interface ListenView {
+  scroller: HTMLElement;
+  surface: ListenSurface;
 }
 
 export interface ListenController {
@@ -84,8 +101,10 @@ export interface ListenController {
   ): Promise<void>;
   /** Where to start next time: the start of the paragraph being heard, or of the one before when it had only just begun. */
   getResumePoint(): PagePoint | null;
-  /** Turn following back on at once after the reader scrolled away. */
-  followText(): void;
+  /** Turn following back on at once after the reader scrolled away, and bring the spoken word back into view. */
+  recentre(): void;
+  /** Paint and follow in this view from now on, or in none; the word being read is painted there at once. */
+  attachView(view: ListenView | null): void;
   subscribe(listener: (s: ListenSnapshot) => void): () => void;
   dispose(): void;
   getSnapshot(): ListenSnapshot;
@@ -101,6 +120,9 @@ interface UtteranceAudio {
 
 /** Less than this far into a paragraph, the resume point is the paragraph before it. */
 const RESUME_BACK_SECONDS = 2;
+
+/** Keys that scroll the reading when it has focus; any other key is not the reader moving the page. */
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Spacebar"]);
 
 /**
  * Seconds into an utterance's audio where the word holding `offsetInUtterance`
@@ -136,9 +158,10 @@ export function createListenController(deps: {
   audio?: HTMLAudioElement;
   title: string;
   album: string;
-  painter?: HighlightPainter;
-  index?: RunIndex;
+  /** The view to paint and follow in from the start; attachView replaces it later. */
+  surface?: ListenSurface;
   scroller?: HTMLElement;
+  /** Called with the page of each utterance as it starts, for the page shown in the toolbar. It must not scroll. */
   onPageChange?: (page: number) => void;
   /** Called when a new paragraph starts, with its first character, for saving the reading place. */
   onParagraphStart?: (point: PagePoint) => void;
@@ -147,7 +170,7 @@ export function createListenController(deps: {
   /** Clock in milliseconds, for tests; performance.now by default. */
   now?: () => number;
 }): ListenController {
-  const { script, engine, title, album, painter, index, scroller, onPageChange, onParagraphStart } = deps;
+  const { script, engine, title, album, onPageChange, onParagraphStart } = deps;
   const audio = deps.audio ?? new Audio();
   const speech = deps.speech === undefined ? browserSpeech() : deps.speech;
   const now = deps.now ?? (() => performance.now());
@@ -170,6 +193,14 @@ export function createListenController(deps: {
   let errorMsg: string | null = null;
   let token = 0;
   let editionUrl: string | null = null;
+  let disposed = false;
+  let scroller: HTMLElement | null = null;
+  let surface: ListenSurface | null = deps.surface ?? null;
+  // The word and sentence being read, as page spans, kept so a new view can paint them at once.
+  let shownWord: PageSpan[] | null = null;
+  let shownSentence: PageSpan[] | null = null;
+  let away: "above" | "below" | null = null;
+  let awayFrame = 0;
 
   const audioCache = new Map<number, UtteranceAudio>();
   const inFlight = new Map<number, { promise: Promise<UtteranceAudio>; ctrl: AbortController }>();
@@ -214,6 +245,8 @@ export function createListenController(deps: {
       paragraph: utt ? utt.paragraph : 0,
       totalParagraphs,
       currentPage: page,
+      following: followGate.follows(),
+      away,
     };
   }
 
@@ -242,12 +275,62 @@ export function createListenController(deps: {
     }
   }
 
-  // The reader's own scrolling pauses following for a few seconds; only real input counts.
-  const userScrolled = () => followGate.userScrolled(now());
-  if (scroller) {
-    scroller.addEventListener("wheel", userScrolled, { passive: true });
-    scroller.addEventListener("touchstart", userScrolled, { passive: true });
-    scroller.addEventListener("keydown", userScrolled);
+  const raf = (fn: () => void): number => {
+    if (typeof requestAnimationFrame === "function") return requestAnimationFrame(fn);
+    fn();
+    return 0;
+  };
+
+  /**
+   * The reader moved the page themselves, so following stops. Only real input
+   * counts: a wheel, a dragging finger (a tap on a word is not a scroll), a
+   * scrolling key, or a press on the scroll bar, none of which the controller's
+   * own scrolling raises.
+   */
+  function userScrolled(): void {
+    const was = followGate.follows();
+    followGate.userScrolled(now());
+    if (was) {
+      updateAway();
+      emit();
+    }
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (SCROLL_KEYS.has(e.key)) userScrolled();
+  };
+  const onBarPress = (e: PointerEvent) => {
+    const el = scroller;
+    if (el && e.target === el && (e.offsetX >= el.clientWidth || e.offsetY >= el.clientHeight)) userScrolled();
+  };
+  // While following is off, scrolling may take the spoken word out of sight or
+  // bring it back, which the Recentre button shows by its arrow.
+  const onScroll = () => {
+    if (followGate.follows() || awayFrame) return;
+    awayFrame = raf(() => {
+      awayFrame = 0;
+      if (updateAway()) emit();
+    });
+  };
+
+  function listen(el: HTMLElement): void {
+    el.addEventListener("wheel", userScrolled, { passive: true });
+    el.addEventListener("touchmove", userScrolled, { passive: true });
+    el.addEventListener("keydown", onKey);
+    el.addEventListener("pointerdown", onBarPress);
+    el.addEventListener("scroll", onScroll, { passive: true });
+  }
+
+  function unlisten(el: HTMLElement): void {
+    el.removeEventListener("wheel", userScrolled);
+    el.removeEventListener("touchmove", userScrolled);
+    el.removeEventListener("keydown", onKey);
+    el.removeEventListener("pointerdown", onBarPress);
+    el.removeEventListener("scroll", onScroll);
+  }
+
+  if (deps.scroller) {
+    scroller = deps.scroller;
+    listen(scroller);
   }
 
   function fetchUtterance(idx: number): Promise<UtteranceAudio> {
@@ -314,9 +397,9 @@ export function createListenController(deps: {
     return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   }
 
-  function scrollBy(delta: number): void {
+  function scrollBy(delta: number, instant = false): void {
     if (!scroller || Math.abs(delta) < 1) return;
-    if (typeof scroller.scrollBy === "function") scroller.scrollBy({ top: delta, behavior: reducedMotion() ? "auto" : "smooth" });
+    if (typeof scroller.scrollBy === "function") scroller.scrollBy({ top: delta, behavior: instant || reducedMotion() ? "auto" : "smooth" });
     else scroller.scrollTop += delta;
   }
 
@@ -327,17 +410,57 @@ export function createListenController(deps: {
     return { top: rect.top, height: rect.height, inset };
   }
 
-  /** Bring a new paragraph's first line to the top of the view, so the top of the screen is always a paragraph start. */
-  function scrollToParagraph(start: number, end: number): void {
-    if (!index || !followGate.follows(now())) return;
+  /** Scroll so the word's box sits in the middle third of the view, if it is not there already. */
+  function follow(box: ScreenBox, instant = false): void {
     const view = scrollerView();
-    if (!view) return;
-    const range = index.range(scriptRangeToPageRanges(script, start, Math.min(end, start + 24)));
-    if (!range) return;
-    scrollBy(paragraphTopDelta(range.getBoundingClientRect().top, view, view.inset));
+    if (view) scrollBy(followDelta(box, view, view.inset), instant);
   }
 
-  /** The utterance at `idx` becomes current; a new paragraph is scrolled to and reported. */
+  /** Work out where the spoken word is while following is off; true when that changed. */
+  function updateAway(): boolean {
+    let next: "above" | "below" | null = null;
+    if (!followGate.follows() && surface && shownWord) {
+      const box = surface.locate(shownWord);
+      const view = scrollerView();
+      if (box && view) next = offView(box, view, view.inset);
+    }
+    if (next === away) return false;
+    away = next;
+    return true;
+  }
+
+  /**
+   * Paint the word and its sentence, and keep the word in view while following.
+   * While following is off it comes back by itself once the reader has kept
+   * still for a moment with the spoken word where they are looking.
+   */
+  function paint(word: PageSpan[] | null, sentence: PageSpan[] | null): void {
+    shownWord = word;
+    shownSentence = sentence;
+    if (!surface) return;
+    const box = surface.show(word, sentence);
+    if (!box) return;
+    if (followGate.follows()) {
+      follow(box);
+      return;
+    }
+    const view = scrollerView();
+    if (view && followGate.settled(now()) && followDelta(box, view, view.inset) === 0) {
+      followGate.resume();
+      away = null;
+      return;
+    }
+    updateAway();
+  }
+
+  function clearPaint(): void {
+    shownWord = null;
+    shownSentence = null;
+    away = null;
+    surface?.clear();
+  }
+
+  /** The utterance at `idx` becomes current; a new paragraph is reported, for the reading place. */
   function enterUtterance(idx: number): void {
     currentUtteranceIndex = idx;
     currentWordIndex = -1;
@@ -348,26 +471,34 @@ export function createListenController(deps: {
     if (para && para.paragraph !== currentParagraph) {
       currentParagraph = para.paragraph;
       paragraphStartedAt = playedSeconds;
-      scrollToParagraph(para.start, para.end);
       const point = scriptToPage(script, para.start);
       if (point && onParagraphStart) onParagraphStart(point);
     }
   }
 
-  /** Paint a word (script offsets) and the sentence around it, and follow it when it leaves the view. */
+  /** Paint a word (script offsets) and the sentence around it, and follow it. */
   function showWord(idx: number, start: number, end: number): void {
-    if (!painter || !index) return;
     const sentence = sentencesOf(idx).find(([a, b]) => start >= a && start < b) ?? [start, end];
-    const wordRange = index.range(scriptRangeToPageRanges(script, start, end));
-    painter.show("word", wordRange);
-    painter.show("sentence", index.range(scriptRangeToPageRanges(script, sentence[0], sentence[1])));
-    if (wordRange && followGate.follows(now())) {
-      const view = scrollerView();
-      if (view) {
-        const rect = wordRange.getBoundingClientRect();
-        scrollBy(followWordDelta({ top: rect.top, bottom: rect.bottom }, view, view.inset));
-      }
-    }
+    paint(scriptRangeToPageRanges(script, start, end), scriptRangeToPageRanges(script, sentence[0], sentence[1]));
+  }
+
+  /**
+   * Show at once the word reading will start from, before its audio is ready,
+   * so a skip or a tap is seen to land straight away. The word index stays
+   * unset, so the audio's own first word is still painted when it plays.
+   */
+  function showStart(idx: number, from: number): void {
+    const utt = script.utterances[idx];
+    if (!utt) return;
+    const words = tokeniseWords(utt.text);
+    const w = words.find((x) => utt.start + x.end > from) ?? words[words.length - 1];
+    if (w) showWord(idx, utt.start + w.start, utt.start + w.end);
+  }
+
+  /** The reader asked to go somewhere in the reading (play, a skip, a tap), so following comes back on. */
+  function followAgain(): void {
+    followGate.resume();
+    away = null;
   }
 
   /** Count listening time while playing, for the per-minute speed up and the resume point. */
@@ -431,6 +562,7 @@ export function createListenController(deps: {
     // seem to do nothing. Resuming an empty queue is harmless everywhere.
     speech.synth.resume();
     enterUtterance(idx);
+    showStart(idx, from);
     const utt = script.utterances[idx];
     // Chrome stops a long utterance after about fifteen seconds, so each sentence is its own.
     const sentences = sentencesOf(idx)
@@ -484,7 +616,7 @@ export function createListenController(deps: {
       void playUtterance(idx + 1);
     } else {
       state = "ended";
-      painter?.clear();
+      clearPaint();
       emit();
     }
   }
@@ -494,7 +626,7 @@ export function createListenController(deps: {
     const my = ++token;
     if (idx >= script.utterances.length) {
       state = "ended";
-      painter?.clear();
+      clearPaint();
       emit();
       return;
     }
@@ -508,6 +640,7 @@ export function createListenController(deps: {
     }
 
     enterUtterance(idx);
+    showStart(idx, from);
     keepOnly(new Set([idx, idx + 1]));
     const cached = audioCache.get(idx);
     if (!cached) {
@@ -570,7 +703,7 @@ export function createListenController(deps: {
       utteranceFinished(currentUtteranceIndex, token);
     } else {
       state = "ended";
-      painter?.clear();
+      clearPaint();
       emit();
     }
   };
@@ -599,7 +732,7 @@ export function createListenController(deps: {
     const offset = wordStartAt(script.text, raw);
     const idx = utteranceAt(script.utterances, offset);
     if (idx < 0 || idx >= script.utterances.length) return;
-    followGate.resume();
+    followAgain();
 
     const cached = audioCache.get(idx);
     if (backend === "kokoro" && mode === "stream" && idx === currentUtteranceIndex && cached && audio.src === cached.url) {
@@ -619,6 +752,10 @@ export function createListenController(deps: {
   async function play(from?: PagePoint): Promise<void> {
     setupMediaSession();
     if (from) return playFromPoint(from);
+
+    // Play after scrolling away brings the reading back into view.
+    if (state === "paused") recentre();
+    else if (state !== "playing" && state !== "buffering" && state !== "preparing") followAgain();
 
     if (state === "paused") {
       if (backend === "speech" && speech) {
@@ -654,12 +791,14 @@ export function createListenController(deps: {
   function seekToOffset(scriptOffset: number): void {
     const uIdx = utteranceAt(script.utterances, scriptOffset);
     if (uIdx >= 0) {
+      followAgain();
       void playUtterance(uIdx, wordStartAt(script.text, scriptOffset));
     }
   }
 
   function skipSentences(n: number): void {
     const nextIdx = Math.max(0, Math.min(script.utterances.length - 1, currentUtteranceIndex + n));
+    followAgain();
     void playUtterance(nextIdx);
   }
 
@@ -668,7 +807,10 @@ export function createListenController(deps: {
     if (!utt) return;
     const target = Math.max(0, Math.min(totalParagraphs - 1, utt.paragraph + n));
     const idx = script.utterances.findIndex((u) => u.paragraph === target);
-    if (idx >= 0) void playUtterance(idx);
+    if (idx >= 0) {
+      followAgain();
+      void playUtterance(idx);
+    }
   }
 
   /** Restart the device's voice at the word being read, so a new speed or voice takes effect at once. */
@@ -780,8 +922,39 @@ export function createListenController(deps: {
     return scriptToPage(script, start);
   }
 
-  function followText(): void {
-    followGate.resume();
+  function recentre(): void {
+    if (disposed) return;
+    followAgain();
+    if (surface) {
+      let box = shownWord ? surface.locate(shownWord) : null;
+      if (!box) {
+        // Nothing painted yet: the start of the utterance reading will begin from.
+        const utt = script.utterances[currentUtteranceIndex];
+        if (utt) box = surface.locate(scriptRangeToPageRanges(script, utt.start, Math.min(utt.end, utt.start + 1)));
+      }
+      if (box) follow(box);
+    }
+    emit();
+  }
+
+  function attachView(view: ListenView | null): void {
+    if (disposed) return;
+    const nextScroller = view?.scroller ?? null;
+    const nextSurface = view?.surface ?? null;
+    if (surface && surface !== nextSurface) surface.clear();
+    if (scroller !== nextScroller) {
+      if (scroller) unlisten(scroller);
+      scroller = nextScroller;
+      if (scroller) listen(scroller);
+    }
+    surface = nextSurface;
+    if (surface && (shownWord || shownSentence)) {
+      // The new layout has just been laid out somewhere else entirely, so the
+      // word is brought into view at once rather than with a long smooth scroll.
+      const box = surface.show(shownWord, shownSentence);
+      if (box && followGate.follows()) follow(box, true);
+    }
+    if (updateAway()) emit();
   }
 
   function subscribe(listener: (s: ListenSnapshot) => void): () => void {
@@ -793,6 +966,8 @@ export function createListenController(deps: {
   }
 
   function dispose(): void {
+    if (disposed) return;
+    disposed = true;
     token += 1;
     subscribers.clear();
     audio.pause();
@@ -802,18 +977,18 @@ export function createListenController(deps: {
     audio.onplay = null;
     keepOnly(new Set());
     speech?.synth.cancel();
-    if (scroller) {
-      scroller.removeEventListener("wheel", userScrolled);
-      scroller.removeEventListener("touchstart", userScrolled);
-      scroller.removeEventListener("keydown", userScrolled);
-    }
+    if (scroller) unlisten(scroller);
+    scroller = null;
+    if (awayFrame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(awayFrame);
+    awayFrame = 0;
 
     leaveEdition();
     for (const data of audioCache.values()) {
       URL.revokeObjectURL(data.url);
     }
     audioCache.clear();
-    painter?.clear();
+    clearPaint();
+    surface = null;
 
     if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
       try {
@@ -834,7 +1009,8 @@ export function createListenController(deps: {
     setVoice,
     prepareEdition,
     getResumePoint,
-    followText,
+    recentre,
+    attachView,
     subscribe,
     dispose,
     getSnapshot,

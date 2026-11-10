@@ -263,6 +263,49 @@
   animation: lb-pulse 1.2s ease-in-out infinite;
 }
 
+/*
+ * Recentre: a small pill above the capsule, shown once the reader has scrolled
+ * away from the words being read. It is tinted with the accent, so it is plain
+ * that it does something, but kept quiet, so it never competes with the text.
+ */
+.lb-recentre {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.875rem 0 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--lb-edge));
+  border-radius: 9999px;
+  background: var(--lb-glass-strong);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: lb-rise 0.14s ease-out;
+  transition:
+    background-color 0.12s ease,
+    transform 0.1s ease;
+}
+
+.lb-recentre:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--lb-glass-strong));
+}
+
+.lb-recentre:active {
+  transform: scale(0.97);
+}
+
+.lb-recentre svg {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
 /* Popovers: one at a time, above the capsule. */
 .lb-pop {
   display: flex;
@@ -616,9 +659,12 @@
     opacity: 0.55;
   }
   .lb-notice-dot,
-  .lb-pop {
+  .lb-pop,
+  .lb-recentre {
     animation: none;
   }
+  .lb-recentre,
+  .lb-recentre svg,
   .lb-play,
   .lb-switch,
   .lb-switch::after {
@@ -629,7 +675,8 @@
 @media (prefers-reduced-transparency: reduce) {
   .lb-capsule,
   .lb-pop,
-  .lb-notice {
+  .lb-notice,
+  .lb-recentre {
     background: var(--paper);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -640,7 +687,8 @@
   .lb-capsule,
   .lb-pop,
   .lb-notice,
-  .lb-pill {
+  .lb-pill,
+  .lb-recentre {
     border: 1px solid CanvasText;
   }
 }

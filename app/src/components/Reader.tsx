@@ -19,7 +19,7 @@ import { Menu } from "./Menu";
 import { IconButton } from "./icons";
 import { Sidebar, type Tab } from "./reader/Sidebar";
 import { TextView, type TextSelection } from "./reader/TextView";
-import { reflow, type Reflowed } from "../lib/reflow";
+import { rectsFor, reflow, type Reflowed } from "../lib/reflow";
 import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSelection } from "../lib/selection";
 import { reconcile } from "../lib/readingNotes";
 import { db } from "../lib/db";
@@ -36,7 +36,7 @@ import { buildListenScript } from "../lib/listen/script";
 import type { PagePoint, VoiceInfo } from "../lib/listen/types";
 import { DEFAULT_VOICES } from "../lib/listen/types";
 import { createListenController, type ListenController } from "../lib/listen/controller";
-import { createPainter, RunIndex, type HighlightPainter } from "../lib/listen/highlight";
+import { createPageSurface, createTextSurface, type ListenSurface, type PageBox, type PageSpan } from "../lib/listen/highlight";
 import { modelIsCached, sharedBrowserEngine } from "../lib/listen/browserEngine";
 import { LocalKokoroEngine } from "../lib/listen/localEngine";
 import { ListenBar } from "./reader/ListenBar";
@@ -121,9 +121,11 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const [listenOpen, setListenOpen] = useState(false);
   const [listenController, setListenController] = useState<ListenController | null>(null);
   const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>(DEFAULT_VOICES);
-  const textViewArticleRef = useRef<HTMLElement | null>(null);
-  const runIndexRef = useRef<RunIndex | null>(null);
-  const painterRef = useRef<HighlightPainter | null>(null);
+  // The article TextView renders, which Listen paints on in text layout.
+  const [article, setArticle] = useState<HTMLElement | null>(null);
+  // Every viewport a page has been drawn at, kept after the page is let go, so
+  // Listen can place words on a page that is not drawn yet at the right scale.
+  const listenViewports = useRef(new Map<number, PageViewport>());
   const scroller = useRef<HTMLDivElement>(null);
   const pages = useRef<HTMLDivElement>(null);
   const findBox = useRef<HTMLInputElement>(null);
@@ -164,6 +166,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     setHits([]);
     setHit(-1);
     viewports.current.clear();
+    listenViewports.current.clear();
     texts.current.clear();
     restored.current = false;
 
@@ -222,6 +225,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   }, [layout, doc, reflowed, reflowing, listenOpen]);
   const textReady = layout === "text" && reflowed?.usable;
   textRef.current = Boolean(textReady);
+  const pagesShown = Boolean(doc && !textReady && layout === "pages");
+  const sizesRef = useRef(sizes);
+  sizesRef.current = sizes;
+  const reflowPages = useMemo(() => new Map((reflowed?.pages ?? []).map((p) => [p.page, p])), [reflowed]);
+  const reflowPagesRef = useRef(reflowPages);
+  reflowPagesRef.current = reflowPages;
 
   // Fit to width, and refit when the window changes size.
   useEffect(() => {
@@ -562,17 +571,24 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     return () => window.removeEventListener("keydown", onKey, true);
   }, [changeZoom, openFind, closeFind, finding, goToPage, current, sizes.length, tool, listenOpen]);
 
-  const onArticleMount = useCallback((el: HTMLElement | null) => {
-    textViewArticleRef.current = el;
-    if (el) {
-      runIndexRef.current = new RunIndex(el);
-      painterRef.current = createPainter(el);
-    } else {
-      runIndexRef.current?.dispose();
-      runIndexRef.current = null;
-      painterRef.current?.dispose();
-      painterRef.current = null;
-    }
+  const onArticleMount = useCallback((el: HTMLElement | null) => setArticle(el), []);
+
+  // Where a stretch of a page's text sits on its PDF page, in the page
+  // element's pixels: the reflowed text's own boxes, one per line, through the
+  // page's viewport at the current scale. A page never drawn yet is placed from
+  // its size, which is enough to scroll to it; it is exact once it is drawn.
+  const listenPageBoxes = useCallback((span: PageSpan): PageBox[] => {
+    const page = reflowPagesRef.current.get(span.page);
+    if (!page || span.end <= span.start) return [];
+    const rects = mergeRects(rectsFor(page, span.start, span.end));
+    if (!rects.length) return [];
+    const s = scaleRef.current;
+    const seen = listenViewports.current.get(span.page);
+    const viewport = seen ? (Math.abs(seen.scale - s) < 1e-6 ? seen : seen.clone({ scale: s })) : null;
+    if (viewport) return rects.map((rect) => screenRect(rect, viewport));
+    const size = sizesRef.current[span.page];
+    if (!size) return [];
+    return rects.map(([x0, y0, x1, y1]) => ({ left: x0 * s, top: (size.height - y1) * s, width: (x1 - x0) * s, height: (y1 - y0) * s }));
   }, []);
 
   const handleWordTap = useCallback((pt: PagePoint) => {
@@ -651,12 +667,9 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         engine,
         title: data.item.title,
         album: placeLabel ?? "Study Library",
-        painter: painterRef.current ?? undefined,
-        index: runIndexRef.current ?? undefined,
-        scroller: scroller.current ?? undefined,
-        onPageChange: (p) => {
-          goToPage(p);
-        },
+        // Only the page shown in the toolbar: the controller scrolls to the
+        // spoken word itself, and a jump to the top of each page fought it.
+        onPageChange: (p) => setCurrent(p),
       });
 
       if (!disposed) {
@@ -670,7 +683,31 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       disposed = true;
       if (ctrl) ctrl.dispose();
     };
-  }, [listenOpen, reflowed, data.item.title, placeLabel, goToPage]);
+  }, [listenOpen, reflowed, data.item.title, placeLabel]);
+
+  // Listen paints and follows in whichever layout is on screen: the article in
+  // text layout, the PDF pages in page layout. A change of layout while it
+  // plays hands the controller the new view, which shows the same word at once.
+  useEffect(() => {
+    const element = scroller.current;
+    if (!listenController || !element) return;
+    let surface: ListenSurface | null = null;
+    if (textReady && article) {
+      surface = createTextSurface(article);
+    } else if (pagesShown && pages.current) {
+      const container = pages.current;
+      surface = createPageSurface({
+        root: container,
+        pageElement: (p) => container.querySelector<HTMLElement>(`.pdf-page[data-page="${p}"]`),
+        boxes: listenPageBoxes,
+      });
+    }
+    listenController.attachView(surface ? { scroller: element, surface } : null);
+    return () => {
+      listenController.attachView(null);
+      surface?.dispose();
+    };
+  }, [listenController, textReady, article, pagesShown, listenPageBoxes]);
 
   const onTextSpot = useCallback((spot: Spot) => {
     setCurrent(spot.page);
@@ -682,8 +719,10 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     setSelected({ page: sel.page, rects: sel.rects, text: sel.text, x: sel.x, y: sel.y });
   }, []);
   const onViewport = useCallback((index: number, viewport: PageViewport | null) => {
-    if (viewport) viewports.current.set(index, viewport);
-    else viewports.current.delete(index);
+    if (viewport) {
+      viewports.current.set(index, viewport);
+      listenViewports.current.set(index, viewport);
+    } else viewports.current.delete(index);
   }, []);
 
   const setTheme = (next: Theme) => {
@@ -881,7 +920,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         </div>
         {!narrow && (
           <div className="group">
-            <IconButton icon="zoomOut" label="Zoom out" shortcut="−" onClick={() => changeZoom(scale / 1.15)} />
+            <IconButton icon="zoomOut" label="Zoom out" shortcut="-" onClick={() => changeZoom(scale / 1.15)} />
             <IconButton icon="zoomIn" label="Zoom in" shortcut="+" onClick={() => changeZoom(scale * 1.15)} />
             <IconButton icon="fitWidth" label="Fit to width" shortcut="0" pressed={zoom === null} onClick={() => changeZoom(null)} />
             <span className="sep" />
@@ -988,8 +1027,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           onClick={() => { if (barHidden) setBarHidden(false); }}
         >
           {problem && <p className="notice">{problem}</p>}
-          {!doc && !problem && <p className="notice">Opening the reading…</p>}
-          {doc && layout === "text" && !reflowed && <p className="notice">Setting the text for this screen…</p>}
+          {!doc && !problem && <p className="notice">Opening the reading...</p>}
+          {doc && layout === "text" && !reflowed && <p className="notice">Setting the text for this screen...</p>}
           {doc && layout === "text" && reflowed && !reflowed.usable && (
             <p className="notice small">This reading has no text to set, so it shows as pages. A scan gains text once it has been processed.</p>
           )}

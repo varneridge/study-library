@@ -1,9 +1,9 @@
 /*
- * Listen highlighting in TextView (highlight.ts), in the manner of Speechify:
- * the sentence being read has a soft lavender wash, the word being read sits in
- * a rounded pill, and while Listen is open every word answers the pointer so it
- * is plain that a tap reads from there. Import once, from Reader.tsx, beside
- * TextView.
+ * Listen highlighting (highlight.ts), in the manner of Speechify: the sentence
+ * being read has a soft lavender wash, the word being read sits in a rounded
+ * pill, and while Listen is open every word in text layout answers the pointer
+ * so it is plain that a tap reads from there. The same wash and pill are drawn
+ * on the PDF pages in page layout. Import once, from Reader.tsx.
  *
  * The tint is one variable so a theme can change it; it is given as RGB
  * channels so each layer can set its own opacity.
@@ -12,20 +12,24 @@
 :root {
   --listen-tint: 99 102 241;
   --listen-sentence: rgb(var(--listen-tint) / 0.14);
-  --listen-word: rgb(var(--listen-tint) / 0.35);
+  --listen-word: rgb(var(--listen-tint) / 0.32);
+  --listen-word-edge: rgb(var(--listen-tint) / 0.55);
   --listen-hover: rgb(var(--listen-tint) / 0.1);
   --listen-press: rgb(var(--listen-tint) / 0.2);
 }
 
+/* The native sentence wash is painted with the text, under its letters. */
 ::highlight(listen-sentence) {
   background-color: var(--listen-sentence);
 }
 
 /*
- * The overlay is drawn under the text, so the word pill never dims the letters
- * on it. `isolation` makes the article its own stacking context, so the
- * overlay's negative z-index puts it above the article's background but below
- * its text, rather than behind the whole page.
+ * The overlay is drawn over the text, not under it. Under the text it sat at
+ * z-index -1, where any background on the article's own blocks hid it, so the
+ * word being read could not be seen at all. Over the text, its tint is light
+ * enough that the letters stay crisp in every theme, and it lets every press
+ * through. `isolation` keeps its z-index inside the article, so it never rises
+ * over the listen bar or a popover.
  */
 .text-view {
   position: relative;
@@ -35,8 +39,14 @@
 .listen-overlay {
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: 2;
   pointer-events: none;
+  overflow: visible;
+}
+
+/* On a PDF page the overlay sits over the canvas and the text layer, which still takes every press. */
+.listen-overlay--page {
+  z-index: 3;
 }
 
 .listen-box {
@@ -44,6 +54,7 @@
   top: 0;
   left: 0;
   will-change: transform;
+  pointer-events: none;
 }
 
 .listen-box[data-layer="sentence"] {
@@ -54,6 +65,7 @@
 .listen-box[data-layer="word"] {
   background: var(--listen-word);
   border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--listen-word-edge);
 }
 
 /* Along one line the pill glides from word to word; to a new line it jumps. */
@@ -99,10 +111,15 @@
   }
 }
 
-/* Forced colours drop backgrounds, so the word being read keeps an outline instead. */
+/* Forced colours drop backgrounds, so the word and sentence being read keep outlines instead. */
 @media (forced-colors: active) {
   .listen-box[data-layer="word"] {
     outline: 2px solid Highlight;
+    background: transparent;
+    box-shadow: none;
+  }
+  .listen-box[data-layer="sentence"] {
+    outline: 1px dotted Highlight;
     background: transparent;
   }
 }

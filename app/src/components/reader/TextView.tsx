@@ -2,7 +2,7 @@
 // column of text sized for the screen, headings, notes in smaller type, and
 // the original page numbers in the margin of the text so it can be cited.
 
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { mergeRects } from "./pages";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
@@ -194,7 +194,17 @@ export function TextView({
   listening?: boolean;
 }) {
   const listenMode = Boolean(listening);
-  const root = useRef<HTMLElement>(null);
+  const root = useRef<HTMLElement | null>(null);
+  // One ref callback for the life of the article. A new function on every
+  // render made React detach and attach it each time, so the Reader tore down
+  // and rebuilt Listen's highlighting on every scroll, and the controller was
+  // left painting into an overlay that was no longer on the page.
+  const articleRefLatest = useRef(articleRef);
+  articleRefLatest.current = articleRef;
+  const setRoot = useCallback((el: HTMLElement | null) => {
+    root.current = el;
+    articleRefLatest.current?.(el);
+  }, []);
   const pageById = useMemo(() => new Map(reflowed.pages.map((p) => [p.page, p])), [reflowed]);
 
   const marksByPage = useMemo(() => {
@@ -413,10 +423,7 @@ export function TextView({
   const minutes = Math.max(1, Math.round(reflowed.words / 230));
   return (
     <article
-      ref={(el) => {
-        (root as unknown as { current: HTMLElement | null }).current = el;
-        articleRef?.(el);
-      }}
+      ref={setRoot}
       className={listenMode ? "text-view tv-listening" : "text-view"}
       onClick={(e) => {
         // A tap that ends a text selection is not a tap to play or to open a highlight.

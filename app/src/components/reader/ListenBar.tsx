@@ -6,7 +6,9 @@
 // opens in a small popover above the capsule, one at a time. The ring round the
 // play button shows how far through the reading the current paragraph is, and
 // spins while audio is being prepared. Short notices (the fallback voice, an
-// error, a first hint) sit in a chip above the capsule rather than in it.
+// error, a first hint) sit in a chip above the capsule rather than in it, and
+// so does Recentre, which appears once the reader has scrolled away from the
+// words being read and brings them, and following, back.
 
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import type { ListenController, ListenSnapshot } from "../../lib/listen/controller";
@@ -70,6 +72,23 @@ function noticeFor(s: ListenSnapshot, offline: { done: number; total: number } |
   if (s.state === "buffering") return { key: "buffering", text: "Preparing audio", tone: "info", lingers: true };
   if (s.state === "idle") return { key: "hint", text: "Tap or click any word to read from there", tone: "hint", lingers: true };
   return null;
+}
+
+/** An arrow towards the words being read when they are out of sight, or a target when they are on screen. */
+function RecentreGlyph({ away }: { away: "above" | "below" | null }) {
+  if (!away) {
+    return (
+      <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" focusable="false">
+        <circle cx="10" cy="10" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="10" cy="10" r="1.8" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" focusable="false" style={away === "above" ? { transform: "rotate(180deg)" } : undefined}>
+      <path d="M10 4v11m0 0-4.5-4.5M10 15l4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function OfflineGlyph() {
@@ -199,6 +218,15 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
   const otherVoices = list.filter((v) => v.lang !== "en-GB");
   const rampTop = quantiseRate(snapshot.baseRate + ramp.maxBoost);
   const showNotice = notice && notice.key !== dismissed && !panel;
+  // Recentre is offered whenever following is off and there is a place to go back to.
+  const hasPlace = snapshot.state === "playing" || snapshot.state === "paused" || snapshot.state === "buffering";
+  const showRecentre = hasPlace && !snapshot.following && !panel;
+  const recentreLabel =
+    snapshot.away === "above"
+      ? "Recentre: the words being read are above"
+      : snapshot.away === "below"
+        ? "Recentre: the words being read are below"
+        : "Recentre on the words being read";
   const playLabel = isPlaying ? "Pause" : isBuffering ? "Preparing audio" : "Play";
 
   const voiceGroup = (label: string, group: VoiceInfo[]) =>
@@ -341,6 +369,13 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
         >
           {notice.tone === "info" && (isBuffering || isPreparing) && <span className="lb-notice-dot" aria-hidden="true" />}
           <span className="lb-notice-text">{notice.text}</span>
+        </button>
+      )}
+
+      {showRecentre && (
+        <button type="button" className="lb-recentre" aria-label={recentreLabel} title={recentreLabel} onClick={() => controller.recentre()}>
+          <RecentreGlyph away={snapshot.away} />
+          <span>Recentre</span>
         </button>
       )}
 

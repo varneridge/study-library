@@ -22,7 +22,7 @@ import {
   type ReflowBlock,
 } from "../src/lib/listen/script";
 import { joinEdition, planEdition } from "../src/lib/listen/edition";
-import { boxFor, FollowGate, followWordDelta, paragraphTopDelta, scrollDelta, WORD_PILL_PAD } from "../src/lib/listen/highlight";
+import { boxFor, FollowGate, followDelta, offView, WORD_PILL_PAD, type ListenSurface, type PageSpan, type ScreenBox } from "../src/lib/listen/highlight";
 import { estimateUtteranceSeconds, nextRequests, readySecondsFrom } from "../src/lib/listen/queue";
 import { clampRate, formatRate, quantiseRate, rampRate } from "../src/lib/listen/rate";
 import { chunkTokens } from "../src/lib/listen/durations";
@@ -101,6 +101,46 @@ function fakeEngine(fail?: Error) {
     },
   };
   return { engine, requests };
+}
+
+/**
+ * A scroller 600px tall at the top of the screen and a surface that puts the
+ * spoken word at `wordTop`, recording every paint, scroll and clear.
+ */
+function fakeView() {
+  const listeners = new Map<string, () => void>();
+  const v = {
+    wordTop: 300,
+    painted: [] as Array<PageSpan[] | null>,
+    scrolls: [] as number[],
+    cleared: 0,
+    fire: (type: string) => listeners.get(type)?.(),
+    listening: () => listeners.size,
+    scroller: null as unknown as HTMLElement,
+    surface: null as unknown as ListenSurface,
+  };
+  const box = (): ScreenBox => ({ top: v.wordTop, bottom: v.wordTop + 20, left: 0, right: 40 });
+  v.scroller = {
+    clientWidth: 400,
+    clientHeight: 600,
+    addEventListener: (type: string, fn: () => void) => listeners.set(type, fn),
+    removeEventListener: (type: string) => listeners.delete(type),
+    getBoundingClientRect: () => ({ top: 0, height: 600 }),
+    scrollBy: ({ top }: { top: number }) => v.scrolls.push(top),
+  } as unknown as HTMLElement;
+  v.surface = {
+    kind: "text",
+    show: (word: PageSpan[] | null) => {
+      v.painted.push(word);
+      return word ? box() : null;
+    },
+    locate: () => box(),
+    clear: () => {
+      v.cleared += 1;
+    },
+    dispose() {},
+  };
+  return v;
 }
 
 const threeParagraphs: ReflowBlock[] = [
@@ -244,28 +284,29 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
     assert.deepEqual(planEdition([30, 1], 0, 10), { from: 0, to: 1, seconds: 30 });
   });
 
-  test("listen: follow gate and scroll delta", () => {
+  test("listen: following stops when the reader scrolls and stays off until resumed, or until they keep still", () => {
     const gate = new FollowGate(1000);
-    assert.ok(gate.follows(10000));
+    assert.ok(gate.follows());
     gate.userScrolled(10000);
-    assert.ok(!gate.follows(10500));
-    assert.ok(gate.follows(11100));
-
-    // Word above band
-    const d1 = scrollDelta({ top: 50, bottom: 70 }, { top: 100, height: 500 });
-    assert.ok(d1 < 0);
-    // Word inside band (between 200 and 450)
-    const d2 = scrollDelta({ top: 250, bottom: 270 }, { top: 100, height: 500 });
-    assert.equal(d2, 0);
+    assert.ok(!gate.follows());
+    assert.ok(!gate.follows(), "following does not come back on its own with time alone");
+    assert.ok(!gate.settled(10500));
+    assert.ok(gate.settled(11100));
+    gate.resume();
+    assert.ok(gate.follows());
   });
 
-  test("listen: a new paragraph scrolls to the top, and a word near the top is left there", () => {
-    const view = { top: 0, height: 600 };
-    assert.equal(paragraphTopDelta(340, view, 40), 300);
-    assert.equal(paragraphTopDelta(40.5, view, 40), 0);
-    assert.equal(followWordDelta({ top: 45, bottom: 65 }, view, 40), 0); // just under the header: stays
-    assert.ok(followWordDelta({ top: 560, bottom: 580 }, view, 40) > 0); // near the bottom of a tall paragraph
-    assert.ok(followWordDelta({ top: 10, bottom: 30 }, view, 40) < 0); // scrolled out above
+  test("listen: the spoken word is kept in the middle third of the view, below its scroll padding", () => {
+    const view = { top: 0, height: 640 };
+    // Usable height 600 below a 40px toolbar: the band runs from 240 to 440.
+    assert.equal(followDelta({ top: 300, bottom: 320 }, view, 40), 0);
+    assert.equal(followDelta({ top: 500, bottom: 520 }, view, 40), 260); // below the band: up to its top
+    assert.equal(followDelta({ top: 100, bottom: 120 }, view, 40), -140); // above the band: down to its top
+    assert.equal(followDelta({ top: 2000, bottom: 2020 }, view, 40), 1760); // far off screen
+    assert.equal(followDelta({ top: 240.4, bottom: 260 }, view, 40), 0); // on the edge, no tiny scroll
+    assert.equal(offView({ top: 10, bottom: 30 }, view, 40), "above");
+    assert.equal(offView({ top: 700, bottom: 720 }, view, 40), "below");
+    assert.equal(offView({ top: 300, bottom: 320 }, view, 40), null);
   });
 
   test("listen: word tokenisation and timeline alignment", () => {
@@ -530,5 +571,91 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
     assert.equal(c.getSnapshot().utterance, 1);
     assert.equal(requests[0], "Delta epsilon zeta.");
     assert.ok(Math.abs(audio.currentTime - 6 / 19) < 1e-9); // "epsilon": weights 6, 8, 5
+  });
+
+  test("listen: the view follows the spoken word, the reader's own scroll stops it, and Recentre brings it back", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine } = fakeEngine();
+    const audio = fakeAudio();
+    let clock = 0;
+    const view = fakeView();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
+    c.attachView({ scroller: view.scroller, surface: view.surface });
+    view.wordTop = 500;
+    await c.play();
+    await flush();
+    assert.ok(view.painted.length > 0, "the first word is painted as soon as reading starts");
+    assert.equal(view.scrolls[view.scrolls.length - 1], 300, "a word below the band is brought up to its top (200)");
+    assert.equal(c.getSnapshot().following, true);
+
+    view.fire("wheel");
+    assert.equal(c.getSnapshot().following, false);
+    view.scrolls.length = 0;
+    view.wordTop = 900;
+    audio.currentTime = 0.5;
+    audio.ontimeupdate?.();
+    assert.equal(view.scrolls.length, 0, "no scrolling while the reader is looking elsewhere");
+    assert.equal(c.getSnapshot().away, "below");
+
+    c.recentre();
+    assert.equal(c.getSnapshot().following, true);
+    assert.equal(c.getSnapshot().away, null);
+    assert.equal(view.scrolls[view.scrolls.length - 1], 700);
+  });
+
+  test("listen: following comes back by itself once the reader keeps still with the spoken word in view", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine } = fakeEngine();
+    const audio = fakeAudio();
+    let clock = 0;
+    const view = fakeView();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
+    c.attachView({ scroller: view.scroller, surface: view.surface });
+    await c.play();
+    await flush();
+    view.fire("touchmove");
+    assert.equal(c.getSnapshot().following, false);
+    clock += 5000;
+    view.wordTop = 250;
+    audio.currentTime = 0.9;
+    audio.ontimeupdate?.();
+    assert.equal(c.getSnapshot().following, true);
+  });
+
+  test("listen: a new paragraph no longer snaps to the top of the view (paragraph snapping is gone)", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine } = fakeEngine();
+    const audio = fakeAudio();
+    const view = fakeView();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null });
+    c.attachView({ scroller: view.scroller, surface: view.surface });
+    view.wordTop = 300; // inside the band
+    await c.play();
+    await flush();
+    audio.onended?.();
+    await flush();
+    assert.equal(c.getSnapshot().paragraph, 1);
+    assert.deepEqual(view.scrolls, [], "a word already in the band is left where it is, paragraph or not");
+  });
+
+  test("listen: a new view (text to pages) is painted with the same word at once, and the old one is cleared", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine } = fakeEngine();
+    const audio = fakeAudio();
+    const first = fakeView();
+    const second = fakeView();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null });
+    c.attachView({ scroller: first.scroller, surface: first.surface });
+    await c.play();
+    await flush();
+    const word = first.painted[first.painted.length - 1];
+    c.attachView({ scroller: second.scroller, surface: second.surface });
+    assert.ok(first.cleared > 0, "the old view is cleared");
+    assert.deepEqual(second.painted[second.painted.length - 1], word, "the new view shows the same word");
+    assert.equal(first.listening(), 0, "the old scroller is no longer listened to");
+    c.dispose();
+    assert.equal(second.listening(), 0);
+    c.attachView({ scroller: first.scroller, surface: first.surface }); // harmless after dispose
+    assert.equal(first.listening(), 0);
   });
 }
