@@ -195,3 +195,30 @@ export class BrowserKokoroEngine implements TtsEngine {
     this.pending.clear();
   }
 }
+
+let shared: BrowserKokoroEngine | null = null;
+
+/**
+ * One Kokoro engine for the whole tab. The model loads once and stays loaded
+ * when Listen closes, when it reopens and when another reading opens, instead
+ * of a new worker reloading it every time (and the old one living on, holding
+ * its own copy). A failed load clears itself, so the next use tries again.
+ */
+export function sharedBrowserEngine(): BrowserKokoroEngine {
+  shared ??= new BrowserKokoroEngine();
+  return shared;
+}
+
+/**
+ * Whether the WASM model is already in this browser's cache, so that loading it
+ * costs no download. transformers.js keys its cache by the canonical Hub URL,
+ * whichever host served the file.
+ */
+export async function modelIsCached(): Promise<boolean> {
+  try {
+    const cache = await caches.open("transformers-cache");
+    return Boolean(await cache.match(`https://huggingface.co/${DEFAULT_MODEL_IDS[0]}/resolve/main/onnx/model_quantized.onnx`));
+  } catch {
+    return false;
+  }
+}

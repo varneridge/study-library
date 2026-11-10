@@ -37,7 +37,7 @@ import type { PagePoint, VoiceInfo } from "../lib/listen/types";
 import { DEFAULT_VOICES } from "../lib/listen/types";
 import { createListenController, type ListenController } from "../lib/listen/controller";
 import { createPainter, RunIndex, type HighlightPainter } from "../lib/listen/highlight";
-import { BrowserKokoroEngine } from "../lib/listen/browserEngine";
+import { modelIsCached, sharedBrowserEngine } from "../lib/listen/browserEngine";
 import { LocalKokoroEngine } from "../lib/listen/localEngine";
 import { ListenBar } from "./reader/ListenBar";
 
@@ -581,6 +581,34 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     }
   }, [listenOpen, listenController]);
 
+  // The label, not the place object: the live query behind `place` returns a new
+  // object whenever the tables it reads change, which includes saving the reading
+  // spot as Listen follows the text, and each new object used to tear the player
+  // down and load Kokoro again.
+  const placeLabel = place?.label ?? null;
+
+  // Once Kokoro has been used on this device its model is in the browser's
+  // cache, so it is loaded in the background a moment after a reading opens,
+  // and Listen can start reading at once. Nothing is downloaded for a device
+  // that has never used Listen, and nothing is loaded when the local server runs.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled || !(await modelIsCached())) return;
+      try {
+        await new LocalKokoroEngine({ localUrl: "http://127.0.0.1:8765" }).ready(400);
+        return;
+      } catch {
+        // No local server, so the browser's Kokoro is the one Listen will use.
+      }
+      if (!cancelled) void sharedBrowserEngine().voices().catch(() => {});
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, []);
+
   // Controller lifecycle when audio listening is toggled
   useEffect(() => {
     if (!listenOpen || !reflowed || !reflowed.usable) {
@@ -603,7 +631,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       try {
         await engine.ready(400);
       } catch {
-        engine = new BrowserKokoroEngine();
+        engine = sharedBrowserEngine();
       }
       if (disposed) return;
 
@@ -622,7 +650,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         script,
         engine,
         title: data.item.title,
-        album: place ? place.label : "Study Library",
+        album: placeLabel ?? "Study Library",
         painter: painterRef.current ?? undefined,
         index: runIndexRef.current ?? undefined,
         scroller: scroller.current ?? undefined,
@@ -642,7 +670,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       disposed = true;
       if (ctrl) ctrl.dispose();
     };
-  }, [listenOpen, reflowed, data.item.title, place, goToPage]);
+  }, [listenOpen, reflowed, data.item.title, placeLabel, goToPage]);
 
   const onTextSpot = useCallback((spot: Spot) => {
     setCurrent(spot.page);

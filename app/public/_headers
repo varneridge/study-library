@@ -1,0 +1,9 @@
+# Response headers for the static assets (Cloudflare Workers reads this file).
+#
+# Cross-origin isolation lets Kokoro's WASM run on several threads, which needs
+# SharedArrayBuffer. "credentialless" rather than "require-corp", so resources
+# from other sites still load (without cookies) and need no special header.
+# Browsers that do not support it (Safari) simply stay on one thread.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

@@ -171,7 +171,7 @@ function sameCopy(kokoroEnv: KokoroEnv, hf: TransformersEnv): boolean {
   }
 }
 
-/** Settings for a worker: no local model paths, the Cache API for weights, one WASM thread, no proxy worker. */
+/** Settings for a worker: no local model paths, the Cache API for weights, WASM threads where allowed, no proxy worker. */
 function configure(hf: TransformersEnv): void {
   hf.allowLocalModels = false;
   hf.useBrowserCache = true;
@@ -180,7 +180,11 @@ function configure(hf: TransformersEnv): void {
   if ("useFSCache" in hf) hf.useFSCache = false;
   const wasm = hf.backends?.onnx?.wasm;
   if (wasm) {
-    wasm.numThreads = 1;
+    // Several threads need SharedArrayBuffer, which only a cross-origin isolated
+    // page has (public/_headers); without it ONNX Runtime can use only one.
+    // Half the cores, at most six, leaves the rest of the device responsive.
+    const cores = self.navigator.hardwareConcurrency || 2;
+    wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(6, Math.ceil(cores / 2))) : 1;
     wasm.proxy = false;
   }
 }
