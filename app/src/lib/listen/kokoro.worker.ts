@@ -74,7 +74,10 @@ function urlOf(input: RequestInfo | URL): string {
  * model download is never cut short by it.
  */
 async function fetchWithAnswerLimit(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  if (init?.signal || connectTimeoutMs <= 0) return nativeFetch(input, init);
+  // The app's own model route (worker/models.ts) answers only once it has copied
+  // a file from Hugging Face into R2, which takes longer than the limit for the
+  // larger models the first time, so its own origin is never cut short.
+  if (init?.signal || connectTimeoutMs <= 0 || urlOf(input).startsWith(`${self.location.origin}/`)) return nativeFetch(input, init);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), connectTimeoutMs);
   try {
@@ -146,6 +149,10 @@ interface TransformersEnv {
 
 let KokoroTTSClass: typeof KokoroTTS | null = null;
 
+/** kokoro-js's sentence splitter, which stream() reads until it is closed. */
+type Splitter = { push(...text: string[]): void; close(): void };
+let SplitterClass: (new () => Splitter) | null = null;
+
 /**
  * Whether `hf` is the transformers copy kokoro-js uses. kokoro-js's own `env`
  * only exposes wasmPaths, which it writes straight into its transformers copy
@@ -183,7 +190,7 @@ async function ensureModules(): Promise<void> {
   const failures: string[] = [];
   for (const source of MODULE_SOURCES) {
     try {
-      const k = (await import(/* @vite-ignore */ source.kokoro)) as { KokoroTTS: typeof KokoroTTS; env: KokoroEnv };
+      const k = (await import(/* @vite-ignore */ source.kokoro)) as { KokoroTTS: typeof KokoroTTS; TextSplitterStream: new () => Splitter; env: KokoroEnv };
       try {
         const h = (await import(/* @vite-ignore */ source.transformers)) as { env: TransformersEnv };
         if (sameCopy(k.env, h.env)) configure(h.env);
@@ -192,6 +199,7 @@ async function ensureModules(): Promise<void> {
         console.warn(`Listen: transformers.js settings not applied (${messageOf(e)}); its defaults stay in place.`);
       }
       KokoroTTSClass = k.KokoroTTS;
+      SplitterClass = k.TextSplitterStream;
       return;
     } catch (e) {
       failures.push(`${new URL(source.kokoro).host}: ${messageOf(e)}`);
@@ -368,8 +376,15 @@ async function run(job: Job): Promise<void> {
   const spanChunks: Array<{ spans: TimedToken[]; seconds: number }> = [];
   const textChunks: Array<{ text: string; seconds: number }> = [];
   let timestamped = true;
-  // stream() splits long text into sentences itself and phonemises each one.
-  for await (const part of tts.stream(job.text, { voice: job.voice as never, speed: 1 })) {
+  // stream() splits text into sentences and phonemises each one. Given a plain
+  // string, kokoro-js 1.2.1 wraps it in a splitter it never closes, so the last
+  // sentence is held back for text that never comes and the loop never ends.
+  // A splitter closed here gives up every sentence and then finishes.
+  if (!SplitterClass) throw new Error("Kokoro's sentence splitter is not loaded");
+  const splitter = new SplitterClass();
+  splitter.push(job.text);
+  splitter.close();
+  for await (const part of tts.stream(splitter as never, { voice: job.voice as never, speed: 1 })) {
     if (cancelled.has(job.id)) throw new Error("cancelled");
     const pcm = part.audio.audio as Float32Array;
     const seconds = pcm.length / SAMPLE_RATE;

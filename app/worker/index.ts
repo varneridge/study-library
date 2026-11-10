@@ -6,6 +6,7 @@ import { retryRecording, storeChunk } from "./recordings";
 import { servePicture, storePicture } from "./pictures";
 import { search } from "./search";
 import { maintain, purge } from "./maintenance";
+import { serveModelFile } from "./models";
 import { processor } from "./processor";
 import { TABLE_NAMES } from "./schema";
 import { pull, push, type Change } from "./sync";
@@ -59,6 +60,9 @@ app.put("/api/pictures/:filename", async (c) => {
 });
 
 app.get("/api/pictures/:filename", (c) => servePicture(c.env, c.req.param("filename"), c.req.raw));
+
+// Kokoro's model, fetched from Hugging Face by the Worker so the browser never needs CORS (models.ts).
+app.get("/api/models/*", (c) => serveModelFile(c.env, c.req.path.replace(/^\/api\/models\//, ""), c.req.raw));
 
 app.get("/api/objects/*", (c) => serveObject(c.env, c.req.path.replace(/^\/api\/objects\//, ""), c.req.raw));
 

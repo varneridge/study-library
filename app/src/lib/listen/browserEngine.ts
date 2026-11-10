@@ -2,7 +2,7 @@
 // contract (types.ts), so the player treats it exactly like the local server.
 
 import type { SynthResult, TtsEngine, VoiceInfo } from "./types";
-import { DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
+import { DEFAULT_MODEL_HOSTS, DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
 
 /** The parts of a Worker this engine uses, so tests can pass a fake one. */
 export interface WorkerLike {
@@ -37,6 +37,17 @@ export interface BrowserEngineOptions {
   onProgress?: (file: string, loaded: number, total: number) => void;
 }
 
+/**
+ * This app's own model route first (worker/models.ts), then Hugging Face and
+ * its mirror. The browser was refused the model by huggingface.co and
+ * hf-mirror.com, whose responses arrived without CORS headers; a request to
+ * the app's own origin needs no CORS, so it works wherever the app itself does.
+ */
+function defaultHosts(): string[] {
+  const origin = typeof location !== "undefined" && /^https?:$/.test(location.protocol) ? location.origin : null;
+  return origin ? [`${origin}/api/models`, ...DEFAULT_MODEL_HOSTS] : [...DEFAULT_MODEL_HOSTS];
+}
+
 export class BrowserKokoroEngine implements TtsEngine {
   readonly id = "browser" as const;
   private readonly options: LoadOptions;
@@ -51,7 +62,7 @@ export class BrowserKokoroEngine implements TtsEngine {
   timestamped: boolean | null = null;
 
   constructor(options: BrowserEngineOptions = {}) {
-    this.options = options.load ?? { modelIds: DEFAULT_MODEL_IDS, voiceBase: DEFAULT_VOICE_BASE };
+    this.options = options.load ?? { modelIds: DEFAULT_MODEL_IDS, voiceBase: DEFAULT_VOICE_BASE, hosts: defaultHosts() };
     this.makeWorker =
       options.makeWorker ?? (() => new Worker(new URL("./kokoro.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike);
     this.onProgress = options.onProgress;
