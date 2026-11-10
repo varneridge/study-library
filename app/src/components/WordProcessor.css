@@ -1,12 +1,18 @@
 /*
- * The word processor's own controls, drawn over WordCraft's embedded chrome.
+ * The word processor's own controls, drawn over WordCraft's chrome rather than
+ * beside it, so the page never shows a second bar.
  *
- * WordCraft (chrome=embedded) keeps empty room at both ends of its 30px tab
- * strip and at the start of its 26px status bar; each dock below covers
- * exactly that room, in WordCraft's colours (passed as --wc-* by
- * WordProcessor.tsx), so the controls read as part of its bars rather than as
- * a separate header. The slim bar and the footer are for an editor build
- * without embedded chrome, and are never shown with the patched build.
+ * Back takes the place of WordCraft's File tab at the start of its 30px tab
+ * strip. Everything else lives on one status bar over WordCraft's own 26px
+ * bar: a build without embedded chrome is covered from edge to edge, while the
+ * embedded build keeps exactly the room our bar measures and draws "Page x of
+ * y" and its zoom after it.
+ *
+ * Surfaces take WordCraft's colours (passed as --wc-* by WordProcessor.tsx),
+ * because a surface in any other colour would read as a separate bar; the save
+ * state, the footnote switch and focus rings take Study Library's tokens, so
+ * they match the rest of the app. Each token falls back to the value
+ * styles.css gives it, for a page that has not loaded the tokens yet.
  */
 
 .word-processor {
@@ -39,54 +45,98 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 2px;
   box-sizing: border-box;
   color: var(--wc-text);
-  font: 400 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1;
 }
 
-.wp-dock--strip-start,
-.wp-dock--strip-end {
+/* ---- Back, in the File tab's place ---------------------------------------- */
+
+/* System type, like the ribbon labels beside it, so Back reads as a tab. */
+.wp-dock--back {
   top: var(--wc-strip-top);
-  height: var(--wc-strip-h);
-  background: var(--wc-strip-bg);
-}
-
-.wp-dock--strip-start {
   left: 0;
-  width: var(--wc-strip-start-w);
-  padding-left: 6px;
+  width: var(--wc-back-w);
+  height: var(--wc-strip-h);
+  padding: 0 2px 0 4px;
+  background: var(--wc-strip-bg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.wp-dock--strip-end {
-  right: 0;
-  width: var(--wc-strip-end-w);
-  padding-right: 8px;
-  justify-content: flex-end;
-  gap: 6px;
+.wp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: calc(var(--wc-strip-h) - 6px);
+  max-width: 100%;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wc-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* The status dock grows with its text; WordProcessor measures it and asks
-   WordCraft to keep exactly that room, so nothing is drawn beneath it. */
+.wp-back[data-icon-only] {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.wp-back:hover,
+.wp-dock-button:hover,
+.wp-switch:hover {
+  background: color-mix(in srgb, var(--wc-text) 9%, transparent);
+}
+
+.wp-back:active,
+.wp-dock-button:active {
+  background: color-mix(in srgb, var(--wc-text) 15%, transparent);
+}
+
+/* ---- The status bar ------------------------------------------------------- */
+
+/* The app's own type, since this bar is ours from end to end. */
 .wp-dock--status {
   left: 0;
   bottom: 0;
   height: var(--wc-status-h);
-  padding: 0 4px 0 var(--wc-status-pad);
-  gap: 10px;
+  padding: 0 6px 0 var(--wc-status-pad);
+  gap: 4px;
   background: var(--wc-status-bg);
   /* WordCraft strokes its status bar; the dock repeats the top edge only, so
      the bar's left, right and bottom edges stay WordCraft's own. */
   border-top: 1px solid var(--wc-border);
-  color: var(--wc-text-dim);
+  font-family: inherit;
   white-space: nowrap;
+}
+
+/* Covering a bar that keeps no room for us means covering all of it, because
+   any part left showing would repeat the native word count beside ours. */
+.wp-dock--status[data-span="full"] {
+  right: 0;
+  padding-left: 4px;
+}
+
+/* The end rule separates the save state from the footnotes only when the two
+   sit side by side; across the full bar the gap between them does that. */
+.wp-dock--status[data-span="full"] .wp-dock-rule--end {
+  display: none;
+}
+
+.wp-status-spacer {
+  flex: 1 1 auto;
 }
 
 .wp-dock-button {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 24px;
+  flex: none;
+  width: 26px;
+  height: calc(var(--wc-status-h) - 4px);
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -95,48 +145,139 @@
   cursor: pointer;
 }
 
-.wp-dock-button:hover {
-  background: color-mix(in srgb, var(--wc-text) 9%, transparent);
-}
-
-.wp-dock-button:focus-visible,
-.wp-footnote-pill:focus-visible {
-  outline: 2px solid var(--wc-accent);
-  outline-offset: 1px;
-}
-
 .wp-dock-rule {
+  flex: none;
   width: 1px;
-  height: 16px;
-  margin: 0 4px;
+  height: 14px;
+  margin: 0 6px;
   background: var(--wc-border);
 }
 
-.wp-dock .wp-status {
+/* Figures keep one width as they change, so the bar does not shuffle while
+   the student types, and the count gives way first on a narrow screen. */
+.wp-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--wc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-count-detail {
+  margin-left: 4px;
+  color: var(--wc-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Footnote switch ------------------------------------------------------ */
+
+.wp-switch {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 6px;
-  color: var(--wc-text-dim);
-}
-
-.wp-count {
-  color: var(--wc-text);
-}
-
-.wp-footnote-pill {
-  height: 18px;
-  padding: 0 8px;
-  border: 1px solid var(--wc-border);
-  border-radius: 9px;
+  height: calc(var(--wc-status-h) - 6px);
+  margin-left: 8px;
+  padding: 0 7px 0 5px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: inherit;
+  color: var(--wc-text-dim);
   font: inherit;
   cursor: pointer;
 }
 
-.wp-footnote-pill[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--wc-accent) 55%, var(--wc-border));
+.wp-switch[aria-checked="true"] {
   color: var(--wc-text);
+}
+
+.wp-switch-track {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--wc-text) 24%, transparent);
+}
+
+.wp-switch[aria-checked="true"] .wp-switch-track {
+  background: var(--accent, var(--wc-accent));
+}
+
+.wp-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+}
+
+.wp-switch[aria-checked="true"] .wp-switch-thumb {
+  transform: translateX(10px);
+}
+
+/* The footnote words are struck through while they are left out, so the
+   figure says plainly that it is no longer part of the total. */
+.wp-switch-meta {
+  color: var(--wc-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-switch[aria-checked="false"] .wp-switch-meta {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--wc-text-dim) 70%, transparent);
+}
+
+/* ---- Save state, in Study Library's .save-status colours ------------------ */
+
+.wp-status {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted, var(--wc-text-dim));
+  font: inherit;
+}
+
+.wp-status .save-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted, #8a8a8a);
+}
+
+.wp-status[data-status="saved"] .save-status-dot,
+.wp-status[data-status="ready"] .save-status-dot {
+  background: var(--ok, #3a8f5c);
+}
+
+.wp-status[data-status="unsaved"] .save-status-dot {
+  background: var(--warn, #c98a1b);
+}
+
+.wp-status[data-status="error"] {
+  color: var(--danger, #b3382c);
+}
+
+.wp-status[data-status="error"] .save-status-dot {
+  background: var(--danger, #b3382c);
+}
+
+/* ---- Focus, errors and utilities ------------------------------------------ */
+
+.wp-back:focus-visible,
+.wp-dock-button:focus-visible,
+.wp-switch:focus-visible {
+  outline: 2px solid var(--accent, var(--wc-accent));
+  outline-offset: 1px;
 }
 
 /* Errors sit just above the status bar, so they never move the canvas. */
@@ -152,44 +293,12 @@
   max-width: min(560px, calc(100% - 24px));
   padding: 8px 12px;
   border-radius: 6px;
-  background: var(--wc-text);
-  color: var(--wc-status-bg);
+  background: var(--ink, #242424);
+  color: var(--paper, #ffffff);
 }
 
 .wp-error p {
   margin: 0;
-}
-
-/* Fallback for an editor without embedded chrome: one 32px row and a 26px footer. */
-.wp-bar--slim,
-.wp-footer {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  padding: 0 8px;
-  background: var(--wc-strip-bg);
-  color: var(--wc-text);
-  font: 400 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-
-.wp-bar--slim {
-  height: 32px;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--wc-border);
-}
-
-.wp-footer {
-  height: 26px;
-  gap: 10px;
-  border-top: 1px solid var(--wc-border);
-  color: var(--wc-text-dim);
-}
-
-.wp-bar-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
 }
 
 .wp-sr-only {
@@ -204,8 +313,35 @@
   border: 0;
 }
 
+/* Motion answers the student's own action or shows work in progress, and is
+   left out entirely for anyone who has asked for less motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .wp-dock-button {
-    transition: background-color 120ms ease;
+  .wp-back,
+  .wp-dock-button,
+  .wp-switch {
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .wp-switch-track {
+    transition: background-color 160ms ease;
+  }
+
+  .wp-switch-thumb {
+    transition: transform 160ms ease;
+  }
+
+  .wp-status[data-status="saving"] .save-status-dot,
+  .wp-status[data-status="loading"] .save-status-dot {
+    animation: wp-save-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes wp-save-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
   }
 }

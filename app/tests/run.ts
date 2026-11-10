@@ -42,7 +42,7 @@ import { draftExcerpt, wordProgress } from "../src/lib/assessment";
 import { repairText, searchFold } from "../src/lib/textnorm";
 import { isAssessmentEnabled } from "../src/lib/assessmentEnabled";
 import { describeDeadline, pickNextDeadline } from "../src/lib/jobsCard";
-import { INSETS_COMPACT, INSETS_REGULAR, parseChrome } from "../src/lib/wordcraftChrome";
+import { INSETS_COMPACT, INSETS_REGULAR, parseChrome, dockGeometry, editorQuery, FILE_TAB_COVER, FALLBACK_STATUS_HEIGHT } from "../src/lib/wordcraftChrome";
 import { registerListenTests } from "./test_listen";
 
 let failed = 0;
@@ -1543,6 +1543,14 @@ test("wordcraftChrome parses reports and validates embedded insets", () => {
   assert.equal(fallbackGeometry?.statusBar.height, 26);
 
   assert.ok(INSETS_COMPACT.tabStart + INSETS_COMPACT.tabEnd < INSETS_REGULAR.tabStart + INSETS_REGULAR.tabEnd);
+
+  const fallback = dockGeometry(null);
+  assert.deepEqual(fallback.back, { top: 0, width: FILE_TAB_COVER.width, height: FILE_TAB_COVER.height, iconOnly: false });
+  assert.deepEqual(fallback.status, { height: FALLBACK_STATUS_HEIGHT, span: "full" });
+
+  const query = editorQuery(INSETS_REGULAR);
+  assert.ok(query.includes(`fileGuard=${FILE_TAB_COVER.width},${FILE_TAB_COVER.height}`));
+  assert.ok(query.includes(`tabInset=${INSETS_REGULAR.tabStart},${INSETS_REGULAR.tabEnd}`));
 });
 
 registerListenTests(test);

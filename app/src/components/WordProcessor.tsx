@@ -13,8 +13,8 @@ import {
   INSETS_COMPACT,
   INSETS_REGULAR,
   STATUS_MARGIN_START,
-  STRIP_MARGIN_END,
-  STRIP_MARGIN_START,
+  dockGeometry,
+  editorQuery,
   parseChrome,
   type ChromeInfo,
   type ChromeInsets,
@@ -25,7 +25,8 @@ const READY_TIMEOUT_MS = 20_000;
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 
 // How long after the editor is ready to wait for its chrome report before
-// treating it as an older build without embedded chrome (the slim fallback bar).
+// treating it as an older build without embedded chrome, whose File tab and
+// whole status bar our docks then cover.
 const CHROME_TIMEOUT_MS = 4_000;
 
 type ChromeMode = "pending" | "embedded" | "fallback";
@@ -94,8 +95,9 @@ const looksLikeDocx = (bytes: Uint8Array): boolean =>
   bytes.byteLength > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
 
 function formatWordCount(count: number, target: number | null | undefined): string {
-  const words = `${count.toLocaleString("en-GB")} ${count === 1 ? "word" : "words"}`;
-  return target ? `${words} of ${target.toLocaleString("en-GB")}` : words;
+  const n = count.toLocaleString("en-GB");
+  if (target) return `${n} of ${target.toLocaleString("en-GB")} words`;
+  return `${n} ${count === 1 ? "word" : "words"}`;
 }
 
 export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q?: string }) {
@@ -111,8 +113,12 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   const storedIncludeFootnotes = assessment.includeFootnotes !== false;
   const [pendingFootnotes, setPendingFootnotes] = useState<boolean | null>(null);
   const includeFootnotes = pendingFootnotes ?? storedIncludeFootnotes;
-  const totalWords = effectiveWordCount(counts, assessment.draft, includeFootnotes);
+  // The footnote figure is what the switch adds or removes, so it is read from
+  // the same function as the total rather than from the raw counts.
+  const withFootnotes = effectiveWordCount(counts, assessment.draft, true);
   const bodyWords = effectiveWordCount(counts, assessment.draft, false);
+  const footnoteWords = Math.max(0, withFootnotes - bodyWords);
+  const totalWords = includeFootnotes ? withFootnotes : bodyWords;
   const [status, setStatus] = useState<WordProcessorStatus>("loading");
   const [error, setError] = useState<EditorError | null>(null);
   const [frameKey, setFrameKey] = useState(0);
@@ -126,7 +132,7 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   // they never change after mount; later changes go by message instead.
   const [initialInsets] = useState<ChromeInsets>(() => (compact ? INSETS_COMPACT : INSETS_REGULAR));
   const stageRef = useRef<HTMLDivElement>(null);
-  const countRef = useRef<HTMLDivElement>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
   const sentStatusInsetRef = useRef<number | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -143,10 +149,7 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   const maxWaitTimerRef = useRef<number | null>(null);
 
   const moduleCode = module?.code;
-  const src =
-    `${EDITOR_PATH}?host=parent&chrome=embedded` +
-    `&tabInset=${initialInsets.tabStart},${initialInsets.tabEnd}&statusInset=${initialInsets.status}` +
-    `&author=${encodeURIComponent("Student")}`;
+  const src = `${EDITOR_PATH}?${editorQuery(initialInsets)}&author=${encodeURIComponent("Student")}`;
 
   useEffect(() => {
     const handleFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -178,13 +181,28 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     }
   }, [id, moduleCode, essayId, includeFootnotes]);
 
+  // A button outside the frame takes focus from the canvas, so it is handed
+  // back after Undo and Redo and the student can keep typing without a click.
+  const refocusEditor = useCallback(() => {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    try {
+      frame.focus();
+      frame.contentDocument?.getElementById("wordcraft_canvas")?.focus();
+    } catch {
+      // The frame is same-origin, so this can only fail while it is navigating.
+    }
+  }, []);
+
   const handleUndo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:undo" }, window.location.origin);
-  }, []);
+    refocusEditor();
+  }, [refocusEditor]);
 
   const handleRedo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:redo" }, window.location.origin);
-  }, []);
+    refocusEditor();
+  }, [refocusEditor]);
 
   const postChrome = useCallback((params: { tabInsetStart?: number; tabInsetEnd?: number; statusInsetStart?: number }) => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:chrome", ...params }, window.location.origin);
@@ -418,8 +436,8 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     return () => window.clearTimeout(timer);
   }, [src, frameKey]);
 
-  // An editor that is ready but never reports its chrome is an older build:
-  // show the slim bar and footer instead of docks over a canvas that keeps no room.
+  // An editor that is ready but never reports its chrome is an older build, so
+  // the docks settle on covering its File tab and its whole status bar.
   const editorLoading = status === "loading";
   useEffect(() => {
     if (editorLoading || chromeMode !== "pending") return;
@@ -429,7 +447,8 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     return () => window.clearTimeout(timer);
   }, [editorLoading, chromeMode, frameKey]);
 
-  // A narrow stage uses the compact room: the save state shrinks to its dot.
+  // A narrow stage uses the compact room, in which the save state shrinks to
+  // its dot and the word count drops its breakdown.
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || typeof ResizeObserver === "undefined") return;
@@ -447,10 +466,10 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compact, chromeMode, postChrome]);
 
-  // The status bar keeps exactly the room our count takes, so "Page x of y"
-  // follows it with WordCraft's own 14 point gap whatever the count says.
+  // The embedded status bar keeps exactly the room our bar takes, so "Page x
+  // of y" follows it with WordCraft's own 14 point gap whatever the count says.
   useEffect(() => {
-    const el = countRef.current;
+    const el = statusRef.current;
     if (chromeMode !== "embedded" || !el || typeof ResizeObserver === "undefined") return;
     let frame = 0;
     const send = () => {
@@ -514,78 +533,24 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     setFrameKey((k) => k + 1);
   };
 
-  const footnoteLabel = `${counts.footnotes.toLocaleString("en-GB")} ${counts.footnotes === 1 ? "footnote" : "footnotes"} (${includeFootnotes ? "included" : "excluded"})`;
+  const showBreakdown = !compact && includeFootnotes && footnoteWords > 0;
+  const footnoteFigure = footnoteWords.toLocaleString("en-GB");
+  const footnoteHint = includeFootnotes
+    ? `${footnoteFigure} footnote ${footnoteWords === 1 ? "word is" : "words are"} counted. Select to leave them out.`
+    : `${footnoteFigure} footnote ${footnoteWords === 1 ? "word is" : "words are"} left out. Select to count them.`;
 
-  const historyControls = (
-    <>
-      <button
-        type="button"
-        className="wp-dock-button"
-        title={`Back to preview of ${title}`}
-        aria-label="Back to preview"
-        onClick={handleBack}
-      >
-        <Icon name="back" size={16} />
-      </button>
-      <span className="wp-dock-rule" aria-hidden="true" />
-      <button type="button" className="wp-dock-button" title="Undo (Ctrl+Z)" aria-label="Undo" onClick={handleUndo}>
-        <Icon name="undo" size={16} />
-      </button>
-      <button type="button" className="wp-dock-button" title="Redo (Ctrl+Y)" aria-label="Redo" onClick={handleRedo}>
-        <Icon name="redo" size={16} />
-      </button>
-    </>
-  );
+  // Until the editor confirms embedded chrome, it is treated as the deployed
+  // build, which still draws File and its own full status bar for us to cover.
+  const geometry = dockGeometry(chromeMode === "embedded" ? chrome : null);
 
-  const stateControls = (
-    <>
-      <span
-        className="save-status wp-status"
-        data-status={status}
-        data-compact={compact || undefined}
-        role="status"
-        aria-live="polite"
-        title={STATUS_LABELS[status]}
-      >
-        <span className="save-status-dot" aria-hidden="true" />
-        <span className={compact ? "wp-sr-only" : undefined}>{STATUS_LABELS[status]}</span>
-      </span>
-      <button
-        type="button"
-        className="wp-dock-button"
-        title={isFullscreen ? "Exit full screen" : "Full screen"}
-        aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
-        onClick={toggleFullscreen}
-      >
-        <Icon name={isFullscreen ? "minimize" : "enlarge"} size={16} />
-      </button>
-    </>
-  );
-
-  const wordCount = (
-    <>
-      <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
-      <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
-      <button
-        type="button"
-        className="wp-footnote-pill"
-        aria-pressed={includeFootnotes}
-        title={includeFootnotes ? "Footnotes are counted. Select to leave them out." : "Footnotes are not counted. Select to include them."}
-        onClick={() => void toggleFootnotes()}
-      >
-        {footnoteLabel}
-      </button>
-    </>
-  );
-
-  // WordCraft's own colours, so the docks read as part of its bars in light
-  // and dark themes; the fallbacks are its light theme (theme.rs:307).
+  // WordCraft's own colours for the surfaces, so the docks read as part of its
+  // bars in light and dark themes (the fallbacks are its light theme,
+  // theme.rs:307); what sits on them takes Study Library's tokens in the CSS.
   const chromeStyle = {
-    "--wc-strip-top": `${chrome?.tabStrip.top ?? 0}px`,
-    "--wc-strip-h": `${chrome?.tabStrip.height ?? 30}px`,
-    "--wc-strip-start-w": `${STRIP_MARGIN_START + (chrome?.tabStrip.insetStart ?? initialInsets.tabStart)}px`,
-    "--wc-strip-end-w": `${STRIP_MARGIN_END + (chrome?.tabStrip.insetEnd ?? initialInsets.tabEnd)}px`,
-    "--wc-status-h": `${chrome?.statusBar.height ?? 26}px`,
+    "--wc-strip-top": `${geometry.back.top}px`,
+    "--wc-strip-h": `${geometry.back.height}px`,
+    "--wc-back-w": `${geometry.back.width}px`,
+    "--wc-status-h": `${geometry.status.height}px`,
     "--wc-status-pad": `${STATUS_MARGIN_START}px`,
     "--wc-strip-bg": chrome?.colours.tabStrip ?? "#f0f0f0",
     "--wc-status-bg": chrome?.colours.statusBar ?? "#f0f0f0",
@@ -599,13 +564,6 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     <div className="wp word-processor" data-chrome={chromeMode} style={chromeStyle}>
       <h1 className="wp-title wp-sr-only">{title}</h1>
 
-      {chromeMode === "fallback" && (
-        <header className="wp-bar wp-bar--slim">
-          <div className="wp-bar-group" role="toolbar" aria-label="Document">{historyControls}</div>
-          <div className="wp-bar-group" role="toolbar" aria-label="Save and view">{stateControls}</div>
-        </header>
-      )}
-
       <div className="wp-stage" ref={stageRef}>
         <iframe
           key={frameKey}
@@ -615,19 +573,89 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
           title={`Word processor: ${title}`}
         />
 
-        {chromeMode !== "fallback" && (
-          <>
-            <div className="wp-dock wp-dock--strip-start" role="toolbar" aria-label="Document">
-              {historyControls}
-            </div>
-            <div className="wp-dock wp-dock--strip-end" role="toolbar" aria-label="Save and view">
-              {stateControls}
-            </div>
-            <div className="wp-dock wp-dock--status" ref={countRef} aria-label="Word count">
-              {wordCount}
-            </div>
-          </>
-        )}
+        {/* Takes the File tab's place, so Backstage can never be opened from here. */}
+        <div className="wp-dock wp-dock--back">
+          <button
+            type="button"
+            className="wp-back"
+            title="Back to preview"
+            aria-label="Back to preview"
+            data-icon-only={geometry.back.iconOnly || undefined}
+            onClick={handleBack}
+          >
+            <Icon name="back" size={15} />
+            {!geometry.back.iconOnly && <span aria-hidden="true">Back</span>}
+          </button>
+        </div>
+
+        {/* Our only status bar, drawn on WordCraft's own rather than beside it. */}
+        <div
+          className="wp-dock wp-dock--status"
+          ref={statusRef}
+          data-span={geometry.status.span}
+          data-compact={compact || undefined}
+          role="group"
+          aria-label="Status bar"
+        >
+          <button type="button" className="wp-dock-button" title="Undo (Ctrl+Z)" aria-label="Undo" onClick={handleUndo}>
+            <Icon name="undo" size={15} />
+          </button>
+          <button type="button" className="wp-dock-button" title="Redo (Ctrl+Y)" aria-label="Redo" onClick={handleRedo}>
+            <Icon name="redo" size={15} />
+          </button>
+
+          <span className="wp-dock-rule" aria-hidden="true" />
+
+          <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
+          {showBreakdown && (
+            <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
+          )}
+
+          <button
+            type="button"
+            role="switch"
+            className="wp-switch"
+            aria-checked={includeFootnotes}
+            aria-label="Count footnotes in the word count"
+            title={footnoteHint}
+            onClick={() => void toggleFootnotes()}
+          >
+            <span className="wp-switch-track" aria-hidden="true">
+              <span className="wp-switch-thumb" />
+            </span>
+            <span className="wp-switch-label">Footnotes</span>
+            {!compact && (
+              <span className="wp-switch-meta" aria-hidden="true">
+                {footnoteFigure}
+              </span>
+            )}
+          </button>
+
+          <span className="wp-status-spacer" aria-hidden="true" />
+          <span className="wp-dock-rule wp-dock-rule--end" aria-hidden="true" />
+
+          <span
+            className="save-status wp-status"
+            data-status={status}
+            data-compact={compact || undefined}
+            role="status"
+            aria-live="polite"
+            title={STATUS_LABELS[status]}
+          >
+            <span className="save-status-dot" aria-hidden="true" />
+            <span className={compact ? "wp-sr-only" : "save-status-label"}>{STATUS_LABELS[status]}</span>
+          </span>
+
+          <button
+            type="button"
+            className="wp-dock-button"
+            title={isFullscreen ? "Exit full screen" : "Full screen"}
+            aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+            onClick={toggleFullscreen}
+          >
+            <Icon name={isFullscreen ? "minimize" : "enlarge"} size={15} />
+          </button>
+        </div>
 
         {error && (
           <div className="wp-error" role="alert">
@@ -640,12 +668,6 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
           </div>
         )}
       </div>
-
-      {chromeMode === "fallback" && (
-        <footer className="wp-footer" aria-label="Word count">
-          {wordCount}
-        </footer>
-      )}
     </div>
   );
 }

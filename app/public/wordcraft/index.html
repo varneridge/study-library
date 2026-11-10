@@ -24,10 +24,15 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
       color: #555; font: 14px system-ui, sans-serif; pointer-events: none; }
   </style>
 <link rel="modulepreload" href="./wordcraft-web-d5f8e062bd3e686e.js" crossorigin="anonymous" integrity="sha384-fH6DlxObGvoOHHoahHymkiQpSnJsoDeHsn+yvKSRarNNBvSVFypGn50hXzibGLZL"><link rel="modulepreload" href="./snippets/eframe-d31a8450ea12dfc1/inline0.js" crossorigin="anonymous" integrity="sha384-uPZQ72BwgZ4v7Km6+UIFbkDDlt7ShGEsAVEHVN/+wZSGFhItJZB83iKMFQXauTSs"><link rel="preload" href="./wordcraft-web-d5f8e062bd3e686e_bg.wasm" crossorigin="anonymous" integrity="sha384-SAFE7lTGEov5KuInNhgEooxgfWOh1d8udBscpmMl81ZKlwlGO3triZkW649Y4I71" as="fetch" type="application/wasm"><!-- study-library:host start -->
+<!-- A classic script, so it runs before the module above and its File guard
+     sees every pointer and key event before eframe's own listeners do. -->
 <script src="./host-bridge.js"></script>
 <style>
-  /* Only for a build without embedded chrome (host-bridge.js adds the class):
-     WordCraft's 38px title bar (chrome.rs:295) is pushed above the frame. */
+  /* Set by host-bridge.js from the first moment a hosted editor loads, and
+     removed only when the build confirms embedded chrome: WordCraft's 38px
+     title bar (chrome.rs:295) is pushed above the frame, so the tab strip,
+     with File at its start, begins at the top edge where the parent's Back
+     button covers it. */
   html.legacy-chrome #wordcraft_canvas { top: -38px; height: calc(100% + 38px); }
 </style>
 <!-- study-library:host end -->
