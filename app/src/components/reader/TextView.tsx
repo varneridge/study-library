@@ -13,7 +13,26 @@ export interface TextSelection { page: number; rects: number[][]; text: string; 
 
 interface Mark { start: number; end: number; kind: "hl" | "find"; id?: string; colour?: string }
 
-function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighlight?: (id: string, x: number, y: number) => void }) {
+// Splits a stretch of a line into words and the spaces between them, each its
+// own element with its page offset, so in listen mode every word is a target of
+// its own. The spaces keep data-o too, so every element carrying data-o still
+// holds exactly one text node, which is what RunIndex (listen/highlight.ts), the
+// place reader and the selection all rely on.
+function Words({ page, start, text }: { page: number; start: number; text: string }) {
+  const out: React.ReactNode[] = [];
+  const parts = text.split(/(\s+)/);
+  let at = start;
+  for (const part of parts) {
+    if (part) {
+      const word = !/^\s+$/.test(part);
+      out.push(<span key={at} data-p={page} data-o={at} className={word ? "tv-word" : undefined}>{part}</span>);
+    }
+    at += part.length;
+  }
+  return <>{out}</>;
+}
+
+function Run({ line, marks, onHighlight, words = false }: { line: Line; marks: Mark[]; onHighlight?: (id: string, x: number, y: number) => void; words?: boolean }) {
   // The text shown leaves off a line-end hyphen, but offsets stay those of the page.
   const shown = line.hyphen ? line.text.replace(/[-\u00ad\u2010\u2011\u2013]\s*$/, "") : line.text.replace(/\s+$/, "");
   const end = line.start + shown.length;
@@ -31,10 +50,15 @@ function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighli
     if (!text) continue;
     const hl = marks.find((m) => m.kind === "hl" && m.start <= a && m.end >= b);
     const hit = marks.find((m) => m.kind === "find" && m.start <= a && m.end >= b);
-    const props = { "data-p": line.page, "data-o": a, key: a } as const;
+    // In listen mode a mark holds word elements rather than text, so it keeps
+    // only data-p (Find looks marks up by page) and its words carry the offsets.
+    // The key is passed on its own, as React asks, rather than inside the spread.
+    const props = words ? ({ "data-p": line.page } as const) : ({ "data-p": line.page, "data-o": a } as const);
+    const content = words ? <Words page={line.page} start={a} text={text} /> : text;
     if (hl) {
       out.push(
         <mark
+          key={a}
           {...props}
           tabIndex={0}
           role="button"
@@ -50,13 +74,15 @@ function Run({ line, marks, onHighlight }: { line: Line; marks: Mark[]; onHighli
             }
           }}
         >
-          {text}
+          {content}
         </mark>,
       );
     } else if (hit) {
-      out.push(<mark {...props} className="find-hit">{text}</mark>);
+      out.push(<mark key={a} {...props} className="find-hit">{content}</mark>);
+    } else if (words) {
+      out.push(<Words key={a} page={line.page} start={a} text={text} />);
     } else {
-      out.push(<span {...props}>{text}</span>);
+      out.push(<span key={a} {...props}>{text}</span>);
     }
   }
   return <>{out}</>;
@@ -82,9 +108,11 @@ function offsetAt(node: Node, offset: number): { page: number; at: number } | nu
 }
 
 const Body = memo(function Body({
-  blocks, marksByPage, notes, onHighlight,
+  blocks, marksByPage, notes, onHighlight, words,
 }: {
   blocks: Block[]; marksByPage: Map<number, Mark[]>; notes: boolean; onHighlight?: (id: string, x: number, y: number) => void;
+  /** Listen is open: every word is its own element, so each can be tapped and hovered. */
+  words: boolean;
 }) {
   let lastPage = -1;
   return (
@@ -108,7 +136,7 @@ const Body = memo(function Body({
               return (
                 <Fragment key={li}>
                   {marker && <span className="pg" data-pg={line.page} aria-label={`Page ${line.page + 1}`}>{line.page + 1}</span>}
-                  <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} />
+                  <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} words={words} />
                   {join && <Join line={line} next={block.lines[li + 1]} marks={marksByPage.get(line.page) ?? []} />}
                 </Fragment>
               );
@@ -122,19 +150,23 @@ const Body = memo(function Body({
 });
 
 /**
- * The page point under a tap, for Listen. The character under the finger comes
- * from caretAt, as the place reader uses it. A tap that lands between runs (the
- * margin of a paragraph, the space after it, a page number) falls back to the
- * first run of the paragraph or heading it is in, so a tap anywhere in a
- * paragraph plays from it.
+ * The page point under a tap, for Listen. A tap on a word is that word's start,
+ * read straight from the word's own element, so it needs no hit testing and
+ * cannot miss. Otherwise the character under the finger comes from caretAt, as
+ * the place reader uses it, and a tap that lands between runs (the margin of a
+ * paragraph, the space after it, a page number) falls back to the first run of
+ * the paragraph or heading it is in, so a tap anywhere in a paragraph plays
+ * from it.
  */
 function tapPoint(target: EventTarget | null, x: number, y: number): { page: number; at: number } | null {
+  const el = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  const word = el?.closest<HTMLElement>(".tv-word[data-o]");
+  if (word) return { page: Number(word.dataset.p), at: Number(word.dataset.o) };
   const caret = caretAt(x, y);
   if (caret?.node) {
     const point = offsetAt(caret.node, caret.offset);
     if (point) return point;
   }
-  const el = target instanceof Element ? target : null;
   const own = el?.closest<HTMLElement>("[data-o]");
   if (own) return { page: Number(own.dataset.p), at: Number(own.dataset.o) };
   const run = el?.closest("p, h2")?.querySelector<HTMLElement>("[data-o]");
@@ -154,7 +186,11 @@ export function TextView({
   onSpot: (spot: Spot) => void; onSelect: (s: TextSelection | null) => void; onHighlight: (id: string, x: number, y: number) => void;
   articleRef?: (el: HTMLElement | null) => void;
   onWordTap?: (point: { page: number; at: number }) => void;
-  /** Listen is open: a tap plays from the tapped word, even on a highlight. */
+  /**
+   * Listen is open: every word is a target, and a tap plays from the tapped
+   * word, even on a highlight, whether playback is playing, paused or not yet
+   * started. Pass true for as long as the listen bar is shown.
+   */
   listening?: boolean;
 }) {
   const listenMode = Boolean(listening);
@@ -384,10 +420,14 @@ export function TextView({
       className={listenMode ? "text-view tv-listening" : "text-view"}
       onClick={(e) => {
         // A tap that ends a text selection is not a tap to play or to open a highlight.
-        if (document.getSelection()?.isCollapsed === false) return;
+        // Only a selection inside the article counts: one left elsewhere on the
+        // page (in the notes, say) must not stop a word from being tapped.
+        const sel = document.getSelection();
+        const selecting = sel && !sel.isCollapsed && sel.rangeCount > 0 && root.current && sel.getRangeAt(0).intersectsNode(root.current);
+        if (selecting) return;
         if (listenMode && onWordTap) {
           const point = tapPoint(e.target, e.clientX, e.clientY);
-          if (point) {
+          if (point && Number.isFinite(point.page) && Number.isFinite(point.at)) {
             onWordTap(point);
             return;
           }
@@ -407,7 +447,7 @@ export function TextView({
         </p>
       </header>
       <div className="tv-body">
-        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} onHighlight={onHighlight} />
+        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} onHighlight={onHighlight} words={listenMode} />
       </div>
     </article>
   );

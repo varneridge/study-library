@@ -1,11 +1,11 @@
 // Speechify-style highlighting in TextView without re-rendering React. TextView
 // renders every run of page text as an element carrying data-p (the page) and
-// data-o (the page offset of its first character) (TextView.tsx:33), and keeps
-// those offsets even where it hides a line-end hyphen (TextView.tsx:16), so a
-// page span maps to a DOM Range exactly. The Range is painted with the CSS
-// Custom Highlight API where the browser has it, which needs no DOM changes and
-// so never disturbs TextView's selection or reflow anchoring (TextView.tsx:291),
-// and with absolutely positioned boxes elsewhere.
+// data-o (the page offset of its first character), and in listen mode every
+// word and every space as its own such element, and keeps those offsets even
+// where it hides a line-end hyphen, so a page span maps to a DOM Range exactly.
+// The sentence is painted with the CSS Custom Highlight API where the browser
+// has it, which needs no DOM changes and so never disturbs TextView's selection
+// or reflow anchoring; the word is a rounded box in an overlay (createPainter).
 
 export interface PageSpan {
   page: number;
@@ -141,62 +141,97 @@ function registry(win: Window): { reg: HighlightRegistry; make: (r: Range) => un
   return { reg: css.highlights, make: (r) => new Ctor(r) };
 }
 
+/** How far a word pill reaches past the word's own box, in CSS pixels, so it reads as a pill rather than a tight box. */
+export const WORD_PILL_PAD = { x: 3, y: 1 };
+
+/** A box for the overlay, relative to the root: the word's rectangle, grown by `pad` for the pill. */
+export function boxFor(rect: { left: number; top: number; width: number; height: number }, base: { left: number; top: number }, pad = { x: 0, y: 0 }): { x: number; y: number; w: number; h: number } {
+  return { x: rect.left - base.left - pad.x, y: rect.top - base.top - pad.y, w: rect.width + pad.x * 2, h: rect.height + pad.y * 2 };
+}
+
 /**
- * Paints the spoken word and its sentence. The styles live in CSS:
- * `::highlight(listen-word)` and `::highlight(listen-sentence)` for the native
- * path, `.listen-box[data-layer]` for the fallback boxes, which sit in an
- * overlay inside `root` (which must be `position: relative`).
+ * Paints the spoken word and its sentence, as Speechify does: the sentence as a
+ * soft wash over its text, the word as a rounded pill.
+ *
+ * The sentence uses the CSS Custom Highlight API (`::highlight(listen-sentence)`)
+ * where the browser has it, which needs no DOM changes and wraps across lines
+ * cleanly. `::highlight` cannot round corners, so the word is always a box in
+ * `.listen-overlay` (`.listen-box[data-layer="word"]`), drawn under the text.
+ * Without the API the sentence is boxes too. The overlay sits inside `root`,
+ * which must be `position: relative` (listen.css). Word boxes are reused, so the
+ * pill glides along a line; it jumps, with no glide, to a new line.
  */
 export function createPainter(root: HTMLElement, win: Window = root.ownerDocument.defaultView ?? window): HighlightPainter {
   const native = registry(win);
-  if (native) {
-    return {
-      native: true,
-      show(layer, range) {
-        if (range) native.reg.set(NAMES[layer], native.make(range));
-        else native.reg.delete(NAMES[layer]);
-      },
-      clear() {
-        native.reg.delete(NAMES.word);
-        native.reg.delete(NAMES.sentence);
-      },
-      dispose() {
-        this.clear();
-      },
-    };
-  }
   const doc = root.ownerDocument;
   const overlay = doc.createElement("div");
   overlay.className = "listen-overlay";
   overlay.setAttribute("aria-hidden", "true");
   root.appendChild(overlay);
-  const layers: Record<HighlightLayer, HTMLElement[]> = { word: [], sentence: [] };
-  const paint = (layer: HighlightLayer, range: Range | null) => {
-    for (const el of layers[layer]) el.remove();
-    layers[layer] = [];
-    if (!range) return;
+  const boxes: Record<HighlightLayer, HTMLElement[]> = { word: [], sentence: [] };
+  const shown: Record<HighlightLayer, Range | null> = { word: null, sentence: null };
+
+  const paintBoxes = (layer: HighlightLayer, range: Range | null, glide: boolean) => {
     const base = root.getBoundingClientRect();
-    for (const rect of range.getClientRects()) {
-      if (rect.width < 0.5 || rect.height < 0.5) continue;
-      const box = doc.createElement("div");
-      box.className = "listen-box";
-      box.dataset.layer = layer;
-      box.style.cssText = `left:${rect.left - base.left}px;top:${rect.top - base.top}px;width:${rect.width}px;height:${rect.height}px`;
-      // Sentence boxes go under word boxes.
-      if (layer === "sentence") overlay.prepend(box);
-      else overlay.append(box);
-      layers[layer].push(box);
-    }
+    const pad = layer === "word" ? WORD_PILL_PAD : { x: 0, y: 0 };
+    const rects = range ? Array.from(range.getClientRects()).filter((r) => r.width >= 0.5 && r.height >= 0.5) : [];
+    const pool = boxes[layer];
+    while (pool.length > rects.length) pool.pop()!.remove();
+    rects.forEach((rect, i) => {
+      const b = boxFor(rect, base, pad);
+      let box = pool[i];
+      const fresh = !box;
+      if (!box) {
+        box = doc.createElement("div");
+        box.className = "listen-box";
+        box.dataset.layer = layer;
+        // Sentence boxes go under word boxes.
+        if (layer === "sentence") overlay.prepend(box);
+        else overlay.append(box);
+        pool.push(box);
+      }
+      const sameLine = !fresh && Math.abs(Number(box.dataset.y) - b.y) < 2;
+      box.dataset.glide = glide && sameLine ? "1" : "0";
+      box.dataset.y = String(b.y);
+      box.style.width = `${b.w}px`;
+      box.style.height = `${b.h}px`;
+      box.style.transform = `translate(${b.x}px, ${b.y}px)`;
+    });
   };
+
+  const show = (layer: HighlightLayer, range: Range | null) => {
+    shown[layer] = range;
+    if (layer === "sentence" && native) {
+      if (range) native.reg.set(NAMES.sentence, native.make(range));
+      else native.reg.delete(NAMES.sentence);
+      return;
+    }
+    paintBoxes(layer, range, true);
+  };
+
+  // A reflow (a turned phone, a new text size) moves the words under the boxes;
+  // the boxes are redrawn where the same ranges now are.
+  const Observer = (win as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+  const resize = Observer
+    ? new Observer(() => {
+        paintBoxes("word", shown.word, false);
+        if (!native) paintBoxes("sentence", shown.sentence, false);
+      })
+    : null;
+  resize?.observe(root);
+
+  const clear = () => {
+    show("word", null);
+    show("sentence", null);
+  };
+
   return {
-    native: false,
-    show: paint,
-    clear() {
-      paint("word", null);
-      paint("sentence", null);
-    },
+    native: Boolean(native),
+    show,
+    clear,
     dispose() {
-      this.clear();
+      clear();
+      resize?.disconnect();
       overlay.remove();
     },
   };

@@ -21,13 +21,30 @@
 // This worker imports kokoro-js with its transformers dependency pinned, takes
 // the Tensor class from kokoro-js's own input tensors, and configures
 // transformers' env only after proving it is the copy kokoro-js uses.
+//
+// Hosts. Loading goes straight to from_pretrained: nothing is probed first, as a
+// probe that failed for its own reasons used to stop a model that would have
+// loaded. Each model host in LoadOptions.hosts is tried in turn (the Hub, then
+// a mirror). Requests are routed by rewriting canonical Hub URLs in this
+// worker's fetch (modelProbe.ts mirrorUrl), which reaches whichever
+// transformers.js copy kokoro-js uses and the voice loader alike, and keeps the
+// canonical URLs as Cache Storage keys. Only when every host has failed are the
+// hosts probed, to name the cause in the message the reader sees.
 
 import type { KokoroTTS, KokoroVoice } from "kokoro-js";
 import type { Tensor } from "@huggingface/transformers";
 import { chunkTokens, joinChunkSpans, spansFromDurations } from "./durations";
-import { explainProbes, probeModel, type ProbeResult } from "./modelProbe";
+import { explainProbes, HUB, isNetworkFailure, mirrorUrl, normaliseHost, probeModel } from "./modelProbe";
 import type { TimedToken, VoiceInfo } from "./types";
-import type { KokoroDevice, KokoroDtype, LoadOptions, WorkerRequest, WorkerResponse } from "./workerProtocol";
+import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_MODEL_HOSTS,
+  loadPlans,
+  type KokoroDevice,
+  type LoadOptions,
+  type WorkerRequest,
+  type WorkerResponse,
+} from "./workerProtocol";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -39,6 +56,55 @@ self.addEventListener("securitypolicyviolation", (event: Event) => {
   const e = event as Event & { effectiveDirective?: string; blockedURI?: string };
   violations.push(`${e.effectiveDirective ?? "csp"} blocked ${e.blockedURI ?? "a request"}`);
 });
+
+// The model host in use. Hub URLs are sent here instead while it is a mirror.
+let activeHost = normaliseHost(HUB);
+let connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
+const nativeFetch: typeof fetch = self.fetch.bind(self);
+
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+/**
+ * fetch with a limit on how long a host may take to answer. Only the wait for
+ * the response headers is limited; once they arrive the timer stops, so a large
+ * model download is never cut short by it.
+ */
+async function fetchWithAnswerLimit(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (init?.signal || connectTimeoutMs <= 0) return nativeFetch(input, init);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), connectTimeoutMs);
+  try {
+    return await nativeFetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) {
+      let origin = urlOf(input);
+      try {
+        origin = new URL(origin).origin;
+      } catch {
+        // Keep the URL as it was given.
+      }
+      throw new TypeError(`${origin} gave no answer within ${Math.round(connectTimeoutMs / 1000)} s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Every request for a Hub file, from transformers.js or from voiceData below,
+// goes to the active host. Other requests (kokoro-js's code, ONNX Runtime's
+// WASM) pass through untouched.
+self.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const url = urlOf(input);
+  if (!url.startsWith(HUB)) return nativeFetch(input, init);
+  const target = mirrorUrl(url, activeHost);
+  const request = target === url || typeof input === "string" || input instanceof URL ? target : new Request(target, input);
+  return fetchWithAnswerLimit(request, init);
+}) as typeof fetch;
 
 const SAMPLE_RATE = 24_000;
 const STYLE_DIM = 256;
@@ -242,42 +308,58 @@ async function load(options: LoadOptions): Promise<void> {
     return;
   }
   voiceBase = options.voiceBase.replace(/\/+$/, "");
-  const preferred = await pickDevice(options.device);
+  connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const hosts = [...new Set((options.hosts?.length ? options.hosts : DEFAULT_MODEL_HOSTS).map(normaliseHost))];
+  const plans = loadPlans(await pickDevice(options.device), options.dtype);
   const attempts: string[] = [];
-  const probes: ProbeResult[] = [];
-  for (const modelId of options.modelIds) {
-    // A small request first: a blocked or missing host fails in milliseconds with a
-    // reason, instead of after a long download with a bare "Failed to fetch".
-    const probe = await probeModel(modelId, (url, init) => fetch(url, init), () => violations);
-    if (!probe.ok) {
-      probes.push(probe);
-      attempts.push(`${modelId}: ${probe.detail}`);
-      continue;
-    }
-    // WebGPU can fail on a driver even with an adapter present; WASM q8 is the safe path.
-    const plans: Array<[KokoroDevice, KokoroDtype]> =
-      preferred === "webgpu" ? [["webgpu", options.dtype ?? "fp32"], ["wasm", "q8"]] : [["wasm", options.dtype ?? "q8"]];
-    for (const [device, dtype] of plans) {
-      try {
-        const model = await KokoroTTSClass.from_pretrained(modelId, {
-          dtype,
-          device,
-          progress_callback: (p: unknown) => {
-            const r = p as { status?: string; file?: string; loaded?: number; total?: number };
-            if (r.status === "progress") post({ type: "progress", file: String(r.file ?? ""), loaded: Number(r.loaded) || 0, total: Number(r.total) || 0 });
-          },
-        });
-        install(model);
-        tts = model;
-        post({ type: "loaded", modelId, device, dtype, voices: voiceList(model) });
-        return;
-      } catch (e) {
-        attempts.push(`${modelId} on ${device}: ${messageOf(e)}`);
+  for (const host of hosts) {
+    activeHost = host;
+    const where = new URL(host).host;
+    let unreachable = false;
+    for (const modelId of options.modelIds) {
+      for (const [device, dtype] of plans) {
+        try {
+          const model = await KokoroTTSClass.from_pretrained(modelId, {
+            dtype,
+            device,
+            progress_callback: (p: unknown) => {
+              const r = p as { status?: string; file?: string; loaded?: number; total?: number };
+              if (r.status === "progress") post({ type: "progress", file: String(r.file ?? ""), loaded: Number(r.loaded) || 0, total: Number(r.total) || 0 });
+            },
+          });
+          install(model);
+          tts = model;
+          post({ type: "loaded", modelId, device, dtype, voices: voiceList(model), host });
+          return;
+        } catch (e) {
+          const message = messageOf(e);
+          attempts.push(`${modelId} (${dtype} on ${device}) from ${where}: ${message}`);
+          // A host that cannot be reached will not answer for another dtype either.
+          if (isNetworkFailure(message)) {
+            unreachable = true;
+            break;
+          }
+        }
       }
+      if (unreachable) break;
     }
   }
-  const message = probes.length === options.modelIds.length ? explainProbes(probes) : `Kokoro could not load: ${attempts.join("; ")}`;
-  post({ type: "load-failed", message, attempts });
+  activeHost = hosts[0] ?? normaliseHost(HUB);
+  post({ type: "load-failed", message: await explainFailure(options.modelIds[0] ?? "", hosts, attempts), attempts });
+}
+
+/**
+ * Why loading failed. When every attempt was a network failure, each host is
+ * probed directly (no host rewriting, the same plain GET transformers.js
+ * makes) so the message names the hosts and the likely cause; otherwise the
+ * attempts themselves say what went wrong.
+ */
+async function explainFailure(modelId: string, hosts: string[], attempts: string[]): Promise<string> {
+  const allNetwork = attempts.length > 0 && attempts.every((a) => isNetworkFailure(a));
+  if (!allNetwork || !modelId) return `Kokoro could not load: ${attempts.join("; ") || "no model was tried"}`;
+  const probes = await Promise.all(hosts.map((h) => probeModel(modelId, (url, init) => fetchWithAnswerLimit(url, init), () => violations, `${h}/`)));
+  if (probes.some((p) => p.ok)) return `Kokoro could not load: ${attempts.join("; ")}`;
+  return explainProbes(probes);
 }
 
 async function run(job: Job): Promise<void> {

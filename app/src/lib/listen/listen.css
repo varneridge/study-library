@@ -1,59 +1,108 @@
 /*
- * Listen highlighting in TextView (highlight.ts). The native path uses the CSS
- * Custom Highlight API; the boxes are the fallback for browsers without it.
- * Import once, from Reader.tsx, beside TextView.
+ * Listen highlighting in TextView (highlight.ts), in the manner of Speechify:
+ * the sentence being read has a soft lavender wash, the word being read sits in
+ * a rounded pill, and while Listen is open every word answers the pointer so it
+ * is plain that a tap reads from there. Import once, from Reader.tsx, beside
+ * TextView.
+ *
+ * The tint is one variable so a theme can change it; it is given as RGB
+ * channels so each layer can set its own opacity.
  */
 
+:root {
+  --listen-tint: 99 102 241;
+  --listen-sentence: rgb(var(--listen-tint) / 0.14);
+  --listen-word: rgb(var(--listen-tint) / 0.35);
+  --listen-hover: rgb(var(--listen-tint) / 0.1);
+  --listen-press: rgb(var(--listen-tint) / 0.2);
+}
+
 ::highlight(listen-sentence) {
-  background-color: color-mix(in srgb, var(--accent, #3b5bdb) 12%, transparent);
+  background-color: var(--listen-sentence);
 }
 
-::highlight(listen-word) {
-  background-color: color-mix(in srgb, var(--accent, #3b5bdb) 32%, transparent);
-  color: inherit;
-}
-
+/*
+ * The overlay is drawn under the text, so the word pill never dims the letters
+ * on it. `isolation` makes the article its own stacking context, so the
+ * overlay's negative z-index puts it above the article's background but below
+ * its text, rather than behind the whole page.
+ */
 .text-view {
   position: relative;
+  isolation: isolate;
 }
 
 .listen-overlay {
   position: absolute;
   inset: 0;
+  z-index: -1;
   pointer-events: none;
 }
 
 .listen-box {
   position: absolute;
-  border-radius: 3px;
+  top: 0;
+  left: 0;
+  will-change: transform;
 }
 
 .listen-box[data-layer="sentence"] {
-  background: color-mix(in srgb, var(--accent, #3b5bdb) 12%, transparent);
+  background: var(--listen-sentence);
+  border-radius: 3px;
 }
 
 .listen-box[data-layer="word"] {
-  background: color-mix(in srgb, var(--accent, #3b5bdb) 32%, transparent);
+  background: var(--listen-word);
+  border-radius: 6px;
 }
 
-/* Listen is open: any word can be tapped to play from it. */
-.text-view.tv-listening {
+/* Along one line the pill glides from word to word; to a new line it jumps. */
+.listen-box[data-layer="word"][data-glide="1"] {
+  transition:
+    transform 0.09s ease-out,
+    width 0.09s ease-out;
+}
+
+/* Listen is open: every word is a target that reads from it when tapped. */
+.text-view.tv-listening .tv-word {
   cursor: pointer;
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
 
-.text-view.tv-listening [data-o] {
-  border-radius: 2px;
-  transition: background-color 0.12s ease;
-}
-
+/* The spread shadow in the same colour widens the hover pill without moving any text. */
 @media (hover: hover) {
-  .text-view.tv-listening [data-o]:hover {
-    background-color: color-mix(in srgb, var(--accent, #3b5bdb) 8%, transparent);
+  .text-view.tv-listening .tv-word:hover {
+    background-color: var(--listen-hover);
+    box-shadow: 0 0 0 2px var(--listen-hover);
   }
 }
 
+.text-view.tv-listening .tv-word:active {
+  background-color: var(--listen-press);
+  box-shadow: 0 0 0 2px var(--listen-press);
+}
+
+/* A highlight keeps its own colour under the hover, so it is still recognisable. */
+.text-view.tv-listening mark.hl-text .tv-word:hover {
+  box-shadow: 0 0 0 2px var(--listen-hover);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .text-view.tv-listening [data-o] {
+  .text-view.tv-listening .tv-word,
+  .listen-box[data-layer="word"][data-glide="1"] {
     transition: none;
+  }
+}
+
+/* Forced colours drop backgrounds, so the word being read keeps an outline instead. */
+@media (forced-colors: active) {
+  .listen-box[data-layer="word"] {
+    outline: 2px solid Highlight;
+    background: transparent;
   }
 }

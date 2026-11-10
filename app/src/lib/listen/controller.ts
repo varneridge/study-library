@@ -426,6 +426,10 @@ export function createListenController(deps: {
   function speakFrom(idx: number, from: number, my: number): void {
     if (!speech) return;
     speech.synth.cancel();
+    // Chrome and Safari keep speechSynthesis paused through cancel(), so after a
+    // pause every new utterance would wait silently and a tap on a word would
+    // seem to do nothing. Resuming an empty queue is harmless everywhere.
+    speech.synth.resume();
     enterUtterance(idx);
     const utt = script.utterances[idx];
     // Chrome stops a long utterance after about fifteen seconds, so each sentence is its own.

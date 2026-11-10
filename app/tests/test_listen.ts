@@ -1,6 +1,7 @@
 
 // Unit tests for Listen modules (script, align, edition, queue, highlight, mp3,
-// rate, durations, modelProbe) and for the controller's playback behaviour.
+// rate, durations, modelProbe, workerProtocol) and for the controller's playback
+// behaviour.
 import assert from "node:assert/strict";
 import { alignWords, buildTimeline, timeForOffset, tokeniseWords, wordIndexAt } from "../src/lib/listen/align";
 import { audioFramesOnly, parseMp3 } from "../src/lib/listen/mp3";
@@ -21,11 +22,12 @@ import {
   type ReflowBlock,
 } from "../src/lib/listen/script";
 import { joinEdition, planEdition } from "../src/lib/listen/edition";
-import { FollowGate, followWordDelta, paragraphTopDelta, scrollDelta } from "../src/lib/listen/highlight";
+import { boxFor, FollowGate, followWordDelta, paragraphTopDelta, scrollDelta, WORD_PILL_PAD } from "../src/lib/listen/highlight";
 import { estimateUtteranceSeconds, nextRequests, readySecondsFrom } from "../src/lib/listen/queue";
 import { clampRate, formatRate, quantiseRate, rampRate } from "../src/lib/listen/rate";
 import { chunkTokens } from "../src/lib/listen/durations";
-import { explainProbes, probeModel } from "../src/lib/listen/modelProbe";
+import { explainProbes, isNetworkFailure, mirrorUrl, MODEL_HOSTS, probeModel } from "../src/lib/listen/modelProbe";
+import { DEFAULT_VOICE_BASE, loadPlans } from "../src/lib/listen/workerProtocol";
 import { createListenController, seekTimeFor, wordIndexAtTime } from "../src/lib/listen/controller";
 import { KokoroLoadError } from "../src/lib/listen/browserEngine";
 import { isEngineUnavailable, pickSpeechVoice, type SpeechBackend, type SpeechUtteranceLike } from "../src/lib/listen/speech";
@@ -422,5 +424,111 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
       audio.ontimeupdate?.();
     }
     assert.deepEqual(c.getResumePoint(), { page: 0, at: 20 });
+  });
+
+  test("listen: the probe is a plain GET, so it cannot fail where the real download would succeed", async () => {
+    const seen: Array<RequestInit | undefined> = [];
+    const ok = await probeModel("x/y", async (_url, init) => {
+      seen.push(init);
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    });
+    assert.ok(ok.ok);
+    assert.equal(seen[0], undefined, "no cache mode or other option is set on the probe");
+    const viaMirror = await probeModel("x/y", async (url) => new Response(url, { status: 404 }), () => [], "https://hf-mirror.com/");
+    assert.equal(viaMirror.url, "https://hf-mirror.com/x/y/resolve/main/config.json");
+  });
+
+  test("listen: Hub requests are sent to a mirror, and nothing else is", () => {
+    assert.deepEqual(MODEL_HOSTS, ["https://huggingface.co", "https://hf-mirror.com"]);
+    const model = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_quantized.onnx";
+    assert.equal(mirrorUrl(model, "https://huggingface.co"), model);
+    assert.equal(mirrorUrl(model, "https://hf-mirror.com/"), "https://hf-mirror.com/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_quantized.onnx");
+    assert.equal(mirrorUrl(`${DEFAULT_VOICE_BASE}/bf_emma.bin`, "https://hf-mirror.com"), "https://hf-mirror.com/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/bf_emma.bin");
+    const wasm = "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm";
+    assert.equal(mirrorUrl(wasm, "https://hf-mirror.com"), wasm);
+    assert.equal(mirrorUrl("https://huggingface.com.evil.example/x", "https://hf-mirror.com"), "https://huggingface.com.evil.example/x");
+  });
+
+  test("listen: an unreachable host moves loading to the next host, but a missing file does not", () => {
+    assert.ok(isNetworkFailure("Failed to fetch"));
+    assert.ok(isNetworkFailure("NetworkError when attempting to fetch resource."));
+    assert.ok(isNetworkFailure("https://huggingface.co gave no answer within 20 s"));
+    assert.ok(!isNetworkFailure('Could not locate file: "https://huggingface.co/x/resolve/main/onnx/model_q8.onnx".'));
+    assert.ok(!isNetworkFailure("no available backend found. ERR: [webgpu] backend not found."));
+  });
+
+  test("listen: WASM loads q8 (model_quantized.onnx) first and falls back to fp32, and WebGPU always falls back to WASM", () => {
+    assert.deepEqual(loadPlans("wasm"), [["wasm", "q8"], ["wasm", "fp32"]]);
+    assert.deepEqual(loadPlans("webgpu"), [["webgpu", "fp32"], ["wasm", "q8"], ["wasm", "fp32"]]);
+    assert.deepEqual(loadPlans("wasm", "q4"), [["wasm", "q4"], ["wasm", "q8"], ["wasm", "fp32"]]);
+    assert.deepEqual(loadPlans("wasm", "fp32"), [["wasm", "fp32"], ["wasm", "q8"]]);
+  });
+
+  test("listen: when the Hub and its mirror are both unreachable, the message names both", async () => {
+    const down = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    const results = await Promise.all(MODEL_HOSTS.map((h) => probeModel("onnx-community/Kokoro-82M-v1.0-ONNX", down, () => [], `${h}/`)));
+    const message = explainProbes(results);
+    assert.match(message, /none of https:\/\/huggingface\.co or https:\/\/hf-mirror\.com could be reached/);
+    assert.ok(!/[\u2013\u2014]/.test(message), "no en or em dashes in what the reader sees");
+  });
+
+  test("listen: the word pill reaches a little past its word, relative to the article", () => {
+    const b = boxFor({ left: 110, top: 220, width: 40, height: 18 }, { left: 100, top: 200 }, WORD_PILL_PAD);
+    assert.deepEqual(b, { x: 10 - WORD_PILL_PAD.x, y: 20 - WORD_PILL_PAD.y, w: 40 + WORD_PILL_PAD.x * 2, h: 18 + WORD_PILL_PAD.y * 2 });
+    assert.deepEqual(boxFor({ left: 5, top: 6, width: 7, height: 8 }, { left: 0, top: 0 }), { x: 5, y: 6, w: 7, h: 8 });
+  });
+
+  test("listen: a tap on a word while the device's voice is paused reads from that word (regression: paused speech swallowed taps)", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine } = fakeEngine(new KokoroLoadError("Kokoro could not load: huggingface.co could not be reached"));
+    const audio = fakeAudio();
+    const spoken: SpeechUtteranceLike[] = [];
+    let paused = false;
+    let resumes = 0;
+    const speech: SpeechBackend = {
+      synth: {
+        speak: (u) => {
+          if (!paused) spoken.push(u);
+        },
+        cancel() {},
+        pause() {
+          paused = true;
+        },
+        resume() {
+          paused = false;
+          resumes += 1;
+        },
+        getVoices: () => [{ name: "Daniel", lang: "en-GB" }],
+      },
+      make: (text) => ({ text, rate: 1, lang: "", voice: null, onboundary: null, onend: null, onerror: null }),
+    };
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech });
+    await c.play();
+    await flush();
+    c.pause();
+    assert.equal(c.getSnapshot().state, "paused");
+    const before = resumes;
+    await c.playFromPoint({ page: 0, at: 45 }); // "theta"
+    await flush();
+    assert.ok(resumes > before, "the paused synthesiser is resumed");
+    assert.equal(c.getSnapshot().state, "playing");
+    assert.equal(c.getSnapshot().utterance, 2);
+    assert.equal(spoken[spoken.length - 1].text, "theta iota.");
+  });
+
+  test("listen: a tap on a word before playback has started begins reading at that word", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const { engine, requests } = fakeEngine();
+    const audio = fakeAudio();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null });
+    assert.equal(c.getSnapshot().state, "idle");
+    await c.playFromPoint({ page: 0, at: 26 }); // "epsilon"
+    await flush();
+    assert.equal(c.getSnapshot().state, "playing");
+    assert.equal(c.getSnapshot().utterance, 1);
+    assert.equal(requests[0], "Delta epsilon zeta.");
+    assert.ok(Math.abs(audio.currentTime - 6 / 19) < 1e-9); // "epsilon": weights 6, 8, 5
   });
 }
