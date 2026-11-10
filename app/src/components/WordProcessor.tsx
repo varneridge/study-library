@@ -94,6 +94,8 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
   const [error, setError] = useState<EditorError | null>(null);
   const [frameKey, setFrameKey] = useState(0);
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const mountedRef = useRef(true);
   const readyRef = useRef(false);
@@ -104,12 +106,28 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
   const queuedSeqRef = useRef(0);
   const savingRef = useRef(false);
   const pendingRef = useRef<SaveJob | null>(null);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const maxWaitTimerRef = useRef<number | null>(null);
 
   const assessmentRef = useRef(assessment);
   assessmentRef.current = assessment;
 
   const moduleCode = module?.code;
   const src = `${EDITOR_PATH}?host=parent&noribbon=1&author=${encodeURIComponent("Student")}`;
+
+  useEffect(() => {
+    const handleFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", handleFs);
+    return () => document.removeEventListener("fullscreenchange", handleFs);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.();
+    } else {
+      void document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  }, []);
 
   const handleUndo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:undo" }, window.location.origin);
@@ -118,6 +136,46 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
   const handleRedo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:redo" }, window.location.origin);
   }, []);
+
+  const retrySaveTimerRef = useRef<number | null>(null);
+
+  const triggerSave = useCallback(() => {
+    if (savingRef.current) {
+      if (retrySaveTimerRef.current === null) {
+        retrySaveTimerRef.current = window.setTimeout(() => {
+          retrySaveTimerRef.current = null;
+          triggerSave();
+        }, 1000);
+      }
+      return;
+    }
+    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:save" }, window.location.origin);
+  }, []);
+
+  const scheduleAutosave = useCallback(() => {
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      if (maxWaitTimerRef.current !== null) {
+        window.clearTimeout(maxWaitTimerRef.current);
+        maxWaitTimerRef.current = null;
+      }
+      triggerSave();
+    }, 1500);
+
+    if (maxWaitTimerRef.current === null) {
+      maxWaitTimerRef.current = window.setTimeout(() => {
+        maxWaitTimerRef.current = null;
+        if (autosaveTimerRef.current !== null) {
+          window.clearTimeout(autosaveTimerRef.current);
+          autosaveTimerRef.current = null;
+        }
+        triggerSave();
+      }, 8000);
+    }
+  }, [triggerSave]);
 
   const loadDocxBytes = useCallback(async (): Promise<Uint8Array> => {
     const row = await getModuleAssessment(id, moduleCode, essayId);
@@ -228,6 +286,7 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
             dirtyVersionRef.current += 1;
             dirtyRef.current = true;
             if (!savingRef.current) setStatus("unsaved");
+            scheduleAutosave();
           } else if (!savingRef.current && !pendingRef.current) {
             dirtyRef.current = false;
             setStatus((cur) => (cur === "unsaved" ? "ready" : cur));
@@ -260,9 +319,30 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
     window.addEventListener("message", handleMessage);
     return () => {
       mountedRef.current = false;
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      if (maxWaitTimerRef.current !== null) {
+        window.clearTimeout(maxWaitTimerRef.current);
+        maxWaitTimerRef.current = null;
+      }
+      if (retrySaveTimerRef.current !== null) {
+        window.clearTimeout(retrySaveTimerRef.current);
+        retrySaveTimerRef.current = null;
+      }
       window.removeEventListener("message", handleMessage);
     };
-  }, [openDocument, processSaves]);
+  }, [openDocument, processSaves, scheduleAutosave]);
+
+  useEffect(() => {
+    const heartbeat = window.setInterval(() => {
+      if (dirtyRef.current && !savingRef.current) {
+        triggerSave();
+      }
+    }, 20000);
+    return () => window.clearInterval(heartbeat);
+  }, [triggerSave]);
 
   useEffect(() => {
     readyRef.current = false;
@@ -287,6 +367,25 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
+
+  useEffect(() => {
+    const flush = () => {
+      if (dirtyRef.current) {
+        triggerSave();
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        flush();
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [triggerSave]);
 
   const handleBack = () => {
     const unsaved = dirtyRef.current || savingRef.current;
@@ -340,6 +439,15 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
           <span className="wp-status" data-status={status} role="status">
             {STATUS_LABELS[status]}
           </span>
+          <button
+            type="button"
+            className="button icon-only quiet"
+            title={isFullscreen ? "Exit full screen" : "Full screen"}
+            aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+            onClick={toggleFullscreen}
+          >
+            <Icon name={isFullscreen ? "minimize" : "enlarge"} size={16} />
+          </button>
         </div>
       </header>
 

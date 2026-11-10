@@ -3821,74 +3821,93 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   font-weight: 600;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
+.essay-tabs-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-hover);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 3px;
+  margin-bottom: 1.5rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.essay-tab-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), width 0.22s cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
+  z-index: 1;
+}
+.essay-tab-btn {
+  position: relative;
+  z-index: 2;
+  border: 0;
+  background: transparent;
+  padding: 0.45rem 1.15rem;
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--muted);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.essay-tab-btn[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 600;
+}
 .essay-sheet-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   background: var(--surface-hover);
-  padding: 2rem 1.5rem;
+  padding: 2.5rem 1.5rem;
   border-radius: var(--r-lg);
   border: 1px solid var(--rule);
   max-height: calc(100vh - 14rem);
   max-height: calc(100dvh - 14rem);
   overflow-y: auto;
+  gap: 2rem;
 }
-.essay-sheet-preview {
+.essay-preview-page {
   width: 100%;
-  max-width: 46rem;
-  min-height: 52rem;
-  background: var(--paper);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.07);
+  max-width: 48rem;
+  min-height: 64rem;
+  background: #ffffff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
   border-radius: 2px;
-  padding: 3.5rem 4rem;
+  padding: 4rem 4.5rem 3.5rem 4.5rem;
   box-sizing: border-box;
-  font-family: var(--serif);
-  color: var(--ink);
+  font-family: "Times New Roman", Times, "Nimbus Roman No9 L", serif;
+  color: #111111;
   line-height: 1.7;
   position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 @media (max-width: 48rem) {
-  .essay-sheet-container { padding: 0.75rem 0.25rem; }
-  .essay-sheet-preview { padding: 1.75rem 1.25rem; min-height: auto; }
+  .essay-sheet-container { padding: 1rem 0.5rem; gap: 1rem; }
+  .essay-preview-page { padding: 2rem 1.5rem 1.75rem 1.5rem; min-height: 38rem; }
 }
-.essay-sheet-header {
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: 1.5rem;
-  margin-bottom: 2rem;
-}
-.essay-sheet-title-input {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  font-family: var(--serif);
-  font-size: var(--fs-xl);
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--ink);
-  resize: none;
-  field-sizing: content;
-  padding: 0;
-  margin: 0;
-  outline: none;
-}
-.essay-sheet-title-input:focus-visible {
-  border-bottom: 1px dashed var(--accent);
-}
-.essay-sheet-meta {
-  font-family: var(--sans);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 0.5rem;
+.essay-page-content {
+  flex: 1 0 auto;
+  font-size: 12pt;
 }
 .essay-sheet-empty {
   text-align: center;
-  padding: 4rem 1rem;
+  padding: 6rem 1rem;
   color: var(--muted);
-}
-.essay-sheet-body {
-  font-size: 1.05rem;
+  font-family: var(--sans);
 }
 .essay-sheet-p {
   margin: 0 0 1.25rem;
@@ -3915,9 +3934,9 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .essay-sheet-quote {
   margin: 1.25rem 2rem;
   padding-left: 1rem;
-  border-left: 2px solid var(--rule);
+  border-left: 2px solid #999999;
   font-style: italic;
-  color: var(--ink);
+  color: #222222;
 }
 .essay-sheet-pagebreak {
   border: 0;
@@ -3927,29 +3946,72 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .essay-sheet-fn-ref {
   font-size: 0.75em;
   font-weight: 600;
-  color: var(--accent);
+  color: #1a56db;
   cursor: default;
   margin-left: 0.15em;
+  vertical-align: super;
 }
-.essay-sheet-footnotes {
-  margin-top: 3.5rem;
-  padding-top: 1.5rem;
+.essay-page-footer {
+  margin-top: 2rem;
+  flex-shrink: 0;
 }
-.essay-sheet-fn-rule {
-  width: 5rem;
-  margin: 0 0 1rem;
+.essay-page-footnotes {
+  font-size: 10pt;
+  line-height: 1.45;
+  color: #222222;
+}
+.essay-page-fn-rule {
+  width: 6rem;
+  margin: 0 0 0.75rem;
   border: 0;
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid #333333;
 }
-.essay-sheet-fn-list {
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  color: var(--muted);
-  padding-left: 1.5rem;
+.essay-page-fn-list {
   margin: 0;
+  padding-left: 1.5rem;
 }
-.essay-sheet-fn-list li {
-  margin-bottom: 0.4rem;
+.essay-page-fn-list li {
+  margin-bottom: 0.35rem;
+}
+.essay-page-number {
+  text-align: center;
+  font-size: 10pt;
+  color: #666666;
+  margin-top: 1.25rem;
+}
+.essay-ref-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  margin-bottom: 0.5rem;
+}
+.essay-ref-badge {
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  background: var(--surface-hover);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+.essay-ref-text {
+  flex: 1;
+  font-family: var(--serif);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.essay-ref-edit-input {
+  width: 100%;
+  font-family: var(--serif);
+  font-size: var(--fs-sm);
+  padding: 0.4rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
 }
 .essay-panel { background: var(--surface); border-radius: var(--r-md); padding: 1.1rem 1.25rem; }
 .essay-panel h2, .essay-plan h2 { font-size: var(--fs-lg); margin: 0 0 0.6rem; }
@@ -3958,7 +4020,6 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .essay-hint { margin: 0.35rem 0 0.75rem; }
 .essay-bar { display: block; height: 0.4rem; border-radius: 999px; background: var(--surface-hover); overflow: hidden; margin: 0.4rem 0 0.6rem; }
 .essay-bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
-.essay-card-bar { margin: 0; background: var(--rule); height: 0.3rem; }
 .essay-source-list, .essay-snapshot-list { list-style: none; margin: 0; padding: 0; }
 .essay-source-list li, .essay-snapshot-list li {
   display: flex; align-items: center; gap: 0.5rem;

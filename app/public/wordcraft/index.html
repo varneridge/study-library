@@ -29,11 +29,26 @@ dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
       height: calc(100% + 38px);
       display: block;
     }
+    #wordcraft_file_mask {
+      display: none;
+    }
+    html.no-ribbon #wordcraft_file_mask {
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 52px;
+      height: 32px;
+      background: #e6e6e6;
+      z-index: 5;
+      pointer-events: all;
+    }
     #wordcraft_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       color: #555; font: 14px system-ui, sans-serif; pointer-events: none; }
   </style>
 <link rel="modulepreload" href="./wordcraft-web-d5f8e062bd3e686e.js" crossorigin="anonymous" integrity="sha384-fH6DlxObGvoOHHoahHymkiQpSnJsoDeHsn+yvKSRarNNBvSVFypGn50hXzibGLZL"><link rel="modulepreload" href="./snippets/eframe-d31a8450ea12dfc1/inline0.js" crossorigin="anonymous" integrity="sha384-uPZQ72BwgZ4v7Km6+UIFbkDDlt7ShGEsAVEHVN/+wZSGFhItJZB83iKMFQXauTSs"><link rel="preload" href="./wordcraft-web-d5f8e062bd3e686e_bg.wasm" crossorigin="anonymous" integrity="sha384-SAFE7lTGEov5KuInNhgEooxgfWOh1d8udBscpmMl81ZKlwlGO3triZkW649Y4I71" as="fetch" type="application/wasm"></head>
 <body>
+  <div id="wordcraft_file_mask"></div>
   <canvas id="wordcraft_canvas"></canvas>
   <div id="wordcraft_loading">Loading WordCraft&hellip;</div>
 </body>

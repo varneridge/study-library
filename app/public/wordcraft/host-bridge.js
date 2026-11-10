@@ -1,33 +1,82 @@
-// Lets the parent app drive undo and redo in the embedded word processor. Only the
-// parent window on the same origin is obeyed, so no other page can replay keystrokes,
-// and each command is dispatched once on the canvas so a window listener sees it once.
+// Lets the parent app drive undo, redo, and save in the embedded word processor,
+// and customises the ribbon tabs to keep only core writing tools.
 (function () {
   const params = new URLSearchParams(window.location.search);
   if (params.get("noribbon") === "1" || params.get("host") === "parent") {
     document.documentElement.classList.add("no-ribbon");
   }
-  const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-  const shortcuts = {
-    "wordcraft:undo": { key: "z", code: "KeyZ", shiftKey: false },
-    "wordcraft:redo": isMac ? { key: "Z", code: "KeyZ", shiftKey: true } : { key: "y", code: "KeyY", shiftKey: false },
-  };
+
+  function applyRibbonCustomisation() {
+    if (!window.wordcraft || typeof window.wordcraft.execute !== "function") return;
+    const hideTabs = ["File", "Draw", "Mailings", "Developer", "Zotero", "Help"];
+    for (const tab of hideTabs) {
+      try {
+        window.wordcraft.execute("tools.customizeRibbon", { hide: tab }).catch(() => {});
+      } catch {
+        // Ignore unsupported tab names gracefully
+      }
+    }
+  }
+
+  // Poll briefly for window.wordcraft on startup to hide unwanted tabs
+  let attempts = 0;
+  const timer = setInterval(() => {
+    attempts += 1;
+    if (window.wordcraft && typeof window.wordcraft.execute === "function") {
+      clearInterval(timer);
+      applyRibbonCustomisation();
+    } else if (attempts > 50) {
+      clearInterval(timer);
+    }
+  }, 200);
+
+  window.addEventListener("TrunkApplicationStarted", () => {
+    setTimeout(applyRibbonCustomisation, 300);
+  });
+
+  function dispatchKey(key, ctrl, shift) {
+    const target = document.getElementById("wordcraft_canvas") || document.body;
+    const evt = new KeyboardEvent("keydown", {
+      key: key,
+      code: "Key" + key.toUpperCase(),
+      ctrlKey: !!ctrl,
+      metaKey: !!ctrl,
+      shiftKey: !!shift,
+      bubbles: true,
+      cancelable: true,
+    });
+    target.dispatchEvent(evt);
+  }
+
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     if (window.parent === window || event.source !== window.parent) return;
     if (!event.data || typeof event.data !== "object") return;
-    const shortcut = shortcuts[event.data.type];
-    if (!shortcut) return;
-    const target = document.getElementById("wordcraft_canvas") ?? window;
-    target.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: shortcut.key,
-        code: shortcut.code,
-        ctrlKey: !isMac,
-        metaKey: isMac,
-        shiftKey: shortcut.shiftKey,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+
+    const hasWordcraft = window.wordcraft && typeof window.wordcraft.execute === "function";
+
+    switch (event.data.type) {
+      case "wordcraft:undo":
+        if (hasWordcraft) {
+          window.wordcraft.execute("edit.undo").catch(() => dispatchKey("z", true, false));
+        } else {
+          dispatchKey("z", true, false);
+        }
+        return;
+      case "wordcraft:redo":
+        if (hasWordcraft) {
+          window.wordcraft.execute("edit.redo").catch(() => dispatchKey("y", true, false));
+        } else {
+          dispatchKey("y", true, false);
+        }
+        return;
+      case "wordcraft:save":
+        if (hasWordcraft) {
+          window.wordcraft.execute("file.save").catch(() => dispatchKey("s", true, false));
+        } else {
+          dispatchKey("s", true, false);
+        }
+        return;
+    }
   });
 })();

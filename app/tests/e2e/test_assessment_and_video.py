@@ -93,8 +93,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(page.locator(".essay-page")).to_be_visible()
     assert "v=assessment" in page.url, page.url
 
-    # The page with clear segmented tabs: Draft & preview, Plan & argument, Sources & citations, Snapshots.
-    for tab in ["Draft & preview", "Plan & argument", "Sources & citations", "Snapshots"]:
+    # The page with clear segmented tabs: Draft & preview, Plan & argument, References, Snapshots.
+    for tab in ["Draft & preview", "Plan & argument", "References", "Snapshots"]:
         expect(page.get_by_role("tab", name=re.compile(tab))).to_be_visible()
     question = "How far was Germany responsible for the outbreak of war in 1914?"
     page.get_by_label("Essay question").fill(question)

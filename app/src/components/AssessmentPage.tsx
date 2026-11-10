@@ -25,7 +25,7 @@ import {
 } from "../lib/assessment";
 import { shortDate } from "../lib/dates";
 import { db } from "../lib/db";
-import { countDocxWords, type DocxDocument, type DocxFootnote } from "../lib/docx";
+import { countDocxWords, type DocxDocument, type DocxFootnote, type DocxBlock, type DocxRun } from "../lib/docx";
 import {
   effectiveWordCount,
   formatCustomBibliography,
@@ -67,9 +67,6 @@ export function AssessmentCard({
   onEndRename?: () => void;
 }) {
   const assessment = useModuleAssessment(module.id, module.code, essayId);
-  const counts = countDocxWords(assessment.draft);
-  const effectiveWords = effectiveWordCount(counts, assessment.draft, assessment.includeFootnotes !== false);
-  const progress = wordProgress(effectiveWords, assessment.wordTarget);
   const due = assessment.dueDate ? countdown(assessment.dueDate) : null;
   const to = {
     view: "assessment" as const,
@@ -110,11 +107,6 @@ export function AssessmentCard({
       </div>
       <Link to={to} className="essay-card-cover" tabIndex={-1} ariaHidden={true}>
         <span className={`essay-card-question${displayTitle ? "" : " is-empty"}`}>{displayTitle}</span>
-        {assessment.wordTarget ? (
-          <span className="essay-bar essay-card-bar" aria-hidden="true">
-            <span style={{ width: `${Math.round(progress.share * 100)}%` }} />
-          </span>
-        ) : null}
       </Link>
       <div className="week-card-body">
         <div className="week-card-meta">
@@ -147,27 +139,77 @@ export function AssessmentCard({
             {displayTitle}
           </Link>
         )}
-        <div className="week-card-footer">
-          <span className="count">{progress.words}{due ? `, due ${due.words}` : ""}</span>
-        </div>
+        {due && (
+          <div className="week-card-footer">
+            <span className="count">Due {due.words}</span>
+          </div>
+        )}
       </div>
     </article>
   );
 }
 
-// Authentic paper sheet rendering the essay in page form with editable title and footnotes.
+interface PreviewPageData {
+  pageNumber: number;
+  blocks: DocxBlock[];
+  footnoteIds: string[];
+}
+
+function paginateDocxBlocks(blocks: DocxBlock[], wordsPerPage = 320): PreviewPageData[] {
+  const pages: PreviewPageData[] = [];
+  let currentPageBlocks: DocxBlock[] = [];
+  let currentFootnoteIds: string[] = [];
+  let currentWords = 0;
+
+  function pushPage() {
+    if (currentPageBlocks.length > 0 || pages.length === 0) {
+      pages.push({
+        pageNumber: pages.length + 1,
+        blocks: currentPageBlocks,
+        footnoteIds: currentFootnoteIds,
+      });
+      currentPageBlocks = [];
+      currentFootnoteIds = [];
+      currentWords = 0;
+    }
+  }
+
+  for (const block of blocks) {
+    if (block.type === "page_break") {
+      pushPage();
+      continue;
+    }
+
+    let blockWords = 0;
+    const blockFootnotes: string[] = [];
+    for (const run of block.runs) {
+      if (run.type === "text" && run.text) {
+        blockWords += run.text.trim().split(/\s+/).filter(Boolean).length;
+      } else if (run.type === "footnote_ref" && run.footnoteId) {
+        blockFootnotes.push(run.footnoteId);
+      }
+    }
+
+    const visualWeight = block.type.startsWith("heading") ? Math.max(blockWords, 40) : blockWords;
+
+    if (currentPageBlocks.length > 0 && currentWords + visualWeight > wordsPerPage) {
+      pushPage();
+    }
+
+    currentPageBlocks.push(block);
+    currentWords += visualWeight;
+    currentFootnoteIds.push(...blockFootnotes);
+  }
+
+  pushPage();
+  return pages;
+}
+
+// Authentic paper sheet rendering the essay page by page in Times New Roman with genuine margins.
 function EssayDocumentSheet({
   doc,
-  title,
-  onTitleChange,
-  onFocus,
-  onBlur,
 }: {
   doc: DocxDocument;
-  title: string;
-  onTitleChange: (newTitle: string) => void;
-  onFocus?: () => void;
-  onBlur?: () => void;
 }) {
   const orderedFootnotes = useMemo(() => numberedFootnotes(doc), [doc]);
   const fnMap = useMemo(() => {
@@ -179,94 +221,97 @@ function EssayDocumentSheet({
   }, [orderedFootnotes]);
 
   const hasAnyText = doc.blocks.some((b) => b.runs.some((r) => r.type === "text" && r.text?.trim()));
+  const pages = useMemo(() => paginateDocxBlocks(doc.blocks), [doc.blocks]);
 
-  return (
-    <div className="essay-sheet-container">
-      <article className="essay-sheet-preview">
-        <header className="essay-sheet-header">
-          <textarea
-            className="essay-sheet-title-input"
-            value={title}
-            placeholder="Essay title or question as set"
-            rows={1}
-            aria-label="Essay question"
-            onFocus={onFocus}
-            onBlur={onBlur}
-            onChange={(e) => onTitleChange(e.target.value)}
-          />
-          <div className="essay-sheet-meta">
-            <span>Candidate essay draft</span>
-          </div>
-        </header>
+  const renderBlock = (block: DocxBlock) => {
+    if (block.type === "page_break") return null;
 
-        {!hasAnyText ? (
+    const runs = block.runs.map((run: DocxRun, i: number) => {
+      if (run.type === "footnote_ref" && run.footnoteId) {
+        const fn = fnMap.get(run.footnoteId);
+        return (
+          <sup key={i} className="essay-sheet-fn-ref" title={fn?.text || "Footnote"}>
+            [{fn?.number ?? "?"}]
+          </sup>
+        );
+      }
+      const cls = [
+        run.bold && "bold",
+        run.italic && "italic",
+        run.underline && "underline",
+        run.strike && "strike",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      return (
+        <span key={i} className={cls || undefined}>
+          {run.text ?? ""}
+        </span>
+      );
+    });
+
+    if (block.type === "heading1") return <h2 key={block.id} className="essay-sheet-h1">{runs}</h2>;
+    if (block.type === "heading2") return <h3 key={block.id} className="essay-sheet-h2">{runs}</h3>;
+    if (block.type === "heading3") return <h4 key={block.id} className="essay-sheet-h3">{runs}</h4>;
+    if (block.type === "blockquote") return <blockquote key={block.id} className="essay-sheet-quote">{runs}</blockquote>;
+    if (block.type === "bullet") return <ul key={block.id} className="essay-sheet-list"><li className="essay-sheet-bullet">{runs}</li></ul>;
+    if (block.type === "ordered") return <ol key={block.id} className="essay-sheet-list"><li className="essay-sheet-ordered">{runs}</li></ol>;
+    return (
+      <p
+        key={block.id}
+        className="essay-sheet-p"
+        style={block.align ? { textAlign: block.align === "both" ? "justify" : block.align } : undefined}
+      >
+        {runs}
+      </p>
+    );
+  };
+
+  if (!hasAnyText) {
+    return (
+      <div className="essay-sheet-container">
+        <article className="essay-preview-page">
           <div className="essay-sheet-empty">
             <p><strong>Nothing written yet.</strong></p>
             <p className="small muted">Open the word processor above to start writing, or import a Word document.</p>
           </div>
-        ) : (
-          <div className="essay-sheet-body">
-            {doc.blocks.map((block) => {
-              if (block.type === "page_break") {
-                return <hr key={block.id} className="essay-sheet-pagebreak" />;
-              }
-              const runs = block.runs.map((run, i) => {
-                if (run.type === "footnote_ref" && run.footnoteId) {
-                  const fn = fnMap.get(run.footnoteId);
-                  return (
-                    <sup key={i} className="essay-sheet-fn-ref" title={fn?.text || "Footnote"}>
-                      [{fn?.number ?? "?"}]
-                    </sup>
-                  );
-                }
-                const cls = [
-                  run.bold && "bold",
-                  run.italic && "italic",
-                  run.underline && "underline",
-                  run.strike && "strike",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
+        </article>
+      </div>
+    );
+  }
 
-                return (
-                  <span key={i} className={cls || undefined}>
-                    {run.text ?? ""}
-                  </span>
-                );
-              });
+  return (
+    <div className="essay-sheet-container">
+      {pages.map((p) => {
+        const pageFootnotes = p.footnoteIds
+          .map((id) => (fnMap.get(id) ? { id, ...fnMap.get(id)! } : null))
+          .filter(Boolean) as { id: string; number: number; text: string }[];
 
-              if (block.type === "heading1") return <h2 key={block.id} className="essay-sheet-h1">{runs}</h2>;
-              if (block.type === "heading2") return <h3 key={block.id} className="essay-sheet-h2">{runs}</h3>;
-              if (block.type === "heading3") return <h4 key={block.id} className="essay-sheet-h3">{runs}</h4>;
-              if (block.type === "blockquote") return <blockquote key={block.id} className="essay-sheet-quote">{runs}</blockquote>;
-              if (block.type === "bullet") return <ul key={block.id} className="essay-sheet-list"><li className="essay-sheet-bullet">{runs}</li></ul>;
-              if (block.type === "ordered") return <ol key={block.id} className="essay-sheet-list"><li className="essay-sheet-ordered">{runs}</li></ol>;
-              return (
-                <p
-                  key={block.id}
-                  className="essay-sheet-p"
-                  style={block.align ? { textAlign: block.align === "both" ? "justify" : block.align } : undefined}
-                >
-                  {runs}
-                </p>
-              );
-            })}
-          </div>
-        )}
+        return (
+          <article key={p.pageNumber} className="essay-preview-page">
+            <div className="essay-page-content">
+              {p.blocks.map(renderBlock)}
+            </div>
 
-        {orderedFootnotes.length > 0 && (
-          <footer className="essay-sheet-footnotes">
-            <hr className="essay-sheet-fn-rule" />
-            <ol className="essay-sheet-fn-list">
-              {orderedFootnotes.map((fn) => (
-                <li key={fn.id} value={fn.number}>
-                  {fn.text}
-                </li>
-              ))}
-            </ol>
-          </footer>
-        )}
-      </article>
+            <footer className="essay-page-footer">
+              {pageFootnotes.length > 0 && (
+                <div className="essay-page-footnotes">
+                  <hr className="essay-page-fn-rule" />
+                  <ol className="essay-page-fn-list">
+                    {pageFootnotes.map((fn) => (
+                      <li key={fn.id} value={fn.number}>
+                        {fn.text}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              <div className="essay-page-number">{p.pageNumber}</div>
+            </footer>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -292,6 +337,41 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [editingFnId, setEditingFnId] = useState<string | null>(null);
+  const [editingFnText, setEditingFnText] = useState("");
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.();
+    } else {
+      void document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const updateIndicator = () => {
+      if (!tabListRef.current) return;
+      const activeBtn = tabListRef.current.querySelector<HTMLButtonElement>(`[role="tab"][aria-selected="true"]`);
+      if (activeBtn) {
+        setIndicatorStyle({
+          left: activeBtn.offsetLeft,
+          width: activeBtn.offsetWidth,
+        });
+      }
+    };
+    updateIndicator();
+    window.addEventListener("resize", updateIndicator);
+    return () => window.removeEventListener("resize", updateIndicator);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!typingQuestion.current) setQuestion(assessment.title);
@@ -352,6 +432,64 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const secondaryCustomSources = customSources.filter((s) => s.kind !== "primary");
 
   const hasSources = chosenModuleItems.length > 0 || customSources.length > 0;
+
+  const orderedFootnotes = useMemo(() => numberedFootnotes(assessment.draft), [assessment.draft]);
+
+  const allResearchItems = useMemo(() => {
+    const list: Array<{
+      id: string;
+      title: string;
+      isModule: boolean;
+      moduleItem?: ItemRow;
+      customSource?: CustomSource;
+    }> = [];
+    chosenModuleItems.forEach((item) => {
+      list.push({ id: item.id, title: fullTitle(item), isModule: true, moduleItem: item });
+    });
+    customSources.forEach((src) => {
+      list.push({ id: src.id, title: src.title, isModule: false, customSource: src });
+    });
+    return list;
+  }, [chosenModuleItems, customSources]);
+
+  const citedIds = useMemo(() => {
+    const set = new Set<string>();
+    orderedFootnotes.forEach((fn) => {
+      if (fn.text) {
+        const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
+        if (rawFn?.citationItemId) set.add(rawFn.citationItemId);
+        allResearchItems.forEach((ri) => {
+          if (ri.title.length > 4 && fn.text.toLowerCase().includes(ri.title.toLowerCase())) {
+            set.add(ri.id);
+          }
+        });
+      }
+    });
+    return set;
+  }, [orderedFootnotes, assessment.draft.footnotes, allResearchItems]);
+
+  const fromResearchNotCited = useMemo(() => {
+    return allResearchItems.filter((ri) => !citedIds.has(ri.id));
+  }, [allResearchItems, citedIds]);
+
+  const handleSaveFootnote = (fnId: string, newText: string) => {
+    const trimmed = newText.trim();
+    if (!trimmed) {
+      setEditingFnId(null);
+      return;
+    }
+    void save((prev) => ({
+      ...prev,
+      draft: {
+        ...prev.draft,
+        footnotes: prev.draft.footnotes.map((f) =>
+          f.id === fnId ? { ...f, text: trimmed } : f
+        ),
+      },
+    }));
+    setEditingFnId(null);
+    showToast("Citation updated.");
+  };
 
   const toggleModuleSource = async (itemId: string) => {
     await save((prev) => ({
@@ -541,7 +679,29 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       </div>
 
       <div className="section-head essay-head" style={{ marginBottom: "0.5rem" }}>
-        <h1 style={{ fontFamily: "var(--serif)", fontSize: "var(--fs-2xl)" }}>{assessment.title || "Essay Studio"}</h1>
+        <input
+          className="title-input essay-title-input"
+          type="text"
+          value={question}
+          placeholder="Essay title or question as set"
+          aria-label="Essay question"
+          onChange={(e) => setQuestion(e.target.value)}
+          onBlur={(e) => void save({ title: e.target.value.trim() })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          style={{
+            fontFamily: "var(--serif)",
+            fontSize: "var(--fs-2xl)",
+            fontWeight: 700,
+            border: "none",
+            background: "transparent",
+            padding: 0,
+            width: "100%",
+            maxWidth: "42rem",
+            color: "var(--ink)",
+          }}
+        />
         <span className="spacer" />
         <Link to={wordProcessorRoute} className="button primary">
           <Icon name="notes" size={16} />
@@ -581,8 +741,16 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         </div>
       </div>
 
-      {/* Segmented control tabs */}
-      <div className="essay-tabs" role="tablist" aria-label="Essay sections">
+      {/* Sliding segmented control tabs */}
+      <div className="essay-tabs-track" ref={tabListRef} role="tablist" aria-label="Essay sections">
+        <div
+          className="essay-tab-indicator"
+          style={{
+            transform: `translateX(${indicatorStyle.left}px)`,
+            width: `${indicatorStyle.width}px`,
+          }}
+          aria-hidden="true"
+        />
         <button
           type="button"
           role="tab"
@@ -614,7 +782,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           className="essay-tab-btn"
           onClick={() => setActiveTab("sources")}
         >
-          Sources & citations {hasSources ? `(${chosenModuleItems.length + customSources.length})` : ""}
+          References {orderedFootnotes.length + fromResearchNotCited.length > 0 ? `(${orderedFootnotes.length + fromResearchNotCited.length})` : ""}
         </button>
         <button
           type="button"
@@ -639,6 +807,15 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             <div className="row" style={{ gap: "0.5rem" }}>
               <button
                 type="button"
+                className="button quiet small"
+                onClick={toggleFullscreen}
+                title={isFullscreen ? "Exit full screen" : "Full screen"}
+              >
+                <Icon name={isFullscreen ? "minimize" : "enlarge"} size={14} />
+                <span>{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+              </button>
+              <button
+                type="button"
                 className="button small"
                 onClick={() => {
                   downloadDocxFile(assessment.draft, assessment.title);
@@ -653,20 +830,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             </div>
           </div>
 
-          <EssayDocumentSheet
-            doc={assessment.draft}
-            title={question}
-            onFocus={() => {
-              typingQuestion.current = true;
-            }}
-            onBlur={() => {
-              typingQuestion.current = false;
-            }}
-            onTitleChange={(nextTitle) => {
-              setQuestion(nextTitle);
-              void save({ title: nextTitle });
-            }}
-          />
+          <EssayDocumentSheet doc={assessment.draft} />
         </div>
       )}
 
@@ -690,14 +854,14 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         </div>
       )}
 
-      {/* TAB 3: Sources & Citations */}
+      {/* TAB 3: References */}
       {activeTab === "sources" && (
         <div id="panel-sources" role="tabpanel" aria-labelledby="tab-sources">
           <div className="section-head" style={{ marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
             <div>
-              <h2 style={{ margin: 0 }}>Sources & citations</h2>
+              <h2 style={{ margin: 0 }}>References</h2>
               <p className="small muted" style={{ margin: "0.25rem 0 0" }}>
-                Primary sources and secondary reading for this essay, formatted in Chicago 18th edition.
+                Sources currently cited in the document and discovered materials from research.
               </p>
             </div>
             <span className="spacer" />
@@ -708,7 +872,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               <button type="button" className="button small" onClick={() => setAddingCustom(true)}>
                 Add external source
               </button>
-              {hasSources && (
+              {(orderedFootnotes.length > 0 || hasSources) && (
                 <button type="button" className="button primary small" onClick={() => void copyBibliography()}>
                   Copy Chicago bibliography
                 </button>
@@ -716,128 +880,169 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             </div>
           </div>
 
-          {!hasSources ? (
-            <div className="first-steps" style={{ marginTop: "1rem" }}>
-              <p><strong>No sources chosen yet.</strong></p>
-              <p className="small muted">
-                Add readings from this module or add external archives, books, and articles discovered in your research.
-              </p>
-            </div>
-          ) : (
-            <div className="essay-sources-grid" style={{ display: "grid", gap: "1.5rem", marginTop: "1.25rem" }}>
-              {/* Primary sources */}
-              <section className="essay-panel">
-                <div className="essay-panel-head">
-                  <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
-                    Primary sources ({primaryModuleItems.length + primaryCustomSources.length})
-                  </h3>
-                </div>
-                {primaryModuleItems.length === 0 && primaryCustomSources.length === 0 ? (
-                  <p className="small muted">No primary sources added yet.</p>
-                ) : (
-                  <ul className="essay-source-list">
-                    {primaryModuleItems.map((item) => (
-                      <li key={item.id}>
-                        <Link to={{ view: "reader", id: item.id }} title={fullTitle(item)}>
-                          {fullTitle(item)}
-                        </Link>
-                        <span className="badge small" style={{ marginLeft: "0.5rem" }}>Module</span>
-                        <Menu
-                          label={`Actions for ${shortTitle(item)}`}
-                          items={[
-                            { label: "Add footnote citing it", onSelect: () => void addModuleFootnote(item) },
-                            { label: "Remove from essay", onSelect: () => void toggleModuleSource(item.id) },
-                          ]}
-                        />
-                      </li>
-                    ))}
-                    {primaryCustomSources.map((source) => (
-                      <li key={source.id}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontFamily: "var(--serif)" }}>{formatCustomBibliography(source)}</span>
-                          {safeExternalUrl(source.url) && (
-                            <a
-                              href={safeExternalUrl(source.url)!}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="small muted"
-                              style={{ display: "inline-block", marginLeft: "0.5rem" }}
-                            >
-                              Link &rarr;
-                            </a>
-                          )}
-                        </div>
-                        <span className="badge small" style={{ marginLeft: "0.5rem" }}>External</span>
-                        <Menu
-                          label={`Actions for ${source.title}`}
-                          items={[
-                            { label: "Add footnote citing it", onSelect: () => void addCustomFootnote(source) },
-                            { label: "Remove source", danger: true, onSelect: () => void handleDeleteCustomSource(source.id) },
-                          ]}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+          <div className="essay-sources-grid" style={{ display: "grid", gap: "1.5rem", marginTop: "1.25rem" }}>
+            {/* Section 1: Currently in document */}
+            <section className="essay-panel">
+              <div className="essay-panel-head">
+                <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
+                  Currently in the document ({orderedFootnotes.length})
+                </h3>
+              </div>
+              {orderedFootnotes.length === 0 ? (
+                <p className="small muted">No citations or footnotes in the draft yet.</p>
+              ) : (
+                <div className="essay-in-doc-citations">
+                  {orderedFootnotes.map((fn) => {
+                    const isEditing = editingFnId === fn.id;
+                    const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
+                    const linkedItem = rawFn?.citationItemId
+                      ? allResearchItems.find((r) => r.id === rawFn.citationItemId)
+                      : null;
 
-              {/* Secondary reading */}
-              <section className="essay-panel">
-                <div className="essay-panel-head">
-                  <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
-                    Secondary reading ({secondaryModuleItems.length + secondaryCustomSources.length})
-                  </h3>
-                </div>
-                {secondaryModuleItems.length === 0 && secondaryCustomSources.length === 0 ? (
-                  <p className="small muted">No secondary reading added yet.</p>
-                ) : (
-                  <ul className="essay-source-list">
-                    {secondaryModuleItems.map((item) => (
-                      <li key={item.id}>
-                        <Link to={{ view: "reader", id: item.id }} title={fullTitle(item)}>
-                          {fullTitle(item)}
-                        </Link>
-                        <span className="badge small" style={{ marginLeft: "0.5rem" }}>Module</span>
-                        <Menu
-                          label={`Actions for ${shortTitle(item)}`}
-                          items={[
-                            { label: "Add footnote citing it", onSelect: () => void addModuleFootnote(item) },
-                            { label: "Remove from essay", onSelect: () => void toggleModuleSource(item.id) },
-                          ]}
-                        />
-                      </li>
-                    ))}
-                    {secondaryCustomSources.map((source) => (
-                      <li key={source.id}>
+                    return (
+                      <div key={fn.id} className="essay-ref-item">
+                        <span className="essay-ref-badge">[{fn.number}]</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontFamily: "var(--serif)" }}>{formatCustomBibliography(source)}</span>
-                          {safeExternalUrl(source.url) && (
-                            <a
-                              href={safeExternalUrl(source.url)!}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="small muted"
-                              style={{ display: "inline-block", marginLeft: "0.5rem" }}
-                            >
-                              Link &rarr;
-                            </a>
+                          {isEditing ? (
+                            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+                              <input
+                                className="essay-ref-edit-input"
+                                type="text"
+                                value={editingFnText}
+                                autoFocus
+                                onChange={(e) => setEditingFnText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveFootnote(fn.id, editingFnText);
+                                  if (e.key === "Escape") setEditingFnId(null);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="button small primary"
+                                onClick={() => handleSaveFootnote(fn.id, editingFnText)}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="button small quiet"
+                                onClick={() => setEditingFnId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="essay-ref-text">
+                              <span>{fn.text}</span>
+                              {linkedItem?.moduleItem && (
+                                <span style={{ display: "inline-block", marginLeft: "0.5rem" }}>
+                                  <Link
+                                    to={{ view: "reader", id: linkedItem.id }}
+                                    className="small muted"
+                                  >
+                                    Open reading &rarr;
+                                  </Link>
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
-                        <span className="badge small" style={{ marginLeft: "0.5rem" }}>External</span>
-                        <Menu
-                          label={`Actions for ${source.title}`}
-                          items={[
-                            { label: "Add footnote citing it", onSelect: () => void addCustomFootnote(source) },
-                            { label: "Remove source", danger: true, onSelect: () => void handleDeleteCustomSource(source.id) },
-                          ]}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </div>
-          )}
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            className="button quiet small"
+                            onClick={() => {
+                              setEditingFnId(fn.id);
+                              setEditingFnText(fn.text);
+                            }}
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Section 2: From research (not in document) */}
+            <section className="essay-panel">
+              <div className="essay-panel-head">
+                <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
+                  From research (not in document) ({fromResearchNotCited.length})
+                </h3>
+              </div>
+              {fromResearchNotCited.length === 0 ? (
+                <p className="small muted">
+                  {allResearchItems.length === 0
+                    ? "No research materials added yet. Choose readings from this module or add external sources."
+                    : "All research materials are currently cited in your document."}
+                </p>
+              ) : (
+                <ul className="essay-source-list">
+                  {fromResearchNotCited.map((item) => (
+                    <li key={item.id}>
+                      {item.isModule && item.moduleItem ? (
+                        <>
+                          <Link to={{ view: "reader", id: item.id }} title={item.title}>
+                            {item.title}
+                          </Link>
+                          <span className="badge small" style={{ marginLeft: "0.5rem" }}>Module</span>
+                          <button
+                            type="button"
+                            className="button quiet small"
+                            onClick={() => void addModuleFootnote(item.moduleItem!)}
+                          >
+                            + Cite in draft
+                          </button>
+                          <Menu
+                            label={`Actions for ${shortTitle(item.moduleItem)}`}
+                            items={[
+                              { label: "Add footnote citing it", onSelect: () => void addModuleFootnote(item.moduleItem!) },
+                              { label: "Remove from essay", onSelect: () => void toggleModuleSource(item.id) },
+                            ]}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontFamily: "var(--serif)" }}>{formatCustomBibliography(item.customSource!)}</span>
+                            {safeExternalUrl(item.customSource?.url) && (
+                              <a
+                                href={safeExternalUrl(item.customSource?.url)!}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="small muted"
+                                style={{ display: "inline-block", marginLeft: "0.5rem" }}
+                              >
+                                Link &rarr;
+                              </a>
+                            )}
+                          </div>
+                          <span className="badge small" style={{ marginLeft: "0.5rem" }}>External</span>
+                          <button
+                            type="button"
+                            className="button quiet small"
+                            onClick={() => void addCustomFootnote(item.customSource!)}
+                          >
+                            + Cite in draft
+                          </button>
+                          <Menu
+                            label={`Actions for ${item.customSource?.title}`}
+                            items={[
+                              { label: "Add footnote citing it", onSelect: () => void addCustomFootnote(item.customSource!) },
+                              { label: "Remove source", danger: true, onSelect: () => void handleDeleteCustomSource(item.id) },
+                            ]}
+                          />
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
         </div>
       )}
 
