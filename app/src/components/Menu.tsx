@@ -28,6 +28,7 @@ export function Menu({
   const panel = useRef<HTMLDivElement>(null);
   const actionSelectedRef = useRef(false);
   const [shift, setShift] = useState(0);
+  const [flipY, setFlipY] = useState(false);
   const shown = items.filter((i) => !i.hidden);
 
   useCloseOnBack(open, () => setOpen(false));
@@ -86,13 +87,23 @@ export function Menu({
     item.onSelect();
   };
 
-  // Keep the panel on screen when its button sits near an edge.
+  // Keep the panel on screen when its button sits near an edge or near the bottom.
   useLayoutEffect(() => {
-    if (!open || !panel.current) return setShift(0);
+    if (!open || !panel.current) {
+      setShift(0);
+      setFlipY(false);
+      return;
+    }
     const rect = panel.current.getBoundingClientRect();
     const margin = 8;
     if (rect.left < margin) setShift(margin - rect.left);
     else if (rect.right > window.innerWidth - margin) setShift(window.innerWidth - margin - rect.right);
+
+    if (rect.bottom > window.innerHeight - margin) {
+      setFlipY(true);
+    } else {
+      setFlipY(false);
+    }
   }, [open]);
 
   if (!shown.length) return null;
@@ -114,7 +125,15 @@ export function Menu({
       {/* On a phone the menu is a sheet over a dimmed page; tapping the page closes it. */}
       {open && portal(<div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />)}
       {open && portal(
-        <div className="menu-panel" role="menu" ref={panel} style={shift ? { transform: `translateX(${shift}px)` } : undefined}>
+        <div
+          className="menu-panel"
+          role="menu"
+          ref={panel}
+          style={{
+            ...(shift ? { transform: `translateX(${shift}px)` } : {}),
+            ...(flipY ? { top: "auto", bottom: "100%", marginBottom: "0.25rem" } : {}),
+          }}
+        >
           {shown.map((item) => (
             <button
               key={item.label}

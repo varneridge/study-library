@@ -14,6 +14,7 @@ import {
 import { commit, newId } from "./sync";
 import { chicagoNote, shortAuthor, shortTitle } from "./titles";
 import type { ItemRow } from "./types";
+import { isAssessmentEnabled } from "./assessmentEnabled";
 
 const EMPTY_REF_IDS: string[] = [];
 const EMPTY_DRAFTS: AssessmentSnapshot[] = [];
@@ -37,24 +38,55 @@ export interface AssessmentSnapshot {
   doc: DocxDocument;
 }
 
+export interface CustomSource {
+  id: string;
+  author?: string;
+  title: string;
+  year?: string;
+  kind?: "primary" | "secondary";
+  publisher?: string;
+  url?: string;
+  notes?: string;
+}
+
+export interface ModuleEssayMeta {
+  id: string;
+  title: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface AssessmentData {
+  id?: string;
   enabled?: boolean;
   title: string;
   wordTarget?: number | null;
   dueDate?: string | null;
+  includeFootnotes?: boolean;
   draft: DocxDocument;
   docx?: Uint8Array | null;
   referenceItemIds: string[];
+  customSources?: CustomSource[];
   previousDrafts: AssessmentSnapshot[];
   rev: number;
   updated_at?: string;
 }
 
-export function assessmentSettingKey(moduleId: string): string {
+export function moduleEssaysKey(moduleId: string): string {
+  return `module_essays:${moduleId}`;
+}
+
+export function assessmentSettingKey(moduleId: string, essayId?: string): string {
+  if (essayId && essayId !== "default") {
+    return `assessment:${moduleId}:${essayId}`;
+  }
   return `assessment:${moduleId}`;
 }
 
-export function assessmentNotesKey(moduleId: string): string {
+export function assessmentNotesKey(moduleId: string, essayId?: string): string {
+  if (essayId && essayId !== "default") {
+    return `assessment-notes:${moduleId}:${essayId}`;
+  }
   return `assessment-notes:${moduleId}`;
 }
 
@@ -79,20 +111,23 @@ export function createEmptyDocxDocument(): DocxDocument {
   };
 }
 
-export function defaultAssessmentData(moduleCode?: string): AssessmentData {
+export function defaultAssessmentData(moduleCode?: string, essayId?: string): AssessmentData {
   return {
+    id: essayId ?? "default",
     title: moduleCode ? `${moduleCode} Essay` : "Essay Draft",
     wordTarget: 2500,
     dueDate: null,
+    includeFootnotes: true,
     draft: createEmptyDocxDocument(),
     referenceItemIds: EMPTY_REF_IDS,
+    customSources: [],
     previousDrafts: EMPTY_DRAFTS,
     rev: 1,
   };
 }
 
-export function normaliseAssessmentData(raw: unknown, moduleCode?: string): AssessmentData {
-  const fallback = defaultAssessmentData(moduleCode);
+export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essayId?: string): AssessmentData {
+  const fallback = defaultAssessmentData(moduleCode, essayId);
   if (!raw || typeof raw !== "object") return fallback;
   const obj = raw as Partial<AssessmentData>;
   const draft = obj.draft && Array.isArray(obj.draft.blocks)
@@ -105,36 +140,180 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string): Asse
     : fallback.draft;
 
   return {
+    id: typeof obj.id === "string" && obj.id ? obj.id : (essayId ?? "default"),
+    enabled: typeof obj.enabled === "boolean" ? obj.enabled : undefined,
     title: typeof obj.title === "string" && obj.title.trim() ? obj.title : fallback.title,
     wordTarget: typeof obj.wordTarget === "number" ? obj.wordTarget : fallback.wordTarget,
     dueDate: typeof obj.dueDate === "string" ? obj.dueDate : null,
+    includeFootnotes: typeof obj.includeFootnotes === "boolean" ? obj.includeFootnotes : true,
     draft,
     referenceItemIds: Array.isArray(obj.referenceItemIds) ? obj.referenceItemIds : EMPTY_REF_IDS,
+    customSources: Array.isArray(obj.customSources) ? obj.customSources : [],
     previousDrafts: Array.isArray(obj.previousDrafts) ? obj.previousDrafts : EMPTY_DRAFTS,
     rev: typeof obj.rev === "number" ? obj.rev : 1,
     updated_at: typeof obj.updated_at === "string" ? obj.updated_at : undefined,
   };
 }
 
-export function useModuleAssessment(moduleId: string, moduleCode?: string): AssessmentData {
-  const row = useLiveQuery(() => db.settings.get(assessmentSettingKey(moduleId)), [moduleId]);
-  return useMemo(() => normaliseAssessmentData(row?.value, moduleCode), [row?.value, moduleCode]);
+export function useModuleAssessment(moduleId: string, moduleCode?: string, essayId?: string): AssessmentData {
+  const key = assessmentSettingKey(moduleId, essayId);
+  const row = useLiveQuery(() => db.settings.get(key), [key]);
+  return useMemo(() => normaliseAssessmentData(row?.value, moduleCode, essayId), [row?.value, moduleCode, essayId]);
 }
 
-export async function getModuleAssessment(moduleId: string, moduleCode?: string): Promise<AssessmentData> {
-  const row = await db.settings.get(assessmentSettingKey(moduleId));
-  return normaliseAssessmentData(row?.value, moduleCode);
+export async function getModuleAssessment(
+  moduleId: string,
+  moduleCode?: string,
+  essayId?: string,
+): Promise<AssessmentData> {
+  const row = await db.settings.get(assessmentSettingKey(moduleId, essayId));
+  return normaliseAssessmentData(row?.value, moduleCode, essayId);
+}
+
+export async function getModuleEssays(moduleId: string, moduleCode?: string): Promise<ModuleEssayMeta[]> {
+  const listRow = await db.settings.get(moduleEssaysKey(moduleId));
+  const list = Array.isArray(listRow?.value) ? (listRow.value as ModuleEssayMeta[]) : null;
+  if (list && list.length > 0) return list;
+
+  const legacyRow = await db.settings.get(assessmentSettingKey(moduleId));
+  if (isAssessmentEnabled(legacyRow)) {
+    const data = normaliseAssessmentData(legacyRow?.value, moduleCode, "default");
+    return [{ id: "default", title: data.title || (moduleCode ? `${moduleCode} Essay` : "Essay") }];
+  }
+  return [];
+}
+
+export function useModuleEssays(moduleId: string, moduleCode?: string): ModuleEssayMeta[] {
+  const listKey = moduleEssaysKey(moduleId);
+  const legacyKey = assessmentSettingKey(moduleId);
+  const listRow = useLiveQuery(() => db.settings.get(listKey), [listKey]);
+  const legacyRow = useLiveQuery(() => db.settings.get(legacyKey), [legacyKey]);
+
+  return useMemo(() => {
+    const list = Array.isArray(listRow?.value) ? (listRow.value as ModuleEssayMeta[]) : null;
+    if (list && list.length > 0) return list;
+    if (isAssessmentEnabled(legacyRow)) {
+      const data = normaliseAssessmentData(legacyRow?.value, moduleCode, "default");
+      return [{ id: "default", title: data.title || (moduleCode ? `${moduleCode} Essay` : "Essay") }];
+    }
+    return [];
+  }, [listRow?.value, legacyRow, moduleCode]);
+}
+
+export async function addModuleEssay(
+  moduleId: string,
+  title?: string,
+  moduleCode?: string,
+): Promise<ModuleEssayMeta> {
+  const existing = await getModuleEssays(moduleId, moduleCode);
+  const id = existing.length === 0 ? "default" : newId();
+  const essayTitle = title?.trim() || (moduleCode ? `${moduleCode} Essay` : "Essay");
+  const meta: ModuleEssayMeta = {
+    id,
+    title: essayTitle,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const nextList = [...existing, meta];
+  await commit([
+    {
+      table: "settings",
+      row: {
+        id: moduleEssaysKey(moduleId),
+        value: nextList,
+      },
+    },
+  ]);
+
+  await saveModuleAssessment(
+    moduleId,
+    {
+      id,
+      enabled: true,
+      title: essayTitle,
+    },
+    { moduleCode, essayId: id },
+  );
+
+  return meta;
+}
+
+export async function deleteModuleEssay(moduleId: string, essayId: string): Promise<void> {
+  const listKey = moduleEssaysKey(moduleId);
+  const listRow = await db.settings.get(listKey);
+  const currentList = Array.isArray(listRow?.value) ? (listRow.value as ModuleEssayMeta[]) : [];
+  const nextList = currentList.filter((e) => e.id !== essayId);
+
+  await withKeyLock(listKey, async () => {
+    if (nextList.length > 0) {
+      await commit([
+        {
+          table: "settings",
+          row: {
+            id: listKey,
+            value: nextList,
+          },
+        },
+      ]);
+    } else {
+      await db.settings.delete(listKey);
+    }
+  });
+
+  const settingKey = assessmentSettingKey(moduleId, essayId);
+  const notesKey = assessmentNotesKey(moduleId, essayId);
+  await db.settings.delete(settingKey);
+  await db.settings.delete(notesKey);
+
+  if (essayId === "default") {
+    await db.settings.delete(assessmentSettingKey(moduleId));
+  }
+}
+
+export async function renameModuleEssay(
+  moduleId: string,
+  essayId: string,
+  title: string,
+): Promise<void> {
+  const cleanTitle = title.trim();
+  if (!cleanTitle) return;
+
+  const listKey = moduleEssaysKey(moduleId);
+  const listRow = await db.settings.get(listKey);
+  const currentList = Array.isArray(listRow?.value) ? (listRow.value as ModuleEssayMeta[]) : [];
+  if (currentList.length > 0) {
+    const nextList = currentList.map((e) =>
+      e.id === essayId ? { ...e, title: cleanTitle, updated_at: new Date().toISOString() } : e,
+    );
+    await commit([
+      {
+        table: "settings",
+        row: {
+          id: listKey,
+          value: nextList,
+        },
+      },
+    ]);
+  }
+
+  await saveModuleAssessment(
+    moduleId,
+    { title: cleanTitle },
+    { essayId },
+  );
 }
 
 export async function saveModuleAssessment(
   moduleId: string,
   updater: Partial<AssessmentData> | ((current: AssessmentData) => AssessmentData),
-  options?: { expectedBaseRev?: number; moduleCode?: string },
+  options?: { expectedBaseRev?: number; moduleCode?: string; essayId?: string },
 ): Promise<AssessmentData> {
-  const key = assessmentSettingKey(moduleId);
+  const essayId = options?.essayId;
+  const key = assessmentSettingKey(moduleId, essayId);
   return withKeyLock(key, async () => {
     const existingRow = await db.settings.get(key);
-    const current = normaliseAssessmentData(existingRow?.value, options?.moduleCode);
+    const current = normaliseAssessmentData(existingRow?.value, options?.moduleCode, essayId);
 
     let next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
 
@@ -159,6 +338,7 @@ export async function saveModuleAssessment(
 
     const saved: AssessmentData = {
       ...next,
+      id: next.id || essayId || "default",
       rev: (current.rev || 1) + 1,
       updated_at: new Date().toISOString(),
     };
@@ -181,8 +361,9 @@ export async function saveDraftSnapshot(
   moduleId: string,
   name?: string,
   moduleCode?: string,
+  essayId?: string,
 ): Promise<AssessmentSnapshot> {
-  const current = await getModuleAssessment(moduleId, moduleCode);
+  const current = await getModuleAssessment(moduleId, moduleCode, essayId);
   const wc = countDocxWords(current.draft).total;
   const stamp = new Date().toLocaleDateString("en-GB", {
     day: "numeric",
@@ -204,7 +385,7 @@ export async function saveDraftSnapshot(
       ...prev,
       previousDrafts: [snapshot, ...prev.previousDrafts].slice(0, 30),
     }),
-    { moduleCode },
+    { moduleCode, essayId },
   );
   return snapshot;
 }
@@ -213,8 +394,9 @@ export async function restoreDraftSnapshot(
   moduleId: string,
   snapshotId: string,
   moduleCode?: string,
+  essayId?: string,
 ): Promise<boolean> {
-  const current = await getModuleAssessment(moduleId, moduleCode);
+  const current = await getModuleAssessment(moduleId, moduleCode, essayId);
   const target = current.previousDrafts.find((s) => s.id === snapshotId);
   if (!target) return false;
 
@@ -236,7 +418,7 @@ export async function restoreDraftSnapshot(
       draft: structuredClone(target.doc),
       previousDrafts: backups.slice(0, 30),
     },
-    { moduleCode },
+    { moduleCode, essayId },
   );
   return true;
 }
@@ -245,6 +427,7 @@ export async function deleteDraftSnapshot(
   moduleId: string,
   snapshotId: string,
   moduleCode?: string,
+  essayId?: string,
 ): Promise<void> {
   await saveModuleAssessment(
     moduleId,
@@ -252,7 +435,7 @@ export async function deleteDraftSnapshot(
       ...prev,
       previousDrafts: prev.previousDrafts.filter((s) => s.id !== snapshotId),
     }),
-    { moduleCode },
+    { moduleCode, essayId },
   );
 }
 
@@ -281,10 +464,11 @@ export async function importAssessmentDocxFile(
   moduleId: string,
   file: File,
   moduleCode?: string,
+  essayId?: string,
 ): Promise<DocxDocument> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const imported = await fromDocxBytes(bytes);
-  const current = await getModuleAssessment(moduleId, moduleCode);
+  const current = await getModuleAssessment(moduleId, moduleCode, essayId);
   const currentWords = countDocxWords(current.draft).total;
   const previousDrafts = [...current.previousDrafts];
 
@@ -306,7 +490,7 @@ export async function importAssessmentDocxFile(
       draft: imported,
       previousDrafts: previousDrafts.slice(0, 30),
     },
-    { moduleCode },
+    { moduleCode, essayId },
   );
   return imported;
 }
@@ -352,11 +536,37 @@ export function wordProgress(words: number, target: number | null | undefined): 
 
 export { isAssessmentEnabled } from "./assessmentEnabled";
 
-export async function enableModuleAssessment(moduleId: string, moduleCode?: string): Promise<AssessmentData> {
-  return saveModuleAssessment(moduleId, (current) => ({
-    ...current,
-    enabled: true,
-  }), { moduleCode });
+export async function enableModuleAssessment(
+  moduleId: string,
+  moduleCode?: string,
+  essayId?: string,
+): Promise<AssessmentData> {
+  const existing = await getModuleEssays(moduleId, moduleCode);
+  if (existing.length === 0) {
+    const defaultMeta: ModuleEssayMeta = {
+      id: essayId ?? "default",
+      title: moduleCode ? `${moduleCode} Essay` : "Essay",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await commit([
+      {
+        table: "settings",
+        row: {
+          id: moduleEssaysKey(moduleId),
+          value: [defaultMeta],
+        },
+      },
+    ]);
+  }
+  return saveModuleAssessment(
+    moduleId,
+    (current) => ({
+      ...current,
+      enabled: true,
+    }),
+    { moduleCode, essayId },
+  );
 }
 
 export async function deleteModuleAssessment(moduleId: string): Promise<void> {

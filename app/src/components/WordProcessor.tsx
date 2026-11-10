@@ -5,6 +5,7 @@ import { useModuleAssessment, saveModuleAssessment, getModuleAssessment } from "
 import { toDocxBytes, fromDocxBytes, countDocxWords, type DocxDocument } from "../lib/docx";
 import { navigate } from "../lib/router";
 import { showToast, useTitle } from "../lib/ui";
+import { Icon } from "./icons";
 
 const EDITOR_PATH = "/wordcraft/index.html";
 const READY_TIMEOUT_MS = 20_000;
@@ -80,12 +81,12 @@ function formatWordCount(count: number | null, target: number | null | undefined
   return target ? `${words} of ${target.toLocaleString("en-GB")}` : words;
 }
 
-export function WordProcessor({ id }: { id: string; q?: string }) {
+export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string; q?: string }) {
   const module = useLiveQuery(() => db.modules.get(id), [id]);
-  const assessment = useModuleAssessment(id, module?.code);
+  const assessment = useModuleAssessment(id, module?.code, essayId);
 
   const title = assessment.title || (module?.code ? `${module.code} Essay` : "Essay Draft");
-  useTitle(title ? `${title} — Word processor` : "Word processor");
+  useTitle(title ? `${title}: Word processor` : "Word processor");
 
   const initialWords = countDocxWords(assessment.draft).total;
   const [wordCount, setWordCount] = useState<number | null>(initialWords);
@@ -108,10 +109,18 @@ export function WordProcessor({ id }: { id: string; q?: string }) {
   assessmentRef.current = assessment;
 
   const moduleCode = module?.code;
-  const src = `${EDITOR_PATH}?host=parent&author=${encodeURIComponent("Student")}`;
+  const src = `${EDITOR_PATH}?host=parent&noribbon=1&author=${encodeURIComponent("Student")}`;
+
+  const handleUndo = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:undo" }, window.location.origin);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:redo" }, window.location.origin);
+  }, []);
 
   const loadDocxBytes = useCallback(async (): Promise<Uint8Array> => {
-    const row = await getModuleAssessment(id, moduleCode);
+    const row = await getModuleAssessment(id, moduleCode, essayId);
     if (mountedRef.current) {
       setWordCount(countDocxWords(row.draft).total);
     }
@@ -119,7 +128,7 @@ export function WordProcessor({ id }: { id: string; q?: string }) {
       return new Uint8Array(row.docx);
     }
     return toDocxBytes(row.draft, { title: row.title || title, author: "Student" });
-  }, [id, moduleCode, title]);
+  }, [id, moduleCode, essayId, title]);
 
   const openDocument = useCallback(async () => {
     const seq = ++openSeqRef.current;
@@ -162,11 +171,15 @@ export function WordProcessor({ id }: { id: string; q?: string }) {
           }
           const computedCount = job.wordCount ?? (updatedDoc ? countDocxWords(updatedDoc).total : wordCount);
 
-          await saveModuleAssessment(id, (prev) => ({
-            ...prev,
-            docx: job.bytes,
-            draft: updatedDoc ?? prev.draft,
-          }));
+          await saveModuleAssessment(
+            id,
+            (prev) => ({
+              ...prev,
+              docx: job.bytes,
+              draft: updatedDoc ?? prev.draft,
+            }),
+            { moduleCode, essayId },
+          );
 
           if (!mountedRef.current) continue;
           setWordCount(computedCount);
@@ -280,7 +293,7 @@ export function WordProcessor({ id }: { id: string; q?: string }) {
     if (unsaved && !window.confirm("You have unsaved changes. Leave the editor anyway?")) {
       return;
     }
-    navigate({ view: "assessment", id });
+    navigate({ view: "assessment", id, ...(essayId && essayId !== "default" ? { essay: essayId } : {}) });
   };
 
   const reloadEditor = () => {
@@ -291,18 +304,43 @@ export function WordProcessor({ id }: { id: string; q?: string }) {
   return (
     <div className="wp word-processor">
       <header className="wp-bar">
-        <button type="button" className="wp-back" onClick={handleBack}>
-          <span aria-hidden="true">&larr;</span> Back to module assessment
-        </button>
+        <div className="wp-bar-left">
+          <button type="button" className="wp-back button quiet small" onClick={handleBack}>
+            <Icon name="back" size={16} />
+            <span>Back to essay</span>
+          </button>
+          <div className="wp-history" role="toolbar" aria-label="History">
+            <button
+              type="button"
+              className="button icon-only quiet"
+              title="Undo (Ctrl+Z)"
+              aria-label="Undo"
+              onClick={handleUndo}
+            >
+              <Icon name="undo" size={16} />
+            </button>
+            <button
+              type="button"
+              className="button icon-only quiet"
+              title="Redo (Ctrl+Y)"
+              aria-label="Redo"
+              onClick={handleRedo}
+            >
+              <Icon name="redo" size={16} />
+            </button>
+          </div>
+        </div>
         <div className="wp-heading">
           <h1 className="wp-title" title={title}>
             {title}
           </h1>
           <span className="wp-count">{formatWordCount(wordCount, assessment.wordTarget)}</span>
         </div>
-        <span className="wp-status" data-status={status} role="status">
-          {STATUS_LABELS[status]}
-        </span>
+        <div className="wp-bar-right">
+          <span className="wp-status" data-status={status} role="status">
+            {STATUS_LABELS[status]}
+          </span>
+        </div>
       </header>
 
       {error && (

@@ -328,7 +328,8 @@ export function App() {
   }
 
   if (route.view === "essay") {
-    return <><main id="main"><ErrorBoundary key={route.id} label="word processor"><Suspense fallback={openingEssay}><WordProcessor key={route.id} id={route.id} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><RecorderPill route={route} /></>;
+    const essayKey = `${route.id}:${route.essay ?? "default"}`;
+    return <><main id="main"><ErrorBoundary key={essayKey} label="word processor"><Suspense fallback={openingEssay}><WordProcessor key={essayKey} id={route.id} essayId={route.essay} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><RecorderPill route={route} /></>;
   }
 
   if (route.view === "jobs") {
@@ -361,7 +362,7 @@ export function App() {
       {route.view === "home" && <Home />}
       {route.view === "module" && <ModulePage id={route.id} />}
       {route.view === "week" && <WeekPage id={route.id} />}
-      {route.view === "assessment" && <AssessmentPage id={route.id} />}
+      {route.view === "assessment" && <AssessmentPage id={route.id} essayId={route.essay} />}
       {route.view === "across" && <AcrossPage term={route.term} number={route.number} />}
       {route.view === "settings" && <Settings />}
       {route.view === "session" && <SessionPage id={route.id} rec={route.rec} t={route.t} turn={route.turn} />}

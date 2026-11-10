@@ -3,7 +3,7 @@ Course materials & assessments, opening a page laid out as a history student
 works, with collapsible headings in its plan that fold their whole section;
 and the Word processor with native OpenXML (.docx) footnotes and review
 comments."""
-import sys, tempfile, zipfile
+import re, sys, tempfile, zipfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -79,31 +79,31 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     toggle = materials.locator(".section-toggle")
     expect(toggle).to_contain_text("Course materials & assessments")
     expect(toggle).to_have_attribute("aria-expanded", "true")
-    # One dropdown menu in Course materials & assessments offers both Syllabus/admin and Assessment & essay.
+    # One dropdown menu in Course materials & assessments offers both Admin and Essay.
     expect(page.get_by_role("button", name="Add syllabus / admin section")).to_have_count(0)
     add_btn = materials.get_by_role("button", name="Add to course materials")
     if add_btn.is_visible():
         add_btn.click()
-        page.get_by_role("menuitem", name="Assessment & essay").click()
-    card = materials.locator(".essay-card")
+        page.get_by_role("menuitem", name="Essay").click()
+    card = materials.locator(".essay-card").first
     expect(card).to_be_visible()
     # Adding stays on the main module page rather than navigating into the new unit:
     assert "v=assessment" not in page.url, page.url
-    card.get_by_role("link", name="Assessment & essay").click()
-    expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
+    card.locator(".week-card-title-link").click()
+    expect(page.locator(".essay-page")).to_be_visible()
     assert "v=assessment" in page.url, page.url
 
-    # The page in the order the work is done: the question, the draft and the
-    # plan, beside the deadline, the word count, the sources and the snapshots.
-    for name in ["Draft", "Plan and argument", "Deadline", "Word count", "Sources", "Snapshots"]:
-        expect(page.get_by_role("heading", name=name, exact=True)).to_be_visible()
+    # The page with clear segmented tabs: Draft & preview, Plan & argument, Sources & citations, Snapshots.
+    for tab in ["Draft & preview", "Plan & argument", "Sources & citations", "Snapshots"]:
+        expect(page.get_by_role("tab", name=re.compile(tab))).to_be_visible()
     question = "How far was Germany responsible for the outbreak of war in 1914?"
     page.get_by_label("Essay question").fill(question)
-    expect(page.locator(".essay-panel", has_text="Word count")).to_contain_text("0 of 2,500 words")
+    expect(page.locator(".essay-stats-bar")).to_contain_text("0 words of 2,500")
     page.screenshot(path=str(HERE / "shots" / "assessment-1-page.png"), full_page=True)
 
     # A collapsible heading in the plan folds its whole section, up to the
     # next heading of the same level.
+    page.get_by_role("tab", name=re.compile("Plan & argument")).click()
     plan = page.locator(".essay-plan .bn-editor")
     plan.click()
     page.keyboard.type("/collapsible heading 2")
@@ -126,7 +126,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     print("a collapsible heading folds its whole section and opens again")
 
     # Open WordCraft, where the question is the essay's title.
-    page.get_by_role("link", name="Open word processor").click()
+    page.get_by_role("link", name="Open in word processor").click()
     expect(page.locator(".word-processor")).to_be_visible()
     expect(page.locator(".wp-title")).to_contain_text(question)
     expect(page.locator(".wp-count")).to_contain_text("0 words of 2,500")
@@ -134,8 +134,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
 
     # Back returns to the module assessment page.
-    page.get_by_role("button", name="Back to module assessment").click()
-    expect(page.get_by_role("heading", name="Assessment & essay", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Back to essay").click()
+    expect(page.locator(".essay-page")).to_be_visible()
     expect(page.get_by_label("Essay question")).to_have_value(question)
     print("the assessment page opens WordCraft and returns to the assessment overview")
     assert not errors, f"Page errors: {errors}"

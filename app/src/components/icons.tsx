@@ -24,6 +24,8 @@ const paths: Record<string, React.ReactNode> = {
   notes: <><path d="M5 2.75h7l3 3v11.5H5Z" /><path d="M12 2.75v3h3M7.5 9.5h5M7.5 12h5M7.5 14.5h3" /></>,
   caret: <path d="m6.5 8.5 3.5 3.5 3.5-3.5" />,
   plus: <path d="M10 4.5v11M4.5 10h11" />,
+  undo: <><path d="M3.5 8.5 7 5M3.5 8.5 7 12" /><path d="M3.5 8.5h7a5 5 0 0 1 5 5v1" /></>,
+  redo: <><path d="m16.5 8.5-3.5-3.5M16.5 8.5 13 12" /><path d="M16.5 8.5h-7a5 5 0 0 0-5 5v1" /></>,
   // Two columns of dots, the usual sign that a row can be picked up.
   grip: <><circle cx="7.5" cy="5.5" r="1" fill="currentColor" /><circle cx="12.5" cy="5.5" r="1" fill="currentColor" /><circle cx="7.5" cy="10" r="1" fill="currentColor" /><circle cx="12.5" cy="10" r="1" fill="currentColor" /><circle cx="7.5" cy="14.5" r="1" fill="currentColor" /><circle cx="12.5" cy="14.5" r="1" fill="currentColor" /></>,
   close: <path d="m5.5 5.5 9 9M14.5 5.5l-9 9" />,

@@ -9,9 +9,9 @@ export type Route =
   | { view: "module"; id: string }
   | { view: "week"; id: string }
   | { view: "reader"; id: string; page?: number; q?: string }
-  | { view: "essay"; id: string; q?: string }
+  | { view: "essay"; id: string; essay?: string; q?: string }
   // A module's Assessment & essay page.
-  | { view: "assessment"; id: string }
+  | { view: "assessment"; id: string; essay?: string }
   | { view: "across"; term?: string; number?: number }
   | { view: "session"; id: string; rec?: string; t?: number; turn?: number }
   | { view: "search"; q?: string }
@@ -26,14 +26,26 @@ export function parseRoute(search: string): Route {
   switch (view) {
     case "module":
     case "week":
-    case "assessment":
       return id ? { view, id } : { view: "home" };
+    case "assessment": {
+      const essay = params.get("essay");
+      return id ? (essay ? { view, id, essay } : { view, id }) : { view: "home" };
+    }
     // The import page has gone. An old link to it opens its module, where
     // files dropped on the page go to the weeks in their names.
     case "import":
       return id ? { view: "module", id } : { view: "home" };
-    case "essay":
-      return id ? { view, id, q: params.get("q") ?? undefined } : { view: "home" };
+    case "essay": {
+      const essay = params.get("essay");
+      const q = params.get("q");
+      if (!id) return { view: "home" };
+      return {
+        view,
+        id,
+        ...(essay ? { essay } : {}),
+        ...(q ? { q } : {}),
+      };
+    }
     case "reader": {
       const pageStr = params.get("page");
       const pageNum = pageStr !== null && pageStr.trim() !== "" ? Number(pageStr) : NaN;
@@ -79,6 +91,7 @@ export function href(route: Route): string {
   const params = new URLSearchParams();
   if (route.view !== "home") params.set("v", route.view);
   if ("id" in route) params.set("id", route.id);
+  if ((route.view === "assessment" || route.view === "essay") && route.essay) params.set("essay", route.essay);
   if (route.view === "reader" && route.page !== undefined) params.set("page", String(route.page));
   if ((route.view === "reader" || route.view === "essay") && route.q) params.set("q", route.q);
   if (route.view === "session") {

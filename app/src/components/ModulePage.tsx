@@ -27,7 +27,13 @@ import { Icon } from "./icons";
 import { setSetting, useSetting } from "../lib/settings";
 import { DatePicker } from "./DatePicker";
 import { AssessmentCard } from "./AssessmentPage";
-import { assessmentSettingKey, enableModuleAssessment, isAssessmentEnabled } from "../lib/assessment";
+import {
+  addModuleEssay,
+  assessmentSettingKey,
+  enableModuleAssessment,
+  isAssessmentEnabled,
+  useModuleEssays,
+} from "../lib/assessment";
 
 
 function formatReadingCount(counts: { read: number; total: number }): string | null {
@@ -399,8 +405,9 @@ export function ModulePage({ id }: { id: string }) {
   const dates = useTermDates();
   const data = useLiveQuery(() => loadModuleOverview(id, now), [id, now]);
   const isCollapsed = useSetting<boolean>(`collapse:admin:${id}`, false);
+  const essays = useModuleEssays(id, data?.module.code);
   const assessmentRow = useLiveQuery(() => db.settings.get(assessmentSettingKey(id)), [id]);
-  const hasAssessment = isAssessmentEnabled(assessmentRow);
+  const hasAssessment = isAssessmentEnabled(assessmentRow) || essays.length > 0;
   const [forcedOpen, setForcedOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -536,7 +543,7 @@ export function ModulePage({ id }: { id: string }) {
               >
                 <Icon name={adminOpen ? "down" : "caret"} size={16} />
                 <span>Course materials & assessments</span>
-                <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + (hasAssessment ? 1 : 0)})</span>
+                <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + (essays.length > 0 ? essays.length : (hasAssessment ? 1 : 0))})</span>
               </button>
             </h2>
             <Menu
@@ -550,22 +557,21 @@ export function ModulePage({ id }: { id: string }) {
               }
               items={[
                 {
-                  label: "Syllabus / admin section",
+                  label: "Admin",
                   onSelect: async () => {
-                    await addSection(module.id, "Syllabus & Admin");
+                    await addSection(module.id, "Admin");
                     setForcedOpen(true);
                     void setSetting(`collapse:admin:${id}`, false);
-                    showToast("Syllabus / admin section added.");
+                    showToast("Admin section added.");
                   },
                 },
                 {
-                  label: "Assessment & essay",
-                  hidden: hasAssessment,
+                  label: "Essay",
                   onSelect: async () => {
-                    await enableModuleAssessment(module.id, module.code);
+                    await addModuleEssay(module.id, "Essay", module.code);
                     setForcedOpen(true);
                     void setSetting(`collapse:admin:${id}`, false);
-                    showToast("Assessment & essay section added.");
+                    showToast("Essay added.");
                   },
                 },
               ]}
@@ -583,7 +589,21 @@ export function ModulePage({ id }: { id: string }) {
                 onEndRename={() => setRenamingId(null)}
               />
             ))}
-            {hasAssessment && <AssessmentCard module={module} />}
+            {essays.length > 0 ? (
+              essays.map((essay) => (
+                <AssessmentCard
+                  key={essay.id}
+                  module={module}
+                  essayId={essay.id}
+                  title={essay.title}
+                  renaming={renamingId === essay.id}
+                  onStartRename={() => setRenamingId(essay.id)}
+                  onEndRename={() => setRenamingId(null)}
+                />
+              ))
+            ) : hasAssessment ? (
+              <AssessmentCard module={module} />
+            ) : null}
           </div>
         </section>
       )}
