@@ -20,7 +20,6 @@ import {
   saveDraftSnapshot,
   saveModuleAssessment,
   useModuleAssessment,
-  wordProgress,
   type CustomSource,
 } from "../lib/assessment";
 import { shortDate } from "../lib/dates";
@@ -40,13 +39,29 @@ import type { ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
-import { Icon } from "./icons";
+import { Icon, IconButton } from "./icons";
 import { Menu } from "./Menu";
 import { Sheet } from "./Sheet";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
 const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
+
+// The preview sheet is laid out at A4 width (210 mm at 96 dpi) and scaled from there.
+const PREVIEW_PAGE_WIDTH = 794;
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const MIN_FIT_SCALE = 0.4;
+const MAX_FIT_SCALE = 2;
+
+const clampScale = (value: number) => Math.min(MAX_FIT_SCALE, Math.max(MIN_FIT_SCALE, value));
+
+// A stored Word file counts as present once it holds more than a bare header.
+const hasDocxBytes = (assessment: object): boolean => {
+  const stored = (assessment as { docx?: { byteLength: number } | null }).docx;
+  return Boolean(stored && stored.byteLength > 4);
+};
+
+type SaveState = "saved" | "saving" | "error";
 
 type EssayTab = "draft" | "plan" | "sources" | "snapshots";
 
@@ -205,6 +220,58 @@ function paginateDocxBlocks(blocks: DocxBlock[], wordsPerPage = 320): PreviewPag
   return pages;
 }
 
+// Scales the page stack with a transform, which animates smoothly, and sizes a stage to the
+// scaled result because a transform does not change layout size. The measured width of the
+// viewport also gives the scale that makes a page fit it exactly.
+function PreviewZoomStage({
+  scale,
+  onFitScale,
+  children,
+}: {
+  scale: number;
+  onFitScale: (fitScale: number) => void;
+  children: React.ReactNode;
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const [sheetHeight, setSheetHeight] = useState(0);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const sheet = sheetRef.current;
+    if (!viewport || !sheet) return;
+    const measure = () => {
+      const styles = window.getComputedStyle(viewport);
+      const gutter = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+      const available = viewport.clientWidth - gutter;
+      if (available > 0) onFitScale(Math.round(clampScale(available / PREVIEW_PAGE_WIDTH) * 1000) / 1000);
+      setSheetHeight(sheet.offsetHeight);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(sheet);
+    return () => observer.disconnect();
+  }, [onFitScale]);
+
+  return (
+    <div className="essay-zoom-viewport" ref={viewportRef}>
+      <div
+        className="essay-zoom-stage"
+        style={{ width: PREVIEW_PAGE_WIDTH * scale, height: sheetHeight ? sheetHeight * scale : undefined }}
+      >
+        <div className="essay-zoom-sheet" ref={sheetRef} style={{ transform: `scale(${scale})` }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Authentic paper sheet rendering the essay page by page in Times New Roman with genuine margins.
 function EssayDocumentSheet({
   doc,
@@ -274,7 +341,7 @@ function EssayDocumentSheet({
         <article className="essay-preview-page">
           <div className="essay-sheet-empty">
             <p><strong>Nothing written yet.</strong></p>
-            <p className="small muted">Open the word processor above to start writing, or import a Word document.</p>
+            <p className="small muted">Use Open in word processor to start writing, or import a Word document.</p>
           </div>
         </article>
       </div>
@@ -329,8 +396,21 @@ export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }
 
 function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: string }) {
   const assessment = useModuleAssessment(module.id, module.code, essayId);
-  const save = (patch: Parameters<typeof saveModuleAssessment>[1]) =>
-    saveModuleAssessment(module.id, patch, { moduleCode: module.code, essayId });
+  // Every field save goes through here so the status beside the title stays truthful, with a
+  // counter so that overlapping saves cannot report "Saved" while another is still running.
+  const save = async (patch: Parameters<typeof saveModuleAssessment>[1]) => {
+    inflightSaves.current += 1;
+    setSaveState("saving");
+    try {
+      await saveModuleAssessment(module.id, patch, { moduleCode: module.code, essayId });
+      if (inflightSaves.current === 1) setSaveState("saved");
+    } catch (err) {
+      console.error("Saving the essay failed", err);
+      setSaveState("error");
+    } finally {
+      inflightSaves.current -= 1;
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<EssayTab>("draft");
   const [question, setQuestion] = useState(assessment.title);
@@ -339,23 +419,14 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const typingTarget = useRef(false);
   const tabListRef = useRef<HTMLDivElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [fitWidth, setFitWidth] = useState(true);
+  const [fitScale, setFitScale] = useState(1);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const inflightSaves = useRef(0);
+  const cancelTarget = useRef(false);
   const [editingFnId, setEditingFnId] = useState<string | null>(null);
   const [editingFnText, setEditingFnText] = useState("");
-
-  useEffect(() => {
-    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen?.();
-    } else {
-      void document.documentElement.requestFullscreen?.().catch(() => {});
-    }
-  };
 
   useEffect(() => {
     const updateIndicator = () => {
@@ -382,6 +453,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   }, [assessment.wordTarget]);
 
   const [choosing, setChoosing] = useState(false);
+  const [editingTarget, setEditingTarget] = useState(false);
   const [addingCustom, setAddingCustom] = useState(false);
   const [newSourceKind, setNewSourceKind] = useState<"primary" | "secondary">("secondary");
   const [newSourceAuthor, setNewSourceAuthor] = useState("");
@@ -398,8 +470,59 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const counts = useMemo(() => countDocxWords(assessment.draft), [assessment.draft]);
   const includeFootnotes = assessment.includeFootnotes !== false;
   const effectiveWords = effectiveWordCount(counts, assessment.draft, includeFootnotes);
-  const progress = wordProgress(effectiveWords, assessment.wordTarget);
   const due = assessment.dueDate ? countdown(assessment.dueDate) : null;
+  const hasContent = hasDocxBytes(assessment) || counts.body + counts.quotes + counts.footnotes > 0;
+  const scale = fitWidth ? fitScale : zoom;
+  const unsavedTitle = question.trim() !== (assessment.title ?? "").trim();
+  const saveLabel = unsavedTitle
+    ? "Unsaved"
+    : saveState === "saving"
+      ? "Saving…"
+      : saveState === "error"
+        ? "Not saved"
+        : "Saved";
+  const saveStatus = unsavedTitle ? "unsaved" : saveState;
+
+  const stepZoom = (direction: 1 | -1) => {
+    const next =
+      direction > 0
+        ? ZOOM_LEVELS.find((level) => level > scale + 0.001)
+        : [...ZOOM_LEVELS].reverse().find((level) => level < scale - 0.001);
+    if (next === undefined) return;
+    setZoom(next);
+    setFitWidth(false);
+  };
+
+  const resetZoom = () => {
+    setZoom(1);
+    setFitWidth(false);
+  };
+
+  const commitTarget = () => {
+    typingTarget.current = false;
+    if (cancelTarget.current) {
+      cancelTarget.current = false;
+      setTarget(assessment.wordTarget ? String(assessment.wordTarget) : "");
+      return;
+    }
+    const raw = target.trim();
+    const parsed = raw === "" ? null : Math.round(Number(raw));
+    const next = parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    setTarget(next ? String(next) : "");
+    if (next !== (assessment.wordTarget ?? null)) void save({ wordTarget: next });
+  };
+
+  const handleImportClick = async () => {
+    if (hasContent) {
+      const ok = await confirmAction({
+        title: "Replace the Word document?",
+        body: "The current draft will be replaced by the file you choose. Save a snapshot first if you may want it back.",
+        confirm: "Choose file",
+      });
+      if (!ok) return;
+    }
+    importer.current?.click();
+  };
 
   // Module readings
   const refIds = assessment.referenceItemIds.join(",");
@@ -564,57 +687,49 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
   const addModuleFootnote = async (item: ItemRow) => {
     const footnoteId = `fn-${newId()}`;
-    await saveModuleAssessment(
-      module.id,
-      (prev) => {
-        const blocks = [...prev.draft.blocks];
-        const last = blocks.length - 1;
-        if (last >= 0) {
-          blocks[last] = {
-            ...blocks[last],
-            runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
-          };
-        }
-        const note: DocxFootnote = {
-          id: footnoteId,
-          text: formatChicagoFootnote(item),
-          citationItemId: item.id,
+    await save((prev) => {
+      const blocks = [...prev.draft.blocks];
+      const last = blocks.length - 1;
+      if (last >= 0) {
+        blocks[last] = {
+          ...blocks[last],
+          runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
         };
-        return {
-          ...prev,
-          draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
-        };
-      },
-      { moduleCode: module.code, essayId },
-    );
+      }
+      const note: DocxFootnote = {
+        id: footnoteId,
+        text: formatChicagoFootnote(item),
+        citationItemId: item.id,
+      };
+      return {
+        ...prev,
+        draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
+      };
+    });
     showToast("Footnote added at the end of the draft.");
   };
 
   const addCustomFootnote = async (source: CustomSource) => {
     const footnoteId = `fn-${newId()}`;
-    await saveModuleAssessment(
-      module.id,
-      (prev) => {
-        const blocks = [...prev.draft.blocks];
-        const last = blocks.length - 1;
-        if (last >= 0) {
-          blocks[last] = {
-            ...blocks[last],
-            runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
-          };
-        }
-        const note: DocxFootnote = {
-          id: footnoteId,
-          text: formatCustomFootnote(source),
-          citationItemId: source.id,
+    await save((prev) => {
+      const blocks = [...prev.draft.blocks];
+      const last = blocks.length - 1;
+      if (last >= 0) {
+        blocks[last] = {
+          ...blocks[last],
+          runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
         };
-        return {
-          ...prev,
-          draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
-        };
-      },
-      { moduleCode: module.code, essayId },
-    );
+      }
+      const note: DocxFootnote = {
+        id: footnoteId,
+        text: formatCustomFootnote(source),
+        citationItemId: source.id,
+      };
+      return {
+        ...prev,
+        draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
+      };
+    });
     showToast("Footnote added at the end of the draft.");
   };
 
@@ -653,22 +768,11 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     <div className="page wide essay-page">
       <div className="crumbs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> {assessment.title || "Essay"}
+          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> Essay
         </div>
         <Menu
           label="Essay actions"
           items={[
-            {
-              label: "Export .docx",
-              onSelect: () => {
-                downloadDocxFile(assessment.draft, assessment.title);
-                showToast("Word document downloaded.");
-              },
-            },
-            {
-              label: "Import .docx",
-              onSelect: () => importer.current?.click(),
-            },
             {
               label: "Delete essay",
               danger: true,
@@ -703,23 +807,85 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           }}
         />
         <span className="spacer" />
-        <Link to={wordProcessorRoute} className="button primary">
-          <Icon name="notes" size={16} />
-          <span>Open in word processor</span>
-        </Link>
+        <span className="save-status" data-status={saveStatus} role="status" aria-live="polite">
+          <span className="save-status-dot" aria-hidden="true" />
+          {saveLabel}
+        </span>
       </div>
-
-      {module.title && <p className="lede" style={{ marginBottom: "1rem" }}>{module.title}</p>}
 
       {/* Stats bar */}
       <div className="essay-stats-bar">
         <div className="row" style={{ gap: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
           <div>
             <strong>{effectiveWords.toLocaleString("en-GB")}</strong>{" "}
-            <span className="muted">{effectiveWords === 1 ? "word" : "words"}</span>
-            {assessment.wordTarget ? (
-              <span className="muted"> of {assessment.wordTarget.toLocaleString("en-GB")} target</span>
-            ) : null}
+            <span className="muted">{effectiveWords === 1 ? "word" : "words"}</span>{" "}
+            <span className="essay-inline-target">
+              {editingTarget ? (
+                <>
+                  <span className="muted">of </span>
+                  <input
+                    type="number"
+                    autoFocus
+                    inputMode="numeric"
+                    min={0}
+                    step={100}
+                    value={target}
+                    placeholder="2500"
+                    aria-label="Word target"
+                    title="Word target"
+                    style={{ width: `${Math.max(target.length, 4) + 1}ch` }}
+                    onFocus={() => {
+                      typingTarget.current = true;
+                    }}
+                    onChange={(e) => setTarget(e.target.value)}
+                    onBlur={() => {
+                      setEditingTarget(false);
+                      commitTarget();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setEditingTarget(false);
+                        commitTarget();
+                      }
+                      if (e.key === "Escape") {
+                        cancelTarget.current = true;
+                        setEditingTarget(false);
+                        commitTarget();
+                      }
+                    }}
+                  />
+                  <span className="muted"> target</span>
+                </>
+              ) : assessment.wordTarget ? (
+                <>
+                  <span className="muted">of </span>
+                  <button
+                    type="button"
+                    className="essay-target-btn"
+                    onClick={() => {
+                      setTarget(String(assessment.wordTarget));
+                      setEditingTarget(true);
+                    }}
+                    title="Click to edit target word count"
+                  >
+                    {assessment.wordTarget.toLocaleString("en-GB")}
+                  </button>
+                  <span className="muted"> target</span>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="essay-target-btn muted"
+                  onClick={() => {
+                    setTarget("");
+                    setEditingTarget(true);
+                  }}
+                  title="Click to set target word count"
+                >
+                  Set target
+                </button>
+              )}
+            </span>
           </div>
           <label className="essay-footnote-toggle">
             <input
@@ -731,13 +897,16 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           </label>
         </div>
         <div className="row" style={{ gap: "1rem", alignItems: "center" }}>
-          {due && assessment.dueDate ? (
-            <span className={`badge ${due.state === "soon" || due.state === "today" ? "badge-accent" : ""}`}>
-              Due {shortDate(dayOf(assessment.dueDate))}, {due.words}
-            </span>
-          ) : (
-            <span className="muted small">No deadline set</span>
-          )}
+          <DatePicker
+            value={assessment.dueDate ?? null}
+            onChange={(d) => void save({ dueDate: d })}
+            label="Assessment due date"
+            title={`Due date for ${assessment.title || "the essay"}`}
+            placeholder="Set due date"
+            clearable
+            className={`essay-due-chip${due && (due.state === "soon" || due.state === "today") ? " is-soon" : ""}`}
+          />
+          {due && assessment.dueDate ? <span className="muted small essay-due-words">{due.words}</span> : null}
         </div>
       </div>
 
@@ -800,20 +969,40 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       {/* TAB 1: Draft & Page-Form Preview */}
       {activeTab === "draft" && (
         <div id="panel-draft" role="tabpanel" aria-labelledby="tab-draft">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <span className="small muted">
+          <div className="essay-preview-toolbar">
+            <Link to={wordProcessorRoute} className="button primary essay-open-button">
+              <Icon name="notes" size={16} />
+              <span>Open in word processor</span>
+            </Link>
+            <span className="small muted essay-preview-breakdown">
               Body {counts.body.toLocaleString("en-GB")}, block quotations {counts.quotes.toLocaleString("en-GB")}, footnotes {counts.footnotes.toLocaleString("en-GB")}.
             </span>
-            <div className="row" style={{ gap: "0.5rem" }}>
+            <div className="essay-zoom-controls" role="group" aria-label="Zoom">
+              <IconButton icon="zoomOut" label="Zoom out" disabled={scale <= ZOOM_LEVELS[0] + 0.001} onClick={() => stepZoom(-1)} />
               <button
                 type="button"
-                className="button quiet small"
-                onClick={toggleFullscreen}
-                title={isFullscreen ? "Exit full screen" : "Full screen"}
+                className="essay-zoom-percent"
+                title="Reset zoom to 100%"
+                aria-label={`Zoom ${Math.round(scale * 100)} per cent. Reset to 100 per cent`}
+                onClick={resetZoom}
               >
-                <Icon name={isFullscreen ? "minimize" : "enlarge"} size={14} />
-                <span>{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+                {Math.round(scale * 100)}%
               </button>
+              <IconButton
+                icon="zoomIn"
+                label="Zoom in"
+                disabled={scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] - 0.001}
+                onClick={() => stepZoom(1)}
+              />
+              <IconButton
+                icon="fitWidth"
+                label="Fit to width"
+                pressed={fitWidth}
+                className="essay-zoom-fit"
+                onClick={() => setFitWidth((current) => !current)}
+              />
+            </div>
+            <div className="row essay-preview-actions">
               <button
                 type="button"
                 className="button small"
@@ -824,13 +1013,15 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               >
                 Export .docx
               </button>
-              <button type="button" className="button quiet small" onClick={() => importer.current?.click()}>
-                Import .docx
+              <button type="button" className="button quiet small" onClick={() => void handleImportClick()}>
+                {hasContent ? "Replace Word document" : "Import Word document"}
               </button>
             </div>
           </div>
 
-          <EssayDocumentSheet doc={assessment.draft} />
+          <PreviewZoomStage scale={scale} onFitScale={setFitScale}>
+            <EssayDocumentSheet doc={assessment.draft} />
+          </PreviewZoomStage>
         </div>
       )}
 
@@ -1134,43 +1325,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           </section>
         </div>
       )}
-
-      {/* Target and Deadline settings at the bottom */}
-      <div className="row" style={{ marginTop: "2rem", gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div style={{ flex: 1, minWidth: "14rem" }}>
-          <DatePicker
-            value={assessment.dueDate ?? null}
-            onChange={(d) => void save({ dueDate: d })}
-            label="Assessment due date"
-            title={`Due date for ${assessment.title || "the essay"}`}
-            placeholder="Set due date"
-            clearable
-          />
-        </div>
-        <div style={{ width: "10rem" }}>
-          <label className="field" style={{ margin: 0 }}>
-            <span>Word target</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={100}
-              value={target}
-              placeholder="2500"
-              onFocus={() => {
-                typingTarget.current = true;
-              }}
-              onBlur={() => {
-                typingTarget.current = false;
-              }}
-              onChange={(e) => {
-                setTarget(e.target.value);
-                void save({ wordTarget: e.target.value.trim() ? Number(e.target.value) : null });
-              }}
-            />
-          </label>
-        </div>
-      </div>
 
       {/* Module reading selection sheet */}
       <Sheet

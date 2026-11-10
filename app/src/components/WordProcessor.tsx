@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
 import { useModuleAssessment, saveModuleAssessment, getModuleAssessment } from "../lib/assessment";
 import { toDocxBytes, fromDocxBytes, countDocxWords, type DocxDocument } from "../lib/docx";
+import { effectiveWordCount } from "../lib/essaySources";
 import { navigate } from "../lib/router";
 import { showToast, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
@@ -14,9 +15,9 @@ const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 export type WordProcessorStatus = "loading" | "ready" | "unsaved" | "saving" | "saved" | "error";
 
 const STATUS_LABELS: Record<WordProcessorStatus, string> = {
-  loading: "Loading editor…",
-  ready: "Up to date",
-  unsaved: "Unsaved changes",
+  loading: "Loading…",
+  ready: "Saved",
+  unsaved: "Unsaved",
   saving: "Saving…",
   saved: "Saved",
   error: "Needs attention",
@@ -25,11 +26,11 @@ const STATUS_LABELS: Record<WordProcessorStatus, string> = {
 type InboundMessage =
   | { type: "wordcraft:ready" }
   | { type: "wordcraft:dirty"; dirty: boolean }
-  | { type: "wordcraft:save"; payload: unknown; wordCount: number | null };
+  | { type: "wordcraft:save"; payload: unknown };
 
 type EditorError = { kind: "load" | "save" | "file"; message: string };
 
-type SaveJob = { bytes: Uint8Array; wordCount: number | null; version: number };
+type SaveJob = { bytes: Uint8Array; version: number };
 
 function parseMessage(data: unknown): InboundMessage | null {
   if (typeof data !== "object" || data === null) return null;
@@ -39,16 +40,11 @@ function parseMessage(data: unknown): InboundMessage | null {
       return { type: "wordcraft:ready" };
     case "wordcraft:dirty":
       return { type: "wordcraft:dirty", dirty: record.dirty !== false };
-    case "wordcraft:save": {
-      const count = record.wordCount;
-      const wordCount =
-        typeof count === "number" && Number.isFinite(count) && count >= 0 ? Math.round(count) : null;
+    case "wordcraft:save":
       return {
         type: "wordcraft:save",
         payload: record.bytes ?? record.data ?? record.buffer,
-        wordCount,
       };
-    }
     default:
       return null;
   }
@@ -75,21 +71,26 @@ async function toBytes(payload: unknown): Promise<Uint8Array | null> {
 const looksLikeDocx = (bytes: Uint8Array): boolean =>
   bytes.byteLength > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
 
-function formatWordCount(count: number | null, target: number | null | undefined): string {
-  if (count === null) return "Word count appears after saving";
+function formatWordCount(count: number, target: number | null | undefined): string {
   const words = `${count.toLocaleString("en-GB")} ${count === 1 ? "word" : "words"}`;
   return target ? `${words} of ${target.toLocaleString("en-GB")}` : words;
 }
 
-export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string; q?: string }) {
+export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q?: string }) {
   const module = useLiveQuery(() => db.modules.get(id), [id]);
   const assessment = useModuleAssessment(id, module?.code, essayId);
 
   const title = assessment.title || (module?.code ? `${module.code} Essay` : "Essay Draft");
   useTitle(title ? `${title}: Word processor` : "Word processor");
 
-  const initialWords = countDocxWords(assessment.draft).total;
-  const [wordCount, setWordCount] = useState<number | null>(initialWords);
+  // Counts come from the saved draft, so the total, the breakdown and the footnote toggle
+  // always agree with one another. The toggle is applied at once and then confirmed by the store.
+  const counts = useMemo(() => countDocxWords(assessment.draft), [assessment.draft]);
+  const storedIncludeFootnotes = assessment.includeFootnotes !== false;
+  const [pendingFootnotes, setPendingFootnotes] = useState<boolean | null>(null);
+  const includeFootnotes = pendingFootnotes ?? storedIncludeFootnotes;
+  const totalWords = effectiveWordCount(counts, assessment.draft, includeFootnotes);
+  const bodyWords = effectiveWordCount(counts, assessment.draft, false);
   const [status, setStatus] = useState<WordProcessorStatus>("loading");
   const [error, setError] = useState<EditorError | null>(null);
   const [frameKey, setFrameKey] = useState(0);
@@ -109,9 +110,6 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
   const autosaveTimerRef = useRef<number | null>(null);
   const maxWaitTimerRef = useRef<number | null>(null);
 
-  const assessmentRef = useRef(assessment);
-  assessmentRef.current = assessment;
-
   const moduleCode = module?.code;
   const src = `${EDITOR_PATH}?host=parent&noribbon=1&author=${encodeURIComponent("Student")}`;
 
@@ -128,6 +126,22 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
       void document.documentElement.requestFullscreen?.().catch(() => {});
     }
   }, []);
+
+  useEffect(() => {
+    setPendingFootnotes(null);
+  }, [storedIncludeFootnotes]);
+
+  const toggleFootnotes = useCallback(async () => {
+    const next = !includeFootnotes;
+    setPendingFootnotes(next);
+    try {
+      await saveModuleAssessment(id, (prev) => ({ ...prev, includeFootnotes: next }), { moduleCode, essayId });
+    } catch (err) {
+      console.error("Changing the footnote setting failed", err);
+      if (mountedRef.current) setPendingFootnotes(null);
+      showToast("Could not change the footnote setting.");
+    }
+  }, [id, moduleCode, essayId, includeFootnotes]);
 
   const handleUndo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:undo" }, window.location.origin);
@@ -179,9 +193,6 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
 
   const loadDocxBytes = useCallback(async (): Promise<Uint8Array> => {
     const row = await getModuleAssessment(id, moduleCode, essayId);
-    if (mountedRef.current) {
-      setWordCount(countDocxWords(row.draft).total);
-    }
     if (row.docx && row.docx.byteLength > 4) {
       return new Uint8Array(row.docx);
     }
@@ -227,7 +238,6 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
             console.error("Parsing docx structure failed", parseErr);
             showToast("Draft saved as docx, but search text could not be refreshed.");
           }
-          const computedCount = job.wordCount ?? (updatedDoc ? countDocxWords(updatedDoc).total : wordCount);
 
           await saveModuleAssessment(
             id,
@@ -240,13 +250,11 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
           );
 
           if (!mountedRef.current) continue;
-          setWordCount(computedCount);
           if (pendingRef.current) continue;
           setError(null);
           if (dirtyVersionRef.current === job.version) {
             dirtyRef.current = false;
             setStatus("saved");
-            showToast("Draft saved.");
           } else {
             setStatus("unsaved");
           }
@@ -264,7 +272,7 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
     } finally {
       savingRef.current = false;
     }
-  }, [id, wordCount]);
+  }, [id, moduleCode, essayId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -308,7 +316,7 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
               });
               return;
             }
-            pendingRef.current = { bytes: bytes.slice(), wordCount: message.wordCount, version };
+            pendingRef.current = { bytes: bytes.slice(), version };
             void processSaves();
           })();
           break;
@@ -406,7 +414,7 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
         <div className="wp-bar-left">
           <button type="button" className="wp-back button quiet small" onClick={handleBack}>
             <Icon name="back" size={16} />
-            <span>Back to essay</span>
+            <span>Back to preview</span>
           </button>
           <div className="wp-history" role="toolbar" aria-label="History">
             <button
@@ -433,10 +441,23 @@ export function WordProcessor({ id, essayId, q }: { id: string; essayId?: string
           <h1 className="wp-title" title={title}>
             {title}
           </h1>
-          <span className="wp-count">{formatWordCount(wordCount, assessment.wordTarget)}</span>
+          <div className="wp-counts">
+            <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
+            <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
+            <button
+              type="button"
+              className="wp-footnote-pill"
+              aria-pressed={includeFootnotes}
+              title={includeFootnotes ? "Footnotes are counted. Select to leave them out." : "Footnotes are not counted. Select to include them."}
+              onClick={() => void toggleFootnotes()}
+            >
+              {`${counts.footnotes.toLocaleString("en-GB")} ${counts.footnotes === 1 ? "footnote" : "footnotes"} (${includeFootnotes ? "included" : "excluded"})`}
+            </button>
+          </div>
         </div>
         <div className="wp-bar-right">
-          <span className="wp-status" data-status={status} role="status">
+          <span className="save-status wp-status" data-status={status} role="status" aria-live="polite">
+            <span className="save-status-dot" aria-hidden="true" />
             {STATUS_LABELS[status]}
           </span>
           <button

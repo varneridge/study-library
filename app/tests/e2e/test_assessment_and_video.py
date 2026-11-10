@@ -125,7 +125,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(section).to_be_visible()
     print("a collapsible heading folds its whole section and opens again")
 
-    # Open WordCraft, where the question is the essay's title.
+    # Open WordCraft from the Draft & preview tab, where the question is the essay's title.
+    page.get_by_role("tab", name=re.compile("Draft & preview")).click()
     page.get_by_role("link", name="Open in word processor").click()
     expect(page.locator(".word-processor")).to_be_visible()
     expect(page.locator(".wp-title")).to_contain_text(question)
@@ -133,8 +134,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(page.locator(".wp-frame")).to_be_visible()
     page.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
 
-    # Back returns to the module assessment page.
-    page.get_by_role("button", name="Back to essay").click()
+    # Back returns to the module assessment page preview.
+    page.get_by_role("button", name="Back to preview").click()
     expect(page.locator(".essay-page")).to_be_visible()
     expect(page.get_by_label("Essay question")).to_have_value(question)
     print("the assessment page opens WordCraft and returns to the assessment overview")

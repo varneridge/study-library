@@ -4284,3 +4284,266 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   background: #e6e6e6;
 }
 
+
+
+/* Additions for the essay preview toolbar, the inline header editors, the save status and the
+   word processor count. Append this to app/src/styles.css (it was not in the supplied bundle, so
+   the existing file could not be edited in place). Custom properties fall back to neutral values
+   where the stylesheet's own names were not visible. */
+
+/* Save status, shared by the essay page and the word processor: a small dot and a word. */
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--fs-sm, 0.8125rem);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.save-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ok, #3a8f5c);
+  transition: background-color 160ms ease;
+}
+
+.save-status[data-status="saving"] .save-status-dot,
+.save-status[data-status="loading"] .save-status-dot {
+  background: var(--muted);
+  animation: save-status-pulse 1s ease-in-out infinite;
+}
+
+.save-status[data-status="unsaved"] .save-status-dot {
+  background: var(--warn, #c98a1b);
+}
+
+.save-status[data-status="error"] .save-status-dot {
+  background: var(--danger, #b3382c);
+}
+
+.save-status[data-status="error"] {
+  color: var(--danger, #b3382c);
+}
+
+@keyframes save-status-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* Subtle inline editors in the essay stats bar. */
+.essay-inline-target {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.essay-target-btn {
+  font: inherit;
+  color: inherit;
+  padding: 0 0.15rem;
+  border: 0;
+  border-bottom: 1px dotted var(--muted);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.essay-target-btn:hover,
+.essay-target-btn:focus-visible {
+  border-bottom: 1px solid var(--accent, currentColor);
+  background: color-mix(in srgb, var(--accent, currentColor) 8%, transparent);
+}
+
+.essay-inline-target input {
+  font: inherit;
+  color: inherit;
+  padding: 0 0.1rem;
+  border: 0;
+  border-bottom: 1px dotted transparent;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.essay-inline-target input::-webkit-outer-spin-button,
+.essay-inline-target input::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.essay-inline-target input::placeholder {
+  color: var(--muted);
+}
+
+.essay-inline-target input:hover {
+  border-bottom-color: var(--muted);
+}
+
+.essay-inline-target input:focus {
+  outline: none;
+  border-bottom: 1px solid var(--accent, currentColor);
+  background: color-mix(in srgb, var(--accent, currentColor) 8%, transparent);
+}
+
+.essay-due-chip .date-picker-trigger {
+  font-size: var(--fs-sm, 0.8125rem);
+  padding: 0.15rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.essay-due-chip .date-picker-trigger:hover,
+.essay-due-chip .date-picker-trigger:focus-visible {
+  border-color: var(--line, rgba(127, 127, 127, 0.4));
+  color: inherit;
+}
+
+.essay-due-chip.is-soon .date-picker-trigger {
+  color: var(--accent, inherit);
+  border-color: var(--line, rgba(127, 127, 127, 0.4));
+}
+
+.essay-due-words {
+  white-space: nowrap;
+}
+
+/* Preview toolbar: the primary action leftmost, zoom and file actions to the right. */
+.essay-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.essay-open-button {
+  flex: none;
+}
+
+.essay-preview-breakdown {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.essay-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: none;
+}
+
+.essay-zoom-percent {
+  min-width: 3.25rem;
+  padding: 0.25rem 0.4rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-sm, 0.8125rem);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  cursor: pointer;
+}
+
+.essay-zoom-percent:hover,
+.essay-zoom-percent:focus-visible {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.essay-zoom-fit[aria-pressed="true"] {
+  color: var(--accent, inherit);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.essay-preview-actions {
+  flex: none;
+  gap: 0.5rem;
+}
+
+/* Zoom stage. The sheet is laid out at A4 width (794px) and scaled from its top left corner, so
+   the stage is sized to the scaled result and the page scrolls sideways only when zoomed in. */
+.essay-zoom-viewport {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.essay-zoom-stage {
+  margin: 0 auto;
+  transition: width 160ms ease, height 160ms ease;
+}
+
+.essay-zoom-sheet {
+  width: 794px;
+  transform-origin: top left;
+  transition: transform 160ms ease;
+}
+
+.essay-zoom-sheet .essay-sheet-container,
+.essay-zoom-sheet .essay-preview-page {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-zoom-stage,
+  .essay-zoom-sheet,
+  .save-status-dot {
+    transition: none;
+  }
+
+  .save-status[data-status="saving"] .save-status-dot,
+  .save-status[data-status="loading"] .save-status-dot {
+    animation: none;
+  }
+}
+
+/* Word processor count: total, body figure and the footnote toggle pill. */
+.wp-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.6rem;
+  font-size: var(--fs-sm, 0.8125rem);
+  color: var(--muted);
+}
+
+.wp-count-detail {
+  white-space: nowrap;
+}
+
+.wp-footnote-pill {
+  padding: 0.1rem 0.6rem;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.4));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.wp-footnote-pill:hover,
+.wp-footnote-pill:focus-visible {
+  border-color: var(--muted);
+}
+
+.wp-footnote-pill[aria-pressed="true"] {
+  color: var(--accent, inherit);
+  border-color: var(--accent, currentColor);
+  background: color-mix(in srgb, var(--accent, currentColor) 10%, transparent);
+}
