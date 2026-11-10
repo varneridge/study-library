@@ -607,10 +607,16 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       }
       if (disposed) return;
 
-      try {
-        const v = await engine.voices();
-        if (!disposed && v.length > 0) setAvailableVoices(v);
-      } catch {}
+      // The bar opens at once. Kokoro's voices arrive when the model has loaded,
+      // which the first time means downloading it, so waiting for them here kept
+      // the bar closed for minutes; until then the first paragraph shows as
+      // buffering, and the built-in list stands in for the voice picker.
+      void engine.voices().then(
+        (v) => {
+          if (!disposed && v.length > 0) setAvailableVoices(v);
+        },
+        () => {},
+      );
 
       ctrl = createListenController({
         script,

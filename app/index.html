@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#FCFCFB" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- With credentials, so Cloudflare Access lets the manifest through instead of redirecting it to sign-in. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Added to an iPhone's home screen, it opens as an app with its own name. -->
