@@ -18,8 +18,13 @@ export interface ReflowBlock {
   lines: ReflowLine[];
 }
 
-/** Longest utterance in characters. Kokoro takes at most 510 phonemes per call. */
-export const MAX_UTTERANCE_CHARS = 380;
+/**
+ * Longest utterance in characters. An utterance is a whole paragraph when it fits;
+ * a longer paragraph is cut into chunks of whole sentences. kokoro-js phonemises
+ * each sentence of an utterance separately (TextSplitterStream), and 400
+ * characters keeps any one sentence well inside Kokoro's 510-token limit.
+ */
+export const MAX_UTTERANCE_CHARS = 400;
 
 // Matches TextView's Run (TextView.tsx:17): a line-end hyphen is not shown.
 const LINE_END_HYPHEN = /[-\u00ad\u2010\u2011\u2013]\s*$/;
@@ -114,33 +119,130 @@ function trimRange(text: string, start: number, end: number): [number, number] {
   return [start, end];
 }
 
-/** Utterances over the whole script: one per heading, one per sentence elsewhere. */
+/** The sentences of [from, to) in `text`, trimmed, as [start, end) offsets. */
+export function sentenceRanges(text: string, from: number, to: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let s = from;
+  for (const e of sentenceEnds(text, from, to)) {
+    const [a, b] = trimRange(text, s, e);
+    if (b > a) out.push([a, b]);
+    s = e;
+  }
+  const [a, b] = trimRange(text, s, to);
+  if (b > a) out.push([a, b]);
+  return out;
+}
+
+/**
+ * Utterances over the whole script: one per paragraph. A paragraph longer than
+ * `max` characters is cut into chunks of whole sentences of at most `max`; a
+ * single sentence longer than that is cut at a clause mark or a space. Every
+ * chunk of one paragraph carries that paragraph's index.
+ */
 export function splitUtterances(text: string, headings: Array<[number, number]>, max = MAX_UTTERANCE_CHARS): Utterance[] {
   const out: Utterance[] = [];
+  let paragraph = 0;
   const push = (a: number, b: number, kind: Utterance["kind"]) => {
     for (const [x, y] of splitLong(text, a, b, max)) {
       const [s, e] = trimRange(text, x, y);
-      if (e > s && /[\p{L}\p{N}]/u.test(text.slice(s, e))) out.push({ index: out.length, start: s, end: e, text: text.slice(s, e), kind });
+      if (e > s && /[\p{L}\p{N}]/u.test(text.slice(s, e))) {
+        out.push({ index: out.length, paragraph, start: s, end: e, text: text.slice(s, e), kind });
+      }
     }
   };
-  const isHeading = new Map(headings.map(([a, b]) => [a, b]));
+  const isHeading = new Set(headings.map(([a]) => a));
   let blockStart = 0;
   while (blockStart <= text.length) {
     let blockEnd = text.indexOf("\n", blockStart);
     if (blockEnd < 0) blockEnd = text.length;
-    if (isHeading.has(blockStart)) {
-      push(blockStart, blockEnd, "heading");
-    } else {
-      let s = blockStart;
-      for (const e of sentenceEnds(text, blockStart, blockEnd)) {
-        push(s, e, "body");
-        s = e;
+    const [bs, be] = trimRange(text, blockStart, blockEnd);
+    const before = out.length;
+    if (be > bs) {
+      if (isHeading.has(blockStart) || be - bs <= max) {
+        push(bs, be, isHeading.has(blockStart) ? "heading" : "body");
+      } else {
+        let chunk: [number, number] | null = null;
+        for (const [a, b] of sentenceRanges(text, bs, be)) {
+          if (b - a > max) {
+            if (chunk) push(chunk[0], chunk[1], "body");
+            chunk = null;
+            push(a, b, "body");
+          } else if (!chunk) {
+            chunk = [a, b];
+          } else if (b - chunk[0] <= max) {
+            chunk[1] = b;
+          } else {
+            push(chunk[0], chunk[1], "body");
+            chunk = [a, b];
+          }
+        }
+        if (chunk) push(chunk[0], chunk[1], "body");
       }
-      push(s, blockEnd, "body");
     }
+    if (out.length > before) paragraph += 1;
     blockStart = blockEnd + 1;
   }
   return out;
+}
+
+/** The paragraph that utterance `index` belongs to: its first and last utterance and its script range. */
+export function paragraphOf(
+  utterances: Utterance[],
+  index: number,
+): { paragraph: number; first: number; last: number; start: number; end: number } | null {
+  const u = utterances[index];
+  if (!u) return null;
+  let first = index;
+  let last = index;
+  while (first > 0 && utterances[first - 1].paragraph === u.paragraph) first -= 1;
+  while (last < utterances.length - 1 && utterances[last + 1].paragraph === u.paragraph) last += 1;
+  return { paragraph: u.paragraph, first, last, start: utterances[first].start, end: utterances[last].end };
+}
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const JOINER = /['\u2019-]/;
+
+/** The start of the word at `offset` in `text`, or of the next word when `offset` falls between words. */
+export function wordStartAt(text: string, offset: number): number {
+  let i = Math.max(0, Math.min(offset, text.length));
+  if (i < text.length && WORD_CHAR.test(text[i])) {
+    while (i > 0 && (WORD_CHAR.test(text[i - 1]) || (JOINER.test(text[i - 1]) && i > 1 && WORD_CHAR.test(text[i - 2])))) i -= 1;
+    return i;
+  }
+  while (i < text.length && !WORD_CHAR.test(text[i])) i += 1;
+  return i;
+}
+
+/**
+ * The script offset for a tap. A tap on read text maps exactly; a tap that
+ * lands between runs (a page number, a gap after a paragraph, a note Listen
+ * does not read) maps to the next readable text. Null past the end.
+ */
+export function pageToScriptNearest(script: Pick<ListenScript, "pieces">, point: PagePoint): number | null {
+  const exact = pageToScript(script, point);
+  if (exact !== null) return exact;
+  let best: number | null = null;
+  for (const p of script.pieces) {
+    const later = p.page > point.page || (p.page === point.page && p.pageStart + p.length > point.at);
+    if (!later) continue;
+    const at = p.page === point.page && p.pageStart < point.at ? p.scriptStart + (point.at - p.pageStart) : p.scriptStart;
+    if (best === null || at < best) best = at;
+  }
+  return best;
+}
+
+/**
+ * The start of the paragraph holding a page point, for the reading place, so a
+ * reader who comes back starts at a paragraph rather than mid-sentence. Notes
+ * are skipped as TextView skips them; null when the point is in no block.
+ */
+export function paragraphStartFor(blocks: ReflowBlock[], point: PagePoint): PagePoint | null {
+  for (const block of blocks) {
+    if (block.kind === "note" || block.lines.length === 0) continue;
+    const holds = block.lines.some((l) => l.page === point.page && point.at >= l.start && point.at < l.start + Math.max(1, l.text.length));
+    if (holds) return { page: block.lines[0].page, at: block.lines[0].start };
+  }
+  return null;
 }
 
 export async function sha256Hex(text: string): Promise<string> {

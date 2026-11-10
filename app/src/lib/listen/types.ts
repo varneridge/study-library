@@ -20,10 +20,15 @@ export interface ScriptPiece {
   pageStart: number;
 }
 
-/** A sentence-sized unit that is synthesised, cached and timed on its own. */
+/**
+ * A paragraph, or a chunk of a long paragraph, synthesised, cached and timed on
+ * its own. Paragraphs are the unit Listen plays and prefetches (script.ts).
+ */
 export interface Utterance {
   /** Stable index within the script, starting at 0. */
   index: number;
+  /** Index of the paragraph this utterance belongs to; chunks of one long paragraph share it. */
+  paragraph: number;
   /** Offsets into ListenScript.text, end exclusive. */
   start: number;
   end: number;
@@ -147,8 +152,18 @@ export interface ListenSettings {
   localToken: string;
 }
 
+/** Gradual speed up, as Speechify offers: a little faster every paragraph or every minute, up to a cap. */
+export interface RampSettings {
+  enabled: boolean;
+  /** Added to the speed at each step, such as 0.05. */
+  step: number;
+  every: "paragraph" | "minute";
+  /** The most the ramp adds above the speed it started from, such as 0.5. */
+  maxBoost: number;
+}
+
 export const MIN_RATE = 0.5;
-export const MAX_RATE = 3;
+export const MAX_RATE = 3.5;
 export const DEFAULT_VOICE = "bf_emma";
 export const DEFAULT_VOICES: VoiceInfo[] = [
   { id: "bf_emma", name: "Emma", lang: "en-GB", gender: "Female", grade: "A" },

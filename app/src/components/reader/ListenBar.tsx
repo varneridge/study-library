@@ -1,14 +1,16 @@
 // ListenBar: floating or docked playback bar for Kokoro speech synthesis in the Reader.
-// Provides play/pause, sentence stepping, speed selection, voice choice (British first),
-// offline edition preparation, and status indications.
+// Provides play/pause, paragraph stepping, fully adjustable speed with a gradual
+// speed up, voice choice (British first), offline edition preparation, and status.
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import type { ListenController, ListenSnapshot } from "../../lib/listen/controller";
-import type { VoiceInfo } from "../../lib/listen/types";
-import { IconButton } from "../icons";
+import { formatRate, quantiseRate, RATE_PRESETS, RATE_STEP } from "../../lib/listen/rate";
+import type { RampSettings, VoiceInfo } from "../../lib/listen/types";
+import { MAX_RATE, MIN_RATE } from "../../lib/listen/types";
+import { Icon, IconButton } from "../icons";
 import "./ListenBar.css";
 
-const SPEEDS = [0.75, 1.0, 1.25, 1.5, 2.0];
+const RAMP_CAPS = [0.25, 0.5, 1];
 
 export interface ListenBarProps {
   controller: ListenController;
@@ -20,6 +22,7 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
   const [snapshot, setSnapshot] = useState<ListenSnapshot>(() => controller.getSnapshot());
   const [offlineProgress, setOfflineProgress] = useState<{ done: number; total: number } | null>(null);
   const [, startTransition] = useTransition();
+  const ids = useId();
 
   useEffect(() => {
     return controller.subscribe((s) => {
@@ -32,7 +35,9 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
   const isPlaying = snapshot.state === "playing";
   const isBuffering = snapshot.state === "buffering";
   const isPreparing = snapshot.state === "preparing";
+  const ramp = snapshot.ramp;
 
+  // One button, one handler: a nested button would toggle twice on one click.
   const handleTogglePlay = () => {
     if (isPlaying) {
       controller.pause();
@@ -40,6 +45,8 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
       void controller.play();
     }
   };
+
+  const setRamp = (change: Partial<RampSettings>) => controller.setRamp({ ...ramp, ...change });
 
   const handlePrepareOffline = () => {
     if (isPreparing) return;
@@ -63,6 +70,7 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
 
   const britishVoices = voices.filter((v) => v.lang === "en-GB");
   const otherVoices = voices.filter((v) => v.lang !== "en-GB");
+  const rampTop = quantiseRate(snapshot.baseRate + ramp.maxBoost);
 
   return (
     <section className="listen-bar" aria-label="Audio reader controls">
@@ -71,10 +79,10 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
         <div className="lb-playback-group">
           <IconButton
             icon="prevTrack"
-            label="Previous sentence"
+            label="Previous paragraph"
             shortcut="J"
-            disabled={snapshot.utterance <= 0 || isPreparing}
-            onClick={() => controller.skipSentences(-1)}
+            disabled={snapshot.paragraph <= 0 || isPreparing}
+            onClick={() => controller.skipParagraphs(-1)}
           />
           <button
             type="button"
@@ -83,18 +91,14 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
             disabled={isPreparing}
             aria-label={isPlaying ? "Pause" : "Play"}
           >
-            <IconButton
-              icon={isPlaying ? "pause" : "play"}
-              label={isPlaying ? "Pause" : "Play"}
-              onClick={handleTogglePlay}
-            />
+            <Icon name={isPlaying ? "pause" : "play"} size={18} />
           </button>
           <IconButton
             icon="nextTrack"
-            label="Next sentence"
+            label="Next paragraph"
             shortcut="K"
-            disabled={snapshot.utterance >= snapshot.totalUtterances - 1 || isPreparing}
-            onClick={() => controller.skipSentences(1)}
+            disabled={snapshot.paragraph >= snapshot.totalParagraphs - 1 || isPreparing}
+            onClick={() => controller.skipParagraphs(1)}
           />
         </div>
 
@@ -105,42 +109,30 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
               Preparing audio: {Math.round((offlineProgress.done / Math.max(1, offlineProgress.total)) * 100)}%
             </span>
           ) : isBuffering ? (
-            <span className="lb-status-text lb-status-text--buffering">Synthesising speech...</span>
+            <span className="lb-status-text lb-status-text--buffering">Preparing this paragraph...</span>
           ) : snapshot.error ? (
-            <span className="lb-status-text lb-status-text--error">{snapshot.error}</span>
+            <span className={`lb-status-text ${snapshot.backend === "speech" ? "lb-status-text--notice" : "lb-status-text--error"}`}>
+              {snapshot.error}
+            </span>
           ) : (
             <span className="lb-status-text">
-              Sentence {snapshot.utterance + 1} of {snapshot.totalUtterances}
+              Paragraph {snapshot.paragraph + 1} of {snapshot.totalParagraphs}
               {snapshot.currentPage > 0 ? ` (page ${snapshot.currentPage + 1})` : ""}
+              {snapshot.state === "playing" || snapshot.state === "paused" ? ". Tap any word to read from it." : ""}
             </span>
           )}
         </div>
 
-        {/* Speed Controls */}
-        <div className="lb-speed-group" role="radiogroup" aria-label="Playback speed">
-          {SPEEDS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="radio"
-              aria-checked={snapshot.rate === s}
-              className={`lb-chip ${snapshot.rate === s ? "lb-chip--active" : ""}`}
-              onClick={() => controller.setRate(s)}
-            >
-              {s}×
-            </button>
-          ))}
-        </div>
-
         {/* Voice Selector */}
         <div className="lb-voice-group">
-          <label htmlFor="lb-voice-select" className="lb-voice-label">
+          <label htmlFor={`${ids}-voice`} className="lb-voice-label">
             Voice
           </label>
           <select
-            id="lb-voice-select"
+            id={`${ids}-voice`}
             className="lb-voice-select"
             value={snapshot.voice}
+            disabled={snapshot.backend === "speech"}
             onChange={(e) => void controller.setVoice(e.target.value)}
           >
             {britishVoices.length > 0 && (
@@ -183,7 +175,7 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
           type="button"
           className="lb-offline-btn"
           onClick={handlePrepareOffline}
-          disabled={isPreparing}
+          disabled={isPreparing || snapshot.backend === "speech"}
           title="Merges all audio into a single continuous track so you can listen with your phone locked"
         >
           {isPreparing ? "Preparing..." : "Listen offline"}
@@ -191,6 +183,94 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
 
         {/* Close Button */}
         <IconButton icon="close" label="Close audio player" onClick={onClose} />
+      </div>
+
+      <div className="lb-speed-row">
+        {/* Quick presets */}
+        <div className="lb-speed-group" role="radiogroup" aria-label="Playback speed presets">
+          {RATE_PRESETS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={snapshot.baseRate === s}
+              className={`lb-chip ${snapshot.baseRate === s ? "lb-chip--active" : ""}`}
+              onClick={() => controller.setRate(s)}
+            >
+              {formatRate(s)}
+            </button>
+          ))}
+        </div>
+
+        {/* Fine speed: a stepper and a slider over the whole range */}
+        <div className="lb-fine-speed">
+          <button
+            type="button"
+            className="lb-step-btn"
+            aria-label="Slower"
+            disabled={snapshot.baseRate <= MIN_RATE}
+            onClick={() => controller.setRate(snapshot.baseRate - RATE_STEP)}
+          >
+            -
+          </button>
+          <input
+            type="range"
+            className="lb-speed-slider"
+            min={MIN_RATE}
+            max={MAX_RATE}
+            step={RATE_STEP}
+            value={snapshot.baseRate}
+            aria-label="Playback speed"
+            aria-valuetext={formatRate(snapshot.baseRate)}
+            onChange={(e) => controller.setRate(Number(e.target.value))}
+          />
+          <button
+            type="button"
+            className="lb-step-btn"
+            aria-label="Faster"
+            disabled={snapshot.baseRate >= MAX_RATE}
+            onClick={() => controller.setRate(snapshot.baseRate + RATE_STEP)}
+          >
+            +
+          </button>
+          <output className="lb-speed-value" aria-live="polite">
+            {formatRate(snapshot.rate)}
+          </output>
+        </div>
+
+        {/* Gradual speed up */}
+        <div className="lb-ramp-group">
+          <label className="lb-ramp-toggle">
+            <input type="checkbox" checked={ramp.enabled} onChange={(e) => setRamp({ enabled: e.target.checked })} />
+            <span>Gradual speed up</span>
+          </label>
+          {ramp.enabled && (
+            <>
+              <select
+                className="lb-ramp-select"
+                aria-label="How often to speed up"
+                value={ramp.every}
+                onChange={(e) => setRamp({ every: e.target.value === "minute" ? "minute" : "paragraph" })}
+              >
+                <option value="paragraph">{`+${formatRate(ramp.step)} each paragraph`}</option>
+                <option value="minute">{`+${formatRate(ramp.step)} each minute`}</option>
+              </select>
+              <select
+                className="lb-ramp-select"
+                aria-label="Fastest speed to reach"
+                value={ramp.maxBoost}
+                onChange={(e) => setRamp({ maxBoost: Number(e.target.value) })}
+              >
+                {RAMP_CAPS.map((c) => (
+                  <option key={c} value={c}>{`up to ${formatRate(quantiseRate(snapshot.baseRate + c))}`}</option>
+                ))}
+              </select>
+              <span className="lb-ramp-note">
+                {snapshot.rate >= rampTop ? "At full speed" : `Now ${formatRate(snapshot.rate)}`}
+              </span>
+            </>
+          )}
+        </div>
       </div>
     </section>
   );

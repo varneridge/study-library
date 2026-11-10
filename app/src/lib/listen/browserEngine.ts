@@ -12,6 +12,20 @@ export interface WorkerLike {
   terminate(): void;
 }
 
+/**
+ * Kokoro cannot run at all (its code or model could not be fetched, the worker
+ * stopped, it did not load in time), as opposed to one utterance failing. The
+ * controller falls back to the device's voice on this error (speech.ts).
+ */
+export class KokoroLoadError extends Error {
+  readonly attempts: string[];
+  constructor(message: string, attempts: string[] = []) {
+    super(message);
+    this.name = "KokoroLoadError";
+    this.attempts = attempts;
+  }
+}
+
 interface Loaded {
   modelVersion: string;
   voices: VoiceInfo[];
@@ -59,7 +73,8 @@ export class BrowserKokoroEngine implements TtsEngine {
             resolve(this.loaded);
             return;
           case "load-failed":
-            this.fail(new Error(`Kokoro could not load: ${m.message}`), reject);
+            // The worker's message already explains the failure; it is not prefixed twice.
+            this.fail(new KokoroLoadError(m.message.startsWith("Kokoro") ? m.message : `Kokoro could not load: ${m.message}`, m.attempts ?? []), reject);
             return;
           case "audio": {
             const job = this.pending.get(m.id);
@@ -77,7 +92,7 @@ export class BrowserKokoroEngine implements TtsEngine {
           }
         }
       });
-      worker.addEventListener("error", () => this.fail(new Error("the speech worker stopped"), reject));
+      worker.addEventListener("error", () => this.fail(new KokoroLoadError("Kokoro could not load: the speech worker stopped"), reject));
       worker.postMessage({ type: "load", options: this.options });
     });
     return this.loading;
@@ -96,7 +111,7 @@ export class BrowserKokoroEngine implements TtsEngine {
 
   ready(timeoutMs: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Kokoro did not load within ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
+      const timer = setTimeout(() => reject(new KokoroLoadError(`Kokoro did not load within ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
       this.start().then(
         () => {
           clearTimeout(timer);

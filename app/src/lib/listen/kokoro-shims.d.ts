@@ -10,12 +10,17 @@ declare module "kokoro-js" {
   }
 
   export interface KokoroStreamPart {
+    /** The sentence this chunk speaks; kokoro-js splits text into sentences itself. */
+    text: string;
     audio: {
       audio: Float32Array;
       sampling_rate: number;
     };
     phonemes: string;
   }
+
+  /** kokoro-js re-exports only wasmPaths, written straight into its own transformers.js copy. */
+  export const env: { wasmPaths: unknown };
 
   export class KokoroTTS {
     voices: Record<string, KokoroVoice>;

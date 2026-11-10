@@ -9,6 +9,7 @@
 // seconds over total frames), so the result does not depend on the model's
 // hop size being 600 samples (Kokoro's 40 frames a second at 24 kHz).
 
+import { tokeniseWords } from "./align";
 import type { TimedToken } from "./types";
 
 /** Characters that separate phoneme words. kokoro-js keeps punctuation as-is in the phoneme string. */
@@ -56,6 +57,30 @@ export function joinChunkSpans(chunks: Array<{ spans: TimedToken[]; seconds: num
   let offset = 0;
   for (const c of chunks) {
     for (const s of c.spans) out.push({ text: s.text, start: s.start + offset, end: s.end + offset });
+    offset += c.seconds;
+  }
+  return out;
+}
+
+/**
+ * Texted word tokens for an utterance whose model gave no durations. kokoro-js
+ * synthesises each sentence of the text as its own chunk and reports its text
+ * and audio length, so words are spread over their own sentence's audio rather
+ * than over the whole paragraph. A word's timing error is then bounded by one
+ * sentence, however long the paragraph.
+ */
+export function chunkTokens(chunks: Array<{ text: string; seconds: number }>): TimedToken[] {
+  const out: TimedToken[] = [];
+  let offset = 0;
+  for (const c of chunks) {
+    const words = tokeniseWords(c.text);
+    const total = words.reduce((s, w) => s + w.weight, 0);
+    let t = offset;
+    for (const w of words) {
+      const d = total > 0 ? (c.seconds * w.weight) / total : 0;
+      out.push({ text: c.text.slice(w.start, w.end), start: t, end: t + d });
+      t += d;
+    }
     offset += c.seconds;
   }
   return out;

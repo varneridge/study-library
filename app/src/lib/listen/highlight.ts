@@ -240,3 +240,28 @@ export function scrollDelta(word: { top: number; bottom: number }, view: { top: 
   if (word.bottom > lower) return word.top - upper;
   return 0;
 }
+
+/**
+ * How far to scroll so a new paragraph's first line sits at the top of the
+ * scroller, below its scroll-padding-top (`inset`), or 0 when it already does.
+ * The top of the screen is then always the start of a paragraph, so the place
+ * TextView saves from it is a paragraph start.
+ */
+export function paragraphTopDelta(paragraphTop: number, view: { top: number; height: number }, inset = 0): number {
+  const delta = paragraphTop - (view.top + inset);
+  return Math.abs(delta) < 1 ? 0 : delta;
+}
+
+/**
+ * How far to scroll while a paragraph is read, or 0. Unlike scrollDelta, a word
+ * near the top is left alone, so the paragraph alignment above is not undone;
+ * only a word that has left the view, or is near its bottom in a paragraph
+ * taller than the view, moves it, and then it moves by whole lines to put the
+ * word a sixth of the way down.
+ */
+export function followWordDelta(word: { top: number; bottom: number }, view: { top: number; height: number }, inset = 0): number {
+  const top = view.top + inset;
+  const usable = view.height - inset;
+  if (word.top < top || word.bottom > top + usable * 0.85) return word.top - (top + usable / 6);
+  return 0;
+}

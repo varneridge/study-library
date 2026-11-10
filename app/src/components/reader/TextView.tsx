@@ -7,6 +7,7 @@ import { mergeRects } from "./pages";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
 import { caretAt, fingerDown, SETTLE_NOW, settleDelay, whenLifted } from "../../lib/selection";
+import { paragraphStartFor } from "../../lib/listen/script";
 
 export interface TextSelection { page: number; rects: number[][]; text: string; x: number; y: number }
 
@@ -120,9 +121,29 @@ const Body = memo(function Body({
   );
 });
 
+/**
+ * The page point under a tap, for Listen. The character under the finger comes
+ * from caretAt, as the place reader uses it. A tap that lands between runs (the
+ * margin of a paragraph, the space after it, a page number) falls back to the
+ * first run of the paragraph or heading it is in, so a tap anywhere in a
+ * paragraph plays from it.
+ */
+function tapPoint(target: EventTarget | null, x: number, y: number): { page: number; at: number } | null {
+  const caret = caretAt(x, y);
+  if (caret?.node) {
+    const point = offsetAt(caret.node, caret.offset);
+    if (point) return point;
+  }
+  const el = target instanceof Element ? target : null;
+  const own = el?.closest<HTMLElement>("[data-o]");
+  if (own) return { page: Number(own.dataset.p), at: Number(own.dataset.o) };
+  const run = el?.closest("p, h2")?.querySelector<HTMLElement>("[data-o]");
+  return run ? { page: Number(run.dataset.p), at: Number(run.dataset.o) } : null;
+}
+
 export function TextView({
   reflowed, kicker, title, byline, standfirst, highlights, needles, currentHit, start, onSpot, onSelect, onHighlight, notes = false,
-  articleRef, onWordTap,
+  articleRef, onWordTap, listening = false,
 }: {
   notes?: boolean;
   reflowed: Reflowed; kicker: string; title: string; byline: string | null; standfirst: string | null;
@@ -133,7 +154,10 @@ export function TextView({
   onSpot: (spot: Spot) => void; onSelect: (s: TextSelection | null) => void; onHighlight: (id: string, x: number, y: number) => void;
   articleRef?: (el: HTMLElement | null) => void;
   onWordTap?: (point: { page: number; at: number }) => void;
+  /** Listen is open: a tap plays from the tapped word, even on a highlight. */
+  listening?: boolean;
 }) {
+  const listenMode = Boolean(listening);
   const root = useRef<HTMLElement>(null);
   const pageById = useMemo(() => new Map(reflowed.pages.map((p) => [p.page, p])), [reflowed]);
 
@@ -280,16 +304,18 @@ export function TextView({
       }
       if (!hit) return;
       anchor.current = { node: hit.node, char: hit.char, offset: topOfChar(hit.node, hit.char) - top };
-      const pageNo = Number(hit.el.dataset.p);
-      const at = Number(hit.el.dataset.o) + hit.char;
-      const page = pageById.get(pageNo);
-      onSpot({ page: pageNo, at, frac: page ? Math.round(fracOf(page, at) * 1000) / 1000 : 0 });
+      // The place saved is the start of the paragraph at the top of the screen when listening,
+      // so coming back starts at a fresh paragraph/page rather than midway through a sentence.
+      const atTop = { page: Number(hit.el.dataset.p), at: Number(hit.el.dataset.o) + hit.char };
+      const place = listenMode ? (paragraphStartFor(reflowed.blocks, atTop) ?? atTop) : atTop;
+      const page = pageById.get(place.page);
+      onSpot({ page: place.page, at: place.at, frac: page ? Math.round(fracOf(page, place.at) * 1000) / 1000 : 0 });
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(read); };
     g.scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => { g.scroller.removeEventListener("scroll", onScroll); if (frame) cancelAnimationFrame(frame); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSpot, pageById]);
+  }, [onSpot, pageById, reflowed]);
 
   // Holding the place through any reflow.
   useEffect(() => {
@@ -355,16 +381,19 @@ export function TextView({
         (root as unknown as { current: HTMLElement | null }).current = el;
         articleRef?.(el);
       }}
-      className="text-view"
+      className={listenMode ? "text-view tv-listening" : "text-view"}
       onClick={(e) => {
-        const mark = (e.target as Element).closest<HTMLElement>("mark.hl-text");
-        if (mark && document.getSelection()?.isCollapsed) {
-          onHighlight(mark.dataset.id!, e.clientX, e.clientY);
-        } else if (onWordTap && document.getSelection()?.isCollapsed) {
-          const caret = caretAt(e.clientX, e.clientY);
-          const pt = caret ? offsetAt(caret.node, caret.offset) : offsetAt(e.target as Node, 0);
-          if (pt) onWordTap(pt);
+        // A tap that ends a text selection is not a tap to play or to open a highlight.
+        if (document.getSelection()?.isCollapsed === false) return;
+        if (listenMode && onWordTap) {
+          const point = tapPoint(e.target, e.clientX, e.clientY);
+          if (point) {
+            onWordTap(point);
+            return;
+          }
         }
+        const mark = (e.target as Element).closest<HTMLElement>("mark.hl-text");
+        if (mark) onHighlight(mark.dataset.id!, e.clientX, e.clientY);
       }}
     >
       <header className="tv-head">

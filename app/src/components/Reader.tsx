@@ -577,7 +577,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
 
   const handleWordTap = useCallback((pt: PagePoint) => {
     if (listenOpen && listenController) {
-      void listenController.play(pt);
+      void listenController.playFromPoint(pt);
     }
   }, [listenOpen, listenController]);
 
@@ -976,6 +976,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
                 onHighlight={(hid, x, y) => setActive({ id: hid, x, y })}
                 articleRef={onArticleMount}
                 onWordTap={handleWordTap}
+                listening={listenOpen}
               />
             </div>
           )}

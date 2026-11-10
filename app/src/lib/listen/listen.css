@@ -35,3 +35,25 @@
 .listen-box[data-layer="word"] {
   background: color-mix(in srgb, var(--accent, #3b5bdb) 32%, transparent);
 }
+
+/* Listen is open: any word can be tapped to play from it. */
+.text-view.tv-listening {
+  cursor: pointer;
+}
+
+.text-view.tv-listening [data-o] {
+  border-radius: 2px;
+  transition: background-color 0.12s ease;
+}
+
+@media (hover: hover) {
+  .text-view.tv-listening [data-o]:hover {
+    background-color: color-mix(in srgb, var(--accent, #3b5bdb) 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .text-view.tv-listening [data-o] {
+    transition: none;
+  }
+}
