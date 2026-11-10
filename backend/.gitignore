@@ -1,5 +1,8 @@
 .env
 processor.log
+processor.log.*
+tts.log
+tts.log.*
 .venv
 __pycache__
 .pytest_cache

@@ -157,11 +157,21 @@ class SynthesiseRequest(BaseModel):
     voice: str = "bf_emma"
 
 
+DEFAULT_ORIGINS = [
+    "https://study.samuelleigh.co.uk",
+    "https://study-library.samuel-leigh147.workers.dev",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
 def create_app(engine: Engine | None = None, token: str | None = None, origins: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="Study Library Listen", docs_url=None, redoc_url=None)
     engine = engine or KokoroEngine()
     token = token if token is not None else os.environ.get("LISTEN_TOKEN") or None
-    origins = origins if origins is not None else [o for o in os.environ.get("LISTEN_ORIGINS", "").split(",") if o]
+    if origins is None:
+        env_origins = [o for o in os.environ.get("LISTEN_ORIGINS", "").split(",") if o]
+        origins = env_origins if env_origins else list(DEFAULT_ORIGINS)
 
     # Chrome asks before a public page may call a private address (Private
     # Network Access); answering yes is safe because CORS and the token still
