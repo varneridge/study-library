@@ -2,7 +2,7 @@
 // contract (types.ts), so the player treats it exactly like the local server.
 
 import type { SynthResult, TtsEngine, VoiceInfo } from "./types";
-import { DEFAULT_MODEL_HOSTS, DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
+import { DEFAULT_MODEL_HOSTS, DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type KokoroDevice, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
 
 /** The parts of a Worker this engine uses, so tests can pass a fake one. */
 export interface WorkerLike {
@@ -48,6 +48,26 @@ function defaultHosts(): string[] {
   return origin ? [`${origin}/api/models`, ...DEFAULT_MODEL_HOSTS] : [...DEFAULT_MODEL_HOSTS];
 }
 
+/** Where a reader can choose the device: localStorage "listen-device", "wasm" or "webgpu". */
+export const DEVICE_KEY = "listen-device";
+
+/**
+ * WASM unless the reader has chosen WebGPU. On some Windows graphics drivers
+ * Kokoro's vocoder can compute wrongly on WebGPU, so its speech comes out as a
+ * buzz, with no error to fall back on, so the GPU cannot be chosen
+ * automatically. WASM also needs the 92 MB q8 model rather than the 326 MB fp32
+ * one. Where WebGPU is known to sound right, setting the key to "webgpu" uses it.
+ */
+function preferredDevice(): KokoroDevice {
+  try {
+    const chosen = globalThis.localStorage?.getItem(DEVICE_KEY);
+    if (chosen === "webgpu" || chosen === "wasm") return chosen;
+  } catch {
+    // Storage can be refused (private browsing); the default stands.
+  }
+  return "wasm";
+}
+
 export class BrowserKokoroEngine implements TtsEngine {
   readonly id = "browser" as const;
   private readonly options: LoadOptions;
@@ -62,7 +82,7 @@ export class BrowserKokoroEngine implements TtsEngine {
   timestamped: boolean | null = null;
 
   constructor(options: BrowserEngineOptions = {}) {
-    this.options = options.load ?? { modelIds: DEFAULT_MODEL_IDS, voiceBase: DEFAULT_VOICE_BASE, hosts: defaultHosts() };
+    this.options = options.load ?? { modelIds: DEFAULT_MODEL_IDS, voiceBase: DEFAULT_VOICE_BASE, hosts: defaultHosts(), device: preferredDevice() };
     this.makeWorker =
       options.makeWorker ?? (() => new Worker(new URL("./kokoro.worker.ts", import.meta.url), { type: "module" }) as unknown as WorkerLike);
     this.onProgress = options.onProgress;
