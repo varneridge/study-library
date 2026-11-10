@@ -1,0 +1,37 @@
+/*
+ * Listen highlighting in TextView (highlight.ts). The native path uses the CSS
+ * Custom Highlight API; the boxes are the fallback for browsers without it.
+ * Import once, from Reader.tsx, beside TextView.
+ */
+
+::highlight(listen-sentence) {
+  background-color: color-mix(in srgb, var(--accent, #3b5bdb) 12%, transparent);
+}
+
+::highlight(listen-word) {
+  background-color: color-mix(in srgb, var(--accent, #3b5bdb) 32%, transparent);
+  color: inherit;
+}
+
+.text-view {
+  position: relative;
+}
+
+.listen-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.listen-box {
+  position: absolute;
+  border-radius: 3px;
+}
+
+.listen-box[data-layer="sentence"] {
+  background: color-mix(in srgb, var(--accent, #3b5bdb) 12%, transparent);
+}
+
+.listen-box[data-layer="word"] {
+  background: color-mix(in srgb, var(--accent, #3b5bdb) 32%, transparent);
+}

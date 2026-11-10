@@ -19,7 +19,8 @@ function serviceWorker(): Plugin {
       const hash = createHash("sha256").update(assets.join("\n")).digest("hex").slice(0, 12);
       const build = `${Date.now()}-${hash}`;
       const path = join(dist, "sw.js");
-      const source = readFileSync(path, "utf8");
+      const templatePath = join(__dirname, "public", "sw.js");
+      const source = readFileSync(templatePath, "utf8");
       if (!source.includes("__BUILD__")) throw new Error("sw.js has no __BUILD__ placeholder");
       writeFileSync(path, source.replace("__BUILD__", build).replace("/*__PRECACHE__*/[]", JSON.stringify(assets)));
     },

@@ -31,6 +31,15 @@ import { findInDocument, type Needles, mergeRects, PageView, screenRect, textCol
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
 import { isVideoMime } from "../lib/video";
 import { VideoReader } from "./VideoReader";
+import "../lib/listen/listen.css";
+import { buildListenScript } from "../lib/listen/script";
+import type { PagePoint, VoiceInfo } from "../lib/listen/types";
+import { DEFAULT_VOICES } from "../lib/listen/types";
+import { createListenController, type ListenController } from "../lib/listen/controller";
+import { createPainter, RunIndex, type HighlightPainter } from "../lib/listen/highlight";
+import { BrowserKokoroEngine } from "../lib/listen/browserEngine";
+import { LocalKokoroEngine } from "../lib/listen/localEngine";
+import { ListenBar } from "./reader/ListenBar";
 
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 4;
@@ -109,6 +118,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const [needles, setNeedles] = useState<Needles>({ list: [], separate: false });
   const [hit, setHit] = useState(-1);
   const [barHidden, setBarHidden] = useState(false);
+  const [listenOpen, setListenOpen] = useState(false);
+  const [listenController, setListenController] = useState<ListenController | null>(null);
+  const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>(DEFAULT_VOICES);
+  const textViewArticleRef = useRef<HTMLElement | null>(null);
+  const runIndexRef = useRef<RunIndex | null>(null);
+  const painterRef = useRef<HighlightPainter | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const pages = useRef<HTMLDivElement>(null);
   const findBox = useRef<HTMLInputElement>(null);
@@ -199,12 +214,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileKey]);
 
-  // The text is worked out once, the first time text view is wanted.
+  // The text is worked out once, the first time text view or listen is wanted.
   useEffect(() => {
-    if (layout !== "text" || !doc || reflowed || reflowing) return;
+    if ((layout !== "text" && !listenOpen) || !doc || reflowed || reflowing) return;
     setReflowing(true);
     void reflow(doc).then((r) => { setReflowed(r); setReflowing(false); }).catch(() => setReflowing(false));
-  }, [layout, doc, reflowed, reflowing]);
+  }, [layout, doc, reflowed, reflowing, listenOpen]);
   const textReady = layout === "text" && reflowed?.usable;
   textRef.current = Boolean(textReady);
 
@@ -537,14 +552,91 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       else if (e.key === "ArrowLeft" && !e.altKey) { e.preventDefault(); goToPage(Math.max(0, current - 1)); }
       else if (e.key === "ArrowRight" && !e.altKey) { e.preventDefault(); goToPage(Math.min(sizes.length - 1, current + 1)); }
       else if (e.key === "h" || e.key === "H") setTool((t) => (t === "highlight" ? "select" : "highlight"));
-      // Escape undoes the nearest thing first: the highlight tool, then Find.
-      else if (e.key === "Escape") { setActive(null); if (tool === "highlight") setTool("select"); else if (finding) closeFind(); }
+      else if (e.key === "l" || e.key === "L") setListenOpen((open) => !open);
+      // Escape undoes the nearest thing first: the highlight tool, then Find, then audio reading.
+      else if (e.key === "Escape") { setActive(null); if (tool === "highlight") setTool("select"); else if (finding) closeFind(); else if (listenOpen) setListenOpen(false); }
     };
     // Listened for first, so a menu elsewhere on the page that swallows
     // Escape cannot keep the highlight tool on.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [changeZoom, openFind, closeFind, finding, goToPage, current, sizes.length, tool]);
+  }, [changeZoom, openFind, closeFind, finding, goToPage, current, sizes.length, tool, listenOpen]);
+
+  const onArticleMount = useCallback((el: HTMLElement | null) => {
+    textViewArticleRef.current = el;
+    if (el) {
+      runIndexRef.current = new RunIndex(el);
+      painterRef.current = createPainter(el);
+    } else {
+      runIndexRef.current?.dispose();
+      runIndexRef.current = null;
+      painterRef.current?.dispose();
+      painterRef.current = null;
+    }
+  }, []);
+
+  const handleWordTap = useCallback((pt: PagePoint) => {
+    if (listenOpen && listenController) {
+      void listenController.play(pt);
+    }
+  }, [listenOpen, listenController]);
+
+  // Controller lifecycle when audio listening is toggled
+  useEffect(() => {
+    if (!listenOpen || !reflowed || !reflowed.usable) {
+      if (listenController) {
+        listenController.dispose();
+        setListenController(null);
+      }
+      return;
+    }
+
+    let disposed = false;
+    let ctrl: ListenController | null = null;
+
+    void (async () => {
+      const script = await buildListenScript(reflowed.blocks);
+      if (disposed) return;
+
+      // Pick engine: local Python server if reachable within 400ms, else browser worker
+      let engine: import("../lib/listen/types").TtsEngine = new LocalKokoroEngine({ localUrl: "http://127.0.0.1:8765" });
+      try {
+        await engine.ready(400);
+      } catch {
+        engine = new BrowserKokoroEngine();
+      }
+      if (disposed) return;
+
+      try {
+        const v = await engine.voices();
+        if (!disposed && v.length > 0) setAvailableVoices(v);
+      } catch {}
+
+      ctrl = createListenController({
+        script,
+        engine,
+        title: data.item.title,
+        album: place ? place.label : "Study Library",
+        painter: painterRef.current ?? undefined,
+        index: runIndexRef.current ?? undefined,
+        scroller: scroller.current ?? undefined,
+        onPageChange: (p) => {
+          goToPage(p);
+        },
+      });
+
+      if (!disposed) {
+        setListenController(ctrl);
+      } else {
+        ctrl.dispose();
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      if (ctrl) ctrl.dispose();
+    };
+  }, [listenOpen, reflowed, data.item.title, place, goToPage]);
 
   const onTextSpot = useCallback((spot: Spot) => {
     setCurrent(spot.page);
@@ -771,6 +863,13 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           </div>
         )}
         <div className="group end">
+          <IconButton
+            icon="listen"
+            label={listenOpen ? "Close audio reader" : "Listen to reading"}
+            shortcut="L"
+            pressed={listenOpen}
+            onClick={() => setListenOpen((open) => !open)}
+          />
           <Appearance theme={theme} setTheme={setTheme} zoom={zoom} scale={scale} changeZoom={changeZoom} trim={trim} canTrim={Boolean(column)} setTrim={chooseTrim}
             layout={layout} setLayout={chooseLayout} textSize={textSize} setTextSize={chooseTextSize} />
           {narrow && (
@@ -875,6 +974,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
                 onSpot={onTextSpot}
                 onSelect={onTextSelect}
                 onHighlight={(hid, x, y) => setActive({ id: hid, x, y })}
+                articleRef={onArticleMount}
+                onWordTap={handleWordTap}
               />
             </div>
           )}
@@ -947,6 +1048,16 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       )}
       {active && activeHighlight && (
         <Popover highlight={activeHighlight} at={active} names={names} onClose={() => setActive(null)} onWrite={() => writeAbout(activeHighlight.id)} />
+      )}
+      {listenOpen && listenController && (
+        <ListenBar
+          controller={listenController}
+          voices={availableVoices}
+          onClose={() => {
+            listenController.pause();
+            setListenOpen(false);
+          }}
+        />
       )}
     </div>
   );

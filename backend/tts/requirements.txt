@@ -1,0 +1,8 @@
+# backend/tts: local Kokoro speech for Listen. Install inside the WSL venv.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+numpy>=1.26
+# hexgrad's engine; 0.9.4 is the first release whose KPipeline results carry
+# MToken start_ts / end_ts for English. Verify with the probe in BLUEPRINT.md (R3).
+kokoro>=0.9.4
+misaki[en]>=0.9.4

@@ -122,6 +122,7 @@ const Body = memo(function Body({
 
 export function TextView({
   reflowed, kicker, title, byline, standfirst, highlights, needles, currentHit, start, onSpot, onSelect, onHighlight, notes = false,
+  articleRef, onWordTap,
 }: {
   notes?: boolean;
   reflowed: Reflowed; kicker: string; title: string; byline: string | null; standfirst: string | null;
@@ -130,6 +131,8 @@ export function TextView({
   // because the saved place changed while you were reading.
   start: Spot | null;
   onSpot: (spot: Spot) => void; onSelect: (s: TextSelection | null) => void; onHighlight: (id: string, x: number, y: number) => void;
+  articleRef?: (el: HTMLElement | null) => void;
+  onWordTap?: (point: { page: number; at: number }) => void;
 }) {
   const root = useRef<HTMLElement>(null);
   const pageById = useMemo(() => new Map(reflowed.pages.map((p) => [p.page, p])), [reflowed]);
@@ -348,11 +351,20 @@ export function TextView({
   const minutes = Math.max(1, Math.round(reflowed.words / 230));
   return (
     <article
-      ref={root}
+      ref={(el) => {
+        (root as unknown as { current: HTMLElement | null }).current = el;
+        articleRef?.(el);
+      }}
       className="text-view"
       onClick={(e) => {
         const mark = (e.target as Element).closest<HTMLElement>("mark.hl-text");
-        if (mark && document.getSelection()?.isCollapsed) onHighlight(mark.dataset.id!, e.clientX, e.clientY);
+        if (mark && document.getSelection()?.isCollapsed) {
+          onHighlight(mark.dataset.id!, e.clientX, e.clientY);
+        } else if (onWordTap && document.getSelection()?.isCollapsed) {
+          const caret = caretAt(e.clientX, e.clientY);
+          const pt = caret ? offsetAt(caret.node, caret.offset) : offsetAt(e.target as Node, 0);
+          if (pt) onWordTap(pt);
+        }
       }}
     >
       <header className="tv-head">

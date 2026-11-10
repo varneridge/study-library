@@ -35,8 +35,12 @@ const paths: Record<string, React.ReactNode> = {
   keyboard: <><rect x="2.75" y="5.25" width="14.5" height="9.5" /><path d="M5.5 8h1M9.5 8h1M13.5 8h1M5.5 11.5h9" /></>,
   enlarge: <><path d="M13 3.5h3.5v3.5M7 16.5H3.5V13M16.5 3.5 11 9M3.5 16.5 9 11" /></>,
   minimize: <><path d="M16.5 7h-3.5V3.5M3.5 13H7v3.5M13 7l4-4M7 13l-4 4" /></>,
-  // The play button over a video's picture.
+  // The play button over a video's picture and Listen bar.
   play: <path d="M7.25 5.25v9.5L15 10z" fill="currentColor" />,
+  pause: <><path d="M6 5h2.5v10H6zM11.5 5H14v10h-2.5z" fill="currentColor" /></>,
+  listen: <><path d="M3.5 11a6.5 6.5 0 0 1 13 0" /><rect x="2.5" y="11" width="3" height="5" rx="1" /><rect x="14.5" y="11" width="3" height="5" rx="1" /></>,
+  prevTrack: <><path d="M4.5 5v10M14.5 5l-7 5 7 5z" fill="currentColor" /></>,
+  nextTrack: <><path d="M15.5 5v10M5.5 5l7 5-7 5z" fill="currentColor" /></>,
   // The four ways to lay out a folder's readings.
   viewCompact: <path d="M3.5 4.75h13M3.5 8.25h13M3.5 11.75h13M3.5 15.25h13" />,
   viewNormal: <><rect x="3.25" y="3.75" width="4.5" height="4.5" /><rect x="3.25" y="11.75" width="4.5" height="4.5" /><path d="M10.25 5h6.5M10.25 7h4M10.25 13h6.5M10.25 15h4" /></>,

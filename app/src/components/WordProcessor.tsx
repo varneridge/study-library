@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
 import { useModuleAssessment, saveModuleAssessment, getModuleAssessment } from "../lib/assessment";
@@ -7,10 +7,29 @@ import { effectiveWordCount } from "../lib/essaySources";
 import { navigate } from "../lib/router";
 import { showToast, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
+import "./WordProcessor.css";
+import {
+  COMPACT_BELOW_PX,
+  INSETS_COMPACT,
+  INSETS_REGULAR,
+  STATUS_MARGIN_START,
+  STRIP_MARGIN_END,
+  STRIP_MARGIN_START,
+  parseChrome,
+  type ChromeInfo,
+  type ChromeInsets,
+} from "../lib/wordcraftChrome";
 
 const EDITOR_PATH = "/wordcraft/index.html";
 const READY_TIMEOUT_MS = 20_000;
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
+
+// How long after the editor is ready to wait for its chrome report before
+// treating it as an older build without embedded chrome (the slim fallback bar).
+const CHROME_TIMEOUT_MS = 4_000;
+
+type ChromeMode = "pending" | "embedded" | "fallback";
+
 
 export type WordProcessorStatus = "loading" | "ready" | "unsaved" | "saving" | "saved" | "error";
 
@@ -26,7 +45,8 @@ const STATUS_LABELS: Record<WordProcessorStatus, string> = {
 type InboundMessage =
   | { type: "wordcraft:ready" }
   | { type: "wordcraft:dirty"; dirty: boolean }
-  | { type: "wordcraft:save"; payload: unknown };
+  | { type: "wordcraft:save"; payload: unknown }
+  | { type: "wordcraft:chrome"; chrome: ChromeInfo | null };
 
 type EditorError = { kind: "load" | "save" | "file"; message: string };
 
@@ -45,6 +65,8 @@ function parseMessage(data: unknown): InboundMessage | null {
         type: "wordcraft:save",
         payload: record.bytes ?? record.data ?? record.buffer,
       };
+    case "wordcraft:chrome":
+      return { type: "wordcraft:chrome", chrome: parseChrome(record.chrome) };
     default:
       return null;
   }
@@ -97,6 +119,16 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
 
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  const [chromeMode, setChromeMode] = useState<ChromeMode>("pending");
+  const [chrome, setChrome] = useState<ChromeInfo | null>(null);
+  const [compact, setCompact] = useState(() => typeof window !== "undefined" && window.innerWidth < COMPACT_BELOW_PX);
+  // The insets the editor loads with. They are part of the iframe's URL, so
+  // they never change after mount; later changes go by message instead.
+  const [initialInsets] = useState<ChromeInsets>(() => (compact ? INSETS_COMPACT : INSETS_REGULAR));
+  const stageRef = useRef<HTMLDivElement>(null);
+  const countRef = useRef<HTMLDivElement>(null);
+  const sentStatusInsetRef = useRef<number | null>(null);
+
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const mountedRef = useRef(true);
   const readyRef = useRef(false);
@@ -111,7 +143,10 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   const maxWaitTimerRef = useRef<number | null>(null);
 
   const moduleCode = module?.code;
-  const src = `${EDITOR_PATH}?host=parent&noribbon=1&author=${encodeURIComponent("Student")}`;
+  const src =
+    `${EDITOR_PATH}?host=parent&chrome=embedded` +
+    `&tabInset=${initialInsets.tabStart},${initialInsets.tabEnd}&statusInset=${initialInsets.status}` +
+    `&author=${encodeURIComponent("Student")}`;
 
   useEffect(() => {
     const handleFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -149,6 +184,10 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
 
   const handleRedo = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:redo" }, window.location.origin);
+  }, []);
+
+  const postChrome = useCallback((params: { tabInsetStart?: number; tabInsetEnd?: number; statusInsetStart?: number }) => {
+    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:chrome", ...params }, window.location.origin);
   }, []);
 
   const retrySaveTimerRef = useRef<number | null>(null);
@@ -321,6 +360,16 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
           })();
           break;
         }
+
+        case "wordcraft:chrome":
+          if (message.chrome) {
+            setChrome(message.chrome);
+            setChromeMode("embedded");
+          } else {
+            setChrome(null);
+            setChromeMode("fallback");
+          }
+          break;
       }
     };
 
@@ -355,6 +404,9 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   useEffect(() => {
     readyRef.current = false;
     setStatus("loading");
+    setChromeMode("pending");
+    setChrome(null);
+    sentStatusInsetRef.current = null;
     const timer = window.setTimeout(() => {
       if (readyRef.current || !mountedRef.current) return;
       setStatus("error");
@@ -365,6 +417,60 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     }, READY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [src, frameKey]);
+
+  // An editor that is ready but never reports its chrome is an older build:
+  // show the slim bar and footer instead of docks over a canvas that keeps no room.
+  const editorLoading = status === "loading";
+  useEffect(() => {
+    if (editorLoading || chromeMode !== "pending") return;
+    const timer = window.setTimeout(() => {
+      setChromeMode((mode) => (mode === "pending" ? "fallback" : mode));
+    }, CHROME_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [editorLoading, chromeMode, frameKey]);
+
+  // A narrow stage uses the compact room: the save state shrinks to its dot.
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setCompact(entry.contentRect.width < COMPACT_BELOW_PX));
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (chromeMode !== "embedded") return;
+    const insets = compact ? INSETS_COMPACT : INSETS_REGULAR;
+    if (chrome && chrome.tabStrip.insetStart === insets.tabStart && chrome.tabStrip.insetEnd === insets.tabEnd) return;
+    postChrome({ tabInsetStart: insets.tabStart, tabInsetEnd: insets.tabEnd });
+    // chrome is left out on purpose: its reply must not send the same insets again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact, chromeMode, postChrome]);
+
+  // The status bar keeps exactly the room our count takes, so "Page x of y"
+  // follows it with WordCraft's own 14 point gap whatever the count says.
+  useEffect(() => {
+    const el = countRef.current;
+    if (chromeMode !== "embedded" || !el || typeof ResizeObserver === "undefined") return;
+    let frame = 0;
+    const send = () => {
+      frame = 0;
+      const inset = Math.max(0, Math.ceil(el.getBoundingClientRect().width) - STATUS_MARGIN_START);
+      const last = sentStatusInsetRef.current;
+      if (last !== null && Math.abs(last - inset) < 2) return;
+      sentStatusInsetRef.current = inset;
+      postChrome({ statusInsetStart: inset });
+    };
+    const observer = new ResizeObserver(() => {
+      if (!frame) frame = requestAnimationFrame(send);
+    });
+    observer.observe(el);
+    send();
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [chromeMode, postChrome]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -408,88 +514,138 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     setFrameKey((k) => k + 1);
   };
 
-  return (
-    <div className="wp word-processor">
-      <header className="wp-bar">
-        <div className="wp-bar-left">
-          <button type="button" className="wp-back button quiet small" onClick={handleBack}>
-            <Icon name="back" size={16} />
-            <span>Back to preview</span>
-          </button>
-          <div className="wp-history" role="toolbar" aria-label="History">
-            <button
-              type="button"
-              className="button icon-only quiet"
-              title="Undo (Ctrl+Z)"
-              aria-label="Undo"
-              onClick={handleUndo}
-            >
-              <Icon name="undo" size={16} />
-            </button>
-            <button
-              type="button"
-              className="button icon-only quiet"
-              title="Redo (Ctrl+Y)"
-              aria-label="Redo"
-              onClick={handleRedo}
-            >
-              <Icon name="redo" size={16} />
-            </button>
-          </div>
-        </div>
-        <div className="wp-heading">
-          <h1 className="wp-title" title={title}>
-            {title}
-          </h1>
-          <div className="wp-counts">
-            <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
-            <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
-            <button
-              type="button"
-              className="wp-footnote-pill"
-              aria-pressed={includeFootnotes}
-              title={includeFootnotes ? "Footnotes are counted. Select to leave them out." : "Footnotes are not counted. Select to include them."}
-              onClick={() => void toggleFootnotes()}
-            >
-              {`${counts.footnotes.toLocaleString("en-GB")} ${counts.footnotes === 1 ? "footnote" : "footnotes"} (${includeFootnotes ? "included" : "excluded"})`}
-            </button>
-          </div>
-        </div>
-        <div className="wp-bar-right">
-          <span className="save-status wp-status" data-status={status} role="status" aria-live="polite">
-            <span className="save-status-dot" aria-hidden="true" />
-            {STATUS_LABELS[status]}
-          </span>
-          <button
-            type="button"
-            className="button icon-only quiet"
-            title={isFullscreen ? "Exit full screen" : "Full screen"}
-            aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
-            onClick={toggleFullscreen}
-          >
-            <Icon name={isFullscreen ? "minimize" : "enlarge"} size={16} />
-          </button>
-        </div>
-      </header>
+  const footnoteLabel = `${counts.footnotes.toLocaleString("en-GB")} ${counts.footnotes === 1 ? "footnote" : "footnotes"} (${includeFootnotes ? "included" : "excluded"})`;
 
-      {error && (
-        <div className="wp-error" role="alert">
-          <p>{error.message}</p>
-          {error.kind === "load" && (
-            <button type="button" className="button small" onClick={reloadEditor}>
-              Reload editor
-            </button>
-          )}
-        </div>
+  const historyControls = (
+    <>
+      <button
+        type="button"
+        className="wp-dock-button"
+        title={`Back to preview of ${title}`}
+        aria-label="Back to preview"
+        onClick={handleBack}
+      >
+        <Icon name="back" size={16} />
+      </button>
+      <span className="wp-dock-rule" aria-hidden="true" />
+      <button type="button" className="wp-dock-button" title="Undo (Ctrl+Z)" aria-label="Undo" onClick={handleUndo}>
+        <Icon name="undo" size={16} />
+      </button>
+      <button type="button" className="wp-dock-button" title="Redo (Ctrl+Y)" aria-label="Redo" onClick={handleRedo}>
+        <Icon name="redo" size={16} />
+      </button>
+    </>
+  );
+
+  const stateControls = (
+    <>
+      <span
+        className="save-status wp-status"
+        data-status={status}
+        data-compact={compact || undefined}
+        role="status"
+        aria-live="polite"
+        title={STATUS_LABELS[status]}
+      >
+        <span className="save-status-dot" aria-hidden="true" />
+        <span className={compact ? "wp-sr-only" : undefined}>{STATUS_LABELS[status]}</span>
+      </span>
+      <button
+        type="button"
+        className="wp-dock-button"
+        title={isFullscreen ? "Exit full screen" : "Full screen"}
+        aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+        onClick={toggleFullscreen}
+      >
+        <Icon name={isFullscreen ? "minimize" : "enlarge"} size={16} />
+      </button>
+    </>
+  );
+
+  const wordCount = (
+    <>
+      <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
+      <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
+      <button
+        type="button"
+        className="wp-footnote-pill"
+        aria-pressed={includeFootnotes}
+        title={includeFootnotes ? "Footnotes are counted. Select to leave them out." : "Footnotes are not counted. Select to include them."}
+        onClick={() => void toggleFootnotes()}
+      >
+        {footnoteLabel}
+      </button>
+    </>
+  );
+
+  // WordCraft's own colours, so the docks read as part of its bars in light
+  // and dark themes; the fallbacks are its light theme (theme.rs:307).
+  const chromeStyle = {
+    "--wc-strip-top": `${chrome?.tabStrip.top ?? 0}px`,
+    "--wc-strip-h": `${chrome?.tabStrip.height ?? 30}px`,
+    "--wc-strip-start-w": `${STRIP_MARGIN_START + (chrome?.tabStrip.insetStart ?? initialInsets.tabStart)}px`,
+    "--wc-strip-end-w": `${STRIP_MARGIN_END + (chrome?.tabStrip.insetEnd ?? initialInsets.tabEnd)}px`,
+    "--wc-status-h": `${chrome?.statusBar.height ?? 26}px`,
+    "--wc-status-pad": `${STATUS_MARGIN_START}px`,
+    "--wc-strip-bg": chrome?.colours.tabStrip ?? "#f0f0f0",
+    "--wc-status-bg": chrome?.colours.statusBar ?? "#f0f0f0",
+    "--wc-text": chrome?.colours.text ?? "#242424",
+    "--wc-text-dim": chrome?.colours.textDim ?? "#616161",
+    "--wc-border": chrome?.colours.border ?? "#e1e1e1",
+    "--wc-accent": chrome?.colours.accent ?? "#3b5bdb",
+  } as CSSProperties;
+
+  return (
+    <div className="wp word-processor" data-chrome={chromeMode} style={chromeStyle}>
+      <h1 className="wp-title wp-sr-only">{title}</h1>
+
+      {chromeMode === "fallback" && (
+        <header className="wp-bar wp-bar--slim">
+          <div className="wp-bar-group" role="toolbar" aria-label="Document">{historyControls}</div>
+          <div className="wp-bar-group" role="toolbar" aria-label="Save and view">{stateControls}</div>
+        </header>
       )}
 
-      <iframe
-        key={frameKey}
-        ref={iframeRef}
-        className="wp-frame"
-        src={src}
-        title={`Word processor: ${title}`}
-      />
+      <div className="wp-stage" ref={stageRef}>
+        <iframe
+          key={frameKey}
+          ref={iframeRef}
+          className="wp-frame"
+          src={src}
+          title={`Word processor: ${title}`}
+        />
+
+        {chromeMode !== "fallback" && (
+          <>
+            <div className="wp-dock wp-dock--strip-start" role="toolbar" aria-label="Document">
+              {historyControls}
+            </div>
+            <div className="wp-dock wp-dock--strip-end" role="toolbar" aria-label="Save and view">
+              {stateControls}
+            </div>
+            <div className="wp-dock wp-dock--status" ref={countRef} aria-label="Word count">
+              {wordCount}
+            </div>
+          </>
+        )}
+
+        {error && (
+          <div className="wp-error" role="alert">
+            <p>{error.message}</p>
+            {error.kind === "load" && (
+              <button type="button" className="button small" onClick={reloadEditor}>
+                Reload editor
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {chromeMode === "fallback" && (
+        <footer className="wp-footer" aria-label="Word count">
+          {wordCount}
+        </footer>
+      )}
     </div>
   );
 }

@@ -42,6 +42,8 @@ import { draftExcerpt, wordProgress } from "../src/lib/assessment";
 import { repairText, searchFold } from "../src/lib/textnorm";
 import { isAssessmentEnabled } from "../src/lib/assessmentEnabled";
 import { describeDeadline, pickNextDeadline } from "../src/lib/jobsCard";
+import { INSETS_COMPACT, INSETS_REGULAR, parseChrome } from "../src/lib/wordcraftChrome";
+import { registerListenTests } from "./test_listen";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -1521,6 +1523,29 @@ test("jobsCard describes deadlines and urgency", () => {
   assert.equal(describeDeadline(new Date(2026, 10, 10), now)?.urgency, "soon");
   assert.equal(describeDeadline(new Date(2026, 10, 5), now)?.urgency, "overdue");
 });
+
+test("wordcraftChrome parses reports and validates embedded insets", () => {
+  const c = parseChrome({
+    embedded: true,
+    tabStrip: { top: 0, height: 30, insetStart: 100, insetEnd: 116 },
+    statusBar: { height: 26, insetStart: 310 },
+    colours: { tabStrip: "#1f1f1f", text: "red", accent: "#7A93F0" },
+  });
+  assert.deepEqual(c?.tabStrip, { top: 0, height: 30, insetStart: 100, insetEnd: 116 });
+  assert.deepEqual(c?.colours, { tabStrip: "#1f1f1f", accent: "#7A93F0" });
+
+  assert.equal(parseChrome(null), null);
+  assert.equal(parseChrome({ embedded: false }), null);
+  assert.equal(parseChrome("embedded"), null);
+
+  const fallbackGeometry = parseChrome({ embedded: true, tabStrip: { height: "tall" } });
+  assert.equal(fallbackGeometry?.tabStrip.height, 30);
+  assert.equal(fallbackGeometry?.statusBar.height, 26);
+
+  assert.ok(INSETS_COMPACT.tabStart + INSETS_COMPACT.tabEnd < INSETS_REGULAR.tabStart + INSETS_REGULAR.tabEnd);
+});
+
+registerListenTests(test);
 
 if (failed) {
 
