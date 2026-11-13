@@ -75,6 +75,7 @@ class StudyDB extends Dexie {
   settings!: Table<Tables["settings"], string>;
   applications!: Table<Tables["applications"], string>;
   application_events!: Table<Tables["application_events"], string>;
+  prospects!: Table<Tables["prospects"], string>;
   outbox!: Table<OutboxEntry, number>;
   failed!: Table<FailedChange, number>;
   meta!: Table<MetaEntry, string>;
@@ -124,6 +125,10 @@ class StudyDB extends Dexie {
     });
     // Chicago 18th edition reference fields on items, from 0.33.
     this.version(8).stores({}).upgrade(async (tx) => {
+      await tx.table("meta").put({ key: "cursor", value: 0 });
+    });
+    // Graduate shortlist prospects and salary on applications, from 0.49.
+    this.version(9).stores({ prospects: "id, next_check, status, application_id" }).upgrade(async (tx) => {
       await tx.table("meta").put({ key: "cursor", value: 0 });
     });
   }

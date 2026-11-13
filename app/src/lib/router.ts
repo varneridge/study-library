@@ -17,7 +17,7 @@ export type Route =
   | { view: "search"; q?: string }
   | { view: "settings" }
   // The job search, kept apart from the study library.
-  | { view: "jobs"; app?: string; edit?: boolean; newApp?: boolean; entry?: string; tab?: string };
+  | { view: "jobs"; list?: "applications" | "shortlist"; app?: string; prospect?: string; edit?: boolean; newApp?: boolean; entry?: string; tab?: string };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
@@ -75,12 +75,14 @@ export function parseRoute(search: string): Route {
     case "settings":
       return { view };
     case "jobs": {
+      const prospect = params.get("prospect") ?? undefined;
+      const list = params.get("list") === "shortlist" || prospect ? "shortlist" : undefined;
       const app = params.get("app") ?? undefined;
       const edit = params.get("edit") === "1" ? true : undefined;
       const newApp = params.get("new") === "1" ? true : undefined;
       const entry = params.get("entry") ?? undefined;
       const tab = params.get("tab") ?? undefined;
-      return { view, app, edit, newApp, entry, tab };
+      return { view, list, app, prospect, edit, newApp, entry, tab };
     }
     default:
       return { view: "home" };
@@ -105,7 +107,9 @@ export function href(route: Route): string {
     if (route.number) params.set("n", String(route.number));
   }
   if (route.view === "jobs") {
+    if (route.list === "shortlist") params.set("list", "shortlist");
     if (route.app) params.set("app", route.app);
+    if (route.prospect) params.set("prospect", route.prospect);
     if (route.edit) params.set("edit", "1");
     if (route.newApp) params.set("new", "1");
     if (route.entry) params.set("entry", route.entry);

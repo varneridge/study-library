@@ -46,6 +46,8 @@ const paths: Record<string, React.ReactNode> = {
   viewNormal: <><rect x="3.25" y="3.75" width="4.5" height="4.5" /><rect x="3.25" y="11.75" width="4.5" height="4.5" /><path d="M10.25 5h6.5M10.25 7h4M10.25 13h6.5M10.25 15h4" /></>,
   viewIcons: <><rect x="3.25" y="3.25" width="5.5" height="5.5" /><rect x="11.25" y="3.25" width="5.5" height="5.5" /><rect x="3.25" y="11.25" width="5.5" height="5.5" /><rect x="11.25" y="11.25" width="5.5" height="5.5" /></>,
   viewLarge: <><rect x="3.25" y="3.25" width="13.5" height="9.75" /><path d="M3.25 16.25h8.5" /></>,
+  clock: <><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.25l3 1.75" /></>,
+  external: <><path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5" /><path d="M8.5 5H4.25v10.75H15V11.5" /></>,
 };
 
 

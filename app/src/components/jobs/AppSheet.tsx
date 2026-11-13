@@ -265,6 +265,12 @@ export function AppSheet({
               <span className="field-label">Next deadline</span>
               <Deadline app={app} />
             </div>
+            {app.salary && (
+              <div className="app-sheet-field">
+                <span className="field-label">Salary</span>
+                <span className="app-sheet-val">{app.salary}</span>
+              </div>
+            )}
           </section>
 
           <div className="app-sheet-section app-sheet-files">

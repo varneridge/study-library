@@ -17,6 +17,7 @@ const DEFAULTS: Record<string, unknown> = {
   status: "recording",
   employer: "",
   role: "",
+  programme: "",
   stage: "applied",
   kind: "change",
 };
@@ -44,11 +45,14 @@ export const TABLES = {
   // The job search. The four file slots are JSON, one column each, so an
   // edit to one slot never touches another.
   applications: spec(
-    ["employer", "role", "applied", "stage", "next_deadline", "notes", "file_cv", "file_cl", "file_rd", "file_qs"],
+    ["employer", "role", "salary", "applied", "stage", "next_deadline", "notes", "file_cv", "file_cl", "file_rd", "file_qs"],
     ["file_cv", "file_cl", "file_rd", "file_qs"],
   ),
   application_events: spec(
     ["application_id", "stage", "from_stage", "at", "kind", "cleared_deadline"],
+  ),
+  prospects: spec(
+    ["employer", "programme", "salary", "link", "last_year_open", "next_check", "status", "notes", "application_id"],
   ),
   highlights: spec(
     ["item_id", "page", "rects", "body", "colour", "comment", "question_id", "zotero_key"],
@@ -77,6 +81,7 @@ type Value = string | number | null;
 
 export function encode(table: TableName, column: string, value: unknown): Value {
   const t = TABLES[table];
+  if (value === undefined && table === "prospects" && column === "status") value = "not_started";
   if (value === undefined && column in DEFAULTS) value = DEFAULTS[column];
   if (value === undefined || value === null) return null;
   if (table === "modules" && column === "image_key") {

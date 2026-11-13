@@ -201,6 +201,7 @@ export type FileSlot =
 export interface ApplicationRow extends SyncedRow {
   employer: string;
   role: string;
+  salary?: string | null;
   applied: string | null;
   stage: string;
   next_deadline: string | null;
@@ -209,6 +210,18 @@ export interface ApplicationRow extends SyncedRow {
   file_cl: FileSlot | null;
   file_rd: FileSlot | null;
   file_qs: FileSlot | null;
+}
+
+export interface ProspectRow extends SyncedRow {
+  employer: string;
+  programme: string;
+  salary: string | null;
+  link: string | null;
+  last_year_open: string | null;
+  next_check: string | null;
+  status: string;
+  notes: string | null;
+  application_id: string | null;
 }
 
 export type ApplicationEventKind = "change" | "manual";
@@ -256,6 +269,7 @@ export interface Tables {
   settings: SettingRow;
   applications: ApplicationRow;
   application_events: ApplicationEventRow;
+  prospects: ProspectRow;
 }
 
 export type TableName = keyof Tables;
@@ -275,4 +289,5 @@ export const SYNCED_TABLES: TableName[] = [
   "settings",
   "applications",
   "application_events",
+  "prospects",
 ];

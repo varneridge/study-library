@@ -193,7 +193,7 @@ export function matches(app: ApplicationRow, query: string): boolean {
   if (!q) return true;
   const stage = stageOf(app.stage);
   const aliases = STAGE_ALIASES[app.stage] ?? [];
-  return [app.employer, app.role, stage.label, ...aliases, app.notes ?? ""].some((field) => field.toLowerCase().includes(q));
+  return [app.employer, app.role, app.salary ?? "", stage.label, ...aliases, app.notes ?? ""].some((field) => field.toLowerCase().includes(q));
 }
 
 // Editing
@@ -210,6 +210,7 @@ export async function addApplication(initial?: Partial<ApplicationRow>): Promise
         id,
         employer: initial?.employer ?? "",
         role: initial?.role ?? "",
+        salary: initial?.salary ?? null,
         applied,
         stage,
         next_deadline: initial?.next_deadline ?? null,
@@ -241,7 +242,7 @@ export const saveApplication = (id: string, changes: Partial<ApplicationRow>) =>
 // A new application left with no employer or role is not kept.
 export async function discardIfBlank(id: string): Promise<boolean> {
   const app = await db.applications.get(id);
-  if (!app || app.deleted || app.employer.trim() || app.role.trim() || app.notes?.trim()) return false;
+  if (!app || app.deleted || app.employer.trim() || app.role.trim() || app.salary?.trim() || app.notes?.trim()) return false;
   if (SLOTS.some((s) => app[slotColumn(s.name)])) return false;
   const events = await db.application_events.where("application_id").equals(id).toArray();
   const changes: Change[] = [
@@ -257,7 +258,7 @@ export async function discardIfBlank(id: string): Promise<boolean> {
 export async function cancelNewApplication(id: string): Promise<void> {
   const events = await db.application_events.where("application_id").equals(id).toArray();
   await commit([
-    { table: "applications", row: { id, employer: "", role: "", notes: null, deleted: true }, patch: true },
+    { table: "applications", row: { id, employer: "", role: "", salary: null, notes: null, deleted: true }, patch: true },
     ...events.map((e) => ({ table: "application_events" as const, row: { id: e.id, deleted: true }, patch: true })),
   ]);
 }
@@ -753,8 +754,9 @@ export function computeApplicationPatch(
   const patch: Partial<ApplicationRow> = {};
   for (const [key, val] of Object.entries(current)) {
     const k = key as keyof ApplicationRow;
-    const initialVal = initial[k];
-    if (val !== undefined && val !== initialVal) {
+    const initialVal = initial[k] ?? null;
+    const currentVal = val ?? null;
+    if (val !== undefined && currentVal !== initialVal) {
       (patch as Record<string, unknown>)[k] = val;
     }
   }

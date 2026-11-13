@@ -62,6 +62,9 @@ export function AppRow({
 
         <div className="app-card-footer">
           <div className="app-card-meta">
+            {app.salary && (
+              <span className="app-meta-item app-meta-salary">{app.salary}</span>
+            )}
             {app.applied && (
               <span className="app-meta-item">Applied {formatDate(app.applied)}</span>
             )}

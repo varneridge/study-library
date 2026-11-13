@@ -31,6 +31,7 @@ export function ApplicationForm({
 }: ApplicationFormProps) {
   const [employer, setEmployer] = useState(initialApp?.employer ?? "");
   const [role, setRole] = useState(initialApp?.role ?? "");
+  const [salary, setSalary] = useState(initialApp?.salary ?? "");
   const [applied, setApplied] = useState(initialApp?.applied ?? (mode === "new" ? todayIso() : ""));
   const [nextDeadline, setNextDeadline] = useState(initialApp?.next_deadline ?? "");
   const [notes, setNotes] = useState(initialApp?.notes ?? "");
@@ -41,12 +42,13 @@ export function ApplicationForm({
 
   const isDirty = () => {
     if (mode === "new") {
-      return Boolean(employer.trim() || role.trim() || notes.trim() || nextDeadline || (applied && applied !== todayIso()));
+      return Boolean(employer.trim() || role.trim() || salary.trim() || notes.trim() || nextDeadline || (applied && applied !== todayIso()));
     }
     if (!initialApp) return false;
     const current = {
       employer: employer.trim(),
       role: role.trim(),
+      salary: salary.trim() || null,
       applied: applied || null,
       next_deadline: nextDeadline || null,
     };
@@ -73,6 +75,7 @@ export function ApplicationForm({
     const currentValues: Partial<ApplicationRow> = {
       employer: employer.trim(),
       role: role.trim(),
+      salary: salary.trim() || null,
       applied: applied || null,
       next_deadline: nextDeadline || null,
       ...(mode === "new" ? { notes: notes.trim() || null } : {}),
@@ -190,6 +193,20 @@ export function ApplicationForm({
             enterKeyHint="next"
             onChange={(e) => {
               setRole(e.target.value);
+              setConfirmDiscard(false);
+            }}
+          />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Salary</span>
+          <input
+            type="text"
+            value={salary}
+            placeholder="Salary, such as £32,500"
+            enterKeyHint="next"
+            onChange={(e) => {
+              setSalary(e.target.value);
               setConfirmDiscard(false);
             }}
           />

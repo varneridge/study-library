@@ -1,12 +1,28 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   computeApplicationPatch,
   validateApplication,
   detectApplicationConflict,
   entryAddChanges,
   entryDeleteChanges,
+  matches,
 } from "../src/lib/jobs";
-import type { ApplicationEventRow, ApplicationRow } from "../src/lib/types";
+import {
+  PROSPECT_STATUSES,
+  PROSPECT_STATUS_GROUPS,
+  prospectStatusOf,
+  stageForProspectStatus,
+  checkState,
+  checkWords,
+  parseProspectLink,
+  sortProspects,
+  summariseProspects,
+  matchesProspect,
+  validateProspect,
+  computeProspectPatch,
+} from "../src/lib/prospects";
+import type { ApplicationEventRow, ApplicationRow, ProspectRow } from "../src/lib/types";
 
 function baseApp(overrides?: Partial<ApplicationRow>): ApplicationRow {
   return {
@@ -200,5 +216,150 @@ export function registerJobLogicTests(test: (name: string, fn: () => void) => vo
       row: { id: "app-1", stage: "first_interview" },
       patch: true,
     });
+  });
+
+  test("application salary is included in search matching and patch computation", () => {
+    const initial = baseApp({ salary: "£37,500" });
+    assert.ok(matches(initial, "37,500"));
+    assert.ok(matches(initial, "£37"));
+    const updated = { ...initial, salary: "£42,000" };
+    assert.deepEqual(computeApplicationPatch(initial, updated), { salary: "£42,000" });
+  });
+
+  test("prospect statuses cover all 11 Excel choices and map cleanly to application stages", () => {
+    assert.equal(PROSPECT_STATUSES.length, 11);
+    const groupKeys = PROSPECT_STATUS_GROUPS.flatMap((g) => g.keys);
+    assert.deepEqual([...groupKeys].sort(), PROSPECT_STATUSES.map((s) => s.key).sort());
+    assert.equal(prospectStatusOf("not_started").label, "Not started");
+    assert.equal(prospectStatusOf("not_applying").cat, "closed");
+    assert.equal(stageForProspectStatus("not_started").stage, "to_apply");
+    assert.equal(stageForProspectStatus("not_started").applied, null);
+    assert.equal(stageForProspectStatus("submitted").stage, "applied");
+    assert.equal(stageForProspectStatus("online_tests").stage, "oa_todo");
+    assert.equal(stageForProspectStatus("interview").stage, "interview_todo");
+    assert.equal(stageForProspectStatus("assessment_centre").stage, "ac_todo");
+    assert.equal(stageForProspectStatus("offer").stage, "offer");
+    assert.equal(stageForProspectStatus("rejected").stage, "rejected");
+    assert.equal(stageForProspectStatus("withdrawn").stage, "withdrawn");
+  });
+
+  test("prospect checkState turns overdue on the check date itself and soon within 7 days", () => {
+    const baseProspect = (next_check: string | null, status = "not_started"): ProspectRow => ({
+      id: "p1",
+      employer: "Civil Service Fast Stream",
+      programme: "Diplomatic & Development Economics",
+      salary: "£31k-£33k",
+      link: "https://www.faststream.gov.uk/",
+      last_year_open: "9 Oct - 6 Nov 2025",
+      next_check,
+      status,
+      notes: null,
+      application_id: null,
+      modified_at: "2026-11-13T12:00:00Z",
+      seq: 1,
+      deleted: false,
+    });
+    const refNow = new Date(2026, 10, 16, 12, 0); // 16 Nov 2026
+    // Excel rule: "Next check turns red once the date arrives"
+    assert.equal(checkState(baseProspect("2026-11-16"), null, refNow), "overdue");
+    assert.equal(checkWords(baseProspect("2026-11-16"), null, refNow), "check today");
+    assert.equal(checkState(baseProspect("2026-11-15"), null, refNow), "overdue");
+    assert.equal(checkWords(baseProspect("2026-11-15"), null, refNow), "overdue by a day");
+    assert.equal(checkWords(baseProspect("2026-11-13"), null, refNow), "overdue by 3 days");
+    assert.equal(checkState(baseProspect("2026-11-17"), null, refNow), "soon");
+    assert.equal(checkWords(baseProspect("2026-11-17"), null, refNow), "tomorrow");
+    assert.equal(checkState(baseProspect("2026-11-23"), null, refNow), "soon");
+    assert.equal(checkWords(baseProspect("2026-11-23"), null, refNow), "in 7 days");
+    assert.equal(checkState(baseProspect("2026-11-24"), null, refNow), "none");
+    // Closed prospects never show as due
+    assert.equal(checkState(baseProspect("2026-11-15", "not_applying"), null, refNow), "none");
+    assert.equal(checkWords(baseProspect("2026-11-15", "rejected"), null, refNow), "");
+  });
+
+  test("parseProspectLink handles URLs, Search: queries, plain text, and blocks unsafe schemes", () => {
+    const url = parseProspectLink("https://www.faststream.gov.uk/programmes");
+    assert.equal(url.kind, "url");
+    if (url.kind === "url") {
+      assert.equal(url.href, "https://www.faststream.gov.uk/programmes");
+      assert.equal(url.label, "faststream.gov.uk");
+    }
+
+    const search = parseProspectLink("Search: House of Commons Fast Stream");
+    assert.equal(search.kind, "search");
+    if (search.kind === "search") {
+      assert.equal(search.label, "Search: House of Commons Fast Stream");
+      assert.ok(search.href.startsWith("https://www.google.com/search?q=House%20of%20Commons"));
+    }
+
+    const unsafe = parseProspectLink("javascript:alert(1)");
+    assert.equal(unsafe.kind, "text");
+
+    const empty = parseProspectLink("   ");
+    assert.equal(empty.kind, "none");
+  });
+
+  test("sortProspects, summariseProspects, matchesProspect, and validateProspect work as expected", () => {
+    const mk = (id: string, next_check: string | null, status = "not_started", employer = id): ProspectRow => ({
+      id,
+      employer,
+      programme: "Graduate Scheme",
+      salary: "£35,000",
+      link: "Search: " + employer,
+      last_year_open: "Oct 2025",
+      next_check,
+      status,
+      notes: null,
+      application_id: null,
+      modified_at: "2026-11-13T12:00:00Z",
+      seq: 1,
+      deleted: false,
+    });
+    const refNow = new Date(2026, 10, 16, 12, 0);
+    const rows = [
+      mk("closed", "2026-11-10", "not_applying", "Closed Co"),
+      mk("later", "2026-12-01", "not_started", "Later Co"),
+      mk("due-today", "2026-11-16", "researching", "Alpha Co"),
+      mk("no-date", null, "not_started", "Beta Co"),
+    ];
+    assert.deepEqual(sortProspects(rows).map((r) => r.id), ["due-today", "later", "no-date", "closed"]);
+    assert.deepEqual(summariseProspects(rows, new Map(), refNow), {
+      open: 3,
+      closed: 1,
+      dueNow: 1,
+      soon: 0,
+      inProgress: 0,
+      offers: 0,
+    });
+    assert.ok(matchesProspect(rows[2], "alpha"));
+    assert.ok(matchesProspect(rows[2], "35,000"));
+    assert.ok(matchesProspect(rows[2], "oct 2025"));
+
+    assert.equal(validateProspect({ employer: "  " }).valid, false);
+    assert.equal(validateProspect({ employer: "Ofcom", next_check: "16/11/2026" }).valid, false);
+    assert.equal(validateProspect({ employer: "Ofcom", next_check: "2026-11-16" }).valid, true);
+    assert.deepEqual(computeProspectPatch(rows[2], { ...rows[2], salary: "£40,000" }), { salary: "£40,000" });
+  });
+
+  test("migration 0018 seeds all 22 graduate shortlist rows and adds salary to applications without em or en dashes", () => {
+    const sql = readFileSync(new URL("../migrations/0018_job_shortlist.sql", import.meta.url), "utf8");
+    assert.ok(sql.includes("ALTER TABLE applications ADD COLUMN salary TEXT;"));
+    assert.ok(sql.includes("CREATE TABLE prospects ("));
+    for (let i = 1; i <= 22; i += 1) {
+      const id = `shortlist-${String(i).padStart(2, "0")}`;
+      assert.ok(sql.includes(`'${id}'`), `migration missing ${id}`);
+    }
+    const checkFiles = [
+      "../migrations/0018_job_shortlist.sql",
+      "../src/lib/prospects.ts",
+      "../src/components/jobs/ProspectControls.tsx",
+      "../src/components/jobs/ProspectSheet.tsx",
+      "../src/components/jobs/ProspectForm.tsx",
+      "../src/components/jobs/ProspectRow.tsx",
+      "../src/components/jobs/ProspectList.tsx",
+    ];
+    for (const rel of checkFiles) {
+      const text = readFileSync(new URL(rel, import.meta.url), "utf8");
+      assert.ok(!text.includes("\u2013") && !text.includes("\u2014"), `${rel} contains an en or em dash`);
+    }
   });
 }

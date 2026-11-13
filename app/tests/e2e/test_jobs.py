@@ -43,10 +43,12 @@ def until_stages(page, employer, expected, timeout=20):
     raise AssertionError(f"{employer}: {stages_on_server(page, employer)} on the server, wanted {sorted(expected)}")
 
 
-def push(page, rows, events=None):
+def push(page, rows, events=None, prospects=None):
     changes = [{"table": "applications", "row": r} for r in rows]
     if events:
         changes.extend([{"table": "application_events", "row": e} for e in events])
+    if prospects:
+        changes.extend([{"table": "prospects", "row": p} for p in prospects])
     page.request.post(BASE + "/api/sync/push", data={"changes": changes})
 
 
@@ -55,6 +57,12 @@ def application(id, employer, role, stage, applied, deadline=None, **slots):
            "notes": None, "file_cv": None, "file_cl": None, "file_rd": None, "file_qs": None, "modified_at": stamp(), "deleted": False}
     row.update(slots)
     return row
+
+
+def prospect(id, employer, programme, salary, link, last_year_open, next_check, status="not_started", notes=None, application_id=None):
+    return {"id": id, "employer": employer, "programme": programme, "salary": salary, "link": link,
+            "last_year_open": last_year_open, "next_check": next_check, "status": status, "notes": notes,
+            "application_id": application_id, "modified_at": stamp(), "deleted": False}
 
 
 def app_event(id, app_id, stage, at, from_stage=None, kind="change", cleared_deadline=None):
@@ -75,7 +83,7 @@ with sync_playwright() as p:
     push(page, [
         application("kekst", "Kekst CNC", "Summer 2026 Internship", "rejected", "2026-02-26", iso(today - timedelta(days=3)),
                     file_cv={"state": "saved"}, file_cl={"state": "saved"}, file_rd={"state": "saved"}),
-        application("pwc", "PwC", "Graduate Strategy", "oa_todo", iso(today - timedelta(days=10)), iso(today + timedelta(days=2))),
+        application("pwc", "PwC", "Graduate Strategy", "oa_todo", iso(today - timedelta(days=10)), iso(today + timedelta(days=2)), salary="£37,500"),
         application("castore", "Castore", "Consulting Analyst", "interview_todo", iso(today - timedelta(days=20)), iso(today - timedelta(days=1))),
         application("fast", "Civil Service", "Fast Stream", "applied", iso(today - timedelta(days=5))),
     ], events=[
@@ -83,6 +91,13 @@ with sync_playwright() as p:
         app_event("ev-pwc", "pwc", "oa_todo", iso(today - timedelta(days=10))),
         app_event("ev-castore", "castore", "interview_todo", iso(today - timedelta(days=20)), from_stage="applied"),
         app_event("ev-fast", "fast", "applied", iso(today - timedelta(days=5))),
+    ], prospects=[
+        prospect("shortlist-01", "Civil Service Fast Stream", "Diplomatic & Development Economics", "£31k-£33k",
+                 "https://www.faststream.gov.uk/", "9 Oct - 6 Nov 2025", iso(today), "not_started"),
+        prospect("shortlist-02", "UK Parliament (House of Commons)", "Fast Stream", "£38,535",
+                 "Search: House of Commons Fast Stream", "Oct - Nov 2025", iso(today + timedelta(days=3)), "researching"),
+        prospect("shortlist-03", "Ofcom", "Graduate Scheme (Policy)", "~£34,000",
+                 "https://www.ofcom.org.uk/about-ofcom/jobs/graduates", "3 Nov - 1 Dec 2025", iso(today + timedelta(days=14)), "not_started"),
     ])
 
     # The study side, before: its top bar has the switch to the job search.
@@ -441,6 +456,52 @@ with sync_playwright() as p:
     page.locator(".jobs-summary").click()
     expect(page.locator(".drop-sheet, .drop-mark")).to_have_count(0)
 
+    # Switch to the Shortlist view: 7 columns, check dates, links, status choice card, and promotion to applications.
+    page.locator(".jobs-list-switch").get_by_role("link", name=re.compile(r"^Shortlist")).click()
+    expect(page.get_by_role("heading", name="Shortlist")).to_be_visible()
+    assert page.url.endswith("list=shortlist"), page.url
+    expect(page.locator(".jobs-summary")).to_contain_text("3 shortlisted programmes. 3 open, 1 to check now, 1 within a week.")
+    p_employers = lambda: page.locator("tbody.app .c-employer textarea").evaluate_all("els => els.map(e => e.value)")
+    assert p_employers() == ["Civil Service Fast Stream", "UK Parliament (House of Commons)", "Ofcom"], p_employers()
+
+    # Shortlist table fits cleanly without horizontal overflow at 1024px.
+    page.set_viewport_size({"width": 1024, "height": 800})
+    assert page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    page.set_viewport_size({"width": 1280, "height": 900})
+
+    # Check today turns red ("state-overdue", "check today"), within 7 days turns amber ("state-soon").
+    prow = lambda pid: page.locator(f"tbody.app[data-prospect='{pid}']")
+    expect(prow("shortlist-01").locator(".c-next-check .deadline")).to_have_class("deadline state-overdue")
+    expect(prow("shortlist-01").locator(".c-next-check .deadline-words")).to_have_text("check today")
+    expect(prow("shortlist-02").locator(".c-next-check .deadline")).to_have_class("deadline state-soon")
+    expect(prow("shortlist-01").locator(".c-link textarea")).to_have_value("https://www.faststream.gov.uk/")
+    expect(prow("shortlist-01").locator(".c-link a.prospect-link-go")).to_have_attribute("href", "https://www.faststream.gov.uk/")
+    expect(prow("shortlist-02").locator(".c-link textarea")).to_have_value("Search: House of Commons Fast Stream")
+    expect(prow("shortlist-02").locator(".c-link a.prospect-link-go")).to_have_attribute("href", re.compile(r"^https://www.google.com/search\?q="))
+
+    # Change status via the status choice card.
+    prow("shortlist-03").locator(".c-status .stage-chip").click()
+    status_card = page.locator("dialog.status-card[open]")
+    expect(status_card).to_be_visible()
+    status_card.get_by_role("button", name="Drafting", exact=True).click()
+    expect(status_card).to_have_count(0)
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.prospects || []).some(p => p.id === 'shortlist-03' && p.status === 'drafting'); }")
+
+    # Open prospect sheet, promote to application, and Undo.
+    prow("shortlist-03").get_by_role("button", name="Open card for Ofcom").click()
+    prospect_sheet = page.locator("dialog.prospect-sheet[open]")
+    expect(prospect_sheet).to_be_visible()
+    prospect_sheet.get_by_role("button", name="Add to applications").click()
+    expect(page.locator(".toast")).to_contain_text("Ofcom added to applications.")
+    expect(prospect_sheet.get_by_role("button", name="Open application")).to_be_visible()
+    page.locator(".toast").get_by_role("button", name="Undo").click()
+    expect(prospect_sheet.get_by_role("button", name="Add to applications")).to_be_visible()
+    prospect_sheet.get_by_role("button", name="Done", exact=True).click()
+    expect(prospect_sheet).to_have_count(0)
+    page.locator(".jobs-list-switch").get_by_role("link", name=re.compile(r"^Applications")).click()
+    expect(page.get_by_role("heading", name="Applications")).to_be_visible()
+    print("shortlist: 7 columns, check states, links, status choice card, and promotion with Undo work")
+
     # Back to the study side, which is as it was.
     page.locator(".topbar .side-switch .side-study").click()
     expect(page.locator(".topbar .brand")).to_have_text("Study Library")
@@ -510,7 +571,8 @@ with sync_playwright() as p:
     expect(app_sheet).to_have_count(0)
     print("phone sheet: read-first sheet, one sheet per file slot, Done at the foot")
 
-    # Edit application sheet flow:
+    # Edit application sheet flow (including Salary):
+    expect(phone.locator(".app-card[data-employer='PwC']")).to_contain_text("£37,500")
     phone.locator(".app-card[href*='app=castore']").tap()
     expect(app_sheet).to_be_visible()
     app_sheet.get_by_role("button", name="Edit details").tap()
@@ -518,11 +580,14 @@ with sync_playwright() as p:
     expect(edit_sheet).to_be_visible()
     assert phone.url.endswith("edit=1")
     edit_sheet.get_by_label("Role", exact=True).fill("Consulting Analyst, Retail Strategy")
+    edit_sheet.get_by_label("Salary", exact=True).fill("£42,000")
     edit_sheet.get_by_role("button", name="Save changes").tap()
     expect(edit_sheet).to_have_count(0)
-    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.role === 'Consulting Analyst, Retail Strategy'); }")
+    expect(app_sheet.locator(".app-sheet-status")).to_contain_text("£42,000")
+    until(phone, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.applications || []).some(a => a.employer === 'Castore' && a.role === 'Consulting Analyst, Retail Strategy' && a.salary === '£42,000'); }")
     app_sheet.get_by_role("button", name="Done", exact=True).tap()
     expect(app_sheet).to_have_count(0)
+    expect(phone.locator(".app-card[data-employer='Castore']")).to_contain_text("£42,000")
 
     # New application sheet flow on phone:
     phone.get_by_role("button", name="Add application").tap()
@@ -582,6 +647,16 @@ with sync_playwright() as p:
       .filter(e => e.offsetParent && e.type !== 'file').map(e => [e.className || e.tagName, e.getBoundingClientRect()])
       .filter(([, r]) => r.height < 43.5).map(([c, r]) => c + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))""")
     assert not small, small
+
+    # Shortlist on phone: cards, prospect sheet, and 44px touch targets.
+    phone.locator(".jobs-list-switch").get_by_role("link", name=re.compile(r"^Shortlist")).tap()
+    expect(phone.locator(".app-card")).to_have_count(3)
+    expect(phone.locator(".app-card").first).to_contain_text("Civil Service Fast Stream")
+    expect(phone.locator(".app-card").first).to_contain_text("£31k-£33k")
+    small_shortlist = phone.evaluate("""() => [...document.querySelectorAll('.jobs button, .jobs a[href], .jobs select, .jobs input')]
+      .filter(e => e.offsetParent && e.type !== 'file').map(e => [e.className || e.tagName, e.getBoundingClientRect()])
+      .filter(([, r]) => r.height < 43.5).map(([c, r]) => c + ' ' + Math.round(r.width) + 'x' + Math.round(r.height))""")
+    assert not small_shortlist, small_shortlist
     print("phone: cards open to edit, and every control is at least 44 pixels high")
 
     assert not errors, errors

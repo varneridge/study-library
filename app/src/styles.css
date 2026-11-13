@@ -1969,7 +1969,9 @@ img, canvas, video { max-width: 100%; }
   .topbar > .side-switch { margin-left: 0.5rem; }
   .jobs-bar > .topbar-tools { display: none; }
 }
-.jobs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.jobs-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.jobs-head-main { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.jobs-list-switch .seg-count { font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 0.2rem; }
 .jobs-summary { margin: 0.35rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .jobs-tools { display: flex; align-items: center; gap: 0.75rem 1.25rem; flex-wrap: wrap; margin: 1.5rem 0 0.9rem; }
 .jobs-tools .seg-count { font-variant-numeric: tabular-nums; color: var(--muted); margin-left: 0.2rem; }
@@ -2017,6 +2019,23 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 .apps { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); table-layout: fixed; }
 .apps .w-employer { width: 17%; } .apps .w-applied { width: 7.5rem; } .apps .w-stage { width: 16.5rem; }
 .apps .w-deadline { width: 8.5rem; } .apps .w-slot { width: 2.6rem; } .apps .w-more { width: 2.5rem; }
+.apps.shortlist-table .w-check { width: 7.5rem; }
+.apps.shortlist-table .w-last-open { width: 8rem; }
+.apps.shortlist-table .w-employer { width: 19%; min-width: 8rem; }
+.apps.shortlist-table .w-programme { width: auto; }
+.apps.shortlist-table .w-salary { width: 7.5rem; }
+.apps.shortlist-table .w-link { width: 10.5rem; }
+.apps.shortlist-table .w-status { width: 10.5rem; }
+.prospect-link-cell { display: flex; align-items: flex-start; gap: 0.25rem; min-width: 0; }
+.prospect-link-cell .prospect-link-input { flex: 1; min-width: 0; }
+.prospect-link-go { flex: none; display: inline-grid; place-items: center; width: 1.85rem; height: 1.85rem; color: var(--accent); text-decoration: none; border-radius: var(--r-xs); }
+.prospect-link-go:hover, .prospect-link-go:focus-visible { background: var(--accent-soft); }
+.prospect-in-apps { display: block; margin-top: 0.2rem; color: var(--accent); font-size: var(--fs-xs); }
+.status-groups { display: grid; gap: 0.75rem; }
+.status-group { display: grid; gap: 0.3rem; }
+.status-card-promote { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--rule); }
+.prospect-sheet-link-row { margin: 0; }
+.prospect-sheet-link { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--accent); text-decoration: underline; word-break: break-all; }
 .apps thead { position: sticky; top: var(--topbar-h, 3.25rem); z-index: 5; background: var(--paper); }
 .apps th {
   text-align: left;
@@ -2234,7 +2253,7 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 /* Touch screens, and the card layout on a phone: every control in the job
    search is at least 44 pixels, as Apple's guidelines ask. */
 @media (pointer: coarse), (max-width: 60rem) {
-  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button, .date-picker-trigger, .settings-nav-item { min-height: 2.75rem; }
+  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button, .date-picker-trigger, .settings-nav-item, .prospect-sheet-link, .prospect-link-go { min-height: 2.75rem; }
   .settings-nav-item { display: inline-flex; align-items: center; }
   .jobs .quiet { display: inline-flex; align-items: center; }
   .jobs .slot, .jobs .details-toggle, .jobs .card-enlarge { width: 2.75rem; height: 2.75rem; }
@@ -2527,9 +2546,9 @@ input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus
 
 /* One look for "selected": segmented controls, week grids, the job filter. */
 .segmented { background: var(--surface); border-radius: var(--r-sm); padding: 2px; gap: 2px; }
-.segmented .tool { border: 0; background: transparent; border-radius: var(--r-xs); color: var(--muted); padding: 0.3rem 0.7rem; }
+.segmented .tool { border: 0; background: transparent; border-radius: var(--r-xs); color: var(--muted); padding: 0.3rem 0.7rem; text-decoration: none; }
 .segmented .tool:hover { color: var(--ink); }
-.segmented .tool[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(29, 32, 36, 0.10); }
+.segmented .tool[aria-pressed="true"], .segmented .tool[aria-current="page"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(29, 32, 36, 0.10); }
 .jump { background: var(--paper); border: 0; gap: 4px; padding: 0.4rem 0; }
 .picker { background: none; border: 0; gap: 4px; }
 .jump button, .picker button {
@@ -3728,8 +3747,12 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
     gap: 1.5rem 2.25rem; align-items: start;
   }
   .app-sheet-status {
-    grid-area: status; grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+    grid-area: status; grid-template-columns: minmax(0, 1.35fr) repeat(auto-fit, minmax(8rem, 1fr));
     padding: 1rem 1.25rem;
+  }
+  .prospect-sheet .app-sheet-body {
+    grid-template-areas: "status status" "notes notes";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .app-sheet-status .app-sheet-stage-field { grid-column: auto; }
   .app-sheet-timeline { grid-area: timeline; }
