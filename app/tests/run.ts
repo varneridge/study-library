@@ -1363,8 +1363,16 @@ test("the date card has no quick chips and a Clear date button apart from Cancel
 test("one top bar serves both sides, with the switch between them", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.equal((source.match(/<header className=/g) ?? []).length, 1, "there should be one top bar");
-  assert.equal((source.match(/<TopBar route=\{route\} \/>/g) ?? []).length, 2, "both sides should use TopBar");
+  assert.equal((source.match(/<TopBar route=\{route\} \/>/g) ?? []).length, 1, "both sides should use TopBar");
   assert.ok(!source.includes("Back to Study Library"), "the old way back from the job search remains");
+});
+
+test("page changes wait for the next page instead of blanking the screen", () => {
+  const router = readFileSync(new URL("../src/lib/router.ts", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.ok(router.includes("startRouteTransition(() => setRoute("), "route updates should run inside a transition");
+  assert.equal((router.match(/window\.scrollTo\(0, 0\)/g) ?? []).length, 1, "the page should scroll to the top in one place only, after commit");
+  assert.ok(!app.includes("key={href(route)}"), "the page should not remount on every query change");
 });
 
 test("a folder's view opens as File Explorer's would", () => {

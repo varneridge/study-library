@@ -1,7 +1,7 @@
 import { NotesLoading } from "./ErrorBoundary";
 import { addMeeting, moveSection, isDissertation, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "../App";
 import { db } from "../lib/db";
@@ -231,7 +231,7 @@ function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
 }
 
 export function WeekPage({ id }: { id: string }) {
-  const data = useLiveQuery(() => loadWeekPage(id), [id]);
+  const data = useSuspendingLiveQuery(() => loadWeekPage(id), ["week-page", id]);
   const weeks = useLiveQuery(async () => {
     if (!data) return [];
     return (await db.weeks.where("module_id").equals(data.module.id).toArray()).filter((w) => !w.deleted);
@@ -300,7 +300,6 @@ export function WeekPage({ id }: { id: string }) {
   const goPrevious = useCallback(() => { if (previousId) navigate({ view: "week", id: previousId }); }, [previousId]);
   useSwipe(nextId ? goNext : null, previousId ? goPrevious : null);
 
-  if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This week no longer exists.</p></div>;
   const { module, view } = data;
   const section = isSection(view.week);

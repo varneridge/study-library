@@ -1,7 +1,7 @@
 // Navigation state lives in the URL query, so every screen has a link and the
 // app stays a single page that the service worker can serve offline.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState, useTransition } from "react";
 import { hasOpenOverlay } from "./ui";
 
 export type Route =
@@ -125,6 +125,9 @@ const listeners = new Set<() => void>();
 let activeGuard: NavigationGuard | null = null;
 let currentAppliedUrl = typeof window !== "undefined" ? window.location.href : "/";
 let popstateGuarding = false;
+// Set by navigate and spent once the new page has committed, so the old
+// page never jumps to the top while it is still on screen.
+let scrollOnCommit = false;
 
 export function setNavigationGuard(guard: NavigationGuard | null): () => void {
   activeGuard = guard;
@@ -166,8 +169,8 @@ export async function navigate(route: Route, replace = false): Promise<void> {
   if (replace || isOverlay) history.replaceState(null, "", url);
   else history.pushState(null, "", url);
   currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
+  scrollOnCommit = !replace;
   listeners.forEach((listener) => listener());
-  if (!replace && typeof window !== "undefined") window.scrollTo(0, 0);
 }
 
 // Mirrors the route into the URL query without triggering navigation guards or route listeners
@@ -181,14 +184,25 @@ export function syncUrl(route: Route): void {
 
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(typeof location !== "undefined" ? location.search : ""));
+  const [pending, startRouteTransition] = useTransition();
   useEffect(() => {
+    // A transition keeps the current page on screen until the next one has its data.
     const update = () => {
-      setRoute(parseRoute(location.search));
+      startRouteTransition(() => setRoute(parseRoute(location.search)));
     };
     listeners.add(update);
     return () => {
       listeners.delete(update);
     };
   }, []);
+  useLayoutEffect(() => {
+    if (!scrollOnCommit) return;
+    scrollOnCommit = false;
+    window.scrollTo(0, 0);
+  }, [route]);
+  // Lets the stylesheet dim the old page when the next one is slow to arrive.
+  useEffect(() => {
+    document.documentElement.classList.toggle("navigating", pending);
+  }, [pending]);
   return route;
 }

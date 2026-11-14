@@ -272,6 +272,44 @@ function TopBar({ route }: { route: Route }) {
   );
 }
 
+// Remounting clears a page's state and error, so only a change of page does
+// it: the reading keeps its place when its page or search changes, and This
+// week and the job search keep theirs across their own query values.
+function pageKey(route: Route): string {
+  switch (route.view) {
+    case "across":
+    case "jobs":
+      return route.view;
+    case "reader":
+      return `reader:${route.id}`;
+    case "essay":
+      return `essay:${route.id}:${route.essay ?? "default"}`;
+    // shortcut: session, assessment and search still remount on any query change, narrow their keys once each is checked for props read only on mount.
+    default:
+      return href(route);
+  }
+}
+
+const failureLabels: Partial<Record<Route["view"], string>> = { reader: "reading", essay: "word processor", jobs: "job search" };
+
+function Page({ route }: { route: Route }) {
+  switch (route.view) {
+    case "home": return <Home />;
+    case "module": return <ModulePage id={route.id} />;
+    case "week": return <WeekPage id={route.id} />;
+    case "assessment": return <AssessmentPage id={route.id} essayId={route.essay} />;
+    case "across": return <AcrossPage term={route.term} number={route.number} />;
+    case "settings": return <Settings />;
+    case "session": return <SessionPage id={route.id} rec={route.rec} t={route.t} turn={route.turn} />;
+    case "search": return <SearchPage q={route.q} />;
+    // The lazy parts keep their own boundary, so a first visit shows their
+    // skeleton rather than holding the old page while the code downloads.
+    case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} /></Suspense>;
+    case "essay": return <Suspense fallback={openingEssay}><WordProcessor id={route.id} essayId={route.essay} q={route.q} /></Suspense>;
+    case "jobs": return <Suspense fallback={<PageLoading label="Opening the job search" wide />}><JobsPage /></Suspense>;
+  }
+}
+
 export function App() {
   const route = useRoute();
   useTypingClass();
@@ -323,56 +361,26 @@ export function App() {
     return () => ro.disconnect();
   }, [route.view]);
 
-  if (route.view === "reader") {
-    return <><main id="main"><ErrorBoundary key={route.id} label="reading"><Suspense fallback={opening}><Reader key={route.id} id={route.id} page={route.page} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><DropAnywhere route={route} /><RecorderPill route={route} /></>;
-  }
-
-  if (route.view === "essay") {
-    const essayKey = `${route.id}:${route.essay ?? "default"}`;
-    return <><main id="main"><ErrorBoundary key={essayKey} label="word processor"><Suspense fallback={openingEssay}><WordProcessor key={essayKey} id={route.id} essayId={route.essay} q={route.q} /></Suspense></ErrorBoundary></main><Overlays /><Palette /><RecorderPill route={route} /></>;
-  }
-
-  if (route.view === "jobs") {
-    return (
-      <>
-        <a className="skip" href="#main">Skip to content</a>
-        <TopBar route={route} />
-        <ExpiredBanner />
-        <main id="main" tabIndex={-1}>
-          <ErrorBoundary key="jobs" label="job search">
-            <Suspense fallback={<PageLoading label="Opening the job search" wide />}>
-              <JobsPage />
-            </Suspense>
-          </ErrorBoundary>
-        </main>
-        <Overlays />
-        <Palette />
-        <RecorderPill route={route} />
-      </>
-    );
-  }
-
+  const bare = route.view === "reader" || route.view === "essay";
+  // Every child keeps its place whatever the view, so a change of page never
+  // remounts the top bar, the overlays or the recorder.
   return (
     <>
-      <a className="skip" href="#main">Skip to content</a>
-      <TopBar route={route} />
-      <ExpiredBanner />
-      <main id="main" tabIndex={-1}>
-      <ErrorBoundary key={href(route)}>
-      {route.view === "home" && <Home />}
-      {route.view === "module" && <ModulePage id={route.id} />}
-      {route.view === "week" && <WeekPage id={route.id} />}
-      {route.view === "assessment" && <AssessmentPage id={route.id} essayId={route.essay} />}
-      {route.view === "across" && <AcrossPage term={route.term} number={route.number} />}
-      {route.view === "settings" && <Settings />}
-      {route.view === "session" && <SessionPage id={route.id} rec={route.rec} t={route.t} turn={route.turn} />}
-      {route.view === "search" && <SearchPage q={route.q} />}
-      </ErrorBoundary>
+      {!bare && <a className="skip" href="#main">Skip to content</a>}
+      {!bare && <TopBar route={route} />}
+      {!bare && <ExpiredBanner />}
+      <main id="main" tabIndex={bare ? undefined : -1}>
+        {/* This boundary stays mounted, so a page change waits on the old page rather than a blank one. */}
+        <Suspense fallback={<PageLoading label="Opening the page" wide />}>
+          <ErrorBoundary key={pageKey(route)} label={failureLabels[route.view]}>
+            <Page route={route} />
+          </ErrorBoundary>
+        </Suspense>
       </main>
-      <TabBar route={route} />
+      {!bare && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />
       <Palette />
-      <DropAnywhere route={route} />
+      {route.view !== "essay" && route.view !== "jobs" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>
   );

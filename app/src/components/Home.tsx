@@ -1,4 +1,4 @@
-import { useLiveQuery } from "dexie-react-hooks";
+import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
 import { Icon } from "./icons";
@@ -164,11 +164,10 @@ function ModuleCard({
 
 export function Home() {
   const week = useTeachingWeek();
-  const modules = useLiveQuery(() => loadModules(week), [week?.term, week?.number, week?.upcoming]);
+  const modules = useSuspendingLiveQuery(() => loadModules(week), ["home-modules", week?.term, week?.number, week?.upcoming]);
   const [adding, setAdding] = useState(false);
   const [arranging, setArranging] = useState(false);
   useTitle(null);
-  if (!modules) return null;
 
   if (modules.length === 0) {
     return (

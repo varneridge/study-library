@@ -1,5 +1,5 @@
 import { useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect } from "react";
 import { Link } from "../App";
 import { useTitle } from "../lib/ui";
@@ -19,7 +19,7 @@ const KEY = "across-week";
 // The next key dates across dissertation modules, counting down as job
 // deadlines do: amber within a week, red on the day or once passed.
 function KeyDatesAhead() {
-  const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted && m.kind === "dissertation"), [], []);
+  const modules = useSuspendingLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted && m.kind === "dissertation"), ["dissertation-modules"]);
   const coming = modules
     .flatMap((m) => (m.key_dates ?? []).map((d) => ({ ...d, module: m, when: countdown(d.date) })))
     // Ones a fortnight past are let go; the rest show, soonest first.
@@ -62,7 +62,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
   useEffect(() => {
     if (term && number) localStorage.setItem(KEY, `${term}${number}`);
   }, [term, number]);
-  const data = useLiveQuery(() => loadAcross(t, n), [t, n]);
+  const data = useSuspendingLiveQuery(() => loadAcross(t, n), ["across", t, n]);
   const isCurrentWeek = Boolean(now && !now.upcoming && now.term === t && now.number === n);
   const isUpcoming = Boolean(now && now.upcoming && now.term === t && now.number === n);
   const title = isCurrentWeek ? "This week" : isUpcoming ? `Coming up: ${t}${n}` : `Week ${t}${n}`;
@@ -92,7 +92,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
       </div>
       {/* The page title comes first; the countdown follows the week picker. */}
       <KeyDatesAhead />
-      {data?.map(({ module, view }) => {
+      {data.map(({ module, view }) => {
         const loose = view.primaries.length + view.readings.length + view.summaries.length;
         const sessions = view.sessions;
         const progress = readCount([...view.primaries, ...view.readings]);

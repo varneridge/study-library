@@ -4,7 +4,7 @@ import { deleteSection } from "../lib/edits";
 import { moveSection, addSection, isDissertation, isLibrary, moduleHasSessions, saveKeyDates, countdown, coverLabel, type CoverVariant } from "../lib/sections";
 
 import { Menu } from "./Menu";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { fullTitle } from "../lib/titles";
 import { applySuggestion, keepMine, viaLabel } from "../lib/citations";
@@ -403,10 +403,12 @@ function KeyDates({ module }: { module: ModuleRow }) {
 export function ModulePage({ id }: { id: string }) {
   const now = useTeachingWeek();
   const dates = useTermDates();
-  const data = useLiveQuery(() => loadModuleOverview(id, now), [id, now]);
+  // The teaching week enters the cache key as the same primitives Home uses,
+  // since the cache compares by identity and is shared across the app.
+  const data = useSuspendingLiveQuery(() => loadModuleOverview(id, now), ["module-overview", id, now?.term, now?.number, now?.upcoming]);
   const isCollapsed = useSetting<boolean>(`collapse:admin:${id}`, false);
   const essays = useModuleEssays(id, data?.module.code);
-  const assessmentRow = useLiveQuery(() => db.settings.get(assessmentSettingKey(id)), [id]);
+  const assessmentRow = useSuspendingLiveQuery(() => db.settings.get(assessmentSettingKey(id)), ["assessment-setting", id]);
   const hasAssessment = isAssessmentEnabled(assessmentRow) || essays.length > 0;
   const [forcedOpen, setForcedOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -463,7 +465,6 @@ export function ModulePage({ id }: { id: string }) {
     }
   }, [data]);
 
-  if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
 
   const { module, weeks, tray, found, empty } = data;

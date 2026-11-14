@@ -2365,6 +2365,8 @@ input[type="date"] { color: var(--ink); }
 .page-loading span { display: block; height: 0.8rem; background: linear-gradient(90deg, var(--rule) 0%, var(--surface-hover) 50%, var(--rule) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
 .page-loading .pl-title { height: 2rem; width: 40%; margin-bottom: 0.6rem; }
 .page-loading span:nth-child(2) { width: 90%; } .page-loading span:nth-child(3) { width: 82%; } .page-loading span:nth-child(4) { width: 60%; }
+/* A quick page change shows nothing; a slow one dims the old page, so a tap never looks ignored. */
+.navigating main { opacity: 0.6; transition: opacity 0.2s 0.3s; }
 
 /* ===== Phones and touch screens =====
    Built to Apple's guidance and the mobile research: a tab bar for the main
