@@ -1,6 +1,8 @@
-// The week's readings and primary sources as two lists you can rearrange by
-// hand. Pick a reading up to reorder it, drop it in the other list to change
-// what it is, or drop it on another week in the grid that appears.
+// The week's primary readings, secondary readings and summaries as three lists
+// you can rearrange by hand. Pick a reading up to reorder it, drop it in
+// another list to change what it is, or drop it on another week in the grid
+// that appears. Where files can be added, each list keeps its heading and an
+// Add button even when empty, so every week can hold all three.
 //
 // Mouse and trackpad pick up after a small movement, so clicks still open
 // readings. Touch picks up after a short press, as on a phone's home screen.
@@ -25,6 +27,8 @@ import { ReadingRow } from "./ReadingRow";
 import { ViewSwitcher } from "./ViewSwitcher";
 import { setSetting, useSetting } from "../lib/settings";
 import { defaultViewMode, isTileMode, parseViewMode, viewSettingKey, type ReadingViewMode } from "../lib/views";
+import { DROP_ZONE, type ReadingKind } from "../lib/readingKinds";
+import type { FileTarget } from "./WeekPage";
 
 type ListKey = "primary" | "secondary" | "summary" | "flat";
 
@@ -49,19 +53,36 @@ export function Sortable({ view, weeks, short, mode, isLibrary }: { view: Readin
   );
 }
 
-function List({ id, label, views, weeks, dragging, isLibrary, mode, tools }: { id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean; mode: ReadingViewMode; tools?: ReactNode }) {
+function List({ id, label, views, weeks, dragging, isLibrary, mode, tools, fileOver, onAdd }: {
+  id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean; mode: ReadingViewMode; tools?: ReactNode;
+  // Files from the computer are being dragged over this list.
+  fileOver?: boolean;
+  // Opens the file picker for this list; given only where files can be added.
+  onAdd?: () => void;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: `list:${id}` });
-  // An empty list only shows while something is being dragged, as a place to drop.
-  if (!views.length && !dragging) return null;
-  const dropKind = id === "primary" ? "primary" : id === "summary" || id === "flat" ? "summary" : "readings";
+  // An empty list shows while a reading or a file is dragged, as a place to
+  // drop, and always where it can be added to, so each kind has a home.
+  if (!views.length && !dragging && !fileOver && !onAdd) return null;
+  const zone = id === "flat" ? "summary" : DROP_ZONE[id];
   const hintText = isLibrary || id === "flat" ? "a document" : `a ${KIND_LABEL[id as "primary" | "secondary" | "summary"]}`;
+  const emptyText = dragging
+    ? `Drop here to make it ${hintText}`
+    : fileOver
+      ? `Drop files here to add them as ${(label ?? "documents").toLowerCase()}`
+      : `No ${(label ?? "documents").toLowerCase()} yet. Drop files here or choose Add.`;
+  const add = onAdd && (
+    <button type="button" className="quiet" onClick={onAdd} aria-label={`Add ${(label ?? "documents").toLowerCase()}`}>Add</button>
+  );
   return (
-    <div className="section" data-drop={dropKind}>
+    <div className={`section${fileOver ? " drop-over-lists" : ""}`} data-drop={zone}>
       {/* The first list's heading also carries the folder's view buttons, so
-          they sit on the same line as the heading rather than in a row of their own. */}
-      {tools ? (
+          they sit on the same line as the heading rather than in a row of their own.
+          The Add button shares that line for the same reason. */}
+      {tools || add ? (
         <div className="board-head">
           {label && <p className="group-label">{label}</p>}
+          {add}
           {tools}
         </div>
       ) : (
@@ -71,7 +92,7 @@ function List({ id, label, views, weeks, dragging, isLibrary, mode, tools }: { i
       <SortableContext items={views.map((v) => v.link!.id)} strategy={isTileMode(mode) ? rectSortingStrategy : verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`readings view-${mode}${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
           {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} mode={mode} isLibrary={isLibrary} />)}
-          {!views.length && <li className="drop-hint">Drop here to make it {hintText}</li>}
+          {!views.length && <li className="drop-hint">{emptyText}</li>}
         </ul>
       </SortableContext>
     </div>
@@ -90,9 +111,13 @@ export function Target({ id, label, current, reading }: { id: string; label: str
 
 const NONE: ReadingView[] = [];
 
-export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, moduleId, isLibrary, isSyllabus }: {
+export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, moduleId, isLibrary, isSyllabus, dropKind = null, onAddTo }: {
   week: WeekRow; primaries?: ReadingView[]; readings?: ReadingView[]; summaries?: ReadingView[]; weeks: WeekRow[]; moduleId: string;
   isLibrary?: boolean; isSyllabus?: boolean;
+  // What files dragged over the page would become, so the matching list can light up.
+  dropKind?: FileTarget["kind"] | null;
+  // Adds files to one list; left out where the week takes documents only.
+  onAddTo?: (kind: ReadingKind) => void;
 }) {
   const sorted = useMemo(() => [...weeks].sort(byWeek), [weeks]);
   const all = useMemo(() => new Map([...primaries, ...readings, ...summaries].map((v) => [v.link!.id, v])), [primaries, readings, summaries]);
@@ -202,8 +227,11 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
     : null;
   // Lists with nothing in them are not drawn, so the switcher goes to the first one that is.
   const order: ListKey[] = isSyllabus ? ["flat"] : ["primary", "secondary", "summary"];
-  const toolsOn = order.find((key) => (lists[key] ?? []).length > 0 || Boolean(active)) ?? null;
+  const shown = (key: ListKey) => (lists[key] ?? []).length > 0 || Boolean(active) || dropKind === key || Boolean(onAddTo && key !== "flat");
+  const toolsOn = order.find(shown) ?? null;
   const toolsFor = (key: ListKey) => (key === toolsOn ? switcher : null);
+  const fileOver = (key: ListKey) => !active && dropKind === key;
+  const addFor = (key: ReadingKind) => (onAddTo ? () => onAddTo(key) : undefined);
 
   return (
     <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragOver={onOver} onDragEnd={onEnd} onDragCancel={() => setActive(null)}>
@@ -212,10 +240,9 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
       ) : (
 
         <>
-          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("primary")} />
-          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("secondary")} />
-
-          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("summary")} />
+          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("primary")} fileOver={fileOver("primary")} onAdd={addFor("primary")} />
+          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("secondary")} fileOver={fileOver("secondary")} onAdd={addFor("secondary")} />
+          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("summary")} fileOver={fileOver("summary")} onAdd={addFor("summary")} />
         </>
       )}
       {active && <MoveDock weeks={sorted} current={week} />}

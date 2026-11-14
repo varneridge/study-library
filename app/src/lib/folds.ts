@@ -30,6 +30,31 @@ export function foldedBlockIds(blocks: readonly FoldBlock[]): string[] {
   return hidden;
 }
 
+// Maps each hidden block to the heading that folded it, so moving the cursor
+// into that block or searching for it can unfold its section.
+export function foldOwners(blocks: readonly FoldBlock[]): Map<string, string> {
+  const owners = new Map<string, string>();
+  let foldedAt: number | null = null;
+  let ownerId: string | null = null;
+  for (const block of blocks) {
+    const level = block.type === "heading" ? block.level ?? 1 : null;
+    if (foldedAt !== null) {
+      if (level !== null && level <= foldedAt) {
+        foldedAt = null;
+        ownerId = null;
+      } else {
+        if (ownerId) owners.set(block.id, ownerId);
+        continue;
+      }
+    }
+    if (level !== null && block.toggleable && block.open === false) {
+      foldedAt = level;
+      ownerId = block.id;
+    }
+  }
+  return owners;
+}
+
 // The rule that hides a folded section, kept to one editor by its scope.
 export function foldStyles(scope: string, ids: readonly string[]): string {
   if (!ids.length) return "";

@@ -423,7 +423,7 @@ export function WeekPage({ id }: { id: string }) {
                   className="choice-row"
                   onClick={() => {
                     setAddCardOpen(false);
-                    addTargetRef.current = { kind: "summary", label: "course materials" };
+                    addTargetRef.current = { kind: "summary", label: "summaries" };
                     picker.current?.click();
                   }}
                 >
@@ -500,7 +500,8 @@ export function WeekPage({ id }: { id: string }) {
         </div>
       )}
 
-      <div data-drop="readings" className={over?.kind === "secondary" || over?.kind === "primary" || over?.kind === "summary" || over?.kind === "auto" ? "drop-over-lists" : undefined}>
+      {/* Each group lights up for a drop of its own; the whole board only for files whose names decide. */}
+      <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined}>
         <WeekBoard
           week={week}
           primaries={view.primaries}
@@ -510,8 +511,13 @@ export function WeekPage({ id }: { id: string }) {
           moduleId={module.id}
           isLibrary={isLibrary(module)}
           isSyllabus={isSyllabus(week)}
+          dropKind={over?.kind ?? null}
+          onAddTo={isDocumentOnly ? undefined : (kind) => {
+            addTargetRef.current = { kind, label: KIND_GROUP[kind].toLowerCase() };
+            picker.current?.click();
+          }}
         />
-        {over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
+        {isDocumentOnly && over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
           <div className="section"><div className="readings empty-target file-target">{isDocumentOnly ? `Documents for ${weekCode(week)}` : `Readings for ${weekCode(week)}`}</div></div>
         )}
       </div>

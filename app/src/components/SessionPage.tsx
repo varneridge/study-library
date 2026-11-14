@@ -24,18 +24,20 @@ import { noteSessionOpened } from "../lib/settings";
 import { ReadingRow } from "./ReadingRow";
 import { KIND_GROUP } from "../lib/kinds";
 import type { ReadingView } from "../lib/library";
+import { groupByKind, isReadingKind } from "../lib/readingKinds";
+import type { SeminarQuestion } from "../lib/seminarQuestions";
+import { SeminarQuestions } from "./SeminarQuestions";
 import { TitleEdit } from "./TitleEdit";
 import { Icon } from "./icons";
 import { useNarrow, useTitle } from "../lib/ui";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
-// The week's readings beside the notes, set out by kind so primary sources,
-// secondary readings and everything else are told apart at a glance.
+// The week's readings beside the notes, set out by kind so primary readings,
+// secondary readings, summaries and anything else are told apart at a glance.
 function readingGroups(readings: ReadingView[]): { key: string; label: string; views: ReadingView[] }[] {
   const groups = [
-    { key: "primary", label: KIND_GROUP.primary, views: readings.filter((r) => r.item.kind === "primary") },
-    { key: "secondary", label: KIND_GROUP.secondary, views: readings.filter((r) => r.item.kind === "secondary") },
-    { key: "other", label: "Other readings", views: readings.filter((r) => r.item.kind !== "primary" && r.item.kind !== "secondary") },
+    ...groupByKind(readings, (r) => r.item.kind).map((g) => ({ key: g.kind, label: KIND_GROUP[g.kind], views: g.views })),
+    { key: "other", label: "Other readings", views: readings.filter((r) => !isReadingKind(r.item.kind)) },
   ];
   return groups.filter((g) => g.views.length > 0);
 }
@@ -146,6 +148,9 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
     } },
   ];
   const latest = view.recordings[view.recordings.length - 1];
+  // A seminar always offers its questions; another session shows them only once it has some.
+  const questions = (view.questions ?? []).map((qv) => qv.question).filter((q) => !q.deleted);
+  const showQuestions = session.kind === "seminar" || questions.length > 0;
 
   async function toggle() {
     setError(null);
@@ -263,6 +268,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
 
       <div className={`session-grid${view.slides.length ? " with-slides" : readings.length ? " with-side" : ""}`}>
         <div className="session-notes">
+          {showQuestions && <SeminarQuestions sessionId={session.id} questions={questions} />}
           <Suspense fallback={<NotesLoading />}>
             <NoteEditor target={{ session_id: id }} label={`${sessionLabel(view.session.kind)} notes`} />
           </Suspense>

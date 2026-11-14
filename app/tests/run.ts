@@ -32,6 +32,7 @@ import { registerProgressTests } from "./test_progress";
 import { registerSheetRouteTests } from "./test_sheet";
 import { registerJobLogicTests } from "./test_job_logic";
 import { registerSafetyTests } from "./test_safety";
+import { registerNotesAndReadingsTests } from "./test_notes_and_readings";
 import { dismissTopLayer } from "../src/lib/layers";
 import { coverShape, defaultViewMode, isTileMode, parseViewMode, VIEW_MODES, viewSettingKey } from "../src/lib/views";
 import { videoFrameTime } from "../src/lib/videoThumbs";
@@ -1553,6 +1554,7 @@ test("wordcraftChrome parses reports and validates embedded insets", () => {
   assert.ok(query.includes(`tabInset=${INSETS_REGULAR.tabStart},${INSETS_REGULAR.tabEnd}`));
 });
 
+registerNotesAndReadingsTests(test);
 registerListenTests(test);
 
 if (failed) {

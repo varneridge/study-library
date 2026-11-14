@@ -1,0 +1,67 @@
+/* Collapsible seminar questions */
+
+.question-row {
+  position: relative;
+}
+
+.question-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: transform var(--dur-1) var(--ease-settle), color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+
+.question-fold:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.question-fold[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.question-fold svg {
+  transition: transform var(--dur-2) var(--ease-settle);
+}
+
+.question-preview {
+  flex-basis: 100%;
+  margin: 0.1rem 0 0.5rem 2rem;
+  padding-left: 0.75rem;
+  font-family: var(--serif);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-style: italic;
+  cursor: pointer;
+}
+
+.question-preview:hover {
+  color: var(--ink);
+}
+
+.questions-fold-all {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.questions-fold-all:hover {
+  color: var(--accent);
+}
+
+.questions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.25rem;
+  margin-bottom: 0.4rem;
+}

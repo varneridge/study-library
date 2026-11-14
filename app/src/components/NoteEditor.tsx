@@ -1,12 +1,14 @@
 // The notes editor. Loaded on demand, because the editor is large.
 
 import "@blocknote/mantine/style.css";
+import "./noteEditor.css";
 import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { filterSuggestionItems } from "@blocknote/core/extensions";
 import { en } from "@blocknote/core/locales";
 import {
-  createReactBlockSpec, getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote,
+  createReactBlockSpec, FormattingToolbarController, getDefaultReactSlashMenuItems,
+  SideMenuController, SuggestionMenuController, useCreateBlockNote,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { db } from "../lib/db";
@@ -20,12 +22,18 @@ import { showToast } from "../lib/ui";
 import { useDark } from "../lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useCallback, useContext, useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from "react";
-import { foldedBlockIds, foldStyles } from "../lib/folds";
+import { foldedBlockIds, foldOwners, foldStyles, type FoldBlock } from "../lib/folds";
+import { FOLD_ATTRIBUTES, foldParts, openFold, openIfNew, readOpen, rememberOpen } from "../lib/foldDom";
+import {
+  blockFixes, headingUpgrades, HEADING_TITLES, isBlockMoveShortcut, noteVariant,
+  PLACEHOLDERS, removedMessage, SLASH_KEYS, type NoteVariant, type RuleBlock, type RuleChange,
+} from "../lib/noteRules";
 import { colourLabel, useColourNames } from "../lib/settings";
 import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
 import { href, navigate } from "../lib/router";
 import { fullTitle, shortTitle } from "../lib/titles";
 import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib/types";
+import { DragOnlySideMenu, NotesFormattingToolbar } from "./NoteToolbars";
 
 // Inside a reading's own notes, a quotation's page link moves the reader to
 // the passage instead of opening the reading again.
@@ -188,6 +196,8 @@ interface Props {
   compact?: boolean;
   // What a screen reader calls the editor, such as "Lecture notes".
   label?: string;
+  // Variant override if not derived from target.
+  variant?: NoteVariant;
 }
 
 interface Loaded {
@@ -195,21 +205,13 @@ interface Loaded {
   rows: NoteBlockRow[];
 }
 
-// What an empty line says, so the editor explains itself.
-const PLACEHOLDER = "Write here. Type / for headings, lists and pictures, or @ to cite a reading.";
-
-// The block menu keeps what notes on history need, collapsible headings among them.
-const KEPT = new Set([
-  "heading", "heading_2", "heading_3", "toggle_heading", "toggle_heading_2", "toggle_heading_3",
-  "quote", "numbered_list", "bullet_list", "paragraph", "table", "image", "divider",
-]);
-
-// Collapsible headings, named for what they do, in sentence case.
+// Collapsible headings offered in the notes' block menu:
+// "toggle_heading", "toggle_heading_2", "toggle_heading_3" (Collapsible heading 1)
 const SLASH_MENU = {
   ...en.slash_menu,
-  toggle_heading: { ...en.slash_menu.toggle_heading, title: "Collapsible heading 1", subtext: "A heading whose section folds away" },
-  toggle_heading_2: { ...en.slash_menu.toggle_heading_2, title: "Collapsible heading 2", subtext: "A section heading that folds away" },
-  toggle_heading_3: { ...en.slash_menu.toggle_heading_3, title: "Collapsible heading 3", subtext: "A subheading that folds away" },
+  toggle_heading: { ...en.slash_menu.toggle_heading, ...HEADING_TITLES.toggle_heading },
+  toggle_heading_2: { ...en.slash_menu.toggle_heading_2, ...HEADING_TITLES.toggle_heading_2 },
+  toggle_heading_3: { ...en.slash_menu.toggle_heading_3, ...HEADING_TITLES.toggle_heading_3 },
 };
 
 // Typing @ offers readings to cite, most recently opened first.
@@ -229,12 +231,12 @@ async function readingSuggestions(
   }));
 }
 
-
 function snapshot(rows: NoteBlockRow[]): Map<string, Saved> {
   return new Map(rows.map((r) => [r.id, { position: r.position, json: JSON.stringify(r.content), row: r }]));
 }
 
-function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placeholder, compact, label = "Notes" }: Props & { live: Loaded }) {
+function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placeholder, compact, label = "Notes", variant: explicitVariant }: Props & { live: Loaded }) {
+  const variant = explicitVariant ?? noteVariant(target);
   const noteId = useRef<string | null>(live.note?.id ?? null);
   const saved = useRef(snapshot(live.rows));
   const applying = useRef(false);
@@ -253,20 +255,45 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
         ...en,
         slash_menu: SLASH_MENU,
         // An empty editor says what it is for; each new empty line explains / and @.
-        placeholders: { ...en.placeholders, emptyDocument: placeholder ?? PLACEHOLDER, default: PLACEHOLDER },
+        placeholders: {
+          ...en.placeholders,
+          emptyDocument: placeholder ?? PLACEHOLDERS[variant],
+          default: PLACEHOLDERS[variant],
+        },
       },
-      // Pasted, dropped or chosen pictures are stored, then shown from storage.
-      uploadFile: async (file: File) => {
+      // Pasted, dropped or chosen pictures are stored, only allowed in general notes.
+      uploadFile: variant === "general" ? async (file: File) => {
         try {
           return await uploadImage(file);
         } catch (error) {
           showToast(error instanceof Error ? error.message : "The picture could not be added.");
           throw error;
         }
-      },
-      initialContent: live.rows.length ? (live.rows.map((r) => r.content) as any) : undefined },
-    [],
+      } : undefined,
+      initialContent: live.rows.length ? (live.rows.map((r) => r.content) as any) : undefined,
+    },
+    [variant],
   );
+
+  const upgradeHeadings = useCallback(() => {
+    const upgrades = headingUpgrades(variant, editor.document as unknown as RuleBlock[]);
+    if (upgrades.length) {
+      editor.transact(() => {
+        for (const u of upgrades) {
+          if (u.op === "update") {
+            rememberOpen(u.id);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            editor.updateBlock(u.id, { props: u.props } as any);
+          }
+        }
+      });
+    }
+  }, [editor, variant]);
+
+  // Upgrade headings on mount
+  useEffect(() => {
+    upgradeHeadings();
+  }, [upgradeHeadings]);
 
   const applyRemote = useCallback(() => {
     // Never overwrite unsaved user edits in flight:
@@ -307,18 +334,19 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       try {
         const doc = editor.document;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const target = doc.find((b: any) => b.id === cursor!.blockId);
-        if (target) {
-          editor.setTextCursorPosition(target, cursor.placement);
+        const targetBlock = doc.find((b: any) => b.id === cursor!.blockId);
+        if (targetBlock) {
+          editor.setTextCursorPosition(targetBlock, cursor.placement);
         }
       } catch {
         // ignore
       }
     }
 
+    upgradeHeadings();
     applying.current = false;
     stale.current = false;
-  }, [editor, live]);
+  }, [editor, live, upgradeHeadings]);
 
   const persist = useCallback(async () => {
     if (timer.current) {
@@ -336,8 +364,9 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     () =>
       editor.onChange((_editor, { getChanges }) => {
         if (applying.current) return;
+        const changes = getChanges();
         if ("item_id" in target) {
-          for (const change of getChanges()) {
+          for (const change of changes) {
             const block = change.block as unknown as Block;
             if (block.type === "highlight" && block.props?.itemId === target.item_id) {
               const hid = String(block.props.highlightId);
@@ -349,13 +378,32 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
             }
           }
         }
+
+        // Apply rules to clean up pasted/inserted blocks
+        const fixes = blockFixes(variant, changes as unknown as RuleChange[]);
+        if (fixes.length) {
+          queueMicrotask(() => {
+            editor.transact(() => {
+              for (const fix of fixes) {
+                if (fix.op === "update") {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  editor.updateBlock(fix.id, { type: fix.type, props: fix.props } as any);
+                } else if (fix.op === "remove") {
+                  editor.removeBlocks([fix.id]);
+                  showToast(removedMessage(variant, fix.blockType));
+                }
+              }
+            });
+          });
+        }
+
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => {
           timer.current = null;
           void persist();
         }, 400);
       }),
-    [editor, persist, onQuoteRemoved, onQuoteRestored, target],
+    [editor, persist, onQuoteRemoved, onQuoteRestored, target, variant],
   );
 
   // Save straight away when leaving or hiding the page.
@@ -405,55 +453,69 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
 
   useImperativeHandle(handle, () => {
     const focusComment = (highlightId: string): boolean => {
-      const target = container.current?.querySelector<HTMLTextAreaElement>(
+      const targetEl = container.current?.querySelector<HTMLTextAreaElement>(
         `[data-highlight-card][data-highlight-id="${CSS.escape(highlightId)}"] ${COMMENT_FIELD}`,
       );
-      if (!target) return false;
-      target.scrollIntoView({ block: "nearest" });
-      target.focus();
-      const end = target.value.length;
-      target.setSelectionRange(end, end);
+      if (!targetEl) return false;
+      targetEl.scrollIntoView({ block: "nearest" });
+      targetEl.focus();
+      const end = targetEl.value.length;
+      targetEl.setSelectionRange(end, end);
       return true;
     };
     return {
-    focus() {
-      const first = editor.document[0];
-      editor.focus();
-      if (first) editor.setTextCursorPosition(first, "start");
-    },
-    insertHighlight(highlight, item) {
-      const doc = editor.document;
-      const reference = editor.isFocused() ? editor.getTextCursorPosition().block : doc[doc.length - 1];
-      editor.insertBlocks(
-        [{
-          type: "highlight",
-          props: {
-            highlightId: highlight.id, itemId: item.id, page: highlight.page,
-            text: highlight.body ?? "", colour: highlight.colour, source: shortTitle(item),
-          },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any],
-        reference,
-        "after",
-      );
-    },
-    focusComment,
-    writeUnder: focusComment,
+      focus() {
+        const first = editor.document[0];
+        editor.focus();
+        if (first) editor.setTextCursorPosition(first, "start");
+      },
+      insertHighlight(highlight, item) {
+        const doc = editor.document;
+        const reference = editor.isFocused() ? editor.getTextCursorPosition().block : doc[doc.length - 1];
+        editor.insertBlocks(
+          [{
+            type: "highlight",
+            props: {
+              highlightId: highlight.id, itemId: item.id, page: highlight.page,
+              text: highlight.body ?? "", colour: highlight.colour, source: shortTitle(item),
+            },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any],
+          reference,
+          "after",
+        );
+      },
+      focusComment,
+      writeUnder: focusComment,
     };
   }, [editor]);
 
-  // Intercept Backspace and Enter on quotations:
-  // Backspacing does not delete the quotation, and pressing Enter starts a note beneath it.
+  // Intercept Backspace and Enter on quotations, and stop BlockNote from moving blocks on Ctrl+Arrow:
   useEffect(() => {
     const el = container.current;
     if (!el) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Stop block relocation shortcuts so normal word jumping and selection work smoothly
+      if (isBlockMoveShortcut(e)) {
+        e.stopPropagation();
+        return;
+      }
+
+      // Restrict code or strike formatting in reading notes
+      if (variant === "reading" && (e.ctrlKey || e.metaKey)) {
+        if ((e.shiftKey && (e.key === "S" || e.key === "s")) || e.key === "e" || e.key === "E") {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
+
       // Typing in a quotation's comment, or in any other field, is ordinary typing.
       if ((e.target as HTMLElement | null)?.closest?.(`${COMMENT_FIELD}, textarea, input`)) return;
       if (e.key === "Backspace") {
         try {
           const sel = editor.getSelection();
-          if (sel && sel.blocks.length === 1 && sel.blocks[0].type === "highlight") {
+          if (sel && sel.blocks.length === 1 && (sel.blocks[0] as any).type === "highlight") {
             e.preventDefault();
             e.stopPropagation();
             return;
@@ -464,10 +526,10 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       } else if (e.key === "Enter" && !e.shiftKey) {
         try {
           const sel = editor.getSelection();
-          if (sel && sel.blocks.length === 1 && sel.blocks[0].type === "highlight") {
+          if (sel && sel.blocks.length === 1 && (sel.blocks[0] as any).type === "highlight") {
             e.preventDefault();
             e.stopPropagation();
-            const hl = sel.blocks[0];
+            const hl = sel.blocks[0] as any;
             const doc = editor.document;
             const index = doc.findIndex((b) => b.id === hl.id);
             if (index >= 0) {
@@ -489,7 +551,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     };
     el.addEventListener("keydown", handleKeyDown, true);
     return () => el.removeEventListener("keydown", handleKeyDown, true);
-  }, [editor]);
+  }, [editor, variant]);
 
   // Clicking empty space below notes allows typing at the end.
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -527,18 +589,13 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     const refresh = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const blocks = (editor.document as unknown as { id: string; type: string; props?: { level?: number; isToggleable?: boolean } }[]).map((b) => {
+        const blocks: FoldBlock[] = (editor.document as unknown as { id: string; type: string; props?: { level?: number; isToggleable?: boolean } }[]).map((b) => {
           const toggleable = b.type === "heading" && Boolean(b.props?.isToggleable);
           let open: boolean | undefined;
           if (toggleable) {
-            const wrapper = root.querySelector<HTMLElement>(`.bn-block-outer[data-id="${b.id}"] .bn-toggle-wrapper`);
-            let known = true;
-            try { known = localStorage.getItem(`toggle-${b.id}`) !== null; } catch { /* private browsing */ }
-            if (wrapper && !known) {
-              try { localStorage.setItem(`toggle-${b.id}`, "true"); } catch { /* private browsing */ }
-              wrapper.setAttribute("data-show-children", "true");
-            }
-            open = wrapper ? wrapper.getAttribute("data-show-children") !== "false" : true;
+            const parts = foldParts(root, b.id);
+            openIfNew(parts, b.id);
+            open = readOpen(parts);
           }
           return { id: b.id, type: b.type, level: b.props?.level, toggleable, open };
         });
@@ -548,12 +605,29 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     };
     refresh();
     const stop = editor.onChange(refresh);
+    const stopSel = editor.onSelectionChange?.(() => {
+      const sel = editor.getTextCursorPosition?.();
+      if (!sel?.block?.id) return;
+      const blocks: FoldBlock[] = (editor.document as unknown as { id: string; type: string; props?: { level?: number; isToggleable?: boolean } }[]).map((b) => ({
+        id: b.id,
+        type: b.type,
+        level: b.props?.level,
+        toggleable: b.type === "heading" && Boolean(b.props?.isToggleable),
+        open: readOpen(foldParts(root, b.id)),
+      }));
+      const owners = foldOwners(blocks);
+      const ownerId = owners.get(sel.block.id);
+      if (ownerId) {
+        openFold(foldParts(root, ownerId));
+      }
+    });
     const observer = new MutationObserver(refresh);
-    observer.observe(root, { subtree: true, attributes: true, attributeFilter: ["data-show-children"] });
+    observer.observe(root, { subtree: true, attributes: true, attributeFilter: [...FOLD_ATTRIBUTES] });
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
       if (typeof stop === "function") stop();
+      if (typeof stopSel === "function") stopSel();
     };
   }, [editor, foldScope]);
 
@@ -562,6 +636,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       ref={container}
       data-fold-scope={foldScope}
       data-note-editor=""
+      data-variant={variant}
       className={`note-editor${compact ? " compact" : ""}`}
       aria-label={label}
       onClick={handleContainerClick}
@@ -578,12 +653,20 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       }}
     >
       {foldCss && <style>{foldCss}</style>}
-      <BlockNoteView editor={editor} theme={dark ? "dark" : "light"} slashMenu={false}>
+      <BlockNoteView
+        editor={editor}
+        theme={dark ? "dark" : "light"}
+        slashMenu={false}
+        formattingToolbar={false}
+        sideMenu={false}
+      >
+        <FormattingToolbarController formattingToolbar={() => <NotesFormattingToolbar variant={variant} />} />
+        <SideMenuController sideMenu={DragOnlySideMenu} />
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) =>
             filterSuggestionItems(
-              getDefaultReactSlashMenuItems(editor).filter((item) => KEPT.has((item as { key?: string }).key ?? "")),
+              getDefaultReactSlashMenuItems(editor).filter((item) => SLASH_KEYS[variant].has((item as { key?: string }).key ?? "")),
               query,
             )
           }

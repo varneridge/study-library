@@ -1,0 +1,118 @@
+/* Word-style floating toolbar, calm document typography and smooth handles */
+
+.note-editor .bn-toolbar.bn-formatting-toolbar {
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-float);
+  animation: nt-in var(--dur-2) var(--ease-settle);
+}
+
+.note-editor .bn-formatting-toolbar .bn-button {
+  min-width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+
+.note-editor .bn-formatting-toolbar .bn-button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.note-editor .bn-formatting-toolbar .bn-button[data-selected],
+.note-editor .bn-formatting-toolbar .bn-button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.note-editor .nt-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 2px;
+  background: var(--rule);
+}
+
+@keyframes nt-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.note-editor .bn-editor {
+  line-height: 1.65;
+}
+
+.note-editor [data-content-type="heading"][data-level="1"] {
+  font-size: 1.6em;
+  margin-top: 0.6em;
+}
+
+.note-editor [data-content-type="heading"][data-level="2"] {
+  font-size: 1.3em;
+  margin-top: 0.5em;
+}
+
+.note-editor [data-content-type="heading"][data-level="3"] {
+  font-size: 1.12em;
+  margin-top: 0.4em;
+}
+
+.note-editor[data-variant="reading"] [data-content-type="heading"] {
+  font-size: inherit;
+  font-weight: inherit;
+  margin-top: 0;
+}
+
+.note-editor .bn-toggle-button {
+  opacity: 0.35;
+  border-radius: var(--r-xs);
+  transition: opacity var(--dur-1) var(--ease-out), transform var(--dur-2) var(--ease-settle);
+}
+
+.note-editor .bn-block-outer:hover > .bn-block .bn-toggle-button,
+.note-editor .bn-toggle-button[aria-expanded="false"],
+.note-editor .bn-toggle-wrapper[data-show-children="false"] .bn-toggle-button {
+  opacity: 1;
+}
+
+.note-editor .bn-toggle-button[aria-expanded="false"] + .bn-toggle-slot,
+.note-editor .bn-toggle-wrapper[data-show-children="false"] {
+  color: var(--muted);
+}
+
+.note-editor .bn-side-menu {
+  transition: opacity var(--dur-2) var(--ease-settle);
+}
+
+.note-editor .bn-side-menu [data-test="dragHandleAdd"] {
+  display: none !important;
+}
+
+.note-editor .bn-side-menu [data-test="dragHandle"] {
+  cursor: grab;
+  color: var(--faint);
+  border-radius: var(--r-xs);
+}
+
+.note-editor .bn-side-menu [data-test="dragHandle"]:active {
+  cursor: grabbing;
+}
+
+.note-editor .prosemirror-dropcursor-block {
+  height: 3px !important;
+  background: var(--accent) !important;
+  border-radius: 2px;
+  transition: top var(--dur-1) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-editor .bn-formatting-toolbar,
+  .note-editor .bn-toggle-button,
+  .note-editor .prosemirror-dropcursor-block {
+    animation: none;
+    transition: none;
+  }
+}
