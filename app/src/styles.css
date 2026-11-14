@@ -31,7 +31,7 @@
   --tint-2: color-mix(in srgb, var(--ink) 8%, transparent);
   --tint-3: color-mix(in srgb, var(--ink) 12%, transparent);
   --fs-display: 2.25rem; --fs-2xl: 1.875rem; --fs-xl: 1.25rem; --fs-lg: 1.125rem; --fs-md: 1rem; --fs-sm: 0.875rem; --fs-xs: 0.75rem;
-  --topbar-h: 3.25rem; --jump-h: 5.5rem;
+  --topbar-h: 3.25rem;
   --serif: "Literata Variable", Georgia, "Times New Roman", serif;
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -682,7 +682,11 @@ label.field { display: block; margin-bottom: 0.9rem; }
   margin-top: 0.25rem;
   position: relative;
   z-index: 2;
+  /* The row spans the card, so it must not take clicks itself: only the
+     session links in it do, and anywhere else in it opens the week. */
+  pointer-events: none;
 }
+.week-card-sessions a { pointer-events: auto; }
 @media (max-width: 44rem) {
   .week-card-sessions {
     display: none;
@@ -723,11 +727,15 @@ label.field { display: block; margin-bottom: 0.9rem; }
   top: 0.5rem;
   right: 0.5rem;
   z-index: 2;
+  /* Only the menu's button and panel take clicks, not the space around them. */
+  pointer-events: none;
 }
+.week-card-actions .menu > * { pointer-events: auto; }
+/* Controls inside a card sit above its stretched link, so they stay clickable. */
+.week-card .week-card-session-link,
+.week-card .title-input { position: relative; z-index: 2; }
 
-/* Weeks in the module list (legacy support for jump strip & week blocks) */
-.jump { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); margin: 1.25rem 0 1.5rem; }
-.jump button { padding: 0.35rem 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+/* Weeks in the module list (week blocks) */
 .week { scroll-margin-top: calc(var(--topbar-h, 3.25rem) + 0.5rem); }
 .week-head { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.8rem 0; }
 .caret { display: inline-block; flex: none; border: 0; background: none; padding: 0; width: 1.1rem; color: var(--faint); }
@@ -735,23 +743,12 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .week-title { flex: 1; font-family: var(--serif); text-decoration: none; }
 .week-title:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 .week-body { padding: 0 0 1rem 4.65rem; }
-@media (max-width: 34rem) { .week-body { padding-left: 0; } .jump { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (max-width: 34rem) { .week-body { padding-left: 0; } }
 .reading-weeks { color: var(--muted); }
 
 /* Reading rows */
 .readings { list-style: none; margin: 0; padding: 0; }
 .reading { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.3rem 0; }
-/* The read box: an empty square, filled with a tick once read. */
-.reading .mark {
-  position: relative; width: 0.8rem; height: 0.8rem; flex: none; padding: 0; align-self: flex-start; margin-top: 0.3em;
-  border: 1px solid var(--rule-strong); background: transparent;
-}
-.reading .mark:hover { border-color: var(--accent); }
-.reading .mark.read { background: var(--accent); border-color: var(--accent); }
-.reading .mark.read::after {
-  content: ""; position: absolute; left: 0.24rem; top: 0.06rem; width: 0.2rem; height: 0.42rem;
-  border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg);
-}
 /* A reading's picture: its cover or first page, a video's frame or a
    slide. Rows show it small, and icons and large icons show it as the tile. */
 .reading-cover {
@@ -809,7 +806,10 @@ label.field { display: block; margin-bottom: 0.9rem; }
 /* Editing a tile's details opens it across the whole grid. */
 .reading.tile.expanded { grid-column: 1 / -1; }
 
-.board-tools { display: flex; justify-content: flex-end; margin: 1.5rem 0 -1.25rem; }
+/* The first list's heading and the folder's view buttons share one line. */
+.board-head { display: flex; align-items: center; gap: 0.5rem 1rem; margin: 1.4rem 0 0.35rem; }
+.board-head > .group-label { margin: 0; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-head > .view-switcher { margin-left: auto; flex: none; }
 .view-switcher .tool { display: inline-flex; align-items: center; justify-content: center; padding: 0.3rem 0.5rem; }
 @media (pointer: coarse) {
   .view-switcher .tool { min-width: 2.75rem; min-height: 2.75rem; }
@@ -892,7 +892,6 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .icon-button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .icon-button:disabled { opacity: 0.35; cursor: default; }
 .icon-button.small { width: 1.6rem; height: 1.6rem; }
-.icon-button.read-toggle[aria-pressed="true"] { background: transparent; }
 .icon { display: block; }
 .icon :is(path, line, polyline, polygon, circle, ellipse, rect) { vector-effect: non-scaling-stroke; }
 .colour-button { width: 2.6rem; grid-auto-flow: column; gap: 0.15rem; }
@@ -950,7 +949,9 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .reader.tool-highlight .textLayer ::selection { background: color-mix(in srgb, var(--tool) 55%, transparent); }
 .reader-body { flex: 1; display: flex; min-height: 0; }
 .scroller { position: relative; flex: 1; overflow: auto; overflow-anchor: none; touch-action: pan-x pan-y; overscroll-behavior: contain; }
-.pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 8px 2rem; transform-origin: 50% 0; }
+/* At least as wide as the widest page, so a page zoomed wider than the frame
+   scrolls into view at both edges instead of being cut off on the left. */
+.pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 8px 2rem; transform-origin: 50% 0; min-width: fit-content; box-sizing: border-box; }
 .pdf-slot { position: relative; overflow: hidden; flex: none; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.04); }
 /* Base physical paper colour before theme filters or dark mode apply. */
 .pdf-page { position: absolute; top: 0; background: #FFFFFF; }
@@ -1090,6 +1091,9 @@ a.quiet { text-decoration: none; }
 .session-side .slides { position: sticky; top: 4rem; }
 .side-readings { padding-top: 0.25rem; }
 .side-readings .group-label { margin-top: 0.4rem; }
+/* Each kind of reading is its own group beside the session's notes. */
+.side-readings + .side-readings { margin-top: 0.75rem; }
+.side-readings.kind-primary .group-label { color: var(--accent); }
 .side-readings .reading { font-size: var(--fs-sm); }
 .session-notes { min-width: 0; }
 .slides { padding-top: 0.5rem; }
@@ -1181,15 +1185,6 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .list > li.arranging .module-row { flex: 1; }
 .order { display: inline-flex; gap: 0.25rem; white-space: nowrap; }
 
-/* The week grid stays in view while scrolling a long module, on a band of
-   paper so rows passing beneath it are hidden cleanly. */
-@media (min-width: 34rem) {
-  .jump {
-    position: sticky; top: var(--topbar-h, 3.25rem); z-index: 5;
-    box-shadow: 0 -0.4rem 0 var(--paper), 0 0.4rem 0 var(--paper);
-  }
-  .week { scroll-margin-top: calc(var(--topbar-h, 3.25rem) + var(--jump-h, 5.5rem) + 0.5rem); }
-}
 .week-gist { margin: -0.45rem 0 0.7rem 1.85rem; }
 
 .week-nav {
@@ -1647,9 +1642,16 @@ kbd {
 
 /* A reading's notes in the sidebar: quotations in reading order, with your
    own writing around them. */
-.reading-notes .notes-hint { margin: 0 0.25rem 0.5rem; }
 .reading-notes .note-editor .bn-editor { padding-inline: 1.5rem 0.25rem; font-size: var(--fs-sm); }
 .reading-notes .note-highlight { margin: 0.35rem 0 0.15rem; padding: 0.35rem 0 0.35rem 0.7rem; background: var(--surface); }
+/* A quotation's comment is written inside its card, beneath the quoted words. */
+.note-highlight .quote-comment {
+  display: block; width: 100%; box-sizing: border-box; margin: 0.35rem 0 0; padding: 0.3rem 0.5rem 0 0;
+  border: 0; border-top: 1px solid var(--rule); background: transparent; color: var(--ink);
+  font: inherit; font-family: var(--sans); font-size: var(--fs-sm); line-height: 1.45; resize: none; overflow: hidden;
+}
+.note-highlight .quote-comment::placeholder { color: var(--muted); }
+.note-highlight .quote-comment:focus { outline: none; border-top-color: var(--accent); }
 .note-highlight .quote { font-style: normal; line-height: 1.5; }
 .note-highlight .quote-meta { display: flex; gap: 0.6rem; align-items: baseline; margin-top: 0.2rem; font-family: var(--sans); font-size: var(--fs-xs); color: var(--muted); }
 .note-highlight .quote-meta button { color: var(--accent); font-size: inherit; }
@@ -1711,7 +1713,6 @@ kbd {
 
 /* Touch screens get targets a finger can hit, without changing how things look. */
 @media (pointer: coarse) {
-  .reading .mark { width: 1.25rem; height: 1.25rem; }
   .crumbs a, .where, a.where, .across-session a, .session-page .crumbs a, section.session > p.small a { display: inline-block; padding-block: 0.3rem; min-width: 1.75rem; }
   .topbar nav a, .week-nav a, .t-speakers button, .recent a, .side-readings .name, .next-up a, .notes-more {
     display: inline-flex; align-items: center; min-height: 1.75rem;
@@ -1901,7 +1902,7 @@ img, canvas, video { max-width: 100%; }
 @media (max-width: 34rem) { .week-sessions { margin-left: 0.4rem; gap: 0.45rem; } }
 
 /* Slides: the arrows sit on the slide, faint, and fade out when idle. */
-.slides-head { display: flex; align-items: center; justify-content: space-between; min-height: 1.6rem; margin-bottom: 0.35rem; }
+.slides-head { display: flex; align-items: center; justify-content: space-between; min-height: 2rem; margin-bottom: 0.35rem; }
 .slides-head select { width: auto; min-height: 1.8rem; font-size: var(--fs-sm); }
 .slide-enlarge { color: var(--muted); padding: 0.2rem; border-radius: var(--r-xs); }
 .slide-enlarge:hover, .slide-enlarge:focus-visible { color: var(--accent); background: var(--surface); }
@@ -1934,8 +1935,10 @@ img, canvas, video { max-width: 100%; }
 .slide-lightbox .slide-arrow.prev { left: 1rem; }
 .slide-lightbox .slide-arrow.next { right: 1rem; }
 
+/* Centred by margins rather than a transform, so no press or hover style that
+   transforms or scales a button can shift it. */
 .slide-arrow {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  position: absolute; top: 0; bottom: 0; margin-block: auto; z-index: 10; pointer-events: auto; touch-action: manipulation;
 
 
   width: 2rem; height: 2.6rem; display: grid; place-items: center; padding: 0; border: 0;
@@ -1945,7 +1948,9 @@ img, canvas, video { max-width: 100%; }
 }
 .slide-arrow.prev { left: 0.4rem; }
 .slide-arrow.next { right: 0.4rem; }
-.slide-arrow svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: square; }
+.slide-arrow svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: square; pointer-events: none; }
+/* The whole button, and a little around it, takes the click. */
+.slide-arrow::before { content: ""; position: absolute; inset: -0.4rem -0.3rem; }
 .slide-arrow:hover { background: rgba(0, 0, 0, 0.70); }
 .slide-arrow:disabled { visibility: hidden; }
 .slide-count {
@@ -2421,11 +2426,6 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .caret { min-width: 2.75rem; min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; }
   .pane-tabs { min-height: 2.75rem; }
   .pane-tab { height: 2.75rem; min-height: 2.75rem; }
-  .reading .mark::before {
-    content: "";
-    position: absolute;
-    inset: -0.95rem;
-  }
   .where, a.where {
     position: relative;
   }
@@ -2445,7 +2445,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) { font-size: max(1rem, 16px); }
   :root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="date"]), select) { min-height: 2.75rem; }
   .topbar .brand, .topbar .side-switch a, .skip { min-height: 2.75rem; display: inline-flex; align-items: center; }
-  .jump button, .picker button { min-height: 2.75rem; }
+  .picker button { min-height: 2.75rem; }
   .search-page h3 a, .search-page .hit-head a, .search-page li > a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 }
 
@@ -2575,14 +2575,12 @@ input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus
 .segmented .tool { border: 0; background: transparent; border-radius: var(--r-xs); color: var(--muted); padding: 0.3rem 0.7rem; text-decoration: none; }
 .segmented .tool:hover { color: var(--ink); }
 .segmented .tool[aria-pressed="true"], .segmented .tool[aria-current="page"] { background: var(--card); color: var(--ink); box-shadow: var(--raise); }
-.jump { background: var(--paper); border: 0; gap: 4px; padding: 0.4rem 0; }
 .picker { background: none; border: 0; gap: 4px; }
-.jump button, .picker button {
+.picker button {
   border-radius: var(--r-xs); background: var(--surface); color: var(--muted); border: 0; box-shadow: none;
 }
-.jump button:hover, .picker button:hover { background: var(--surface-hover); color: var(--ink); }
-.jump button.is-this-week, .picker button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: none; font-weight: 600; }
-.jump button.is-reading-week { background: var(--paper); font-style: italic; }
+.picker button:hover { background: var(--surface-hover); color: var(--ink); }
+.picker button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: none; font-weight: 600; }
 
 /* Lists: rows lift on hover instead of sitting between rules. */
 .readings > li.reading { border-bottom: 0; border-radius: var(--r-sm); padding: 0.55rem 0.6rem; margin-inline: -0.6rem; }
@@ -2910,7 +2908,6 @@ dialog.sheet-dialog::backdrop {
 .search-box { background: var(--card); }
 
 /* The read mark: a rounded square that fills with the accent when read. */
-.reading .mark { border-radius: var(--r-xs); }
 
 /* In a narrow side column the title comes first: the chip and the counts
    step aside, and the menu stays. */
@@ -3226,9 +3223,14 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   font-size: var(--fs-md);
 }
 /* A transcript as pages or as text, in the same pane as before. */
-.transcript-scroller { max-height: 60dvh; min-height: 16rem; border-radius: var(--r-sm); background: var(--surface); }
+/* A fixed frame: its height never follows what is inside it, so opening,
+   zooming or a scrollbar appearing cannot move anything around it. */
+.transcript-scroller {
+  display: flex; flex-direction: column; height: min(60dvh, 48rem); min-height: 16rem; overflow: hidden;
+  border-radius: var(--r-sm); background: var(--surface);
+}
 .transcript-scroller.as-text { background: var(--tv-paper, var(--card)); }
-.transcript-scroller .transcript-pages { padding: 0.75rem 0.5rem 1.5rem; gap: 10px; }
+.transcript-scroller > .transcript-text { flex: 1 1 0; min-height: 0; }
 .transcript-scroller .text-view { padding: 1.25rem 1rem 2rem; font-size: calc(1rem * var(--tv-size, 1)); }
 .transcript-note { margin: 0.5rem 0.75rem; }
 .transcript-layout .tool { padding: 0.25rem 0.65rem; font-size: var(--fs-xs); }

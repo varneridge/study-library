@@ -8,6 +8,15 @@ import { Icon } from "./icons";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
+// Each deck's shape, once known, so coming back to a deck draws its frame at
+// the right size straight away instead of at 16 by 9 and then again.
+const deckRatios = new Map<string, number>();
+
+// Pressing an arrow leaves focus where it was. Focusing it could make the
+// browser scroll the sticky slides panel to show the button, which moved the
+// slide under the pointer. The keyboard still reaches the arrows with Tab.
+const keepFocus = (e: React.MouseEvent) => e.preventDefault();
+
 function SlideLightbox({
   doc,
   page,
@@ -119,6 +128,7 @@ function SlideLightbox({
               className="slide-arrow prev"
               aria-label="Previous slide"
               disabled={page === 0}
+              onMouseDown={keepFocus}
               onClick={() => onGo(page - 1)}
             >
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
@@ -128,6 +138,7 @@ function SlideLightbox({
               className="slide-arrow next"
               aria-label="Next slide"
               disabled={page === doc.numPages - 1}
+              onMouseDown={keepFocus}
               onClick={() => onGo(page + 1)}
             >
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
@@ -145,7 +156,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(0);
   const [enlarged, setEnlarged] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(() => deckRatios.get(decks[0]?.item.id ?? "") ?? null);
   const [problem, setProblem] = useState<string | null>(null);
   const [width, setWidth] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -160,7 +171,10 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
     let loaded: PDFDocumentProxy | null = null;
     setDoc(null);
     setPage(0);
-    setAspectRatio(null);
+    // The frame keeps its size while the next deck opens: the shape this deck
+    // had before, or else the one already showing, never a reset to 16 by 9.
+    const known = deckRatios.get(view.item.id);
+    if (known) setAspectRatio(known);
     void (async () => {
       try {
         const blob = view.file?.mime === "application/pdf" ? await fileBlob(view.file)
@@ -170,15 +184,17 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
           return;
         }
         loaded = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+        // The deck's shape is read before anything shows, so the frame is
+        // drawn once at its final size and the arrows never move beneath the
+        // pointer as the first slide arrives.
+        const first = await loaded.getPage(1).then((p) => p.getViewport({ scale: 1 })).catch(() => null);
         if (!cancelled) {
+          if (first?.width && first.height) {
+            deckRatios.set(view.item.id, first.width / first.height);
+            setAspectRatio(first.width / first.height);
+          }
           setDoc(loaded);
           setProblem(null);
-          void loaded.getPage(1).then((p) => {
-            const vp = p.getViewport({ scale: 1 });
-            if (!cancelled && vp.width && vp.height) {
-              setAspectRatio(vp.width / vp.height);
-            }
-          }).catch(() => {});
         }
       } catch {
         if (!cancelled) setProblem("These slides could not be opened.");
@@ -315,18 +331,19 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
         ) : (
           <span className="small muted">{shortTitle(view.item)}</span>
         )}
-        {doc && (
-          <button
-            ref={enlargeButtonRef}
-            type="button"
-            className="icon-button slide-enlarge"
-            aria-label="Enlarge slides"
-            title="Enlarge slides"
-            onClick={() => setEnlarged(true)}
-          >
-            <Icon name="enlarge" size={16} />
-          </button>
-        )}
+        {/* Always there, so the heading never grows when the slides finish
+            opening and push the slide down. */}
+        <button
+          ref={enlargeButtonRef}
+          type="button"
+          className="icon-button slide-enlarge"
+          aria-label="Enlarge slides"
+          title="Enlarge slides"
+          disabled={!doc}
+          onClick={() => setEnlarged(true)}
+        >
+          <Icon name="enlarge" size={16} />
+        </button>
       </div>
       <div
         ref={box}
@@ -358,6 +375,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
                   className="slide-arrow prev"
                   aria-label="Previous slide"
                   disabled={page === 0}
+                  onMouseDown={keepFocus}
                   onClick={() => go(page - 1)}
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
@@ -367,6 +385,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
                   className="slide-arrow next"
                   aria-label="Next slide"
                   disabled={page === doc.numPages - 1}
+                  onMouseDown={keepFocus}
                   onClick={() => go(page + 1)}
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>

@@ -615,29 +615,6 @@ export function ModulePage({ id }: { id: string }) {
 
 
 
-      {!customSectionsOnly && termWeeks.length > 0 && (
-        <nav className="jump" aria-label="Weeks">
-          {termWeeks.map((ov) => {
-            const w = ov.week;
-            const code = weekCode(w);
-            const isThis = ov.isCurrentWeek;
-            return (
-              <button
-                key={w.id}
-                type="button"
-                className={`small${w.is_reading_week ? " is-reading-week" : ""}${isThis ? " is-this-week" : ""}`}
-                aria-current={isThis ? "date" : undefined}
-                onClick={() => {
-                  document.getElementById(`week-${code}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-              >
-                {code}
-              </button>
-            );
-          })}
-        </nav>
-      )}
-
       <div className="week-grid">
         {(customSectionsOnly ? weeks : termWeeks).map((ov) => (
           <WeekCard

@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { rectSortingStrategy, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ReadingView } from "../lib/library";
 import { byWeek, weekCode } from "../lib/modules";
 import { moveToTray, moveToWeek, placeInWeek, positionsOf } from "../lib/moves";
@@ -49,7 +49,7 @@ export function Sortable({ view, weeks, short, mode, isLibrary }: { view: Readin
   );
 }
 
-function List({ id, label, views, weeks, dragging, isLibrary, mode }: { id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean; mode: ReadingViewMode }) {
+function List({ id, label, views, weeks, dragging, isLibrary, mode, tools }: { id: ListKey; label: string | null; views: ReadingView[]; weeks: WeekRow[]; dragging: boolean; isLibrary?: boolean; mode: ReadingViewMode; tools?: ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: `list:${id}` });
   // An empty list only shows while something is being dragged, as a place to drop.
   if (!views.length && !dragging) return null;
@@ -57,7 +57,16 @@ function List({ id, label, views, weeks, dragging, isLibrary, mode }: { id: List
   const hintText = isLibrary || id === "flat" ? "a document" : `a ${KIND_LABEL[id as "primary" | "secondary" | "summary"]}`;
   return (
     <div className="section" data-drop={dropKind}>
-      {label && <p className="group-label">{label}</p>}
+      {/* The first list's heading also carries the folder's view buttons, so
+          they sit on the same line as the heading rather than in a row of their own. */}
+      {tools ? (
+        <div className="board-head">
+          {label && <p className="group-label">{label}</p>}
+          {tools}
+        </div>
+      ) : (
+        label && <p className="group-label">{label}</p>
+      )}
       {/* Tiles move about a grid, rows up and down a list. */}
       <SortableContext items={views.map((v) => v.link!.id)} strategy={isTileMode(mode) ? rectSortingStrategy : verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`readings view-${mode}${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
@@ -188,23 +197,25 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
   const everything = useMemo(() => [...primaries, ...readings, ...summaries], [primaries, readings, summaries]);
   const stored = parseViewMode(useSetting<unknown>(viewSettingKey(week.id), null));
   const mode = stored ?? defaultViewMode({ library: Boolean(isLibrary), views: everything });
+  const switcher = everything.length > 0
+    ? <ViewSwitcher mode={mode} onChange={(next) => void setSetting(viewSettingKey(week.id), next)} />
+    : null;
+  // Lists with nothing in them are not drawn, so the switcher goes to the first one that is.
+  const order: ListKey[] = isSyllabus ? ["flat"] : ["primary", "secondary", "summary"];
+  const toolsOn = order.find((key) => (lists[key] ?? []).length > 0 || Boolean(active)) ?? null;
+  const toolsFor = (key: ListKey) => (key === toolsOn ? switcher : null);
 
   return (
     <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragOver={onOver} onDragEnd={onEnd} onDragCancel={() => setActive(null)}>
-      {everything.length > 0 && (
-        <div className="board-tools">
-          <ViewSwitcher mode={mode} onChange={(next) => void setSetting(viewSettingKey(week.id), next)} />
-        </div>
-      )}
       {isSyllabus ? (
-        <List id="flat" label="Documents" views={viewsOf("flat")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
+        <List id="flat" label="Documents" views={viewsOf("flat")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("flat")} />
       ) : (
 
         <>
-          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
-          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
+          <List id="primary" label={primaryLabel} views={viewsOf("primary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("primary")} />
+          <List id="secondary" label={secondaryLabel} views={viewsOf("secondary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("secondary")} />
 
-          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} />
+          <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("summary")} />
         </>
       )}
       {active && <MoveDock weeks={sorted} current={week} />}

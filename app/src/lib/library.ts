@@ -281,10 +281,10 @@ export async function loadModuleOverview(
   const liveNotes = live(notes);
   const sessionsWithNotes = new Set(liveNotes.map((n) => n.session_id));
 
-  // Find slide deck files with thumb_key
-  // A shelf's covers come from its books, so a library reads those files too.
+  // Every item's file is read, so a week can take its cover from whichever
+  // reading, deck or book it holds, and a shelf from its books.
   const relevantFileIds = liveItems
-    .filter((i) => (i.kind === "slides" || module.kind === "library") && i.file_id)
+    .filter((i) => i.file_id)
     .map((i) => i.file_id as string);
 
   const files = relevantFileIds.length > 0
@@ -319,9 +319,9 @@ export async function loadModuleOverview(
       .filter((i): i is ItemRow => Boolean(i && !i.deleted));
     const counts = readCount(readingItems);
 
-    // A week's picture is its own cover, or else its first slide deck's. A
-    // shelf shows its first few book covers side by side, whole, so a
-    // portrait cover is never cut down to fit a landscape card.
+    // A week's picture is its own cover, or else the first picture any of
+    // its items has. A shelf shows its first few book covers side by side,
+    // whole, so a portrait cover is never cut down to fit a landscape card.
     const library = module.kind === "library";
     let thumb_key: string | null = week.image_key ?? null;
     const thumb_keys: string[] = [];
@@ -333,6 +333,9 @@ export async function loadModuleOverview(
         if (library) {
           if (!thumb_keys.includes(file.thumb_key)) thumb_keys.push(file.thumb_key);
           if (thumb_keys.length === 3) break;
+        } else {
+          thumb_key = file.thumb_key;
+          break;
         }
       }
     }

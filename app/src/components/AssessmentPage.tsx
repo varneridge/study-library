@@ -35,6 +35,7 @@ import {
 import { countdown } from "../lib/sections";
 import { newId } from "../lib/sync";
 import { chicagoBibliography, fullTitle, shortTitle } from "../lib/titles";
+import { clampZoom, stepZoom, ZOOM_STEPS } from "../lib/zoom";
 import type { ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
 import { DatePicker } from "./DatePicker";
@@ -49,7 +50,8 @@ const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
 // The preview sheet is laid out at A4 width (210 mm at 96 dpi) and scaled from there.
 const PREVIEW_PAGE_WIDTH = 794;
-const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+// The essay preview zooms through the same steps as the reader, up to twice its size.
+const PREVIEW_MAX_ZOOM = 2;
 const MIN_FIT_SCALE = 0.3;
 const MAX_FIT_SCALE = 2;
 
@@ -483,12 +485,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         : "Saved";
   const saveStatus = unsavedTitle ? "unsaved" : saveState;
 
-  const stepZoom = (direction: 1 | -1) => {
-    const next =
-      direction > 0
-        ? ZOOM_LEVELS.find((level) => level > scale + 0.001)
-        : [...ZOOM_LEVELS].reverse().find((level) => level < scale - 0.001);
-    if (next === undefined) return;
+  const zoomBy = (direction: 1 | -1) => {
+    const next = Math.min(PREVIEW_MAX_ZOOM, clampZoom(stepZoom(scale, direction)));
+    // At either end there is no further step, so nothing changes.
+    if (direction > 0 ? next <= scale + 0.001 : next >= scale - 0.001) return;
     setZoom(next);
     setFitWidth(false);
   };
@@ -978,7 +978,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               Body {counts.body.toLocaleString("en-GB")}, block quotations {counts.quotes.toLocaleString("en-GB")}, footnotes {counts.footnotes.toLocaleString("en-GB")}.
             </span>
             <div className="essay-zoom-controls" role="group" aria-label="Zoom">
-              <IconButton icon="zoomOut" label="Zoom out" disabled={scale <= ZOOM_LEVELS[0] + 0.001} onClick={() => stepZoom(-1)} />
+              <IconButton icon="zoomOut" label="Zoom out" disabled={scale <= ZOOM_STEPS[0] + 0.001} onClick={() => zoomBy(-1)} />
               <button
                 type="button"
                 className="essay-zoom-percent"
@@ -991,8 +991,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               <IconButton
                 icon="zoomIn"
                 label="Zoom in"
-                disabled={scale >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] - 0.001}
-                onClick={() => stepZoom(1)}
+                disabled={scale >= PREVIEW_MAX_ZOOM - 0.001}
+                onClick={() => zoomBy(1)}
               />
               <IconButton
                 icon="fitWidth"

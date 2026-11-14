@@ -3,7 +3,8 @@
 
 import { NotesLoading } from "../ErrorBoundary";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import { lazy, memo, Suspense, useEffect, useRef, useState, type Ref } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import type { CommentWriter } from "../../lib/highlightComments";
 import type { HighlightRow } from "../../lib/types";
 import { Icon } from "../icons";
 import type { NoteEditorHandle } from "../NoteEditor";
@@ -64,10 +65,10 @@ const Thumb = memo(function Thumb({ doc, index, size, current, onGo }: {
 });
 
 export function Sidebar({
-  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, onGoPage, onOpenHighlight, onQuoteRemoved, onQuoteRestored, onClose,
+  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, comments, onGoPage, onOpenHighlight, onQuoteRemoved, onQuoteRestored, onClose,
 }: {
   tab: Tab; setTab: (tab: Tab) => void; doc: PDFDocumentProxy | null; sizes: Size[]; current: number;
-  headings: Heading[]; itemId: string; highlights: HighlightRow[]; noteHandle: Ref<NoteEditorHandle>;
+  headings: Heading[]; itemId: string; highlights: HighlightRow[]; noteHandle: Ref<NoteEditorHandle>; comments?: CommentWriter;
   onGoPage: (page: number) => void; onOpenHighlight: (highlightId: string, page: number) => void;
   onQuoteRemoved: (highlightId: string) => void; onQuoteRestored?: (highlightId: string) => void; onClose: () => void;
 }) {
@@ -78,6 +79,8 @@ export function Sidebar({
   ];
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
+  // Each quotation's card shows its highlight's comment from these, live.
+  const highlightMap = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
   const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
     let nextIndex = -1;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
@@ -123,18 +126,11 @@ export function Sidebar({
 
       <div className="pane-body">
         {tab === "notes" && (
-          <div className="reading-notes">
-            <p className="notes-hint small muted">
-              {highlights.length
-                ? `${highlights.length} ${highlights.length === 1 ? "highlight" : "highlights"}, in reading order. Write anywhere around them.`
-                : "Write here as you read. Anything you highlight joins these notes as a quotation, in reading order."}
-            </p>
-            <QuoteContext.Provider value={{ readingId: itemId, open: onOpenHighlight }}>
-              <Suspense fallback={<NotesLoading />}>
-                <NoteEditor target={{ item_id: itemId }} handle={noteHandle} onQuoteRemoved={onQuoteRemoved} onQuoteRestored={onQuoteRestored} label="Reading notes" />
-              </Suspense>
-            </QuoteContext.Provider>
-          </div>
+          <QuoteContext.Provider value={{ readingId: itemId, open: onOpenHighlight, highlights: highlightMap, comments }}>
+            <div className="reading-notes" data-notes-panel>
+              <Suspense fallback={<NotesLoading />}><NoteEditor target={{ item_id: itemId }} handle={noteHandle} onQuoteRemoved={onQuoteRemoved} onQuoteRestored={onQuoteRestored} label="Reading notes" /></Suspense>
+            </div>
+          </QuoteContext.Provider>
         )}
         {tab === "pages" && doc && (
           <div className="thumbs">

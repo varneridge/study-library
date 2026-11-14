@@ -22,11 +22,24 @@ import { importTranscript } from "../lib/transcriptImport";
 import { showToast } from "../lib/ui";
 import { noteSessionOpened } from "../lib/settings";
 import { ReadingRow } from "./ReadingRow";
+import { KIND_GROUP } from "../lib/kinds";
+import type { ReadingView } from "../lib/library";
 import { TitleEdit } from "./TitleEdit";
 import { Icon } from "./icons";
 import { useNarrow, useTitle } from "../lib/ui";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
+// The week's readings beside the notes, set out by kind so primary sources,
+// secondary readings and everything else are told apart at a glance.
+function readingGroups(readings: ReadingView[]): { key: string; label: string; views: ReadingView[] }[] {
+  const groups = [
+    { key: "primary", label: KIND_GROUP.primary, views: readings.filter((r) => r.item.kind === "primary") },
+    { key: "secondary", label: KIND_GROUP.secondary, views: readings.filter((r) => r.item.kind === "secondary") },
+    { key: "other", label: "Other readings", views: readings.filter((r) => r.item.kind !== "primary" && r.item.kind !== "secondary") },
+  ];
+  return groups.filter((g) => g.views.length > 0);
+}
+
 // Slides need pdf.js, which loads only when a session has slides to show.
 const SlideViewer = lazy(() => import("./SlideViewer").then((m) => ({ default: m.SlideViewer })));
 
@@ -256,12 +269,12 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
         </div>
         {(view.slides.length > 0 || readings.length > 0) && (
           <div className="session-side">
-            {readings.length > 0 && (
-              <section className="side-readings">
-                <h2 className="group-label">This week&rsquo;s readings</h2>
-                <ul className="readings">{readings.map((r) => <ReadingRow key={r.item.id} view={r} weeks={moduleWeeks} short />)}</ul>
+            {readingGroups(readings).map((group) => (
+              <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
+                <h2 className="group-label">{group.label}</h2>
+                <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={moduleWeeks} short />)}</ul>
               </section>
-            )}
+            ))}
             {view.slides.length > 0 && (
               <section className="side-readings">
                 <h2 className="group-label">Slides</h2>

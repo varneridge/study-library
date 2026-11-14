@@ -10,7 +10,9 @@ import {
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { db } from "../lib/db";
+import { commentWriter } from "../lib/highlightComments";
 import { placesOf } from "../lib/library";
+import { update } from "../lib/sync";
 import { citable } from "../lib/progress";
 import { matches } from "../lib/search";
 import { uploadImage } from "../lib/uploads";
@@ -29,6 +31,17 @@ import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib
 // the passage instead of opening the reading again.
 import { QuoteContext } from "./quoteContext";
 
+// Outside the reader there is no shared writer, so notes elsewhere use this one.
+const fallbackComments = commentWriter((highlightId, comment) => update("highlights", highlightId, { comment }));
+
+const COMMENT_FIELD = "[data-highlight-comment]";
+
+function fitHeight(field: HTMLTextAreaElement | null) {
+  if (!field) return;
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight}px`;
+}
+
 function Quote({
   block,
   editor,
@@ -40,31 +53,35 @@ function Quote({
   editor?: any;
   props: { highlightId: string; itemId: string; page: number; text: string; colour: string; source: string };
 }) {
-  const { readingId, open } = useContext(QuoteContext);
+  const { readingId, open, highlights, comments } = useContext(QuoteContext);
   const names = useColourNames();
   const here = readingId && props.itemId === readingId;
   const to = { view: "reader" as const, id: props.itemId, page: props.page };
   const named = names[props.colour.toLowerCase()];
-  const write = () => {
-    if (!editor || !block) return;
-    const doc = editor.document;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const index = doc.findIndex((b: any) => b.id === block.id);
-    if (index < 0) return;
-    const next = doc[index + 1];
-    const empty = next && next.type === "paragraph" && !blockText(next as unknown as Block).trim();
-    if (empty) {
-      editor.setTextCursorPosition(next, "start");
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [inserted] = editor.insertBlocks([{ type: "paragraph" } as any], doc[index], "after");
-      editor.setTextCursorPosition(inserted, "start");
-    }
-    editor.focus();
-  };
+
+  // The comment lives on the highlight itself. The reader hands its highlights
+  // down; anywhere else the card looks its own highlight up.
+  const shared = highlights?.get(props.highlightId);
+  const looked = useLiveQuery(
+    async () => (highlights || !props.highlightId ? null : (await db.highlights.get(props.highlightId)) ?? null),
+    [props.highlightId, Boolean(highlights)],
+    null,
+  );
+  const stored = (shared ?? looked)?.comment ?? "";
+  const writer = comments ?? fallbackComments;
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState(stored);
+  const focused = useRef(false);
+  // Changes from elsewhere show at once, except while you are typing here.
+  useEffect(() => {
+    if (!focused.current) setDraft(stored);
+  }, [stored]);
+  useEffect(() => fitHeight(field.current), [draft]);
+  // Keystrokes reach the field, never the editor around it.
+  const keep = (e: React.SyntheticEvent) => e.stopPropagation();
 
   return (
-    <div className="note-highlight" style={{ borderLeftColor: props.colour }} contentEditable={false}>
+    <div className="note-highlight" data-highlight-card="" data-highlight-id={props.highlightId} style={{ borderLeftColor: props.colour }} contentEditable={false}>
       <span className="quote">{props.text}</span>
       <span className="quote-meta">
         {here ? (
@@ -73,17 +90,6 @@ function Quote({
           <a href={href(to)} onClick={(e) => { e.preventDefault(); navigate(to); }}>{props.source}, p. {props.page + 1}</a>
         )}
         {named && <span className="quote-tag">{colourLabel(props.colour, names)}</span>}
-        {editor && block && (
-          <button
-            type="button"
-            className="plain quiet quote-write"
-            aria-label="Write note"
-            title="Write note"
-            onClick={write}
-          >
-            Write note
-          </button>
-        )}
         {editor && block && (
           <button
             type="button"
@@ -96,6 +102,42 @@ function Quote({
           </button>
         )}
       </span>
+      {props.highlightId && (
+        <textarea
+          ref={field}
+          data-highlight-comment=""
+          className="quote-comment"
+          rows={1}
+          aria-label="Comment on this highlight"
+          placeholder="Add a comment"
+          value={draft}
+          onFocus={() => { focused.current = true; }}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            writer.set(props.highlightId, e.target.value);
+          }}
+          onBlur={() => {
+            focused.current = false;
+            void writer.flush(props.highlightId).catch(() => showToast("Your comment could not be saved yet. It will be retried."));
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            // Escape leaves the comment and goes back to the notes around it.
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.currentTarget.blur();
+              if (editor && block) {
+                try { editor.setTextCursorPosition(block, "end"); } catch { /* the block may have gone */ }
+                editor.focus();
+              }
+            }
+          }}
+          onKeyUp={keep}
+          onPaste={keep}
+          onCopy={keep}
+          onCut={keep}
+        />
+      )}
     </div>
   );
 }
@@ -125,8 +167,10 @@ const schema = BlockNoteSchema.create({ blockSpecs: { ...textBlocks, highlight: 
 
 export interface NoteEditorHandle {
   insertHighlight(highlight: HighlightRow, item: ItemRow): void;
-  // Puts the cursor on the line beneath a quotation, ready to write about it.
+  /** @deprecated Delegates to focusComment. */
   writeUnder(highlightId: string): boolean;
+  // Puts the cursor in a quotation's comment, ready to write about it.
+  focusComment(highlightId: string): boolean;
   // Puts the cursor at the start of the notes.
   focus(): void;
 }
@@ -359,7 +403,19 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     area?.setAttribute("aria-label", label);
   }, [label]);
 
-  useImperativeHandle(handle, () => ({
+  useImperativeHandle(handle, () => {
+    const focusComment = (highlightId: string): boolean => {
+      const target = container.current?.querySelector<HTMLTextAreaElement>(
+        `[data-highlight-card][data-highlight-id="${CSS.escape(highlightId)}"] ${COMMENT_FIELD}`,
+      );
+      if (!target) return false;
+      target.scrollIntoView({ block: "nearest" });
+      target.focus();
+      const end = target.value.length;
+      target.setSelectionRange(end, end);
+      return true;
+    };
+    return {
     focus() {
       const first = editor.document[0];
       editor.focus();
@@ -381,22 +437,10 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
         "after",
       );
     },
-    writeUnder(highlightId) {
-      const doc = editor.document;
-      const index = doc.findIndex((b) => b.type === "highlight" && (b.props as { highlightId?: string }).highlightId === highlightId);
-      if (index < 0) return false;
-      const next = doc[index + 1];
-      const empty = next && next.type === "paragraph" && !blockText(next as unknown as Block).trim();
-      if (empty) editor.setTextCursorPosition(next, "start");
-      else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const [inserted] = editor.insertBlocks([{ type: "paragraph" } as any], doc[index], "after");
-        editor.setTextCursorPosition(inserted, "start");
-      }
-      editor.focus();
-      return true;
-    },
-  }), [editor]);
+    focusComment,
+    writeUnder: focusComment,
+    };
+  }, [editor]);
 
   // Intercept Backspace and Enter on quotations:
   // Backspacing does not delete the quotation, and pressing Enter starts a note beneath it.
@@ -404,6 +448,8 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     const el = container.current;
     if (!el) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Typing in a quotation's comment, or in any other field, is ordinary typing.
+      if ((e.target as HTMLElement | null)?.closest?.(`${COMMENT_FIELD}, textarea, input`)) return;
       if (e.key === "Backspace") {
         try {
           const sel = editor.getSelection();
@@ -515,6 +561,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     <div
       ref={container}
       data-fold-scope={foldScope}
+      data-note-editor=""
       className={`note-editor${compact ? " compact" : ""}`}
       aria-label={label}
       onClick={handleContainerClick}

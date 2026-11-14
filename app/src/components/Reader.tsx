@@ -13,7 +13,7 @@ import { bumpFile, commit, insert, newId, sendNow, update } from "../lib/sync";
 import { fullTitle, shortTitle } from "../lib/titles";
 import { COLOURS, colourLabel, useColourNames } from "../lib/settings";
 import { deleteRows, withUndo } from "../lib/edits";
-import { dismissToast, openShortcuts, typing, useNarrow, useTitle } from "../lib/ui";
+import { dismissToast, openShortcuts, showToast, typing, useNarrow, useTitle } from "../lib/ui";
 import type { HighlightRow, Spot } from "../lib/types";
 import { Menu } from "./Menu";
 import { IconButton } from "./icons";
@@ -22,10 +22,15 @@ import { TextView, type TextSelection } from "./reader/TextView";
 import { rectsFor, reflow, type Reflowed } from "../lib/reflow";
 import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSelection } from "../lib/selection";
 import { reconcile } from "../lib/readingNotes";
+import { reconcileShape } from "../lib/noteShape";
+import { commentWriter } from "../lib/highlightComments";
+import { isDuplicate, isHighlightable, shortcutFor } from "../lib/highlightSelect";
+import { clampZoom, stepZoom } from "../lib/zoom";
+import { SelectionBar } from "./reader/SelectionBar";
 import { db } from "../lib/db";
 import type { NoteEditorHandle } from "./NoteEditor";
 import { chooseAppearance, useTheme } from "../lib/appearance";
-import { counts, citable } from "../lib/progress";
+import { citable } from "../lib/progress";
 import { deleteLabel } from "../lib/kinds";
 import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, toPdfRect, type Crop, type Size, type Theme } from "./reader/pages";
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
@@ -111,6 +116,22 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   });
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<Selected | null>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  // One writer for every comment edited while this reading is open, so the
+  // card in the notes and anything else that edits a comment never race.
+  const comments = useMemo(() => commentWriter((highlightId, comment) => update("highlights", highlightId, { comment })), []);
+  useEffect(() => {
+    const flush = () => { void comments.flush().catch(() => undefined); };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void comments.dispose().catch(() => undefined);
+    };
+  }, [comments]);
   const [active, setActive] = useState<Active | null>(null);
   const [finding, setFinding] = useState(Boolean(q));
   const [query, setQuery] = useState(q ?? "");
@@ -305,8 +326,9 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     goToSpotPages(spotRef.current);
   }, [scale, crop, sizes, goToSpotPages]);
 
+  // Every zoom passes through the shared limits, then the reader's own range.
   const changeZoom = useCallback((next: number | null) => {
-    setZoom(next === null ? null : clamp(next));
+    setZoom(next === null ? null : clamp(clampZoom(next)));
   }, []);
 
   // Track the current page and save it as the reading position. On a phone
@@ -554,9 +576,20 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         return;
       }
       if (typing(e)) return;
+      // While a selection is offered, H highlights it and C highlights it and
+      // opens its comment; Escape lets it go.
+      const offered = selectedRef.current !== null && tool === "select";
+      const action = shortcutFor(e, false, offered);
+      if (action) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (action === "dismiss") { document.getSelection()?.removeAllRanges(); setSelected(null); }
+        else void createRef.current(toolColourRef.current, action === "comment");
+        return;
+      }
       if (e.key === "/") { e.preventDefault(); openFind(); }
-      else if (e.key === "+" || e.key === "=") changeZoom(scaleRef.current * 1.15);
-      else if (e.key === "-") changeZoom(scaleRef.current / 1.15);
+      else if (e.key === "+" || e.key === "=") changeZoom(stepZoom(scaleRef.current, 1));
+      else if (e.key === "-") changeZoom(stepZoom(scaleRef.current, -1));
       else if (e.key === "0") changeZoom(null);
       else if (e.key === "ArrowLeft" && !e.altKey) { e.preventDefault(); goToPage(Math.max(0, current - 1)); }
       else if (e.key === "ArrowRight" && !e.altKey) { e.preventDefault(); goToPage(Math.min(sizes.length - 1, current + 1)); }
@@ -756,31 +789,47 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     if (scope) widenSelection(kind, scope);
   }
 
-  async function createHighlight(colour: string) {
-    if (!selected) return;
-    const highlightId = newId();
-    await insert("highlights", {
-      id: highlightId, item_id: id, page: selected.page, rects: selected.rects, body: selected.text,
-      colour, comment: null, question_id: null, zotero_key: null,
-    });
-    document.getSelection()?.removeAllRanges();
-    setSelected(null);
-    setActive({ id: highlightId, x: selected.x, y: selected.y });
+  // A selection becomes a highlight in one step. The selection is the one
+  // taken when the bar appeared, so nothing that moves the page in between can
+  // change what is highlighted. Words already highlighted on the page are not
+  // highlighted twice, and a second press while one is being made does nothing.
+  const creating = useRef(false);
+  async function createHighlight(colour: string, withComment = false) {
+    const s = selectedRef.current;
+    if (!s || creating.current) return;
+    const done = () => { document.getSelection()?.removeAllRanges(); setSelected(null); };
+    const capture = { page: s.page, body: s.text };
+    if (!isHighlightable(capture) || isDuplicate(dataRef.current?.highlights ?? [], capture)) { done(); return; }
+    creating.current = true;
+    try {
+      const highlightId = newId();
+      await insert("highlights", {
+        id: highlightId, item_id: id, page: s.page, rects: s.rects, body: s.text,
+        colour, comment: null, question_id: null, zotero_key: null,
+      });
+      if (colour !== toolColourRef.current) { setToolColour(colour); localStorage.setItem("highlight-colour", colour); }
+      done();
+      if (withComment) writeAbout(highlightId);
+    } finally {
+      creating.current = false;
+    }
   }
+  const createRef = useRef(createHighlight);
+  createRef.current = createHighlight;
+  const toolColourRef = useRef(toolColour);
+  toolColourRef.current = toolColour;
 
   // With the highlight tool on, a selection becomes a highlight straight away.
   useEffect(() => {
     if (tool !== "highlight" || !selected) return;
-    const s = selected;
-    void (async () => {
-      await insert("highlights", {
-        id: newId(), item_id: id, page: s.page, rects: s.rects, body: s.text,
-        colour: toolColour, comment: null, question_id: null, zotero_key: null,
-      });
-      document.getSelection()?.removeAllRanges();
-      setSelected(null);
-    })();
-  }, [tool, selected, toolColour, id]);
+    void createRef.current(toolColourRef.current);
+  }, [tool, selected]);
+
+  const copySelection = () => {
+    const text = selectedRef.current?.text ?? "";
+    if (!text) return;
+    void navigator.clipboard?.writeText(text).then(() => showToast("Copied."), () => showToast("The text could not be copied."));
+  };
 
   function onPageClick(event: React.MouseEvent) {
     if (!document.getSelection()?.isCollapsed) return;
@@ -829,20 +878,22 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
 
   // The notes hold every highlight as a quotation. Whenever a highlight is
   // made, recoloured, moved or removed, the notes follow.
-  const shape = (data?.highlights ?? []).map((h) => `${h.id}:${h.colour}:${h.page}:${h.body}:${h.comment ?? ""}`).join("|");
+  // Comments are left out, because they are written inside their cards and
+  // typing one must never make the notes rewrite themselves.
+  const shape = reconcileShape(data?.highlights);
   useEffect(() => {
     const timer = setTimeout(() => void reconcile(id), 300);
     return () => clearTimeout(timer);
   }, [shape, id]);
 
-  // Opens the notes at the line beneath a quotation, ready to write.
+  // Opens the notes with the cursor in a quotation's comment, ready to write.
   const writeAbout = useCallback((highlightId: string) => {
     setLeft(true);
     setTab("notes");
     setActive(null);
     let tries = 0;
     const attempt = () => {
-      if (noteHandle.current?.writeUnder(highlightId)) return;
+      if (noteHandle.current?.focusComment(highlightId)) return;
       if ((tries += 1) < 20) setTimeout(attempt, 150);
     };
     setTimeout(attempt, 100);
@@ -883,7 +934,6 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   // The reading as a row would show it, for the actions it shares with one.
   const asView: ReadingView = { link, item, file, upload, cached: true };
   const activeHighlight = active ? highlights.find((h) => h.id === active.id) : undefined;
-  const read = item.read_status === "read";
   // Back to where the reading lives: its session for slides, else its week.
   const back = () => navigate(session ? { view: "session", id: session.id } : week ? { view: "week", id: week.id } : { view: "home" });
   // A named session by its name; otherwise "the lecture", "the seminar".
@@ -920,8 +970,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         </div>
         {!narrow && (
           <div className="group">
-            <IconButton icon="zoomOut" label="Zoom out" shortcut="-" onClick={() => changeZoom(scale / 1.15)} />
-            <IconButton icon="zoomIn" label="Zoom in" shortcut="+" onClick={() => changeZoom(scale * 1.15)} />
+            <IconButton icon="zoomOut" label="Zoom out" shortcut="-" onClick={() => changeZoom(stepZoom(scale, -1))} />
+            <IconButton icon="zoomIn" label="Zoom in" shortcut="+" onClick={() => changeZoom(stepZoom(scale, 1))} />
             <IconButton icon="fitWidth" label="Fit to width" shortcut="0" pressed={zoom === null} onClick={() => changeZoom(null)} />
             <span className="sep" />
             <IconButton icon="up" label="Previous page" shortcut="←" disabled={current === 0} onClick={() => goToPage(Math.max(0, current - 1))} />
@@ -950,10 +1000,6 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
               onClick={() => chooseLayout(layout === "text" ? "pages" : "text")} />
           )}
           <IconButton icon="search" label="Find" shortcut="Ctrl+F" pressed={finding} onClick={() => (finding ? closeFind() : openFind())} />
-          {counts(item) && (
-            <IconButton icon="check" label={read ? "Read. Mark as unread" : "Mark as read"} pressed={read} className="read-toggle"
-              onClick={() => update("items", id, { read_status: read ? "unread" : "read" })} />
-          )}
           {!narrow && (
             <IconButton icon="notes" label="Notes on this reading" pressed={left && tab === "notes"}
               onClick={() => { if (left && tab === "notes") toggleLeft(); else { setLeft(true); setTab("notes"); } }} />
@@ -1023,7 +1069,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         {left && (
           <Sidebar
             tab={tab} setTab={setTab} doc={doc} sizes={sizes} current={current} headings={headings}
-            itemId={id} highlights={highlights} noteHandle={noteHandle}
+            itemId={id} highlights={highlights} noteHandle={noteHandle} comments={comments}
             onGoPage={(p) => { goToPage(p); if (narrow) setLeft(false); }}
             onOpenHighlight={(hid) => { const h = highlights.find((x) => x.id === hid); if (h) goTo(h); }}
             onQuoteRemoved={onQuoteRemoved}
@@ -1033,6 +1079,9 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         )}
         <div
           className="scroller"
+          // The reading's fixed frame: its size comes from the layout alone,
+          // and zoom changes only the pages inside it.
+          data-zoom-frame=""
           ref={scroller}
           onScroll={onScroll}
           onClick={() => { if (barHidden) setBarHidden(false); }}
@@ -1065,7 +1114,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
             </div>
           )}
           {doc && !textReady && (layout === "pages" || (reflowed && !reflowed.usable)) && (
-            <div className="pages" ref={pages} onClick={onPageClick}>
+            <div className="pages" data-zoom-stage="" ref={pages} onClick={onPageClick}>
               {sizes.map((size, index) => (
                 <PageView
                   key={index}
@@ -1109,20 +1158,16 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           </div>
         </div>
       ) : (
-        <div
-          className="floating"
-          style={{ left: Math.max(8, Math.min(selected.x - 100, window.innerWidth - 210)), top: Math.min(selected.y + 10, window.innerHeight - 60) }}
-          onPointerDown={(e) => e.preventDefault()}
-        >
-          {COLOURS.map((c) => (
-            <button
-              key={c.value} className="swatch"
-              title={`Highlight ${colourLabel(c.value, names).toLowerCase()}`}
-              aria-label={`Highlight ${colourLabel(c.value, names).toLowerCase()}`}
-              style={{ background: c.value }} onClick={() => createHighlight(c.value)}
-            />
-          ))}
-        </div>
+        // The selection's last line ends at (x, y); the bar sits just above it.
+        <SelectionBar
+          anchor={new DOMRect(selected.x - 1, selected.y - 18, 2, 18)}
+          colours={COLOURS.map((c) => ({ value: c.value, label: colourLabel(c.value, names) }))}
+          current={toolColour}
+          onHighlight={(colour) => void createHighlight(colour)}
+          onComment={(colour) => void createHighlight(colour, true)}
+          onCopy={copySelection}
+          onDismiss={() => setSelected(null)}
+        />
       ))}
       {sheet && (
         <ReaderSheet title={sheet === "edit" ? "Edit details" : "Move this reading"} onClose={() => setSheet(null)}>

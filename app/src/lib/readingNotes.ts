@@ -1,8 +1,9 @@
 // A reading's notes hold its highlights. Each highlight sits in the notes as
 // a quotation, placed in reading order: earlier in the text means earlier in
-// the notes. Anything you write beneath a quotation stays with it, because a
-// new quotation goes in before the next later one, never between a quotation
-// and your writing.
+// the notes. A highlight's comment belongs to the highlight and is written in
+// its quotation's card, so it is never moved out of it. Anything you write
+// beneath a quotation stays with it, because a new quotation goes in before
+// the next later one, never between a quotation and your writing.
 //
 // This keeps the two in step from the data, so it works whichever device
 // made the highlight and whether or not the notes are open.
@@ -28,15 +29,10 @@ function quote(h: HighlightRow): Block {
   };
 }
 
-function paragraph(text: string): Block {
-  return { id: newId(), type: "paragraph", props: {}, content: [{ type: "text", text, styles: {} }], children: [] };
-}
-
 let running: Promise<void> | null = null;
 
 // Adds quotations for new highlights, removes those whose highlight has
-// gone, and keeps colours and text current. A comment written before notes
-// held highlights moves into the notes beneath its quotation, once.
+// gone, and keeps colours and text current. Comments stay on their highlights.
 export function reconcile(itemId: string): Promise<void> {
   // One at a time, so two quick highlights cannot both take the same place.
   const next = (running ?? Promise.resolve()).then(() => run(itemId)).catch(() => undefined);
@@ -90,18 +86,10 @@ async function run(itemId: string): Promise<void> {
       const index = at < 0 ? order.length : at;
       const before = order[index - 1]?.position ?? null;
       const after = order[index]?.position ?? null;
-      const added: NoteBlockRow[] = [];
       const content = quote(h);
-      let position = keyBetween(before, after);
-      added.push({ id: content.id, note_id: note.id, position, type: "highlight", content, highlight_id: h.id, modified_at: "", deleted: false });
-      if (h.comment?.trim()) {
-        const p = paragraph(h.comment.trim());
-        position = keyBetween(position, after);
-        added.push({ id: p.id, note_id: note.id, position, type: "paragraph", content: p, highlight_id: null, modified_at: "", deleted: false });
-        changes.push({ table: "highlights", row: { ...h, comment: null } });
-      }
-      order.splice(index, 0, ...added);
-      for (const row of added) changes.push({ table: "note_blocks", row });
+      const row: NoteBlockRow = { id: content.id, note_id: note.id, position: keyBetween(before, after), type: "highlight", content, highlight_id: h.id, modified_at: "", deleted: false };
+      order.splice(index, 0, row);
+      changes.push({ table: "note_blocks", row });
     }
   }
   if (changes.length) await commit(changes);

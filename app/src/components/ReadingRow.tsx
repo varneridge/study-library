@@ -11,7 +11,7 @@ import { fullTitle, shortTitle, titleParts, chicagoBibliography } from "../lib/t
 import { cancelUploadsForItem, mimeFor, onUploadProgress, pump, queueUpload, retryUpload, sha256, uncancelUpload, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
 import { moveToTray, moveToWeek, nudge, placeInWeek } from "../lib/moves";
-import { counts, citable } from "../lib/progress";
+import { citable } from "../lib/progress";
 import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/kinds";
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
@@ -83,25 +83,10 @@ function Progress({ view }: { view: ReadingView }) {
     async () => (await db.highlights.where("item_id").equals(item.id).toArray()).filter((h) => !h.deleted).length,
     [item.id], 0,
   );
-  const page = item.read_status !== "read" && item.last_page ? `p. ${item.last_page + 1}${file?.page_count ? ` of ${file.page_count}` : ""}` : null;
+  const page = item.last_page ? `p. ${item.last_page + 1}${file?.page_count ? ` of ${file.page_count}` : ""}` : null;
   const marks = highlights ? `${highlights} ${highlights === 1 ? "highlight" : "highlights"}` : null;
   if (!page && !marks) return null;
   return <span className="state progress">{[page, marks].filter(Boolean).join(", ")}</span>;
-}
-
-export function ReadMark({ view }: { view: ReadingView }) {
-  if (!counts(view.item)) return null;
-  const read = view.item.read_status === "read";
-  return (
-    <button
-      className={`mark${read ? " read" : ""}`}
-      role="checkbox"
-      aria-checked={read}
-      title={read ? "Read. Click to mark as unread" : "Not read yet. Click to mark as read"}
-      aria-label={read ? "Mark as unread" : "Mark as read"}
-      onClick={() => update("items", view.item.id, { read_status: read ? "unread" : "read" })}
-    />
-  );
 }
 
 export async function copyReference(item: ItemRow): Promise<void> {
@@ -509,7 +494,6 @@ export function ReadingRow({
     >
       {drag && <span className="handle" aria-hidden="true"><Icon name="grip" size={16} /></span>}
       {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
-      <ReadMark view={view} />
       {!tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       <ReadingTitle view={view} short={short} />
       {/* What the reading's state is. In rows these sit inline, as before; in
@@ -541,9 +525,6 @@ export function ReadingRow({
             { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link },
             { label: "Move to another week or module", onSelect: () => setMoving(true) },
             { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
-            { label: view.item.read_status === "read" ? "Mark as unread" : "Mark as read",
-              onSelect: () => void update("items", view.item.id, { read_status: view.item.read_status === "read" ? "unread" : "read" }),
-              hidden: !counts(view.item) },
             { label: "Download file", onSelect: () => void download(view), hidden: !view.file },
             { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(view.upload) },
             { label: deleteLabel(view.item.kind), onSelect: () => void deleteReading(view), danger: true },

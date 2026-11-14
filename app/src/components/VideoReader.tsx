@@ -8,7 +8,7 @@ import { loadReader, placesOf } from "../lib/library";
 
 type ReaderData = NonNullable<Awaited<ReturnType<typeof loadReader>>>;
 import { READING_ACCEPT } from "../lib/photos";
-import { citable, counts } from "../lib/progress";
+import { citable } from "../lib/progress";
 import { navigate } from "../lib/router";
 import { update } from "../lib/sync";
 import { fullTitle, shortTitle } from "../lib/titles";
@@ -342,8 +342,6 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
       setMediaError(false);
     }
   }, [videoSrc]);
-  const read = item.read_status === "read";
-
   return (
     <div className="reader video-reader">
       <header className="reader-bar">
@@ -357,15 +355,6 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
           </h1>
         </div>
         <div className="group end">
-          {counts(item) && (
-            <IconButton
-              icon="check"
-              label={read ? "Mark as unread" : "Mark as read"}
-              pressed={read}
-              className="read-toggle"
-              onClick={() => { void update("items", item.id, { read_status: read ? "unread" : "read" }); }}
-            />
-          )}
           <IconButton
             icon="search"
             label="Find in transcript"
