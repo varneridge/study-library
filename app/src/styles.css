@@ -1902,10 +1902,23 @@ img, canvas, video { max-width: 100%; }
 @media (max-width: 34rem) { .week-sessions { margin-left: 0.4rem; gap: 0.45rem; } }
 
 /* Slides: the arrows sit on the slide, faint, and fade out when idle. */
-.slides-head { display: flex; align-items: center; justify-content: space-between; min-height: 2rem; margin-bottom: 0.35rem; }
-.slides-head select { width: auto; min-height: 1.8rem; font-size: var(--fs-sm); }
-.slide-enlarge { color: var(--muted); padding: 0.2rem; border-radius: var(--r-xs); }
-.slide-enlarge:hover, .slide-enlarge:focus-visible { color: var(--accent); background: var(--surface); }
+/* One line above the slide: the deck's row with its menu, the choice of deck
+   when there are several, and Enlarge, so the deck is named once. */
+.slides-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2rem; margin-bottom: 0.35rem; }
+.slides-head .slides-row { flex: 1; min-width: 0; margin: 0; }
+.slides-head .slides-row > .reading { align-items: center; padding: 0; min-width: 0; }
+.slides-head .reading .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The slide itself sits just below, so its row needs no thumbnail. */
+.slides-head .reading-cover { display: none; }
+/* With several decks the choice of deck names the one shown. */
+.slides-head.multi .reading .name { display: none; }
+.slides-head.multi .slides-controls { flex: 1; }
+.slides-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--muted); }
+.slides-controls { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem; min-width: 0; margin-left: auto; }
+.slides-head select { width: auto; min-width: 0; max-width: 100%; min-height: 1.8rem; font-size: var(--fs-sm); }
+.slides-head.multi select { flex: 1; }
+.slide-enlarge-head { color: var(--muted); }
+.slide-enlarge-head:hover:not(:disabled) { color: var(--ink); }
 
 .slide-stage { position: relative; width: 100%; aspect-ratio: var(--slide-ar, 16 / 9); display: flex; justify-content: center; align-items: center; }
 .slide-frame { position: absolute; inset: 0; display: grid; place-items: center; max-width: 100%; }
@@ -1913,22 +1926,25 @@ img, canvas, video { max-width: 100%; }
 
 /* Slide lightbox modal */
 .slide-lightbox {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 1000;
   display: flex; flex-direction: column;
   background: rgba(18, 20, 24, 0.92); backdrop-filter: blur(8px);
 }
 .slide-lightbox-backdrop { position: absolute; inset: 0; }
 .slide-lightbox-header {
   position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between;
-  padding: 0.75rem 1.25rem; color: #FFFFFF; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 0.75rem;
+  padding: max(0.75rem, env(safe-area-inset-top, 0px)) max(1.25rem, env(safe-area-inset-right, 0px)) 0.75rem max(1.25rem, env(safe-area-inset-left, 0px));
+  color: #FFFFFF; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
-.slide-lightbox-title { font-size: var(--fs-sm); font-weight: 500; }
+.slide-lightbox-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 500; }
 .slide-lightbox-count { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.7); }
 .slide-lightbox-close { background: rgba(255, 255, 255, 0.15); color: #FFFFFF; border: 0; }
 .slide-lightbox-close:hover { background: rgba(255, 255, 255, 0.25); }
 .slide-lightbox-content {
   position: relative; z-index: 1; flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; overflow: hidden;
+  padding: 1.5rem max(1.5rem, env(safe-area-inset-right, 0px)) max(1.5rem, env(safe-area-inset-bottom, 0px)) max(1.5rem, env(safe-area-inset-left, 0px));
+  overflow: hidden;
 }
 .slide-lightbox-content canvas { max-width: 95vw; max-height: 85vh; object-fit: contain; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
 .slide-lightbox .slide-arrow { opacity: 0.85; width: 2.75rem; height: 3.5rem; }
@@ -4224,6 +4240,48 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   font-weight: 600;
   color: var(--ink);
 }
+
+/* The card opens from its employer, whose link is stretched over the whole
+   card, so a tap anywhere opens it while the controls inside it stay links
+   and buttons of their own, raised above that stretched link. */
+.app-card { position: relative; }
+.app-card-link { color: inherit; text-decoration: none; }
+.app-card-link::after { content: ""; position: absolute; inset: 0; z-index: 0; border-radius: inherit; }
+.app-card-link:focus-visible { outline: none; }
+.app-card:has(.app-card-link:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app-card .card-action, .app-card .app-meta-link { position: relative; z-index: 1; }
+.app-card:has(.app-meta-link:active) { scale: none; }
+.app-card-deadline .deadline-text { flex: 1; min-width: 0; }
+.app-meta-link { display: inline-flex; align-items: center; gap: 0.25rem; max-width: 12rem; color: var(--accent); text-decoration: none; }
+.app-meta-link:focus-visible { text-decoration: underline; }
+@media (hover: hover) {
+  .app-meta-link:hover { text-decoration: underline; }
+}
+.app-meta-link-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Checked moves the next check a week on, beside the date wherever it shows. */
+.checked-button { display: inline-flex; align-items: center; gap: 0.25rem; flex: none; color: var(--accent); font-weight: 500; }
+.checked-button:disabled { opacity: 0.5; }
+.app-card-deadline .checked-button { margin-left: auto; min-height: 1.75rem; padding: 0.15rem 0.5rem; color: inherit; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 999px; font-size: var(--fs-xs); }
+@media (hover: hover) {
+  .app-card-deadline .checked-button:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+}
+.deadline .checked-button { margin-top: 0.15rem; padding-left: 0; }
+.next-check-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.next-check-row > :first-child { flex: 1; min-width: 0; }
+@media (pointer: coarse), (max-width: 48rem) {
+  .app-card-deadline .checked-button { min-height: 2.75rem; padding-inline: 0.75rem; }
+  .app-card-link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+  .app-meta-link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+}
+
+/* The shortlist's four statuses, chosen in the form as in the status card. */
+.status-choice { margin-top: 0.15rem; }
+.field-hint { display: block; margin-top: 0.3rem; }
+.status-card-hint { margin: 0.25rem 0 0; }
+.field-with-action { display: flex; align-items: center; gap: 0.25rem; }
+.field-with-action input { flex: 1; min-width: 0; }
+.app-sheet-link { word-break: break-all; }
 
 /* Word Processor */
 .wp {

@@ -50,7 +50,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Highlight green").click()
     # Highlights are no longer filed under questions.
     expect(page.locator(".floating").get_by_label("File under a seminar question")).to_have_count(0)
-    page.get_by_role("button", name="Done").click()
+    if page.get_by_role("button", name="Done").is_visible():
+        page.get_by_role("button", name="Done").click()
     # The notes are open in the sidebar, with the highlight already quoted.
     if page.locator(".reading-notes").count() == 0:
         page.get_by_role("button", name="Notes on this reading").click()

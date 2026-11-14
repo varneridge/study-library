@@ -1,6 +1,7 @@
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { fileBlob } from "../lib/files";
 import type { ReadingView } from "../lib/library";
 import { shortTitle } from "../lib/titles";
@@ -115,8 +116,8 @@ function SlideLightbox({
       <div className="slide-lightbox-header">
         <span className="slide-lightbox-title">{title}</span>
         <span className="slide-lightbox-count">{page + 1} / {doc.numPages}</span>
-        <button type="button" className="button small slide-lightbox-close" onClick={onClose} aria-label="Close enlarged slides">
-          Close
+        <button type="button" className="button small slide-lightbox-close" onClick={onClose} aria-label="Minimise enlarged slides">
+          Minimise
         </button>
       </div>
       <div ref={containerRef} className="slide-lightbox-content">
@@ -151,7 +152,24 @@ function SlideLightbox({
 }
 
 // One slide at a time. Turning a slide during a recording stores a mark.
-export function SlideViewer({ decks }: { decks: ReadingView[] }) {
+//
+// The deck's name, its menu, the choice of deck and Enlarge share one line
+// above the slide. A page that lists readings with their own row (and menu)
+// passes renderHeader, and is handed the deck being shown and the controls to
+// place in that row, so the deck appears once rather than as a list entry
+// above a second title. Without it the line shows the deck's short title.
+export function SlideViewer({
+  decks,
+  heading,
+  className,
+  renderHeader,
+}: {
+  decks: ReadingView[];
+  // A heading for screen readers and for the section's name, such as "Slides".
+  heading?: string;
+  className?: string;
+  renderHeader?: (view: ReadingView, controls: React.ReactNode) => React.ReactNode;
+}) {
   const [deck, setDeck] = useState(0);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(0);
@@ -321,29 +339,43 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
   // A swipe across the slide turns it, on a touch screen.
   const swipe = useRef<number | null>(null);
 
-  return (
-    <div className="slides">
-      <div className="slides-head">
-        {decks.length > 1 ? (
-          <select value={deck} onChange={(e) => setDeck(Number(e.target.value))} aria-label="Slides">
-            {decks.map((d, i) => <option key={d.item.id} value={i}>{shortTitle(d.item)}</option>)}
-          </select>
-        ) : (
-          <span className="small muted">{shortTitle(view.item)}</span>
-        )}
-        {/* Always there, so the heading never grows when the slides finish
-            opening and push the slide down. */}
-        <button
-          ref={enlargeButtonRef}
-          type="button"
-          className="icon-button slide-enlarge"
-          aria-label="Enlarge slides"
-          title="Enlarge slides"
-          disabled={!doc}
-          onClick={() => setEnlarged(true)}
+  const multi = decks.length > 1;
+  const controls = (
+    <span className="slides-controls">
+      {multi && (
+        <select
+          className="slides-select"
+          value={Math.min(deck, decks.length - 1)}
+          onChange={(e) => setDeck(Number(e.target.value))}
+          aria-label="Choose slides"
         >
-          <Icon name="enlarge" size={16} />
-        </button>
+          {decks.map((d, i) => <option key={d.item.id} value={i}>{shortTitle(d.item)}</option>)}
+        </select>
+      )}
+      <button
+        ref={enlargeButtonRef}
+        type="button"
+        className="icon-button small slide-enlarge-head"
+        aria-label="Enlarge slides"
+        title="Enlarge slides"
+        disabled={!doc}
+        onClick={() => setEnlarged(true)}
+      >
+        <Icon name="enlarge" size={16} />
+      </button>
+    </span>
+  );
+
+  return (
+    <section className={`slides${className ? ` ${className}` : ""}`} aria-label={heading}>
+      {heading && <h2 className="sr-only">{heading}</h2>}
+      <div className={`slides-head${multi ? " multi" : ""}`}>
+        {renderHeader ? renderHeader(view, controls) : (
+          <>
+            {!multi && <span className="slides-title">{shortTitle(view.item)}</span>}
+            {controls}
+          </>
+        )}
       </div>
       <div
         ref={box}
@@ -396,7 +428,7 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
           </div>
         )}
       </div>
-      {enlarged && doc && (
+      {enlarged && doc && typeof document !== "undefined" && createPortal(
         <SlideLightbox
           doc={doc}
           page={page}
@@ -406,9 +438,10 @@ export function SlideViewer({ decks }: { decks: ReadingView[] }) {
             setEnlarged(false);
             requestAnimationFrame(() => enlargeButtonRef.current?.focus());
           }}
-        />
+        />,
+        document.body,
       )}
-    </div>
+    </section>
   );
 
 }

@@ -1,6 +1,8 @@
 // Read-first prospect sheet for the graduate shortlist. Shows employer,
-// programme, status chip, next check date, last year open, salary, link and
-// notes, with actions to edit, promote to an active application, or delete.
+// programme, status chip, next check date with its Checked button, last year
+// open, salary, link and notes, with actions to edit, promote to an active
+// application, or delete. Choosing Applied on the status chip promotes the
+// prospect as well, since every status change goes through saveProspect.
 
 import { Sheet } from "../Sheet";
 import {

@@ -226,15 +226,19 @@ export function registerJobLogicTests(test: (name: string, fn: () => void) => vo
     assert.deepEqual(computeApplicationPatch(initial, updated), { salary: "£42,000" });
   });
 
-  test("prospect statuses cover all 11 Excel choices and map cleanly to application stages", () => {
-    assert.equal(PROSPECT_STATUSES.length, 11);
+  test("prospect statuses provide the 4 streamlined options and map legacy choices cleanly", () => {
+    assert.equal(PROSPECT_STATUSES.length, 4);
+    assert.deepEqual(PROSPECT_STATUSES.map((s) => s.key), ["not_open", "open", "applying", "applied"]);
     const groupKeys = PROSPECT_STATUS_GROUPS.flatMap((g) => g.keys);
     assert.deepEqual([...groupKeys].sort(), PROSPECT_STATUSES.map((s) => s.key).sort());
-    assert.equal(prospectStatusOf("not_started").label, "Not started");
+    assert.equal(prospectStatusOf("not_open").label, "Not open");
+    assert.equal(prospectStatusOf("not_started").label, "Not open");
     assert.equal(prospectStatusOf("not_applying").cat, "closed");
+    assert.equal(stageForProspectStatus("not_open").stage, "to_apply");
     assert.equal(stageForProspectStatus("not_started").stage, "to_apply");
     assert.equal(stageForProspectStatus("not_started").applied, null);
     assert.equal(stageForProspectStatus("submitted").stage, "applied");
+    assert.equal(stageForProspectStatus("applied").stage, "applied");
     assert.equal(stageForProspectStatus("online_tests").stage, "oa_todo");
     assert.equal(stageForProspectStatus("interview").stage, "interview_todo");
     assert.equal(stageForProspectStatus("assessment_centre").stage, "ac_todo");

@@ -483,9 +483,9 @@ with sync_playwright() as p:
     prow("shortlist-03").locator(".c-status .stage-chip").click()
     status_card = page.locator("dialog.status-card[open]")
     expect(status_card).to_be_visible()
-    status_card.get_by_role("button", name="Drafting", exact=True).click()
+    status_card.get_by_role("button", name="Applying", exact=True).click()
     expect(status_card).to_have_count(0)
-    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.prospects || []).some(p => p.id === 'shortlist-03' && p.status === 'drafting'); }")
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.prospects || []).some(p => p.id === 'shortlist-03' && p.status === 'applying'); }")
 
     # Open prospect sheet, promote to application, and Undo.
     prow("shortlist-03").get_by_role("button", name="Open card for Ofcom").click()
@@ -531,7 +531,7 @@ with sync_playwright() as p:
     # Castore is overdue, so it comes first.
     expect(phone.locator(".app-card").first).to_contain_text("Castore")
     phone.screenshot(path=f"{shots}-4-phone.png", full_page=True)
-    phone.locator(".app-card[href*='app=castore']").tap()
+    phone.locator(".app-card a[href*='app=castore']").tap()
     app_sheet = phone.locator("dialog.app-sheet[open]")
     expect(app_sheet).to_be_visible()
     assert phone.url.endswith("app=castore")
@@ -573,7 +573,7 @@ with sync_playwright() as p:
 
     # Edit application sheet flow (including Salary):
     expect(phone.locator(".app-card[data-employer='PwC']")).to_contain_text("£37,500")
-    phone.locator(".app-card[href*='app=castore']").tap()
+    phone.locator(".app-card a[href*='app=castore']").tap()
     expect(app_sheet).to_be_visible()
     app_sheet.get_by_role("button", name="Edit details").tap()
     edit_sheet = phone.locator("dialog.edit-app-sheet[open]")

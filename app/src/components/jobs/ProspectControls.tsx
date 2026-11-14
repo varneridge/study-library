@@ -1,17 +1,18 @@
-// Controls for the graduate shortlist: next check date, status choice card,
-// order choice card, and link cell.
+// Controls for the graduate shortlist: next check date with its Checked
+// button, status choice card, order choice card, and link cell.
 
 import { useEffect, useRef, useState } from "react";
 import {
   changeProspectStatus,
+  CHECK_INTERVAL_DAYS,
   checkState,
   checkWords,
   effectiveProspectStatus,
   isProspectOpen,
+  markProspectChecked,
   parseProspectLink,
   promoteProspectToApplication,
   PROSPECT_STATUS_GROUPS,
-  PROSPECT_STATUSES,
   prospectStatusOf,
   saveProspect,
   type ProspectOrder,
@@ -23,14 +24,53 @@ import { Icon } from "../icons";
 import { DateField, TextField } from "./Controls";
 import { navigate } from "../../lib/router";
 
+// Checked: the programme has been looked at, so its next check moves a week
+// on. Inside a card it stops the tap from reaching the card's link, so the
+// date changes in place and the sheet does not open.
+export function CheckedButton({
+  prospect,
+  linkedApp,
+  inCard = false,
+}: {
+  prospect: ProspectRow;
+  linkedApp?: ApplicationRow;
+  inCard?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!isProspectOpen(prospect, linkedApp)) return null;
+  const who = prospect.employer || "this programme";
+  return (
+    <button
+      type="button"
+      className={`quiet small checked-button${inCard ? " card-action" : ""}`}
+      disabled={busy}
+      title={`Checked: next check in ${CHECK_INTERVAL_DAYS} days`}
+      aria-label={`Checked ${who}: move the next check ${CHECK_INTERVAL_DAYS} days on`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (busy) return;
+        setBusy(true);
+        void markProspectChecked(prospect).finally(() => setBusy(false));
+      }}
+    >
+      <Icon name="check" size={14} />
+      <span>Checked</span>
+    </button>
+  );
+}
+
 export function NextCheck({
   prospect,
   linkedApp,
   editable = true,
+  checked = true,
 }: {
   prospect: ProspectRow;
   linkedApp?: ApplicationRow;
   editable?: boolean;
+  // Whether to offer the Checked button beside the date.
+  checked?: boolean;
 }) {
   if (!isProspectOpen(prospect, linkedApp)) {
     return (
@@ -61,6 +101,7 @@ export function NextCheck({
         </span>
       )}
       {words && <span className="deadline-words">{words}</span>}
+      {editable && checked && <CheckedButton prospect={prospect} linkedApp={linkedApp} />}
     </span>
   );
 }
@@ -81,7 +122,10 @@ export function ProspectStatusCard({
   onPick: (key: string) => void;
 }) {
   const heading = `Status for ${prospect.employer || "this programme"}`;
-  const current = prospect.status;
+  // Older rows may hold an earlier key, so the tile shown as chosen is the
+  // one that key now reads as.
+  const current = prospectStatusOf(prospect.status).key;
+  const isLinked = Boolean(linkedApp && !linkedApp.deleted);
   const chosen = useRef(false);
   useEffect(() => {
     if (open) chosen.current = false;
@@ -93,7 +137,7 @@ export function ProspectStatusCard({
     onPick(key);
   };
 
-  const canPromote = (!linkedApp || linkedApp.deleted) && prospectStatusOf(current).cat !== "closed";
+  const canPromote = !isLinked && prospectStatusOf(current).cat !== "closed";
 
   return (
     <ChoiceCard
@@ -107,7 +151,7 @@ export function ProspectStatusCard({
         <>
           <h2 className="choice-title">{heading}</h2>
           <p className="choice-now">
-            {linkedApp && !linkedApp.deleted
+            {isLinked
               ? `In applications: ${effectiveProspectStatus(prospect, linkedApp).label}`
               : `Now: ${prospectStatusOf(current).label}`}
           </p>
@@ -121,7 +165,7 @@ export function ProspectStatusCard({
             <div className="stage-tiles">
               {group.keys.map((key) => {
                 const st = prospectStatusOf(key);
-                const on = key === current && (!linkedApp || linkedApp.deleted);
+                const on = key === current && !isLinked;
                 return (
                   <button
                     key={key}
@@ -139,8 +183,11 @@ export function ProspectStatusCard({
             </div>
           </div>
         ))}
+        {!isLinked && (
+          <p className="small muted status-card-hint">Choosing Applied adds it to applications, with its details carried across.</p>
+        )}
       </div>
-      {linkedApp && !linkedApp.deleted ? (
+      {isLinked && linkedApp ? (
         <div className="status-card-promote">
           <button
             type="button"
@@ -219,7 +266,7 @@ export function ProspectStatusButton({
         linkedApp={linkedApp}
         onPick={(key) => {
           setOpen(false);
-          if (key !== prospect.status) void changeProspectStatus(prospect, key);
+          if (key !== prospectStatusOf(prospect.status).key) void changeProspectStatus(prospect, key);
         }}
       />
     </>

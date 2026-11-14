@@ -1,5 +1,6 @@
 // Read-first application sheet. Shows employer, role, stage chip (which opens
-// StageCard with mis-tap rules), next deadline, file marks, notes and timeline.
+// StageCard with mis-tap rules), next deadline, salary, the job link, file
+// marks, notes and timeline.
 // Actions to edit details, add a timeline entry, and delete the application sit at the foot.
 
 import React, { useEffect, useRef, useState } from "react";
@@ -19,6 +20,26 @@ import { Deadline, SlotRow, StageButton, Timeline } from "./Controls";
 import { href, navigate } from "../../lib/router";
 import { notesQueue, type SaveStatus } from "../../lib/notesQueue";
 import { useLayer } from "../../lib/layers";
+import { parseJobLink } from "../../lib/prospects";
+import { Icon } from "../icons";
+import { applicationLink } from "./AppRow";
+
+// The job link as written: a web address opens in a new tab, a "Search: ..."
+// line opens the search, and anything else is shown as text.
+function JobLink({ link }: { link: string | null }) {
+  const parsed = parseJobLink(link);
+  if (parsed.kind === "url" || parsed.kind === "search") {
+    return (
+      <a href={parsed.href} target="_blank" rel="noopener" className="prospect-sheet-link app-sheet-link">
+        {parsed.kind === "search" && <Icon name="search" size={15} />}
+        <span>{parsed.kind === "url" ? parsed.raw : parsed.label}</span>
+        {parsed.kind === "url" && <Icon name="external" size={15} />}
+      </a>
+    );
+  }
+  if (parsed.kind === "text") return <span className="app-sheet-val">{parsed.label}</span>;
+  return <span className="app-sheet-val muted">Not recorded</span>;
+}
 
 function JobNotesEditor({
   app,
@@ -265,12 +286,14 @@ export function AppSheet({
               <span className="field-label">Next deadline</span>
               <Deadline app={app} />
             </div>
-            {app.salary && (
-              <div className="app-sheet-field">
-                <span className="field-label">Salary</span>
-                <span className="app-sheet-val">{app.salary}</span>
-              </div>
-            )}
+            <div className="app-sheet-field">
+              <span className="field-label">Salary</span>
+              <span className={`app-sheet-val${app.salary ? "" : " muted"}`}>{app.salary || "Not recorded"}</span>
+            </div>
+            <div className="app-sheet-field">
+              <span className="field-label">Link</span>
+              <JobLink link={applicationLink(app)} />
+            </div>
           </section>
 
           <div className="app-sheet-section app-sheet-files">

@@ -4,10 +4,12 @@
 
 import { db } from "./db";
 import { daysUntil, formatDate, isOpen as isAppOpen, normaliseUrl, stageOf, todayIso, type DeadlineState } from "./jobs";
-import { commit, newId, update, type Change } from "./sync";
+import { commit, newId, update } from "./sync";
 import type { ApplicationRow, FileSlot, ProspectRow } from "./types";
 import { showToast } from "./ui";
 import type { Category } from "./jobs";
+
+export type ProspectStatusKey = "not_open" | "open" | "applying" | "applied";
 
 export interface ProspectStatus {
   key: string;
@@ -15,33 +17,56 @@ export interface ProspectStatus {
   cat: Category;
 }
 
+// The four statuses a prospect can be given. Applied is the last of them,
+// because choosing it moves the prospect into applications.
 export const PROSPECT_STATUSES: ProspectStatus[] = [
-  { key: "not_started", label: "Not started", cat: "todo" },
-  { key: "researching", label: "Researching", cat: "todo" },
-  { key: "drafting", label: "Drafting", cat: "todo" },
-  { key: "submitted", label: "Submitted", cat: "waiting" },
-  { key: "online_tests", label: "Online tests", cat: "waiting" },
-  { key: "interview", label: "Interview", cat: "waiting" },
-  { key: "assessment_centre", label: "Assessment centre", cat: "waiting" },
-  { key: "offer", label: "Offer", cat: "offer" },
-  { key: "rejected", label: "Rejected", cat: "closed" },
-  { key: "withdrawn", label: "Withdrawn", cat: "closed" },
-  { key: "not_applying", label: "Not applying", cat: "closed" },
+  { key: "not_open", label: "Not open", cat: "todo" },
+  { key: "open", label: "Open", cat: "todo" },
+  { key: "applying", label: "Applying", cat: "waiting" },
+  { key: "applied", label: "Applied", cat: "waiting" },
 ];
 
-export const PROSPECT_STATUS_GROUPS: { label: string; keys: string[] }[] = [
-  { label: "Preparing", keys: ["not_started", "researching", "drafting"] },
-  { label: "In progress", keys: ["submitted", "online_tests", "interview", "assessment_centre"] },
-  { label: "Offer", keys: ["offer"] },
-  { label: "Closed", keys: ["rejected", "withdrawn", "not_applying"] },
+export const PROSPECT_STATUS_GROUPS: { label: string; keys: ProspectStatusKey[] }[] = [
+  { label: "Your status", keys: ["not_open", "open", "applying", "applied"] },
 ];
+
+// Keys and labels used before the shortlist was reduced to four statuses,
+// so that rows written then still read as one of the four.
+const STATUS_ALIASES: Record<string, ProspectStatusKey> = {
+  not_started: "not_open",
+  not_open: "not_open",
+  researching: "not_open",
+  open: "open",
+  opened: "open",
+  drafting: "applying",
+  applying: "applying",
+  submitted: "applied",
+  applied: "applied",
+  online_tests: "applied",
+  interview: "applied",
+  assessment_centre: "applied",
+  offer: "applied",
+};
+
+// Earlier closing statuses are no longer offered, but a row that holds one
+// still reads as closed, so it drops out of counts and the due list.
+const LEGACY_CLOSED: Record<string, string> = {
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+  not_applying: "Not applying",
+};
+
+function normaliseStatusKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
 
 export function prospectStatusOf(key: string | null | undefined): ProspectStatus {
-  if (!key) return PROSPECT_STATUSES[0];
-  const byKey = PROSPECT_STATUSES.find((s) => s.key === key);
-  if (byKey) return byKey;
-  const byLabel = PROSPECT_STATUSES.find((s) => s.label.toLowerCase() === key.trim().toLowerCase());
-  if (byLabel) return byLabel;
+  if (!key || !key.trim()) return PROSPECT_STATUSES[0];
+  const norm = normaliseStatusKey(key);
+  const alias = STATUS_ALIASES[norm];
+  if (alias) return PROSPECT_STATUSES.find((s) => s.key === alias) ?? PROSPECT_STATUSES[0];
+  const closed = LEGACY_CLOSED[norm];
+  if (closed) return { key: norm, label: closed, cat: "closed" };
   return { key, label: key, cat: "todo" };
 }
 
@@ -88,6 +113,43 @@ export function checkWords(
   return `in ${days} days`;
 }
 
+// Checking a programme pushes its next check a week on. A date of today or
+// later moves on from itself, so checking early keeps the weekly rhythm,
+// whereas a date already passed, or none at all, starts again from today.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function localIso(now: Date): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+export const CHECK_INTERVAL_DAYS = 7;
+
+export function checkedNextCheck(current: string | null | undefined, now = new Date()): string {
+  if (current && ISO_DATE.test(current) && daysUntil(current, now) >= 0) {
+    return addDaysIso(current, CHECK_INTERVAL_DAYS);
+  }
+  return addDaysIso(localIso(now), CHECK_INTERVAL_DAYS);
+}
+
+export async function markProspectChecked(prospect: Pick<ProspectRow, "id" | "next_check">): Promise<string> {
+  const previous = prospect.next_check ?? null;
+  const next = checkedNextCheck(previous);
+  await update("prospects", prospect.id, { next_check: next });
+  showToast(`Next check moved to ${formatDate(next)}.`, {
+    label: "Undo",
+    run: () => void update("prospects", prospect.id, { next_check: previous }),
+  });
+  return next;
+}
+
 export type ParsedLink =
   | { kind: "none"; raw: string }
   | { kind: "url"; raw: string; href: string; label: string }
@@ -129,11 +191,19 @@ export function parseProspectLink(link: string | null | undefined): ParsedLink {
   return { kind: "text", raw, label: raw };
 }
 
+// Applications store their links in the same forms as the shortlist does.
+export const parseJobLink = parseProspectLink;
+
 export type ProspectOrder = "next_check" | "employer" | "status";
 
-const STATUS_RANK: Record<string, number> = Object.fromEntries(
-  PROSPECT_STATUSES.map((s, idx) => [s.key, idx]),
-);
+const STATUS_ORDER: string[] = PROSPECT_STATUSES.map((s) => s.key);
+
+function statusRank(raw: string): number {
+  const status = prospectStatusOf(raw);
+  const idx = STATUS_ORDER.indexOf(status.key);
+  if (idx >= 0) return idx;
+  return status.cat === "closed" ? STATUS_ORDER.length : STATUS_ORDER.length + 1;
+}
 
 export function sortProspects(
   prospects: ProspectRow[],
@@ -150,9 +220,11 @@ export function sortProspects(
 
   if (order === "status") {
     return [...prospects].sort((a, b) => {
-      const rankA = STATUS_RANK[a.status] ?? 99;
-      const rankB = STATUS_RANK[b.status] ?? 99;
-      return rankA - rankB || (a.next_check ?? "9999").localeCompare(b.next_check ?? "9999") || byEmployer(a, b);
+      return (
+        statusRank(a.status) - statusRank(b.status) ||
+        (a.next_check ?? "9999").localeCompare(b.next_check ?? "9999") ||
+        byEmployer(a, b)
+      );
     });
   }
 
@@ -226,10 +298,139 @@ export function matchesProspect(
   ].some((field) => field.toLowerCase().includes(q));
 }
 
+// Promotion. A prospect becomes an application once, and stays linked to it.
+// A link to an application that has since been deleted counts as no link, so
+// the prospect can be promoted again rather than being stuck.
+
+async function hasLiveApplication(appId: string | null | undefined): Promise<boolean> {
+  if (!appId) return false;
+  const app = await db.applications.get(appId);
+  return Boolean(app && !app.deleted);
+}
+
+export function isAppliedStatus(key: string | null | undefined): boolean {
+  return Boolean(key) && prospectStatusOf(key).key === "applied";
+}
+
+export function stageForProspectStatus(statusKey: string): { stage: string; applied: string | null } {
+  // The finer stages of older rows are kept, so promoting one of them loses
+  // nothing that its status said.
+  switch (normaliseStatusKey(statusKey || "")) {
+    case "online_tests":
+      return { stage: "oa_todo", applied: todayIso() };
+    case "interview":
+      return { stage: "interview_todo", applied: todayIso() };
+    case "assessment_centre":
+      return { stage: "ac_todo", applied: todayIso() };
+    case "offer":
+      return { stage: "offer", applied: todayIso() };
+    case "rejected":
+      return { stage: "rejected", applied: todayIso() };
+    case "withdrawn":
+    case "not_applying":
+      return { stage: "withdrawn", applied: null };
+    default:
+      break;
+  }
+  switch (prospectStatusOf(statusKey).key) {
+    case "not_open":
+    case "open":
+    case "applying":
+      return { stage: "to_apply", applied: null };
+    case "applied":
+    default:
+      return { stage: "applied", applied: todayIso() };
+  }
+}
+
+interface PromoteOptions {
+  stage: string;
+  applied: string | null;
+  // Changes to the prospect written in the same step, such as its status.
+  prospectPatch?: Partial<ProspectRow>;
+  // What Undo puts back on the prospect besides removing the link.
+  undoPatch?: Partial<ProspectRow>;
+}
+
+// Every field the application has a place for is carried across: employer,
+// programme as role, salary, the link as written (and, when it is a web
+// address, as the role description's link too), and the notes.
+async function promoteRow(current: ProspectRow, opts: PromoteOptions): Promise<string> {
+  const merged: ProspectRow = { ...current, ...opts.prospectPatch };
+  const appId = newId();
+  const eventId = newId();
+  const parsedLink = parseProspectLink(merged.link);
+  const fileRd: FileSlot | null = parsedLink.kind === "url" ? { state: "saved", url: parsedLink.href } : null;
+
+  await commit([
+    {
+      table: "applications",
+      row: {
+        id: appId,
+        employer: merged.employer,
+        role: merged.programme,
+        salary: merged.salary ?? null,
+        link: merged.link?.trim() || null,
+        applied: opts.applied,
+        stage: opts.stage,
+        next_deadline: null,
+        notes: merged.notes ?? null,
+        file_cv: null,
+        file_cl: null,
+        file_rd: fileRd,
+        file_qs: null,
+      },
+    },
+    {
+      table: "application_events",
+      row: {
+        id: eventId,
+        application_id: appId,
+        stage: opts.stage,
+        from_stage: null,
+        at: new Date().toISOString(),
+        kind: "change" as const,
+        cleared_deadline: null,
+      },
+    },
+    {
+      table: "prospects",
+      row: {
+        ...opts.prospectPatch,
+        id: current.id,
+        application_id: appId,
+      },
+      patch: true,
+    },
+  ]);
+
+  showToast(`${merged.employer || "Programme"} added to applications.`, {
+    label: "Undo",
+    run: () => {
+      void commit([
+        { table: "applications", row: { id: appId, employer: "", role: "", salary: null, link: null, notes: null, deleted: true }, patch: true },
+        { table: "application_events", row: { id: eventId, deleted: true }, patch: true },
+        { table: "prospects", row: { ...opts.undoPatch, id: current.id, application_id: null }, patch: true },
+      ]);
+    },
+  });
+
+  return appId;
+}
+
+export async function promoteProspectToApplication(prospect: ProspectRow): Promise<string | null> {
+  const current = await db.prospects.get(prospect.id);
+  if (!current || current.deleted) return null;
+  if (await hasLiveApplication(current.application_id)) return current.application_id;
+  const { stage, applied } = stageForProspectStatus(current.status);
+  return promoteRow(current, { stage, applied });
+}
+
 // Editing
 
 export async function addProspect(initial?: Partial<ProspectRow>): Promise<string> {
   const id = newId();
+  const status = initial?.status ?? "not_open";
   await commit([
     {
       table: "prospects",
@@ -241,17 +442,40 @@ export async function addProspect(initial?: Partial<ProspectRow>): Promise<strin
         link: initial?.link ?? null,
         last_year_open: initial?.last_year_open ?? null,
         next_check: initial?.next_check ?? null,
-        status: initial?.status ?? "not_started",
+        status,
         notes: initial?.notes ?? null,
         application_id: initial?.application_id ?? null,
       },
     },
   ]);
+  // A programme added as already applied goes straight into applications.
+  if (isAppliedStatus(status) && !(await hasLiveApplication(initial?.application_id))) {
+    const row = await db.prospects.get(id);
+    if (row && !row.deleted) {
+      await promoteRow(row, { stage: "applied", applied: todayIso(), undoPatch: { status: "applying" } });
+    }
+  }
   return id;
 }
 
-export const saveProspect = (id: string, changes: Partial<ProspectRow>) =>
-  update("prospects", id, changes);
+// Every save goes through here, so setting Applied from any screen (the
+// status card, the sheet, the form or a table cell) promotes the prospect
+// in the same step as the status is written.
+export async function saveProspect(id: string, changes: Partial<ProspectRow>): Promise<void> {
+  if (changes.status !== undefined && isAppliedStatus(changes.status)) {
+    const current = await db.prospects.get(id);
+    if (current && !current.deleted && !(await hasLiveApplication(current.application_id))) {
+      await promoteRow(current, {
+        stage: "applied",
+        applied: todayIso(),
+        prospectPatch: changes,
+        undoPatch: { status: current.status },
+      });
+      return;
+    }
+  }
+  await update("prospects", id, changes);
+}
 
 export async function discardProspectIfBlank(id: string): Promise<boolean> {
   const p = await db.prospects.get(id);
@@ -303,97 +527,14 @@ export async function restoreProspect(id: string): Promise<void> {
   await update("prospects", id, { deleted: false });
 }
 
-export function stageForProspectStatus(statusKey: string): { stage: string; applied: string | null } {
-  switch (statusKey) {
-    case "not_started":
-    case "researching":
-    case "drafting":
-      return { stage: "to_apply", applied: null };
-    case "online_tests":
-      return { stage: "oa_todo", applied: todayIso() };
-    case "interview":
-      return { stage: "interview_todo", applied: todayIso() };
-    case "assessment_centre":
-      return { stage: "ac_todo", applied: todayIso() };
-    case "offer":
-      return { stage: "offer", applied: todayIso() };
-    case "rejected":
-      return { stage: "rejected", applied: todayIso() };
-    case "withdrawn":
-    case "not_applying":
-      return { stage: "withdrawn", applied: null };
-    case "submitted":
-    default:
-      return { stage: "applied", applied: todayIso() };
-  }
-}
-
-export async function promoteProspectToApplication(prospect: ProspectRow): Promise<string | null> {
-  const current = await db.prospects.get(prospect.id);
-  if (!current || current.deleted || current.application_id) return current?.application_id ?? null;
-  const appId = newId();
-  const eventId = newId();
-  const { stage, applied } = stageForProspectStatus(prospect.status);
-  const parsedLink = parseProspectLink(prospect.link);
-  const fileRd: FileSlot | null = parsedLink.kind === "url" ? { state: "saved", url: parsedLink.href } : null;
-
-  await commit([
-    {
-      table: "applications",
-      row: {
-        id: appId,
-        employer: prospect.employer,
-        role: prospect.programme,
-        salary: prospect.salary ?? null,
-        applied,
-        stage,
-        next_deadline: null,
-        notes: prospect.notes ?? null,
-        file_cv: null,
-        file_cl: null,
-        file_rd: fileRd,
-        file_qs: null,
-      },
-    },
-    {
-      table: "application_events",
-      row: {
-        id: eventId,
-        application_id: appId,
-        stage,
-        from_stage: null,
-        at: new Date().toISOString(),
-        kind: "change" as const,
-        cleared_deadline: null,
-      },
-    },
-    {
-      table: "prospects",
-      row: {
-        id: prospect.id,
-        application_id: appId,
-      },
-      patch: true,
-    },
-  ]);
-
-  showToast(`${prospect.employer || "Programme"} added to applications.`, {
-    label: "Undo",
-    run: () => {
-      void commit([
-        { table: "applications", row: { id: appId, employer: "", role: "", salary: null, notes: null, deleted: true }, patch: true },
-        { table: "application_events", row: { id: eventId, deleted: true }, patch: true },
-        { table: "prospects", row: { id: prospect.id, application_id: null }, patch: true },
-      ]);
-    },
-  });
-
-  return appId;
-}
-
 export async function changeProspectStatus(prospect: ProspectRow, targetStatus: string): Promise<void> {
   const previous = prospect.status;
   if (previous === targetStatus) return;
+  // Applied promotes, and the promotion's own notice offers the Undo.
+  if (isAppliedStatus(targetStatus) && !(await hasLiveApplication(prospect.application_id))) {
+    await saveProspect(prospect.id, { status: targetStatus });
+    return;
+  }
   await update("prospects", prospect.id, { status: targetStatus });
   const statusObj = prospectStatusOf(targetStatus);
   showToast(`Status changed to ${statusObj.label}.`, {
@@ -434,8 +575,7 @@ export function validateProspect(fields: {
   if (!fields.employer || !fields.employer.trim()) {
     errors.employer = "Employer is required";
   }
-  const dateIso = /^\d{4}-\d{2}-\d{2}$/;
-  if (fields.next_check && !dateIso.test(fields.next_check)) {
+  if (fields.next_check && !ISO_DATE.test(fields.next_check)) {
     errors.next_check = "Next check date must be YYYY-MM-DD";
   }
   return {

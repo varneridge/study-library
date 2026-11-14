@@ -45,7 +45,7 @@ export const TABLES = {
   // The job search. The four file slots are JSON, one column each, so an
   // edit to one slot never touches another.
   applications: spec(
-    ["employer", "role", "salary", "applied", "stage", "next_deadline", "notes", "file_cv", "file_cl", "file_rd", "file_qs"],
+    ["employer", "role", "salary", "link", "applied", "stage", "next_deadline", "notes", "file_cv", "file_cl", "file_rd", "file_qs"],
     ["file_cv", "file_cl", "file_rd", "file_qs"],
   ),
   application_events: spec(

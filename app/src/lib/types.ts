@@ -202,6 +202,8 @@ export interface ApplicationRow extends SyncedRow {
   employer: string;
   role: string;
   salary?: string | null;
+  // The posting itself: a web address, a "Search: ..." query, or plain text.
+  link?: string | null;
   applied: string | null;
   stage: string;
   next_deadline: string | null;
@@ -212,6 +214,8 @@ export interface ApplicationRow extends SyncedRow {
   file_qs: FileSlot | null;
 }
 
+// A prospect's status is one of not_open, open, applying or applied. Older
+// rows may hold an earlier key, which prospectStatusOf reads as one of these.
 export interface ProspectRow extends SyncedRow {
   employer: string;
   programme: string;

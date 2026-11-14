@@ -275,14 +275,23 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
                 <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={moduleWeeks} short />)}</ul>
               </section>
             ))}
+            {/* The slides come last, so nothing sits below them to pass under while they stay in view.
+                The deck shown has one line above it: its own row, with the reading's menu, and beside
+                that the choice of deck when there are several and Enlarge. */}
             {view.slides.length > 0 && (
-              <section className="side-readings">
-                <h2 className="group-label">Slides</h2>
-                <ul className="readings">{view.slides.map((r) => <ReadingRow key={r.item.id} view={r} weeks={moduleWeeks} short />)}</ul>
-              </section>
+              <Suspense fallback={<div className="slide-loading" aria-busy="true" />}>
+                <SlideViewer
+                  decks={view.slides}
+                  heading="Slides"
+                  className="side-readings side-slides"
+                  renderHeader={(deck, controls) => (
+                    <ul className="readings slides-row">
+                      <ReadingRow key={deck.item.id} view={deck} weeks={moduleWeeks} short extra={controls} />
+                    </ul>
+                  )}
+                />
+              </Suspense>
             )}
-            {/* The slides come last, so nothing sits below them to pass under while they stay in view. */}
-            {view.slides.length > 0 && <Suspense fallback={<div className="slide-loading" aria-busy="true" />}><SlideViewer decks={view.slides} /></Suspense>}
           </div>
         )}
       </div>

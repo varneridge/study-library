@@ -1,6 +1,7 @@
 // Shared form for creating a new application or editing an existing one.
 // Validates employer and date formats, computes delta patch to write only
-// modified fields, and detects remote conflicts on dirty fields.
+// modified fields, and detects remote conflicts on dirty fields. Salary and
+// the job link are kept on the application, as they are on the shortlist.
 
 import { useState } from "react";
 import {
@@ -12,9 +13,11 @@ import {
 } from "../../lib/jobs";
 import type { ApplicationRow } from "../../lib/types";
 import { db } from "../../lib/db";
+import { parseJobLink } from "../../lib/prospects";
 import { DatePicker } from "../DatePicker";
 import { navigate } from "../../lib/router";
 import { confirmAction } from "../../lib/ui";
+import { Icon } from "../icons";
 
 export interface ApplicationFormProps {
   mode: "new" | "edit";
@@ -32,6 +35,7 @@ export function ApplicationForm({
   const [employer, setEmployer] = useState(initialApp?.employer ?? "");
   const [role, setRole] = useState(initialApp?.role ?? "");
   const [salary, setSalary] = useState(initialApp?.salary ?? "");
+  const [link, setLink] = useState(initialApp?.link ?? "");
   const [applied, setApplied] = useState(initialApp?.applied ?? (mode === "new" ? todayIso() : ""));
   const [nextDeadline, setNextDeadline] = useState(initialApp?.next_deadline ?? "");
   const [notes, setNotes] = useState(initialApp?.notes ?? "");
@@ -42,7 +46,7 @@ export function ApplicationForm({
 
   const isDirty = () => {
     if (mode === "new") {
-      return Boolean(employer.trim() || role.trim() || salary.trim() || notes.trim() || nextDeadline || (applied && applied !== todayIso()));
+      return Boolean(employer.trim() || role.trim() || salary.trim() || link.trim() || notes.trim() || nextDeadline || (applied && applied !== todayIso()));
     }
     if (!initialApp) return false;
     const current = {
@@ -52,9 +56,19 @@ export function ApplicationForm({
       applied: applied || null,
       next_deadline: nextDeadline || null,
     };
-    const patch = computeApplicationPatch(initialApp, current);
+    const patch = withLink(computeApplicationPatch(initialApp, current), initialApp);
     return Object.keys(patch).length > 0;
   };
+
+  // The link is compared here as well as by the shared patch, so it is saved
+  // whichever fields that patch was written to look at.
+  function withLink(patch: Partial<ApplicationRow>, initial: ApplicationRow): Partial<ApplicationRow> {
+    const next = link.trim() || null;
+    if (next !== (initial.link ?? null)) return { ...patch, link: next };
+    const rest = { ...patch };
+    delete rest.link;
+    return rest;
+  }
 
   const handleSubmit = async (e?: React.FormEvent, forceOverwrite = false) => {
     if (e) e.preventDefault();
@@ -76,13 +90,14 @@ export function ApplicationForm({
       employer: employer.trim(),
       role: role.trim(),
       salary: salary.trim() || null,
+      link: link.trim() || null,
       applied: applied || null,
       next_deadline: nextDeadline || null,
       ...(mode === "new" ? { notes: notes.trim() || null } : {}),
     };
 
     if (mode === "edit" && initialApp) {
-      const patch = computeApplicationPatch(initialApp, currentValues);
+      const patch = withLink(computeApplicationPatch(initialApp, currentValues), initialApp);
       if (Object.keys(patch).length === 0) {
         onCancel();
         return;
@@ -210,6 +225,38 @@ export function ApplicationForm({
               setConfirmDiscard(false);
             }}
           />
+        </label>
+
+        <label className="field">
+          <span className="field-label">Link</span>
+          <span className="field-with-action">
+            <input
+              type="text"
+              value={link}
+              placeholder="https:// or Search: ..."
+              enterKeyHint="next"
+              onChange={(e) => {
+                setLink(e.target.value);
+                setConfirmDiscard(false);
+              }}
+            />
+            {(() => {
+              const parsed = parseJobLink(link);
+              if (parsed.kind !== "url" && parsed.kind !== "search") return null;
+              return (
+                <a
+                  className="icon-button prospect-link-go"
+                  href={parsed.href}
+                  target="_blank"
+                  rel="noopener"
+                  title={parsed.kind === "search" ? parsed.label : `Open ${parsed.label}`}
+                  aria-label={parsed.kind === "search" ? `Search for ${parsed.query}` : `Open ${parsed.label}`}
+                >
+                  <Icon name={parsed.kind === "search" ? "search" : "external"} size={15} />
+                </a>
+              );
+            })()}
+          </span>
         </label>
 
         <div className="field-pair">

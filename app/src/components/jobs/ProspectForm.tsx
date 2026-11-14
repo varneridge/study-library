@@ -1,17 +1,26 @@
 // Form for adding a new programme to the shortlist or editing an existing one.
+// Saving with the status Applied promotes the programme to applications,
+// because addProspect and saveProspect, which the caller saves through, do so.
 
 import { useState } from "react";
 import {
+  CHECK_INTERVAL_DAYS,
+  checkedNextCheck,
   computeProspectPatch,
+  PROSPECT_STATUSES,
+  prospectStatusOf,
   validateProspect,
   type ProspectValidation,
 } from "../../lib/prospects";
-import type { ProspectRow } from "../../lib/types";
+import type { ApplicationRow, ProspectRow } from "../../lib/types";
 import { DatePicker } from "../DatePicker";
+import { Icon } from "../icons";
 
 export interface ProspectFormProps {
   mode: "new" | "edit";
   initialProspect?: ProspectRow;
+  // The application this prospect was promoted to, if any.
+  linkedApp?: ApplicationRow;
   onSave: (patch: Partial<ProspectRow>) => Promise<void>;
   onCancel: () => void;
 }
@@ -19,6 +28,7 @@ export interface ProspectFormProps {
 export function ProspectForm({
   mode,
   initialProspect,
+  linkedApp,
   onSave,
   onCancel,
 }: ProspectFormProps) {
@@ -29,6 +39,12 @@ export function ProspectForm({
   const [nextCheck, setNextCheck] = useState(initialProspect?.next_check ?? "");
   const [link, setLink] = useState(initialProspect?.link ?? "");
   const [notes, setNotes] = useState(initialProspect?.notes ?? "");
+  // The status as one of the four, so an older key does not count as a change.
+  const initialStatus = prospectStatusOf(initialProspect?.status).key;
+  const [status, setStatus] = useState(initialStatus);
+  const isLinked = Boolean(
+    (linkedApp && !linkedApp.deleted) || (!linkedApp && initialProspect?.application_id),
+  );
   const [errors, setErrors] = useState<ProspectValidation["errors"]>({});
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,11 +58,19 @@ export function ProspectForm({
         lastYearOpen.trim() ||
         nextCheck ||
         link.trim() ||
-        notes.trim(),
+        notes.trim() ||
+        status !== initialStatus,
       );
     }
     if (!initialProspect) return false;
-    const current: Partial<ProspectRow> = {
+    const patch = computeProspectPatch(initialProspect, valuesNow());
+    return Object.keys(patch).length > 0;
+  };
+
+  // What the form holds now. The status is included only when it differs
+  // from the one the prospect opened with, read as one of the four.
+  function valuesNow(): Partial<ProspectRow> {
+    return {
       employer: employer.trim(),
       programme: programme.trim(),
       salary: salary.trim() || null,
@@ -54,10 +78,9 @@ export function ProspectForm({
       next_check: nextCheck || null,
       link: link.trim() || null,
       notes: notes.trim() || null,
+      ...(mode === "new" || status !== initialStatus ? { status } : {}),
     };
-    const patch = computeProspectPatch(initialProspect, current);
-    return Object.keys(patch).length > 0;
-  };
+  }
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -74,15 +97,7 @@ export function ProspectForm({
     }
     setErrors({});
 
-    const currentValues: Partial<ProspectRow> = {
-      employer: employer.trim(),
-      programme: programme.trim(),
-      salary: salary.trim() || null,
-      last_year_open: lastYearOpen.trim() || null,
-      next_check: nextCheck || null,
-      link: link.trim() || null,
-      notes: notes.trim() || null,
-    };
+    const currentValues = valuesNow();
 
     if (mode === "edit" && initialProspect) {
       const patch = computeProspectPatch(initialProspect, currentValues);
@@ -174,21 +189,65 @@ export function ProspectForm({
           />
         </label>
 
+        <div className="field">
+          <span className="field-label" id="prospect-form-status">Your status</span>
+          <div className="stage-tiles status-choice" role="group" aria-labelledby="prospect-form-status">
+            {PROSPECT_STATUSES.map((st) => (
+              <button
+                key={st.key}
+                type="button"
+                className={`stage-tile cat-${st.cat}`}
+                aria-pressed={status === st.key}
+                onClick={() => {
+                  setStatus(st.key);
+                  setConfirmDiscard(false);
+                }}
+              >
+                <span>{st.label}</span>
+                {status === st.key && <Icon name="check" size={14} />}
+              </button>
+            ))}
+          </div>
+          {status === "applied" && !isLinked && status !== initialStatus && (
+            <span className="field-hint small muted">Saving adds this programme to applications, with its details carried across.</span>
+          )}
+          {isLinked && (
+            <span className="field-hint small muted">Already in applications, where its stage is kept.</span>
+          )}
+        </div>
+
         <div className="field-pair">
           <div className="field">
             <span className="field-label">Next check</span>
-            <DatePicker
-              value={nextCheck || null}
-              label="Next check"
-              hint="Next check turns red once the date arrives."
-              clearable
-              placeholder="Add check date"
-              onChange={(d) => {
-                setNextCheck(d || "");
-                setConfirmDiscard(false);
-                if (errors.next_check) setErrors((err) => ({ ...err, next_check: undefined }));
-              }}
-            />
+            <div className="next-check-row">
+              <DatePicker
+                value={nextCheck || null}
+                label="Next check"
+                hint="Next check turns red once the date arrives."
+                clearable
+                placeholder="Add check date"
+                onChange={(d) => {
+                  setNextCheck(d || "");
+                  setConfirmDiscard(false);
+                  if (errors.next_check) setErrors((err) => ({ ...err, next_check: undefined }));
+                }}
+              />
+              {/* In the form this only fills the date in, which saves with the rest. */}
+              <button
+                type="button"
+                className="quiet small checked-button"
+                title={`Checked: next check in ${CHECK_INTERVAL_DAYS} days`}
+                aria-label={`Checked: move the next check ${CHECK_INTERVAL_DAYS} days on`}
+                onClick={() => {
+                  setNextCheck(checkedNextCheck(nextCheck || null));
+                  setConfirmDiscard(false);
+                  if (errors.next_check) setErrors((err) => ({ ...err, next_check: undefined }));
+                }}
+              >
+                <Icon name="check" size={14} />
+                <span>Checked</span>
+              </button>
+            </div>
             {errors.next_check && <span className="field-error">{errors.next_check}</span>}
           </div>
 
