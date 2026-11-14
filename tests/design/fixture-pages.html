@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en-GB" data-theme="light" class="with-tabs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pages fixture</title>
+<!-- The shared pieces the eight pages use, styled by the real stylesheet. -->
+<link rel="stylesheet" href="../../app/src/styles.css">
+</head>
+<body>
+<main class="page wide search-page" id="main">
+  <div class="section-head"><h1 id="h1">Week 3</h1><h2 id="h2">Lecture</h2></div>
+  <div class="title-edit" id="edit1"><input class="title-input" type="text" value="Week 3"><button class="quiet" type="button">Cancel</button><button class="button" type="button">Done</button></div>
+  <div class="title-edit" id="edit2"><input class="title-input level-2" type="text" value="Lecture"><button class="quiet" type="button">Cancel</button><button class="button" type="button">Done</button></div>
+  <div class="picker" id="picker" role="group" aria-label="Choose a week">
+    <div style="display: contents"><span>AT</span><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button aria-pressed="true">6</button><button>7</button><button>8</button><button>9</button><button>10</button><button>11</button></div>
+    <div style="display: contents"><span>WT</span><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>10</button><button>11</button></div>
+  </div>
+  <div class="search-filters"><div class="segmented" id="kinds" role="group" aria-label="Show">
+    <button class="tool" aria-pressed="true">All</button><button class="tool">Readings</button><button class="tool">Highlights</button><button class="tool">Notes</button><button class="tool">Recordings</button>
+  </div></div>
+  <button class="button danger" id="danger">Download everything again</button>
+  <nav class="settings-sidebar"><a class="settings-nav-item is-active" id="nav-on" href="#a">Appearance</a></nav>
+</main>
+<div class="settings-sticky-bar" id="save-bar" role="region" aria-label="Unsaved settings changes">
+  <span class="small strong">You have unsaved changes</span>
+  <button type="button" class="button primary small">Save changes</button>
+  <button type="button" class="button small">Discard</button>
+</div>
+<div class="rec-pill" id="rec" style="display: none"><span>Recording, 12:04</span></div>
+<div class="toast-region"><div class="toast" id="toast">Settings saved.</div></div>
+<nav class="tab-bar" id="tabs"><a class="tab on" href="#h">Home</a><a class="tab" href="#w">This week</a><a class="tab" href="#s">Search</a><a class="tab" href="#t">Settings</a></nav>
+</body>
+</html>

@@ -11,10 +11,12 @@ import {
 import { fullTitle, shortTitle } from "../lib/titles";
 import { useTitle } from "../lib/ui";
 import { Icon } from "./icons";
+import { ChoiceCard } from "./ChoiceCard";
+import { SearchField } from "./SearchField";
 
 type Kind = "all" | "readings" | "highlights" | "notes" | "recordings";
 const KINDS: { value: Kind; label: string }[] = [
-  { value: "all", label: "Everything" },
+  { value: "all", label: "All" },
   { value: "readings", label: "Readings" },
   { value: "highlights", label: "Highlights" },
   { value: "notes", label: "Notes" },
@@ -32,7 +34,7 @@ function remember(query: string) {
   const q = query.trim();
   if (q.length < 3) return;
   const list = [q, ...recentSearches().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 8);
-  localStorage.setItem(RECENT, JSON.stringify(list));
+  try { localStorage.setItem(RECENT, JSON.stringify(list)); } catch { /* A full or blocked store only loses the recent list. */ }
 }
 
 function Snippet({ text }: { text: string }) {
@@ -61,6 +63,9 @@ export function SearchPage({ q = "" }: { q?: string }) {
   const [remote, setRemote] = useState<RemoteResults>(EMPTY_REMOTE);
   const [offline, setOffline] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const [moduleCardOpen, setModuleCardOpen] = useState(false);
+  const moduleButton = useRef<HTMLButtonElement>(null);
   const [, refresh] = useState(0);
   const first = useRef<Route | null>(null);
   const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), [], []);
@@ -76,13 +81,15 @@ export function SearchPage({ q = "" }: { q?: string }) {
       setSearching(true);
       const [l, r] = await Promise.all([
         searchLocal(query),
-        searchRemote(query, limit).catch(() => EMPTY_REMOTE),
+        // A failed server search is said on screen, not swallowed.
+        searchRemote(query, limit).then((value: RemoteResults) => ({ value, failed: false }), () => ({ value: EMPTY_REMOTE, failed: true })),
       ]);
       if (cancelled) return;
       setLocal(l);
-      setRemote(r);
+      setRemote(r.value);
+      setRemoteFailed(r.failed && navigator.onLine && Boolean(query.trim()));
       setSearching(false);
-      if (l.titles.length + l.highlights.length + l.notes.length + r.pages.length + r.transcripts.length) remember(query);
+      if (l.titles.length + l.highlights.length + l.notes.length + r.value.pages.length + r.value.transcripts.length) remember(query);
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query, limit]);
@@ -110,22 +117,17 @@ export function SearchPage({ q = "" }: { q?: string }) {
 
   return (
     <div className="page wide search-page">
-      <h1 className="sr-only">Search</h1>
-      <div className="search-wrap">
-        <input
-          // On a touch screen the keyboard waits for a tap on the field, as in iOS's own search.
-          type="search" autoFocus={!coarse} value={query} placeholder="Search readings, notes, highlights and transcripts"
-          aria-label="Search" inputMode="search" enterKeyHint="search" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && first.current) navigate(first.current); }}
-          className="search-box"
-        />
-        {query && (
-          <button type="button" className="search-clear icon-button" aria-label="Clear search" onClick={() => setQuery("")}>
-            <Icon name="close" size={16} />
-          </button>
-        )}
-      </div>
+      <h1>Search</h1>
+      {/* On a touch screen the keyboard waits for a tap on the field, as in iOS's own search. */}
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        label="Search"
+        placeholder="Search readings, notes, highlights and transcripts"
+        inputClassName="search-box"
+        autoFocus={!coarse}
+        onEnter={() => { if (first.current) navigate(first.current); }}
+      />
       <div className="search-filters">
         <div className="segmented" role="group" aria-label="Show">
           {KINDS.map((k) => (
@@ -133,17 +135,37 @@ export function SearchPage({ q = "" }: { q?: string }) {
           ))}
         </div>
         {modules.length > 1 && (
-          <select aria-label="Module" value={moduleId} onChange={(e) => setModuleId(e.target.value)} style={{ width: "auto" }}>
-            <option value="">All modules</option>
-            {modules.map((m) => <option key={m.id} value={m.id}>{m.code}</option>)}
-          </select>
+          <>
+            {/* A choice from a set is a choice card, never a dropdown. */}
+            <button ref={moduleButton} type="button" className="button" aria-haspopup="dialog" aria-expanded={moduleCardOpen} onClick={() => setModuleCardOpen(true)}>
+              <span>{modules.find((m) => m.id === moduleId)?.code ?? "All modules"}</span>
+              <Icon name="down" size={14} />
+            </button>
+            <ChoiceCard open={moduleCardOpen} onClose={() => setModuleCardOpen(false)} anchor={moduleButton} label="Search in a module" title="Search in">
+              <div className="choice-list">
+                {[{ id: "", code: "All modules" }, ...modules].map((m) => (
+                  <button key={m.id || "all"} type="button" className="choice-row" aria-pressed={moduleId === m.id} onClick={() => { setModuleId(m.id); setModuleCardOpen(false); }}>
+                    <span>{m.code}</span>
+                  </button>
+                ))}
+              </div>
+            </ChoiceCard>
+          </>
+        )}
+        {(kind !== "all" || moduleId) && (
+          <button type="button" className="quiet" onClick={() => { setKind("all"); setModuleId(""); }}>Clear filters</button>
         )}
       </div>
       <p className="small muted search-help">
         Every word must match. Put a phrase in "quote marks" to find it as written.
         {offline && query && " Offline: showing titles, highlights and notes saved on this device."}
       </p>
-      {nothing && <p className="muted section">Nothing matches that yet.</p>}
+      {remoteFailed && <p className="small problem" role="status">Searching inside readings and recordings failed just now, so only titles, highlights and notes are shown. Try again in a moment.</p>}
+      {nothing && (
+        <p className="muted section">
+          {kind !== "all" || moduleId ? "Nothing matches with these filters. Clear the filters, or try fewer words." : "Nothing matches. Try fewer words, or a phrase in quote marks."}
+        </p>
+      )}
       {!query.trim() && recentSearches().length > 0 && (
         <section className="section">
           <div className="section-head">

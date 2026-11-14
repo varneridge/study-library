@@ -22,6 +22,8 @@ import { importTranscript } from "../lib/transcriptImport";
 import { showToast } from "../lib/ui";
 import { noteSessionOpened } from "../lib/settings";
 import { ReadingRow } from "./ReadingRow";
+import { TitleEdit } from "./TitleEdit";
+import { Icon } from "./icons";
 import { useNarrow, useTitle } from "../lib/ui";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
@@ -153,11 +155,12 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
       </div>
       <div className="section-head" style={{ alignItems: "center", flexWrap: "wrap" }}>
         {renaming ? (
-          <input
-            className="title-input" type="text" defaultValue={session.title ?? ""} autoFocus placeholder={sessionLabel(session.kind)}
-            aria-label="Session name" enterKeyHint="done"
-            onBlur={(e) => saveName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") saveName(e.currentTarget.value); if (e.key === "Escape") setRenaming(false); }}
+          <TitleEdit
+            value={session.title ?? ""}
+            label="Session name"
+            placeholder={sessionLabel(session.kind)}
+            onSave={(next) => saveName(next)}
+            onCancel={() => setRenaming(false)}
           />
         ) : (
           <h1
@@ -204,8 +207,12 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
           onChange={async (e) => {
             const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            const added = await addSlides(session.id, files);
-            if (added) showToast(added === 1 ? "Slides added." : `${added} sets of slides added.`);
+            try {
+              const added = await addSlides(session.id, files);
+              if (added) showToast(added === 1 ? "Slides added." : `${added} sets of slides added.`);
+            } catch (err) {
+              setError(`The slides could not be added. ${(err as Error).message || "Try again in a moment."}`);
+            }
           }}
         />
         <input
@@ -236,7 +243,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
           }}
         />
       </div>
-      {error && <p className="small problem">{error}</p>}
+      {error && <p className="small problem" role="alert">{error}</p>}
       {recorder.recording && (
         <p className="small muted rec-hint">You can leave this page while it records. A bar at the foot of the screen keeps the recording in view, wherever you go.</p>
       )}
@@ -289,8 +296,8 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
       {/* On to the session before or after, as a week page goes to the next week. */}
       {around && (around.previous || around.next) && (
         <nav className="week-nav" aria-label="Other sessions">
-          {around.previous ? <Link to={{ view: "session", id: around.previous.session.id }}>← {name(around.previous)}</Link> : <span />}
-          {around.next ? <Link to={{ view: "session", id: around.next.session.id }}>{name(around.next)} →</Link> : <span />}
+          {around.previous ? <Link to={{ view: "session", id: around.previous.session.id }}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{name(around.previous)}</Link> : <span />}
+          {around.next ? <Link to={{ view: "session", id: around.next.session.id }}>{name(around.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link> : <span />}
         </nav>
       )}
     </div>

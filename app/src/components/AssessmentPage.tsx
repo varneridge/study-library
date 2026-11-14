@@ -50,7 +50,7 @@ const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 // The preview sheet is laid out at A4 width (210 mm at 96 dpi) and scaled from there.
 const PREVIEW_PAGE_WIDTH = 794;
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-const MIN_FIT_SCALE = 0.4;
+const MIN_FIT_SCALE = 0.3;
 const MAX_FIT_SCALE = 2;
 
 const clampScale = (value: number) => Math.min(MAX_FIT_SCALE, Math.max(MIN_FIT_SCALE, value));

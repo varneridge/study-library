@@ -928,7 +928,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
             <IconButton icon="down" label="Next page" shortcut="→" disabled={current >= sizes.length - 1} onClick={() => goToPage(Math.min(sizes.length - 1, current + 1))} />
           </div>
         )}
-        {sizes.length > 0 && <PageJump current={current} total={sizes.length} onGo={goToPage} />}
+        {!narrow && sizes.length > 0 && <PageJump current={current} total={sizes.length} onGo={goToPage} />}
         {!narrow && (
           <div className="group tools">
             <IconButton icon="highlight" label="Highlight text" shortcut="H" pressed={tool === "highlight"} onClick={() => setTool(tool === "highlight" ? "select" : "highlight")} />
@@ -961,6 +961,17 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           <Menu
             label="More reading actions"
             items={[
+              {
+                label: `Jump to page (currently ${current + 1} of ${sizes.length})`,
+                onSelect: () => {
+                  const target = window.prompt(`Jump to page (1 to ${sizes.length}):`, String(current + 1));
+                  if (target) {
+                    const num = parseInt(target, 10);
+                    if (!isNaN(num) && num >= 1 && num <= sizes.length) goToPage(num - 1);
+                  }
+                },
+                hidden: !narrow || sizes.length <= 1,
+              },
               { label: "Notes on this reading", onSelect: () => { setLeft(true); setTab("notes"); }, hidden: !narrow },
               { label: tool === "highlight" ? "Stop highlighting" : "Highlight as I select", onSelect: () => setTool(tool === "highlight" ? "select" : "highlight"), hidden: !narrow },
               { label: `Previous: ${previous ? shortTitle(previous) : ""}`, onSelect: () => previous && navigate({ view: "reader", id: previous.id }), hidden: !previous },

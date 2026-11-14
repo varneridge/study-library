@@ -76,7 +76,6 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
 
   return (
     <div className="page wide">
-      <KeyDatesAhead />
       <h1>{title}</h1>
       {span && <p className="when small muted" style={{ marginTop: "-0.25rem", marginBottom: "0.75rem" }}>{isUpcoming && when ? `Starts ${when}` : span}</p>}
       <div className="picker" role="group" aria-label="Choose a week">
@@ -91,6 +90,8 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
           </div>
         ))}
       </div>
+      {/* The page title comes first; the countdown follows the week picker. */}
+      <KeyDatesAhead />
       {data?.map(({ module, view }) => {
         const loose = view.primaries.length + view.readings.length + view.summaries.length;
         const sessions = view.sessions;
@@ -148,7 +149,7 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
                 </div>
               );
             })}
-            {loose === 0 && sessions.length === 0 && <p className="small muted">Nothing here yet.</p>}
+            {loose === 0 && sessions.length === 0 && <p className="small muted">No readings or sessions in this week yet. Open the week to add them.</p>}
           </section>
         );
       })}

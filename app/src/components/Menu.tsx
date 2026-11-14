@@ -89,7 +89,7 @@ export function Menu({
 
   // Keep the panel on screen when its button sits near an edge or near the bottom.
   useLayoutEffect(() => {
-    if (!open || !panel.current) {
+    if (!open || !panel.current || window.matchMedia("(max-width: 44rem)").matches) {
       setShift(0);
       setFlipY(false);
       return;

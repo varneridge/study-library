@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en-GB" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Design fixture</title>
+<!-- Loads the real stylesheet, so these tests check the tokens and rules the app ships with. -->
+<link rel="stylesheet" href="../../app/src/styles.css">
+</head>
+<body>
+<main class="page" id="main">
+  <div class="section-head"><h1>Week 3</h1><button class="button primary" id="primary">Add a reading</button></div>
+  <p><button class="button" id="secondary">Add a section</button> <button class="quiet" id="quiet">Rename</button> <button class="icon-button" id="icon" aria-label="More">x</button></p>
+  <div class="segmented" id="seg"><button class="tool" aria-pressed="true" id="seg-on">Pages</button><button class="tool">Text</button></div>
+  <nav class="side-switch" id="side"><a href="#" aria-current="true" id="side-on">Study</a><a href="#">Job search</a></nav>
+  <button class="stage-chip" id="chip">Applied</button>
+  <div class="choice-rows"><button class="choice-row" id="row">Newest first</button></div>
+  <!-- Scrims stay hidden so they never cover the controls; their colour is still read. -->
+  <div class="date-picker-scrim" id="dp-scrim" style="display: none"></div>
+  <div class="menu-backdrop" id="menu-scrim" style="display: none"></div>
+</main>
+<dialog class="dialog" id="d-dialog"><p>Dialog</p></dialog>
+<dialog class="sheet-dialog" id="d-sheet"><p>Sheet</p></dialog>
+<dialog class="choice-card sheet" id="d-choice"><p>Choice</p></dialog>
+<div class="toast-region"><div class="toast" id="toast">Reading moved to Week 4</div></div>
+</body>
+</html>

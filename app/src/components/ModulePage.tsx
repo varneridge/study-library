@@ -374,7 +374,7 @@ function KeyDates({ module }: { module: ModuleRow }) {
         <span className="spacer" />
         {!adding && <button className="quiet" onClick={() => setAdding(true)}>Add a date</button>}
       </div>
-      {dates.length === 0 && !adding && <p className="small muted">The proposal, chapter drafts, the submission. Each counts down on the home page.</p>}
+      {dates.length === 0 && !adding && <p className="small muted">The proposal, chapter drafts, the submission. Each counts down on the This week page.</p>}
       <ul className="key-date-list">
         {dates.map((d) => (
           <li key={d.id}>
@@ -412,6 +412,7 @@ export function ModulePage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [addingSection, setAddingSection] = useState(false);
   const scrolledRef = useRef(false);
   useTitle(data?.module.code);
 
@@ -472,6 +473,19 @@ export function ModulePage({ id }: { id: string }) {
   const customSections = weeks.filter((w) => w.week.term === "S");
   const termWeeks = weeks.filter((w) => w.week.term !== "S");
   const adminOpen = !isCollapsed || forcedOpen;
+  // The page's main action, guarded so a double tap makes one section, not two.
+  const addOneSection = async () => {
+    if (addingSection) return;
+    setAddingSection(true);
+    try {
+      const newWeekId = await addSection(module.id, library ? "New shelf" : null);
+      navigate({ view: "week", id: newWeekId });
+    } catch (error) {
+      showToast(`The ${library ? "shelf" : "section"} could not be added. ${(error as Error).message || "Try again in a moment."}`);
+    } finally {
+      setAddingSection(false);
+    }
+  };
   const toggleAdmin = () => {
     if (adminOpen) {
       setForcedOpen(false);
@@ -496,6 +510,11 @@ export function ModulePage({ id }: { id: string }) {
           </button>
         )}
         <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
+        {customSectionsOnly && (
+          <button className="button primary" disabled={addingSection} onClick={() => void addOneSection()}>
+            {library ? "Add a shelf" : "Add a section"}
+          </button>
+        )}
       </div>
       {module.title && <p className="lede">{module.title}</p>}
       {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
@@ -508,20 +527,6 @@ export function ModulePage({ id }: { id: string }) {
       )}
 
       {dissertation && <KeyDates module={module} />}
-      {customSectionsOnly && (
-        <div className="row" style={{ justifyContent: "flex-end", margin: "1rem 0", gap: "0.5rem" }}>
-          <button
-            className="button small"
-            onClick={async () => {
-              const newWeekId = await addSection(module.id, library ? "New shelf" : null);
-              navigate({ view: "week", id: newWeekId });
-            }}
-          >
-            {library ? "Add a shelf" : "Add a section"}
-          </button>
-        </div>
-      )}
-
       {empty && !customSectionsOnly && (
         <div className="first-steps">
           <p><strong>Add this module's readings.</strong> <span className="touch-hide">Drop a folder of files anywhere on this page, or on a single week below. </span>You can also open a week and choose Add files.</p>

@@ -332,7 +332,7 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       const nearEdge = l.y > height * 0.88 || l.y < height * 0.12;
       const isPageNum = /^(?:page\s+)?\d{1,4}(?:\s+(?:of|\/)\s+\d{1,4})?$/i.test(clean)
         || /^[ivxlcdm]{1,8}$/i.test(clean)
-        || /^[-—–\s]*\d{1,4}[-—–\s]*$/.test(clean)
+        || /^[\s\u2013\u2014-]*\d{1,4}[\s\u2013\u2014-]*$/.test(clean)
         || /^\[\s*\d{1,4}\s*\]$/.test(clean)
         || /^\d{1,4}\s*\|\s*.{2,60}$/.test(clean)
         || /^.{2,60}\s*\|\s*\d{1,4}$/.test(clean);

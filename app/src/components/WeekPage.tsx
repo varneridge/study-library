@@ -24,6 +24,7 @@ import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib
 import { blockText } from "../lib/notes";
 import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
+import { TitleEdit } from "./TitleEdit";
 import { WeekBoard } from "./WeekBoard";
 import { SessionSlides, SlideBoard } from "./SlideBoard";
 import { uploadModulePicture } from "../lib/uploads";
@@ -45,8 +46,6 @@ export function WeekWhen({ week }: { week: WeekRow }) {
 }
 
 function TitleEditor({ week, editing, setEditing }: { week: WeekRow; editing: boolean; setEditing: (on: boolean) => void }) {
-  const [value, setValue] = useState(week.title ?? "");
-  useEffect(() => setValue(week.title ?? ""), [week.title, editing]);
   if (!editing && isSection(week)) {
     return (
       <h1
@@ -73,18 +72,16 @@ function TitleEditor({ week, editing, setEditing }: { week: WeekRow; editing: bo
       </h1>
     );
   }
-  const save = () => {
-    setEditing(false);
-    if (value.trim() !== (week.title ?? "")) void update("weeks", week.id, { title: value.trim() || null });
-  };
   return (
-    <input
-      type="text" value={value} autoFocus aria-label={isSection(week) ? "Section name" : "Week title"}
+    <TitleEdit
+      value={week.title ?? ""}
+      label={isSection(week) ? "Section name" : "Week title"}
       placeholder={isSection(week) ? `Section ${week.number}` : `A title for ${weekCode(week)}`}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={save}
-      onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
-      style={{ fontFamily: "var(--serif)", fontSize: "var(--fs-2xl)", fontWeight: 600 }}
+      onSave={(next) => {
+        setEditing(false);
+        if (next.trim() !== (week.title ?? "")) void update("weeks", week.id, { title: next.trim() || null });
+      }}
+      onCancel={() => setEditing(false)}
     />
   );
 }
@@ -164,17 +161,11 @@ function SessionBlock({
 }: {
   view: SessionView; index: number; count: number; weeks: WeekRow[]; onAddSlides: (sessionId: string) => void; dropOver?: boolean;
 }) {
-  const { session, slides, notes, recordings, questions } = view;
+  const { session, slides, recordings, questions } = view;
   const [renaming, setRenaming] = useState(false);
-  const [name, setName] = useState(session.title ?? "");
-  useEffect(() => setName(session.title ?? ""), [session.title]);
   const label = session.title || sessionLabel(session.kind);
   const narrow = useNarrow();
 
-  const saveName = () => {
-    setRenaming(false);
-    if (name.trim() !== (session.title ?? "")) void update("sessions", session.id, { title: name.trim() || null });
-  };
 
   const remove = () => void deleteSessionAsking(session, label);
 
@@ -182,12 +173,16 @@ function SessionBlock({
     <section className={`session${dropOver ? " drop-over" : ""}`} data-drop="slides" data-session={session.id} data-label={label}>
       <div className="session-head">
         {renaming ? (
-          <input
-            type="text" value={name} autoFocus placeholder={sessionLabel(session.kind)}
-            aria-label="Session name"
-            onChange={(e) => setName(e.target.value)} onBlur={saveName}
-            onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") { setName(session.title ?? ""); setRenaming(false); } }}
-            style={{ flex: 1, fontFamily: "var(--serif)", fontWeight: 600 }}
+          <TitleEdit
+            level={2}
+            value={session.title ?? ""}
+            label="Session name"
+            placeholder={sessionLabel(session.kind)}
+            onSave={(next) => {
+              setRenaming(false);
+              if (next.trim() !== (session.title ?? "")) void update("sessions", session.id, { title: next.trim() || null });
+            }}
+            onCancel={() => setRenaming(false)}
           />
         ) : (
           // The one way into the session: its name, with its notes, slides and recordings behind it.
@@ -219,15 +214,6 @@ function SessionBlock({
           <Link to={{ view: "session", id: session.id }}>{recordingLine(r)}</Link>
         </p>
       ))}
-      <div className="session-notes-action">
-        <Link
-          to={{ view: "session", id: session.id }}
-          className="button small"
-        >
-          <Icon name="notes" size={16} />
-          <span>{notesLabel(session, notes.some((n) => n.blocks.some((b) => blockText(b).trim())))}</span>
-        </Link>
-      </div>
     </section>
   );
 }
@@ -380,7 +366,7 @@ export function WeekPage({ id }: { id: string }) {
         <div style={{ flex: 1, minWidth: 0 }}><TitleEditor week={week} editing={renaming} setEditing={setRenaming} /></div>
         {isDocumentOnly ? (
           <button
-            className="button"
+            className="button primary"
             onClick={() => {
               addTargetRef.current = { kind: "summary", label: "documents" };
               picker.current?.click();
@@ -390,7 +376,7 @@ export function WeekPage({ id }: { id: string }) {
           </button>
         ) : (
           <>
-            <button ref={addFilesButton} className="button" onClick={() => setAddCardOpen(true)}>Add files</button>
+            <button ref={addFilesButton} className="button primary" onClick={() => setAddCardOpen(true)}>Add files</button>
             <ChoiceCard
               open={addCardOpen}
               onClose={() => setAddCardOpen(false)}
@@ -556,10 +542,10 @@ export function WeekPage({ id }: { id: string }) {
 
       <nav className="week-nav" aria-label="Other weeks">
         {data.previous ? (
-          <Link to={{ view: "week", id: data.previous.id }} title={section ? "Previous section (press [)" : "Previous week (press [)"}>← {weekCode(data.previous)}{titleAfter(data.previous)}</Link>
+          <Link to={{ view: "week", id: data.previous.id }} title={section ? "Previous section (press [)" : "Previous week (press [)"}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{weekCode(data.previous)}{titleAfter(data.previous)}</Link>
         ) : <span />}
         {data.next ? (
-          <Link to={{ view: "week", id: data.next.id }} title={section ? "Next section (press ])" : "Next week (press ])"}>{weekCode(data.next)}{titleAfter(data.next)} →</Link>
+          <Link to={{ view: "week", id: data.next.id }} title={section ? "Next section (press ])" : "Next week (press ])"}>{weekCode(data.next)}{titleAfter(data.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link>
         ) : <span />}
       </nav>
       <input
@@ -568,7 +554,13 @@ export function WeekPage({ id }: { id: string }) {
           const files = Array.from(e.target.files ?? []);
           const sessionId = e.target.dataset.session ?? null;
           e.target.value = "";
-          if (sessionId) await addSlides(sessionId, files);
+          if (!sessionId) return;
+          try {
+            const added = await addSlides(sessionId, files);
+            if (added) showToast(added === 1 ? "Slides added." : `${added} sets of slides added.`);
+          } catch (error) {
+            showToast(`The slides could not be added. ${(error as Error).message || "Try again in a moment."}`);
+          }
         }}
       />
     </div>

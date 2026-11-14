@@ -85,7 +85,7 @@ export function useOverlays(): { toast: Toast | null; ask: Ask | null; shortcuts
 // Sets the browser tab's title for the screen on show.
 export function useTitle(title: string | null | undefined): void {
   useEffect(() => {
-    document.title = title ? `${title} · Study Library` : "Study Library";
+    document.title = title ? `${title}, Study Library` : "Study Library";
   }, [title]);
 }
 

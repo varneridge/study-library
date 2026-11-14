@@ -30,6 +30,7 @@ import { ProspectForm } from "./jobs/ProspectForm";
 import { ProspectList } from "./jobs/ProspectList";
 import { EntryForm } from "./jobs/EntryForm";
 import { Sheet } from "./Sheet";
+import { SearchField } from "./SearchField";
 import { href, navigate, useRoute } from "../lib/router";
 
 type Filter = "all" | "open" | "closed";
@@ -515,24 +516,13 @@ export function JobsPage() {
                 ))}
               </div>
               <ProspectOrderButton order={prospectOrder} onChange={setProspectOrder} />
-              <input
+              <SearchField
                 ref={find}
-                type="search"
                 className="jobs-find"
-                placeholder="Find an employer, programme or salary"
-                aria-label="Find in shortlist (/)"
-                inputMode="search"
-                enterKeyHint="search"
-                autoCorrect="off"
-                spellCheck={false}
                 value={prospectQuery}
-                onChange={(e) => setProspectQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setProspectQuery("");
-                    e.currentTarget.blur();
-                  }
-                }}
+                onChange={setProspectQuery}
+                label="Find in shortlist (/)"
+                placeholder="Find an employer, programme or salary"
               />
             </div>
           )}
@@ -679,11 +669,13 @@ export function JobsPage() {
                 ))}
               </div>
               <OrderButton order={order} onChange={setOrder} />
-              <input
-                ref={find} type="search" className="jobs-find" placeholder="Find an employer or role" aria-label="Find an application (/)"
-                inputMode="search" enterKeyHint="search" autoCorrect="off" spellCheck={false}
-                value={query} onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); e.currentTarget.blur(); } }}
+              <SearchField
+                ref={find}
+                className="jobs-find"
+                value={query}
+                onChange={setQuery}
+                label="Find an application (/)"
+                placeholder="Find an employer or role"
               />
             </div>
           )}

@@ -7,7 +7,7 @@ import { useTeachingWeek } from "../lib/term";
 import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { moveModule } from "../lib/edits";
-import { useTitle } from "../lib/ui";
+import { showToast, useTitle } from "../lib/ui";
 import type { ModuleKind } from "../lib/types";
 
 function NewModule({ onDone }: { onDone?: () => void }) {
@@ -22,11 +22,18 @@ function NewModule({ onDone }: { onDone?: () => void }) {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!code.trim()) return;
+    if (saving) return;
     setSaving(true);
     const readingWeeks = [autumn && `AT${autumn}`, winter && `WT${winter}`].filter(Boolean) as string[];
-    const id = await createModule({ code, title, pattern: PATTERNS[pattern].value, readingWeeks, kind });
-    onDone?.();
-    navigate({ view: "module", id });
+    try {
+      const id = await createModule({ code, title, pattern: PATTERNS[pattern].value, readingWeeks, kind });
+      onDone?.();
+      navigate({ view: "module", id });
+    } catch (error) {
+      // Without this the button stayed on "Creating…" for good after a failure.
+      setSaving(false);
+      showToast(`The module could not be created. ${(error as Error).message || "Try again in a moment."}`);
+    }
   }
 
   return (
@@ -44,9 +51,9 @@ function NewModule({ onDone }: { onDone?: () => void }) {
       <div className="field">
         <span className="small muted">This module is</span>
         <div className="segmented" role="group" aria-label="Kind of module">
-          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught, by weeks of term</button>
-          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>A dissertation, by sections you name</button>
-          <button type="button" className="tool" aria-pressed={kind === "library"} onClick={() => setKind("library")}>A library for books</button>
+          <button type="button" className="tool" aria-pressed={kind === "taught"} onClick={() => setKind("taught")}>Taught</button>
+          <button type="button" className="tool" aria-pressed={kind === "dissertation"} onClick={() => setKind("dissertation")}>Dissertation</button>
+          <button type="button" className="tool" aria-pressed={kind === "library"} onClick={() => setKind("library")}>Library</button>
         </div>
       </div>
       {kind === "dissertation" ? (
@@ -54,6 +61,7 @@ function NewModule({ onDone }: { onDone?: () => void }) {
       ) : kind === "library" ? (
         <p className="small muted">An open library for books, secondary literature and downloaded references, organised by shelves you name (such as Historiography, Reference, or Primary sources) with no term weeks.</p>
       ) : (<>
+      <p className="small muted">Weeks of term, each with its sessions, readings and notes.</p>
       <div className="field">
         <span className="small muted">Each week has</span>
         <div className="choices">
@@ -183,8 +191,10 @@ export function Home() {
           </button>
         )}
         {/* The page's own action sits by its heading, as on every page. */}
-        {!adding && <button className="button" onClick={() => setAdding(true)}>Add a module</button>}
+        {!adding && <button className="button primary" onClick={() => setAdding(true)}>Add a module</button>}
       </div>
+      {/* The new module opens where its button was, not below every card. */}
+      {adding && <NewModule onDone={() => setAdding(false)} />}
       <ul className="module-grid">
         {modules.map((item, index) => (
           <ModuleCard
@@ -196,7 +206,6 @@ export function Home() {
           />
         ))}
       </ul>
-      {adding && <NewModule onDone={() => setAdding(false)} />}
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function sessionLabel(kind: SessionKind): string {
 
 export function notesLabel(session: { kind: SessionKind; title?: string | null }, hasNotes: boolean): string {
   const raw = session.title?.trim() ?? "";
-  const cleaned = raw.replace(/^[\s.,;:!?—–-]+|[\s.,;:!?—–-]+$/g, "");
+  const cleaned = raw.replace(/^[\s.,;:!?\u2013\u2014-]+|[\s.,;:!?\u2013\u2014-]+$/g, "");
   if (!cleaned) {
     return hasNotes ? `${sessionLabel(session.kind)} notes` : `Add ${sessionLabel(session.kind).toLowerCase()} notes`;
   }

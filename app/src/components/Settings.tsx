@@ -102,7 +102,7 @@ function ProcessorState() {
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
         <button className="button" onClick={() => void cropCovers()}>Crop reading covers</button>
-        <button className="button quiet" onClick={() => void rescan()}>Read every scan again</button>
+        <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
     </>
   );
@@ -162,7 +162,7 @@ function AppearanceChoice() {
         ))}
       </div>
 
-      <h3 style={{ margin: "1.5rem 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Accent colour</h3>
+      <h3 className="settings-subhead">Accent colour</h3>
       <p className="small muted">A touch of colour for active links, buttons and current selections.</p>
       <div className="accent-grid" role="group" aria-label="Accent colour" style={{ marginTop: "0.5rem" }}>
         {ACCENTS.map((acc) => {
@@ -500,7 +500,7 @@ export function Settings() {
           </section>
 
           <section id="section-danger" className="settings-section danger-section">
-            <h2 style={{ color: "var(--danger)" }}>Start again on this device</h2>
+            <h2>Start again on this device</h2>
             <p className="small muted">
               Removes the local copy and downloads everything again from the server. Unsaved edits on this device are lost.
             </p>
