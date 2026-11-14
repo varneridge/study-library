@@ -616,19 +616,27 @@ export function ModulePage({ id }: { id: string }) {
 
 
 
-      <div className="week-grid">
-        {(customSectionsOnly ? weeks : termWeeks).map((ov) => (
-          <WeekCard
-            key={ov.week.id}
-            overview={ov}
-            module={module}
-            dates={dates}
-            renaming={renamingId === ov.week.id}
-            onStartRename={() => setRenamingId(ov.week.id)}
-            onEndRename={() => setRenamingId(null)}
-          />
-        ))}
-      </div>
+      <section className="section module-weeks" style={{ marginTop: "1rem" }}>
+        <div className="section-head" style={{ marginBottom: "0.75rem" }}>
+          <h2 style={{ margin: 0, display: "inline-flex", alignItems: "center", minHeight: "2.75rem" }}>
+            <span>{customSectionsOnly ? (library ? "Shelves" : "Sections") : "Content"}</span>
+            <span className="toggle-count">({(customSectionsOnly ? weeks : termWeeks).length})</span>
+          </h2>
+        </div>
+        <div className="week-grid">
+          {(customSectionsOnly ? weeks : termWeeks).map((ov) => (
+            <WeekCard
+              key={ov.week.id}
+              overview={ov}
+              module={module}
+              dates={dates}
+              renaming={renamingId === ov.week.id}
+              onStartRename={() => setRenamingId(ov.week.id)}
+              onEndRename={() => setRenamingId(null)}
+            />
+          ))}
+        </div>
+      </section>
 
       {tray.length > 0 && <TraySection tray={tray} weeks={weeks.map((w) => w.week)} />}
     </div>
