@@ -130,7 +130,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.get_by_role("link", name="Open in word processor").click()
     expect(page.locator(".word-processor")).to_be_visible()
     expect(page.locator(".wp-title")).to_contain_text(question)
-    expect(page.locator(".wp-count")).to_contain_text("0 words of 2,500")
+    expect(page.locator(".wp-count")).to_contain_text("0 of 2,500 words")
     expect(page.locator(".wp-frame")).to_be_visible()
     page.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
 

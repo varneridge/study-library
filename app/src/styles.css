@@ -19,6 +19,14 @@
   --sp-1: 0.25rem; --sp-2: 0.5rem; --sp-3: 0.75rem; --sp-4: 1rem;
   --sp-5: 1.25rem; --sp-6: 1.5rem; --sp-8: 2rem; --sp-10: 2.5rem;
   --dur-1: 120ms; --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion, from 0.49.1. Hover and press use --dur-1; menus, choice cards, dialogs and notices
+     use --dur-2; sheets and drawers use --dur-3. Things arrive on --ease-settle (fast, then
+     a long soft landing, with no overshoot) and leave on --ease-in. */
+  --dur-2: 180ms; --dur-3: 240ms;
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --press-scale: 0.97;
+  --scrim: color-mix(in srgb, var(--ink) 30%, transparent);
+  --raise: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
   --tint-1: color-mix(in srgb, var(--ink) 5%, transparent);
   --tint-2: color-mix(in srgb, var(--ink) 8%, transparent);
   --tint-3: color-mix(in srgb, var(--ink) 12%, transparent);
@@ -29,7 +37,7 @@
 }
 /* Sepia: the warm paper of the FT, everywhere. */
 :root[data-theme="sepia"] {
-  --accent: #185FA5; --accent-ink: #FFFFFF; --accent-soft: #E9EEF4; --danger: #A33A2A;
+  --accent: #185FA5; --accent-ink: #FFFFFF; --accent-soft: #DFE7F1; --danger: #A33A2A;
   --warn: #8A5A00; --find: #F5DCA0;
   --page: #FFF1E5; --page-ink: #33302E; --page-muted: #66605C; --page-rule: #E3D2C2;
   --paper: #FBF2E8; --ink: #332E2A; --muted: #6B625B; --faint: #A1968C;
@@ -245,9 +253,9 @@ button { cursor: pointer; }
 .side-switch a:hover { color: var(--ink); }
 .side-switch a[aria-current="true"] {
   background: var(--card); color: var(--ink);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+  box-shadow: var(--raise);
 }
-@media (min-width: 44.001rem) {
+@media (min-width: 44.01rem) {
   /* The job search has no module links, so the switch takes their place on the right. */
   .jobs-bar > .side-switch { margin-left: auto; }
 }
@@ -974,7 +982,15 @@ button.plain { border: 0; background: none; padding: 0; color: inherit; cursor: 
 .reader.narrow .reader-bar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 6; gap: 0.25rem;
   padding-top: calc(0.2rem + env(safe-area-inset-top, 0px)); transition: transform 0.2s ease;
+  overflow-x: auto; scrollbar-width: none;
 }
+.reader.narrow .reader-bar::-webkit-scrollbar { display: none; }
+.reader.narrow .reader-bar .group:first-child { flex: none; }
+.reader.narrow .reader-bar .group.end {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+}
+.reader.narrow .reader-bar .group.end::-webkit-scrollbar { display: none; }
 .reader.narrow.bar-hidden .reader-bar { transform: translateY(-100%); }
 /* The space for the toolbar is part of what scrolls, so when the toolbar
    slides away the reading has the whole screen, with no empty band left. */
@@ -1133,15 +1149,16 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .module-picture-preview { width: 100%; max-width: 20rem; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--rule); background: var(--surface); }
 .module-picture-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .module-picture-placeholder { width: 100%; max-width: 20rem; aspect-ratio: 16 / 9; border: 1px dashed var(--rule); border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: var(--fs-sm); background: var(--surface); }
-.button.danger { border-color: var(--danger); color: var(--danger); }
-.button.danger:hover:not(:disabled) { background: var(--danger); color: var(--paper); }
+/* Dangerous actions are red and apart, but never outlined: a soft red surface, as Stop is. */
+.button.danger { border-color: transparent; background: color-mix(in srgb, var(--danger) 12%, var(--paper)); color: var(--danger); }
+.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 20%, var(--paper)); color: var(--danger); }
 .tool.danger { color: var(--danger); }
 .tool:disabled { opacity: 0.35; cursor: default; }
 .menu-panel button.danger { color: var(--danger); border-top: 1px solid var(--rule); }
 
 .navs { display: contents; }
 .narrow-only { display: none; }
-@media (min-width: 44.001rem) {
+@media (min-width: 44.01rem) {
   .goto-button { display: none !important; }
 }
 /* On a phone the top bar keeps brand, sync, Go to and Jobs. */
@@ -1187,7 +1204,7 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .bin .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .dialog { width: min(30rem, calc(100vw - 2rem)); }
-.dialog::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+.dialog::backdrop { background: var(--scrim); }
 .dialog h2 { margin-bottom: 0.5rem; }
 
 .toast-region {
@@ -1305,7 +1322,8 @@ a.where:hover { color: var(--ink); }
 }
 .settings-sticky-bar {
   position: fixed;
-  bottom: 1.5rem;
+  /* Clear of the tab bar and the home indicator on a phone, as notices and the recording bar are. */
+  bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px)));
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
@@ -1317,7 +1335,7 @@ a.where:hover { color: var(--ink); }
   background: var(--card);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-md);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-float);
 }
 .settings-desk-form {
   display: flex;
@@ -1468,7 +1486,7 @@ kbd {
   position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; max-width: calc(100vw - 2rem);
   padding: 0.6rem 0.8rem; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow-float);
-  animation: rise 0.16s ease-out;
+  animation: rise var(--dur-2) var(--ease-settle);
 }
 .move-dock p { margin: 0; flex-basis: 100%; color: var(--muted); }
 .dock-grid { display: grid; grid-template-columns: auto repeat(11, 1.9rem); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-sm); overflow: hidden; }
@@ -1665,7 +1683,7 @@ kbd {
   padding: 0.45rem 0.5rem 0.45rem 0.85rem; background: var(--card); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 999px;
   box-shadow: var(--shadow-float); font-size: var(--fs-sm);
-  animation: rec-in 0.18s ease-out;
+  animation: rec-in var(--dur-2) var(--ease-settle);
 }
 .rec-pill .rec-where { display: flex; flex-direction: column; min-width: 0; text-align: left; color: inherit; }
 .rec-pill .rec-state { font-size: var(--fs-xs); font-weight: 600; color: var(--danger); }
@@ -1782,20 +1800,19 @@ p, li { text-wrap: pretty; }
 a, button, input, select, textarea, .reading, .menu-panel button, .pane-tab, .target {
   transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
-button:active:not(:disabled), .button:active:not(:disabled), .tool:active:not(:disabled) {
-  transform: scale(0.985);
-}
+/* The press state lives in one rule, under "Tactile feedback" further down. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
   .week-card:hover, button:active, .button:active, .tool:active { transform: none !important; }
+  :is(.button, .tool, .icon-button, .quiet, .week-note-btn, .topbar-btn, .stage-chip, .stage-tile, .app-card):active { scale: none !important; }
 }
 
 /* Focus is always visible from the keyboard, and never from a click. */
 :focus:not(:focus-visible) { outline: none; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--accent); }
 
-/* Buttons: three kinds, one height. Bordered for actions, filled for the
-   main action on a screen, quiet for everything secondary. */
+/* Buttons: three kinds, one height. Filled for the main action on a screen,
+   a soft surface for other actions, quiet text for everything minor. */
 .button, .tool, .quiet { min-height: 2rem; line-height: 1.2; }
 .button { justify-content: center; white-space: nowrap; }
 .quiet { display: inline-flex; align-items: center; padding: 0.2rem 0.45rem; white-space: nowrap; }
@@ -1822,7 +1839,7 @@ label.field > span { display: block; margin-bottom: 0.3rem; font-size: var(--fs-
 
 /* Dialogs */
 .dialog { background: var(--card); color: var(--ink); padding: 1.4rem 1.5rem 1.2rem; }
-.dialog[open] { animation: dialog-in 0.16s ease-out; }
+.dialog[open] { animation: dialog-in var(--dur-2) var(--ease-settle); }
 .dialog::backdrop { backdrop-filter: blur(1.5px); }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -2174,13 +2191,17 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
     border-radius: var(--r-md);
     background: var(--card);
     padding: 1.15rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    transition: background-color var(--dur-1) var(--ease-settle), border-color var(--dur-1) var(--ease-settle), scale var(--dur-1) var(--ease-settle);
   }
-  .jobs .app-card:hover {
-    border-color: var(--accent);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
-    transform: translateY(-1px);
+  @media (hover: hover) {
+    .jobs .app-card:hover {
+      border-color: var(--rule-strong);
+      background: var(--surface);
+    }
+  }
+  /* A card presses as a whole only when no control inside it is being pressed, so the two never compound. */
+  .jobs .app-card:active:not(:has(:is(.button, .tool, .icon-button, .quiet, .week-note-btn, .topbar-btn, .stage-chip, .stage-tile):active)) {
+    scale: var(--press-scale);
   }
   .jobs .app-card.closed {
     opacity: 0.82;
@@ -2371,6 +2392,10 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title, .hit-line, .tw-session, .accent-btn {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
+  .tool { min-width: 2.75rem; justify-content: center; }
+  .essay-tab-btn, .essay-target-btn, .essay-zoom-percent {
+    min-height: 2.75rem; min-width: 2.75rem; display: inline-flex; align-items: center; justify-content: center;
+  }
   .button.week-note-btn { min-height: 2.75rem; }
   .hit-line { display: flex; }
   .week-title { display: flex; min-height: 2.75rem; }
@@ -2453,7 +2478,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 46; display: grid; gap: 0.4rem;
   padding: 0.5rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
   background: var(--paper); border-top: 1px solid var(--rule);
-  animation: sheet-in 0.15s ease-out;
+  animation: sheet-in var(--dur-3) var(--ease-settle);
 }
 .touch-bar-widen { display: flex; gap: 0.4rem; }
 .touch-bar-widen .tool { flex: 1; justify-content: center; min-height: 2.75rem; font-size: var(--fs-sm); }
@@ -2537,7 +2562,8 @@ h3 { font-size: var(--fs-lg); }
 /* Fields. */
 input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], input[type="date"], select, textarea {
   border-radius: var(--r-sm); border: 1px solid var(--rule-strong); background: var(--card);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  caret-color: var(--accent);
+  transition: border-color var(--dur-1) var(--ease-settle), box-shadow var(--dur-1) var(--ease-settle);
 }
 input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus, input[type="email"]:focus, input[type="url"]:focus, input[type="date"]:focus, select:focus, textarea:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none;
@@ -2548,7 +2574,7 @@ input[type="text"]:focus, input[type="search"]:focus, input[type="number"]:focus
 .segmented { background: var(--surface); border-radius: var(--r-sm); padding: 2px; gap: 2px; }
 .segmented .tool { border: 0; background: transparent; border-radius: var(--r-xs); color: var(--muted); padding: 0.3rem 0.7rem; text-decoration: none; }
 .segmented .tool:hover { color: var(--ink); }
-.segmented .tool[aria-pressed="true"], .segmented .tool[aria-current="page"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(29, 32, 36, 0.10); }
+.segmented .tool[aria-pressed="true"], .segmented .tool[aria-current="page"] { background: var(--card); color: var(--ink); box-shadow: var(--raise); }
 .jump { background: var(--paper); border: 0; gap: 4px; padding: 0.4rem 0; }
 .picker { background: none; border: 0; gap: 4px; }
 .jump button, .picker button {
@@ -2605,9 +2631,9 @@ dialog.choice-card {
 dialog.choice-card::backdrop { background: transparent; }
 dialog.choice-card.sheet {
   inset: auto 0 0 0; width: 100%; max-width: 100%; max-height: 85vh; border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
-  padding: 1.1rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in 0.18s ease-out;
+  padding: 1.1rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in var(--dur-3) var(--ease-settle);
 }
-dialog.choice-card.sheet::backdrop { background: color-mix(in srgb, var(--ink) 30%, transparent); }
+dialog.choice-card.sheet::backdrop { background: var(--scrim); }
 @media (prefers-reduced-motion: reduce) { dialog.choice-card.sheet { animation: none; } }
 .choice-head { margin-bottom: 0.8rem; }
 .choice-title { font-family: var(--sans); font-size: var(--fs-md); font-weight: 600; line-height: 1.3; margin: 0; }
@@ -2722,7 +2748,7 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .menu-panel button[role="menuitem"]:hover { background: var(--surface); }
 @media (min-width: 44.01rem) {
   .menu-panel {
-    animation: menu-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: menu-pop var(--dur-2) var(--ease-settle);
   }
 }
 @keyframes menu-pop {
@@ -2730,16 +2756,17 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .dialog, dialog.palette { border: 1px solid var(--rule); border-radius: var(--r-lg); box-shadow: var(--shadow-float); }
-.toast { border-radius: var(--r-md); box-shadow: var(--shadow-float); }
+.toast { border-radius: var(--r-md); box-shadow: var(--shadow-float); animation: toast-in var(--dur-2) var(--ease-settle); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (max-width: 44rem) {
-  .menu-backdrop { display: block; position: fixed; inset: 0; z-index: 59; background: color-mix(in srgb, var(--ink) 30%, transparent); }
+  .menu-backdrop { display: block; position: fixed; inset: 0; z-index: 59; background: var(--scrim); }
   .menu-panel {
-    position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 60;
+    position: fixed; left: 0; right: 0; bottom: 0 !important; top: auto !important; z-index: 60;
     max-height: 80vh; max-height: 80dvh; overflow-y: auto;
     transform: none !important; /* Overrides Popper inline coordinate styling on phone */
     min-width: 0; border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
     padding: 0.4rem 0 calc(0.4rem + env(safe-area-inset-bottom, 0px));
-    box-shadow: none; animation: sheet-in 0.18s ease-out;
+    box-shadow: none; animation: sheet-in var(--dur-3) var(--ease-settle);
   }
   .menu-panel button { min-height: 3.25rem; padding: 0 1.25rem; font-size: var(--fs-md); }
   .menu-panel button[role="menuitem"] { padding: 0 1.25rem; border-radius: 0; }
@@ -2752,7 +2779,7 @@ button.stage-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
   }
   .dialog {
     margin: auto 0 0; width: 100%; max-width: 100%; border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
-    padding: 1.4rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in 0.18s ease-out;
+    padding: 1.4rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px)); animation: sheet-in var(--dur-3) var(--ease-settle);
   }
   .dialog .row { flex-wrap: wrap; }
   .dialog .row .button { flex: 1 1 8rem; justify-content: center; min-height: 3rem; }
@@ -2775,14 +2802,14 @@ dialog.sheet-dialog {
   box-shadow: var(--shadow-float);
   display: flex;
   flex-direction: column;
-  animation: sheet-in 0.18s ease-out;
+  animation: sheet-in var(--dur-3) var(--ease-settle);
   box-sizing: border-box;
 }
 dialog.sheet-dialog.tall {
   max-height: 92vh;
 }
 dialog.sheet-dialog::backdrop {
-  background: color-mix(in srgb, var(--ink) 35%, transparent);
+  background: var(--scrim);
 }
 @media (prefers-reduced-motion: reduce) {
   dialog.sheet-dialog {
@@ -2954,7 +2981,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 
 /* Tactile feedback on interactive controls: placed last so press state beats hover. */
 :is(.button, .tool, .icon-button, .quiet, .week-note-btn, .topbar-btn):active:not(:disabled) {
-  scale: 0.97;
+  scale: var(--press-scale);
   background-color: var(--tint-3);
 }
 .button.week-note-btn:active:not(:disabled) {
@@ -2970,7 +2997,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   background-color: color-mix(in srgb, var(--danger) 20%, var(--paper));
 }
 :is(.stage-chip, .stage-tile):active:not(:disabled) {
-  scale: 0.97;
+  scale: var(--press-scale);
   filter: brightness(0.93);
 }
 :root[data-theme="dark"] :is(.stage-chip, .stage-tile):active:not(:disabled) {
@@ -3048,7 +3075,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
    sheet from the foot on a phone, as the stage card is. */
 .date-picker-scrim {
   position: fixed; inset: 0; z-index: 999;
-  background: color-mix(in srgb, var(--ink) 30%, transparent);
+  background: var(--scrim);
   animation: date-fade-in var(--dur-1) var(--ease-out);
 }
 .date-picker-dialog {
@@ -3067,7 +3094,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   left: 0; right: 0; bottom: 0; width: 100%; max-height: 85dvh;
   border-width: 1px 0 0; border-radius: var(--r-lg) var(--r-lg) 0 0;
   padding: 1.1rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  animation: sheet-in 0.18s ease-out;
+  animation: sheet-in var(--dur-3) var(--ease-settle);
 }
 @keyframes date-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
@@ -4094,13 +4121,17 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   text-decoration: none;
   color: inherit;
   box-sizing: border-box;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--dur-1) var(--ease-settle), border-color var(--dur-1) var(--ease-settle), scale var(--dur-1) var(--ease-settle);
 }
-.app-card:hover {
-  border-color: var(--accent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .app-card:hover {
+    border-color: var(--rule-strong);
+    background: var(--surface);
+  }
+}
+/* As in the grid: the card presses only when no control inside it is being pressed. */
+.app-card:active:not(:has(:is(.button, .tool, .icon-button, .quiet, .week-note-btn, .topbar-btn, .stage-chip, .stage-tile):active)) {
+  scale: var(--press-scale);
 }
 .app-card-item.is-closed .app-card {
   opacity: 0.82;
@@ -4504,12 +4535,14 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 
 .essay-zoom-stage {
   margin: 0 auto;
+  overflow: hidden;
   transition: width 160ms ease, height 160ms ease;
 }
 
 .essay-zoom-sheet {
   width: 794px;
   transform-origin: top left;
+  overflow: hidden;
   transition: transform 160ms ease;
 }
 
@@ -4518,6 +4551,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   width: 100%;
   max-width: none;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4570,3 +4604,50 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   border-color: var(--accent, currentColor);
   background: color-mix(in srgb, var(--accent, currentColor) 10%, transparent);
 }
+
+/* Pages, from 0.49.2.
+   One primary per page, one way into each place, one look for renaming and searching,
+   and nothing fixed to the foot of a phone screen overlapping anything else. */
+
+/* The foot of the screen, from the bottom up: tab bar, save bar, notices. The recording
+   bar keeps its place, so the save bar and notices rise above it while it shows. */
+body:has(.settings-sticky-bar) .toast-region { bottom: calc(5.5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
+body.recording-active .settings-sticky-bar { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
+body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
+@media (max-width: 44rem) {
+  .settings-sticky-bar { left: 0.75rem; right: 0.75rem; transform: none; max-width: none; gap: 0.5rem; padding: 0.5rem 0.5rem 0.5rem 1rem; }
+  .settings-sticky-bar > span { margin-right: auto; }
+}
+
+/* Renaming a title in place: the field wears the title's own type, so nothing jumps.
+   The selector outranks the phone rule that sets fields to 16px, which these exceed. */
+.title-edit { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+:root .title-edit input.title-input[type="text"] {
+  flex: 1 1 12rem; min-width: 0; margin: 0 0 0 -0.4rem; padding: 0.1rem 0.4rem; min-height: 0;
+  font-family: var(--display); font-size: var(--fs-2xl); font-weight: 560; letter-spacing: -0.018em; line-height: 1.12;
+  font-variation-settings: "opsz" 72; color: var(--ink);
+}
+:root .title-edit input.title-input.level-2[type="text"] {
+  font-family: var(--display); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.008em; line-height: 1.25;
+  font-variation-settings: "opsz" 36;
+}
+
+/* Previous and next: the drawn chevron, never a typed arrow. */
+.week-nav a { display: inline-flex; align-items: center; gap: 0.35rem; }
+.week-nav .nav-dir { display: inline-flex; color: var(--faint); transition: color var(--dur-1) var(--ease-out); }
+.week-nav .nav-dir.back { rotate: 90deg; }
+.week-nav .nav-dir.next { rotate: -90deg; }
+@media (hover: hover) { .week-nav a:hover .nav-dir { color: var(--accent); } }
+
+/* One search field: the app's clear button only, never the browser's second one. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.search-wrap input[type="search"]:not(.search-box) { width: 100%; padding-right: 2.75rem; }
+
+.search-page > h1 { margin-bottom: 0.75rem; }
+
+/* Selected is one look everywhere: the settings sections too. */
+.settings-nav-item.is-active { color: var(--accent); background: var(--accent-soft); }
+.settings-subhead { margin: 1.5rem 0 0.4rem; font-size: var(--fs-md); font-weight: 600; font-family: var(--sans); }
+.settings-section.danger-section h2 { color: var(--danger); }
+.button.danger:active:not(:disabled) { background-color: color-mix(in srgb, var(--danger) 26%, var(--paper)); }

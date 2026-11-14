@@ -116,9 +116,9 @@ with sync_playwright() as p:
     box.fill('"shaped chinese"')
     expect(page.get_by_role("heading", name="In the readings")).to_be_visible(timeout=10000)
     box.fill('"chinese shaped"')
-    expect(page.get_by_text("Nothing matches that yet.")).to_be_visible(timeout=10000)
+    expect(page.get_by_text(re.compile(r"Nothing matches"))).to_be_visible(timeout=10000)
     box.fill("towards")
-    expect(page.get_by_text("Nothing matches that yet.")).to_be_visible(timeout=10000)
+    expect(page.get_by_text(re.compile(r"Nothing matches"))).to_be_visible(timeout=10000)
     print("phrases and whole-word matching work")
 
     box.fill("cold war asia")
@@ -126,7 +126,7 @@ with sync_playwright() as p:
     page.get_by_role("group", name="Show").get_by_role("button", name="Notes").click()
     expect(page.get_by_role("heading", name="In the readings")).to_have_count(0)
     expect(page.get_by_role("heading", name="Notes")).to_be_visible()
-    page.get_by_role("group", name="Show").get_by_role("button", name="Everything").click()
+    page.get_by_role("group", name="Show").get_by_role("button", name="All").click()
     page.locator("section", has=page.get_by_role("heading", name="In the readings")).locator("a.hit-line").first.click()
     expect(page.locator(".find-bar")).to_be_visible()
     expect(page.get_by_label("Find in this reading")).to_have_value("cold war asia")
@@ -307,8 +307,8 @@ with sync_playwright() as p:
     assert text_x < 12, text_x
     page.screenshot(path=f"{shots}-20-picture.png", full_page=True)
     page.locator(".crumbs a").nth(1).click()
-    expect(page.locator("section.session").first.locator(".session-notes-action a")).to_be_visible()
-    page.locator("section.session").first.locator(".session-notes-action a").click()
+    expect(page.locator("section.session h2 a").first).to_be_visible()
+    page.locator("section.session h2 a").first.click()
     expect(page.locator(".session-notes .bn-editor img[src^='/api/objects/files/']")).to_be_visible()
     print("the session notes show the picture")
 

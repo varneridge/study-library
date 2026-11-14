@@ -420,7 +420,7 @@ def seed_database(browser):
     page.wait_for_selector("h1", timeout=15000)
     page.get_by_role("button", name="Add a module").click()
     page.wait_for_selector("form.section", timeout=10000)
-    page.get_by_role("button", name="A dissertation, by sections you name").click()
+    page.get_by_role("button", name="Dissertation").click()
     page.get_by_label("Code").fill("HY300")
     page.get_by_label("Title").fill("The Monroe Doctrine, British Naval Supremacy and Imperial Rivalries in Latin America, 1823-1904")
     page.get_by_role("button", name="Create module").click()

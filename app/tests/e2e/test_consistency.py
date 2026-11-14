@@ -63,12 +63,12 @@ with sync_playwright() as p:
     expect(page.get_by_role("heading", name="The Consulate")).to_be_visible()
     # On to the next session without going back to the week.
     nav = page.locator("nav[aria-label='Other sessions']")
-    expect(nav.get_by_role("link", name="AT1 Seminar →")).to_be_visible()
+    expect(nav.get_by_role("link", name="AT1 Seminar")).to_be_visible()
     print("the session page renames, changes kind, deletes, and goes on to the next session")
 
     # Slides opened from the lecture go back to the lecture.
     slides.locator("a.name").first.click()
-    back = page.get_by_role("button", name="Back to The Consulate")
+    back = page.locator(".reader-bar").get_by_role("button", name="Back to The Consulate")
     expect(back).to_be_visible()
     back.click()
     expect(page.get_by_role("heading", name="The Consulate")).to_be_visible()

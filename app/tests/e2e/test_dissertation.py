@@ -26,7 +26,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.goto(BASE + "/")
 
     # A new module can be a dissertation: no weeks, one section to start.
-    page.get_by_role("button", name="A dissertation, by sections you name").click()
+    page.get_by_role("button", name="Dissertation").click()
     expect(page.get_by_text("Each week has")).to_have_count(0)
     page.get_by_label("Code").fill("HY300")
     page.get_by_label("Title").fill("Dissertation: the Monroe Doctrine")

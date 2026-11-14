@@ -120,6 +120,7 @@ with sync_playwright() as p:
     expect(page.locator(".pdf-page .hl")).to_have_count(count - 1)
     page.locator(".toast").get_by_role("button", name="Undo").click()
     expect(page.locator(".reading-notes .note-highlight")).to_have_count(3, timeout=10000)
+    expect(page.locator(".pdf-page .hl")).to_have_count(3, timeout=10000)
     print("deleting a quotation removes its highlight, and undo brings both back")
 
     # Ctrl+Z in the notes restores the quotation and brings its highlight back on the page.

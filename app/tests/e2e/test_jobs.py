@@ -116,7 +116,7 @@ with sync_playwright() as p:
     expect(page.locator(".topbar .side-switch")).to_have_count(1)
     expect(page.locator(".topbar .side-switch a.to-jobs")).to_have_attribute("aria-current", "true")
     expect(page.get_by_role("link", name="Settings", exact=True)).to_be_visible()
-    assert page.title() == "Job search · Study Library", page.title()
+    assert page.title() == "Job search, Study Library", page.title()
     expect(page.locator(".jobs-summary")).to_contain_text("4 applications. 3 open, 1 overdue, 1 due within a week, 1 closed.")
     print("summary:", page.locator(".jobs-summary").text_content())
 
@@ -348,7 +348,7 @@ with sync_playwright() as p:
     assert employers() == ["Kekst CNC"], employers()
     page.get_by_role("button", name="All 5").click()
     page.keyboard.press("/")
-    expect(page.locator(".jobs-find")).to_be_focused()
+    expect(page.locator(".jobs-find input")).to_be_focused()
     page.keyboard.type("strategy")
     assert employers() == ["PwC"], employers()
     page.keyboard.press("Escape")

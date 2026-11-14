@@ -2,3 +2,5 @@
 .oracle_solutions/
 .wrangler/
 /Study/
+__pycache__/
+*.pyc
