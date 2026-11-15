@@ -182,16 +182,36 @@ export function syncUrl(route: Route): void {
   currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
 }
 
+// The view transition waits on this promise. It is released only when React has
+// committed the new route (see the layout effect below), so the browser takes
+// its "after" snapshot of the new page and not of the page being left.
+let transitionResolve: (() => void) | null = null;
+
+function settleTransition(): void {
+  const resolve = transitionResolve;
+  transitionResolve = null;
+  resolve?.();
+}
+
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(typeof location !== "undefined" ? location.search : ""));
   const [pending, startRouteTransition] = useTransition();
   useEffect(() => {
     // A transition keeps the current page on screen until the next one has its data.
     const update = () => {
-      const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => void) => void }) : null;
+      const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => Promise<void> | void) => void }) : null;
       if (doc?.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         doc.startViewTransition(() => {
-          startRouteTransition(() => setRoute(parseRoute(location.search)));
+          return new Promise<void>((resolve) => {
+            // A transition still waiting from an earlier navigation is released first.
+            settleTransition();
+            transitionResolve = resolve;
+            startRouteTransition(() => setRoute(parseRoute(location.search)));
+            // Safety net, so a page that is slow to commit can never leave the screen frozen.
+            window.setTimeout(() => {
+              if (transitionResolve === resolve) settleTransition();
+            }, 400);
+          });
         });
       } else {
         startRouteTransition(() => setRoute(parseRoute(location.search)));
@@ -203,6 +223,8 @@ export function useRoute(): Route {
     };
   }, []);
   useLayoutEffect(() => {
+    // The new route is now in the DOM, so the transition may take its new snapshot.
+    settleTransition();
     if (!scrollOnCommit) return;
     scrollOnCommit = false;
     window.scrollTo(0, 0);

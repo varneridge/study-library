@@ -229,36 +229,46 @@ function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
   );
 }
 
-function notePreview(notes: NoteView[]): string {
+// How much of a session's notes a card shows. The primary card is a page of
+// notebook paper, so it takes enough text to fill five ruled lines.
+const PRIMARY_PREVIEW_CHARS = 480;
+const SECONDARY_PREVIEW_CHARS = 200;
+
+function notePreview(notes: NoteView[], limit: number): string {
   const texts = notes
     .flatMap((n) => n.blocks)
     .map(blockText)
     .map((t) => t.trim())
     .filter(Boolean);
-  return texts.join(" ").slice(0, 180);
+  return texts.join(" ").slice(0, limit);
 }
 
 function WeekSessionCard({
   view,
+  primary,
   onAddSlides,
 }: {
   view: SessionView;
-  onAddSlides?: (sessionId: string) => void;
+  primary?: boolean;
+  onAddSlides: (sessionId: string) => void;
 }) {
   const { session, slides, recordings, questions, notes } = view;
   const label = session.title || sessionLabel(session.kind);
-  const preview = notePreview(notes);
+  const preview = notePreview(notes, primary ? PRIMARY_PREVIEW_CHARS : SECONDARY_PREVIEW_CHARS);
   const hasNotes = preview.length > 0;
-  const isLecture = session.kind === "lecture";
   const isSeminar = session.kind === "seminar";
   const hasSlides = slides.length > 0;
   const hasRecordings = recordings.length > 0;
   const hasQuestions = questions.length > 0;
+  const takesSlides = !isSeminar || hasSlides;
+  const showsMaterials = takesSlides || hasRecordings || isSeminar || hasQuestions;
+  const shownRecordings = recordings.slice(0, 2);
 
   return (
-    <div
-      className={`week-session-card${hasNotes ? " has-notes" : " empty"}`}
-      style={{ viewTransitionName: `session-${session.id}` }}
+    <article
+      className={`week-session-card ${primary ? "primary week-main-session-card" : "secondary"}${hasNotes ? " has-notes" : " empty"}`}
+      // Only the primary card shares a name with the session page, so it is the one that morphs into it.
+      style={primary ? { viewTransitionName: "session-notes" } : undefined}
     >
       <div className="wsc-head">
         <span className={`wsc-badge ${session.kind}`}>{sessionLabel(session.kind)}</span>
@@ -268,7 +278,7 @@ function WeekSessionCard({
           className="wsc-open"
           title={`Open ${label} notes and materials`}
         >
-          <span>Open</span>
+          <span>Open notes</span>
           <Icon name="forward" size={14} />
         </Link>
       </div>
@@ -276,57 +286,69 @@ function WeekSessionCard({
       <Link
         to={{ view: "session", id: session.id }}
         className="wsc-notes-area"
-        title={hasNotes ? "Click to open and edit notes" : "Click to write notes"}
+        title={hasNotes ? "Open and edit these notes" : "Start writing notes"}
       >
         {hasNotes ? (
-          <p className="wsc-preview">{preview}</p>
+          <span className="wsc-preview">{preview}</span>
         ) : (
-          <div className="wsc-prompt">
+          <span className="wsc-prompt">
             <Icon name="notes" size={15} />
-            <span>Click to write notes…</span>
-          </div>
+            <span>{`Start your notes for this ${sessionLabel(session.kind).toLowerCase()} here`}</span>
+          </span>
         )}
       </Link>
 
-      <div className="wsc-footer">
-        {isLecture || hasSlides ? (
+      {showsMaterials && (
+        <div className="wsc-footer">
+          {primary && takesSlides && <span className="wsc-footer-label">Lecture materials</span>}
           <div className="wsc-meta">
-            {hasSlides ? (
-              <span className="wsc-chip" title={`${slides.length} slide deck${slides.length === 1 ? "" : "s"}`}>
-                <Icon name="slides" size={14} />
-                <span>{slides.length === 1 ? (slides[0]?.item.title || "Slides") : `${slides.length} slide decks`}</span>
-              </span>
-            ) : onAddSlides ? (
+            {takesSlides && (hasSlides ? (
+              <>
+                <span className="wsc-chip" title={`${slides.length} slide deck${slides.length === 1 ? "" : "s"}`}>
+                  <Icon name="slides" size={14} />
+                  <span>{slides.length === 1 ? (slides[0]?.item.title || "Slides") : `${slides.length} slide decks`}</span>
+                </span>
+                <button
+                  type="button"
+                  className="wsc-add-chip"
+                  onClick={() => onAddSlides(session.id)}
+                  aria-label={`Add more slides to ${label}`}
+                  title="Add more slides (PDF or PowerPoint)"
+                >
+                  <Icon name="add" size={13} />
+                  <span>Add more</span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
                 className="wsc-add-chip"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddSlides(session.id);
-                }}
+                onClick={() => onAddSlides(session.id)}
                 title="Add slides (PDF or PowerPoint)"
               >
                 <Icon name="add" size={13} />
                 <span>Add slides</span>
               </button>
-            ) : null}
-            {hasRecordings && (
-              <span className="wsc-chip recording" title="Session recording">
+            ))}
+            {shownRecordings.map((recording) => (
+              <Link key={recording.id} to={{ view: "session", id: session.id }} className="wsc-chip recording" title="Open the recording">
                 <Icon name="play" size={13} />
-                <span>{recordingLine(recordings[0]!)}</span>
+                <span>{recordingLine(recording)}</span>
+              </Link>
+            ))}
+            {recordings.length > shownRecordings.length && (
+              <span className="wsc-chip">{`${recordings.length - shownRecordings.length} more`}</span>
+            )}
+            {(isSeminar || hasQuestions) && (
+              <span className="wsc-chip" title="Seminar questions">
+                <Icon name="chat" size={14} />
+                <span>{questions.length === 0 ? "Questions" : `${questions.length} question${questions.length === 1 ? "" : "s"}`}</span>
               </span>
             )}
           </div>
-        ) : isSeminar || hasQuestions ? (
-          <div className="wsc-meta">
-            <span className="wsc-chip" title="Seminar questions">
-              <Icon name="chat" size={14} />
-              <span>{questions.length === 0 ? "Questions" : `${questions.length} question${questions.length === 1 ? "" : "s"}`}</span>
-            </span>
-          </div>
-        ) : null}
-      </div>
-    </div>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -339,7 +361,9 @@ export function WeekPage({ id }: { id: string }) {
   const [over, setOver] = useState<FileTarget | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [addCardOpen, setAddCardOpen] = useState(false);
+  const [addSessionOpen, setAddSessionOpen] = useState(false);
   const addFilesButton = useRef<HTMLButtonElement>(null);
+  const addSessionButton = useRef<HTMLButtonElement>(null);
   const addTargetRef = useRef<FileTarget | undefined>(undefined);
   const picker = useRef<HTMLInputElement>(null);
   const coverPicker = useRef<HTMLInputElement>(null);
@@ -406,6 +430,20 @@ export function WeekPage({ id }: { id: string }) {
   const week = view.week;
   const hasSectionNotes = (data.sectionNotes ?? []).some((n) => n.blocks.some((b) => blockText(b).trim()));
   const isDocumentOnly = isSyllabus(week) || isLibrary(module);
+
+  // The lecture, or failing that the first session that is not a seminar, takes
+  // the large card on the left. Any others sit beneath it.
+  const primarySession = view.sessions.find((s) => s.session.kind === "lecture")
+    ?? view.sessions.find((s) => s.session.kind !== "seminar")
+    ?? view.sessions[0];
+  const otherSessions = view.sessions.filter((s) => s !== primarySession);
+  const showMain = moduleHasNotes(module) && (view.sessions.length > 0 || section || moduleHasSessions(module));
+  const pickSlides = (sessionId: string) => {
+    if (sessionPicker.current) {
+      sessionPicker.current.dataset.session = sessionId;
+      sessionPicker.current.click();
+    }
+  };
 
   async function toggleReadingWeek() {
     const { kept } = await setReadingWeek(week, module, !week.is_reading_week);
@@ -606,25 +644,6 @@ export function WeekPage({ id }: { id: string }) {
         />
       </div>
 
-      {/* Sessions and notes cards with preview and space for lecture */}
-      {view.sessions.length > 0 && moduleHasNotes(module) && (
-        <section className="week-sessions-section" aria-label="Sessions and notes">
-          <div className="week-sessions-grid">
-            {view.sessions.map((sessionView) => (
-              <WeekSessionCard
-                key={sessionView.session.id}
-                view={sessionView}
-                onAddSlides={(sessionId) => {
-                  if (sessionPicker.current) {
-                    sessionPicker.current.dataset.session = sessionId;
-                    sessionPicker.current.click();
-                  }
-                }}
-              />
-            ))}
-          </div>
-        </section>
-      )}
       {section && moduleHasNotes(module) && (
         <div className="week-notes-bar" role="navigation" aria-label="Notes">
           <a href="#section-notes" className={`button week-note-btn${hasSectionNotes ? " has-notes" : " empty"}`}>
@@ -634,30 +653,79 @@ export function WeekPage({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Each group lights up for a drop of its own; the whole board only for files whose names decide. */}
-      <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined} style={{ viewTransitionName: `session-side-${week.id}` }}>
-        <WeekBoard
-          week={week}
-          primaries={view.primaries}
-          readings={view.readings}
-          summaries={view.summaries}
-          weeks={weeks ?? []}
-          moduleId={module.id}
-          isLibrary={isLibrary(module)}
-          isSyllabus={isSyllabus(week)}
-          dropKind={over?.kind ?? null}
-          onAddTo={isDocumentOnly ? undefined : (kind) => {
-            addTargetRef.current = { kind, label: KIND_GROUP[kind].toLowerCase() };
-            picker.current?.click();
-          }}
-        />
-        {isDocumentOnly && over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
-          <div className="section"><div className="readings empty-target file-target">{isDocumentOnly ? `Documents for ${weekCode(week)}` : `Readings for ${weekCode(week)}`}</div></div>
+      {/* Two columns, as on a session page: the notes and sessions on the left, the readings beside them on the right. */}
+      <div className={`week-layout${showMain ? "" : " readings-only"}`}>
+        {showMain && (
+          <div className="week-main-col">
+            {primarySession && <WeekSessionCard view={primarySession} primary onAddSlides={pickSlides} />}
+            {otherSessions.map((sessionView) => (
+              <WeekSessionCard key={sessionView.session.id} view={sessionView} onAddSlides={pickSlides} />
+            ))}
+            {!section && moduleHasSessions(module) && (
+              <>
+                <button
+                  ref={addSessionButton}
+                  type="button"
+                  className={`week-add-session${primarySession ? "" : " roomy"}`}
+                  onClick={() => setAddSessionOpen(true)}
+                >
+                  <Icon name="add" size={14} />
+                  <span>{primarySession ? "Add another session" : "Add a session"}</span>
+                </button>
+                <ChoiceCard
+                  open={addSessionOpen}
+                  onClose={() => setAddSessionOpen(false)}
+                  anchor={addSessionButton}
+                  label="Add a session to this week"
+                  title="Add a session"
+                >
+                  <div className="choice-list">
+                    {KINDS.map((k) => (
+                      <button
+                        key={k.value}
+                        type="button"
+                        className="choice-row"
+                        onClick={() => {
+                          setAddSessionOpen(false);
+                          void addSession(week, k.value);
+                        }}
+                      >
+                        <span>{k.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </ChoiceCard>
+              </>
+            )}
+            {/* A section's own notes: a chapter's plan, an argument, what to find. */}
+            {section && <SectionNotes weekId={week.id} code={weekCode(week)} />}
+          </div>
         )}
-      </div>
 
-      {/* A section's own notes: a chapter's plan, an argument, what to find. */}
-      {section && moduleHasNotes(module) && <SectionNotes weekId={week.id} code={weekCode(week)} />}
+        {/* Each group lights up for a drop of its own; the whole board only for files whose names decide. */}
+        <aside className="week-readings-col" style={{ viewTransitionName: "session-side" }}>
+          <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined}>
+            <WeekBoard
+              week={week}
+              primaries={view.primaries}
+              readings={view.readings}
+              summaries={view.summaries}
+              weeks={weeks ?? []}
+              moduleId={module.id}
+              isLibrary={isLibrary(module)}
+              isSyllabus={isSyllabus(week)}
+              dropKind={over?.kind ?? null}
+              onAddTo={isDocumentOnly ? undefined : (kind) => {
+                addTargetRef.current = { kind, label: KIND_GROUP[kind].toLowerCase() };
+                picker.current?.click();
+              }}
+            />
+            {isDocumentOnly && over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
+              <div className="section"><div className="readings empty-target file-target">{`Documents for ${weekCode(week)}`}</div></div>
+            )}
+          </div>
+        </aside>
+      </div>
 
       {moduleHasSessions(module) && (
         <SlideBoard week={week} weeks={weeks ?? []} moduleId={module.id} sessions={view.sessions}>

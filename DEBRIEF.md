@@ -1018,6 +1018,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.10:
+  - Week page notebook layout and morph transition: redesigned WeekPage into a clean two-column layout mirroring SessionPage with a large ruled-paper primary session card on the left (lecture notes preview, slide deck chips, and recording indicators), space for additional sessions and a subtle Add a session button below it, and readings arranged cleanly in the right column; resolved the View Transition morph by holding the browser transition promise until React commits the new route in useLayoutEffect, enabling fluid 60fps morph expansion between WeekPage and SessionPage.
 - Improvements completed in 0.49.9:
   - Fixed position top bar and navigation: added `scrollbar-gutter: stable` to html to eliminate scrollbar jump when switching between study and job search; standardised page container sizing to wide across week pages; unified brand letter-spacing and tool positions.
   - Subtle fixed-position week navigation: moved previous and next week buttons to the top right of the breadcrumb header in a fixed, stable position so the buttons remain in the exact same spot under cursor or finger when navigating across weeks; preserved keyboard shortcuts [ and ] and full test compatibility.
@@ -1218,6 +1220,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.7 | Module content section header: added matching "Content" (or "Shelves" / "Sections") section heading with count badge above the weeks grid on ModulePage. |
 | 0.49.8 | Micro-level performance and stability optimisations: converted remaining page queries to `useSuspendingLiveQuery` in SessionPage, AssessmentPage, Settings, and SearchPage; consolidated session neighbour navigation to four reads; stabilised Settings layout with persistent placeholder; cleaned search typing prefixes; and safeguarded concurrent essay save failure states. |
 | 0.49.9 | Fixed element positions and layout stabilisation across pages, subtle top-of-page week navigation, space-efficient week layout with session cards and notes preview, and smooth hardware-accelerated View Transition morph animations into session notes. |
+| 0.49.10 | Two-column notebook week layout mirroring SessionPage with ruled-paper primary session card and side readings, and true View Transition morph holding browser promise until React layout commit. |
 
 ## 18. The job search
 
