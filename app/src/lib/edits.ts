@@ -1,5 +1,5 @@
 import { moveToTray } from "./moves";
-import { weekCode } from "./modules";
+import { sessionLabel, weekCode } from "./modules";
 // Deleting and restoring.
 //
 // Every delete is soft: rows are marked deleted and kept for 90 days, so
@@ -9,7 +9,7 @@ import { weekCode } from "./modules";
 // deleted at or after the parent, and leaves alone anything that was
 // deleted on its own earlier.
 
-import { db } from "./db";
+import { db, getMeta, setMeta } from "./db";
 import { byPosition, keysAfter } from "./keys";
 import { commit, newId, type Change } from "./sync";
 import { confirmAction, showToast } from "./ui";
@@ -189,13 +189,13 @@ export async function loadBin(): Promise<BinEntry[]> {
   for (const session of recent([...sessions.values()])) {
     const week = weeks.get(session.week_id);
     if (!alive(week) || !alive(week ? modules.get(week.module_id) : undefined)) continue;
-    // An empty session is not worth listing. Marking a reading week clears
-    // those, and unmarking it makes fresh ones.
+    // An empty session is not worth listing, since nothing would come back
+    // with it. Marking a reading week clears those.
     const tree = await sessionTree([session]);
     if (!tree.some((r) => r.table !== "sessions" && (!r.row.deleted || r.row.modified_at >= session.modified_at))) continue;
     out.push({
       key: `s:${session.id}`, kind: "session",
-      label: session.title || (session.kind === "lecture" ? "Lecture" : session.kind === "seminar" ? "Seminar" : "Session"),
+      label: session.title || sessionLabel(session.kind),
       context: weekLabel(week), deletedAt: session.modified_at,
       restore: async () => restoreTree({ table: "sessions", row: session }, await sessionTree([session])),
     });
@@ -227,18 +227,23 @@ export async function loadBin(): Promise<BinEntry[]> {
 
 // Weeks and sessions
 
-export async function addSession(week: WeekRow, kind: SessionKind): Promise<void> {
+// Adds a session after the week's others and returns its id, so the caller
+// can open it straight away if it wants to.
+export async function addSession(week: WeekRow, kind: SessionKind): Promise<string> {
   const existing = (await db.sessions.where("week_id").equals(week.id).toArray()).filter((s) => !s.deleted).sort(byPosition);
+  const id = newId();
   await commit([{
     table: "sessions",
-    row: { id: newId(), week_id: week.id, kind, title: null, position: keysAfter(existing.at(-1)?.position ?? null, 1)[0] },
+    row: { id, week_id: week.id, kind, title: null, position: keysAfter(existing.at(-1)?.position ?? null, 1)[0] },
   }]);
+  return id;
 }
 
 // Marking a reading week clears its empty sessions and keeps any that hold
-// notes, slides or recordings. Unmarking gives the week the module's
-// usual sessions if it has none.
-export async function setReadingWeek(week: WeekRow, module: ModuleRow, reading: boolean): Promise<{ kept: number }> {
+// notes, slides or recordings. Unmarking leaves the week as a blank slate,
+// because sessions are added by hand as they are needed. The module is still
+// taken, so callers need not change, but it is no longer read.
+export async function setReadingWeek(week: WeekRow, _module: ModuleRow, reading: boolean): Promise<{ kept: number }> {
   const sessions = (await db.sessions.where("week_id").equals(week.id).toArray()).filter((s) => !s.deleted).sort(byPosition);
   const changes: Change[] = [{ table: "weeks", row: { ...week, is_reading_week: reading } }];
   let kept = 0;
@@ -247,14 +252,37 @@ export async function setReadingWeek(week: WeekRow, module: ModuleRow, reading: 
       if (await sessionHasContent(session)) kept += 1;
       else changes.push({ table: "sessions", row: { ...session, deleted: true } });
     }
-  } else if (sessions.length === 0) {
-    const keys = keysAfter(null, module.session_pattern.length);
-    module.session_pattern.forEach((kind, i) => {
-      changes.push({ table: "sessions", row: { id: newId(), week_id: week.id, kind, title: null, position: keys[i] } });
-    });
   }
   await commit(changes);
   return { kept };
+}
+
+// Brings older modules into line with blank-slate weeks, once per device.
+// Modules stop asking for sessions in new weeks. Sessions that were made
+// for every week but never used, with no title and nothing inside, are
+// soft-deleted, so they can still be restored from the bin. Combined
+// sessions that hold work become seminars. Supervision meetings are left
+// alone. It waits for the first pull, so a new device judges what the
+// server holds rather than an empty database. Returns how many rows changed.
+export async function resetSessionsOnce(): Promise<number> {
+  if (!((await getMeta<number>("cursor")) ?? 0)) return 0;
+  if (await getMeta<boolean>("sessions-blank-v2")) return 0;
+  const changes: Change[] = [];
+  for (const m of (await db.modules.toArray()).filter((m) => !m.deleted)) {
+    if (m.session_pattern.length > 0) {
+      changes.push({ table: "modules", row: { id: m.id, session_pattern: [] }, patch: true });
+    }
+  }
+  for (const s of (await db.sessions.toArray()).filter((s) => !s.deleted && s.kind !== "supervision")) {
+    if (!(await sessionHasContent(s)) && !s.title?.trim()) {
+      changes.push({ table: "sessions", row: { ...s, deleted: true } });
+    } else if (s.kind === "combined") {
+      changes.push({ table: "sessions", row: { id: s.id, kind: "seminar" as const }, patch: true });
+    }
+  }
+  await commit(changes);
+  await setMeta("sessions-blank-v2", true);
+  return changes.length;
 }
 
 // Readings
@@ -269,7 +297,9 @@ export async function moduleOfItem(item: ItemRow): Promise<string | null> {
 
 // Modules
 
-// Swaps a row's position with its neighbour, keeping every other key as it is.
+// Swaps a row's position with its neighbour, keeping every other key as it
+// is. The one-place moves stay for older callers and the tests; the pages now
+// reorder by dragging, through the reorder functions below.
 async function swapPosition<T extends { id: string; position: string; deleted: boolean }>(
   table: "modules" | "questions" | "sessions",
   rows: T[],
@@ -296,6 +326,40 @@ export async function moveQuestion(question: QuestionRow, direction: -1 | 1): Pr
 
 export async function moveSession(session: SessionRow, direction: -1 | 1): Promise<void> {
   await swapPosition("sessions", await db.sessions.where("week_id").equals(session.week_id).toArray(), session.id, direction);
+}
+
+// Puts rows in the order a drag left them in, with fresh position keys from
+// the start. Rows that ids leaves out follow those it names, in their old
+// order, so a list drawn from a filtered view can never leave two rows
+// sharing a key. Only rows whose key actually changes are written.
+async function reorderRows<T extends { id: string; position: string; deleted: boolean }>(
+  table: "modules" | "questions" | "sessions",
+  rows: T[],
+  ids: string[],
+): Promise<void> {
+  const live = rows.filter((r) => !r.deleted).sort(byPosition);
+  const byId = new Map(live.map((r) => [r.id, r]));
+  const named = [...new Set(ids)].filter((id) => byId.has(id));
+  const chosen = new Set(named);
+  const order = [...named, ...live.filter((r) => !chosen.has(r.id)).map((r) => r.id)];
+  const keys = keysAfter(null, order.length);
+  const changes: Change[] = [];
+  order.forEach((id, i) => {
+    if (byId.get(id)!.position !== keys[i]) changes.push({ table, row: { id, position: keys[i] }, patch: true });
+  });
+  if (changes.length) await commit(changes);
+}
+
+export async function reorderModules(ids: string[]): Promise<void> {
+  await reorderRows("modules", await db.modules.toArray(), ids);
+}
+
+export async function reorderSessions(weekId: string, ids: string[]): Promise<void> {
+  await reorderRows("sessions", await db.sessions.where("week_id").equals(weekId).toArray(), ids);
+}
+
+export async function reorderQuestions(sessionId: string, ids: string[]): Promise<void> {
+  await reorderRows("questions", await db.questions.where("session_id").equals(sessionId).toArray(), ids);
 }
 
 // Deletes, then offers to undo at the foot of the screen.

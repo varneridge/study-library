@@ -1,12 +1,15 @@
+import { closestCenter, DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { rectSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useState } from "react";
 import { Link } from "../App";
-import { Icon } from "./icons";
 import { loadModules, type ModuleSummary } from "../lib/library";
 import { useTeachingWeek } from "../lib/term";
 import { createModule, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
-import { moveModule } from "../lib/edits";
+import { reorderModules } from "../lib/edits";
+import { droppedOrder, dragHandleProps, steppedOrder, swallowClickAfterDrag, useDragSensors, useOptimisticOrder } from "../lib/drag";
 import { showToast, useTitle } from "../lib/ui";
 import type { ModuleKind } from "../lib/types";
 
@@ -60,7 +63,7 @@ function NewModule({ onDone }: { onDone?: () => void }) {
       ) : kind === "library" ? (
         <p className="small muted">An open library for books, secondary literature and downloaded references, organised by shelves you name (such as Historiography, Reference, or Primary sources) with no term weeks.</p>
       ) : (<>
-      <p className="small muted">Weeks of term, each with its sessions, readings and notes.</p>
+      <p className="small muted">Weeks of term, ready for your readings, seminars and lectures.</p>
       <div className="row">
         <label className="field">
           <span>Autumn reading week</span>
@@ -87,26 +90,34 @@ function NewModule({ onDone }: { onDone?: () => void }) {
 }
 
 
+// A module's card, which a mouse or a pen can drag from anywhere and a finger
+// from its "#" handle, shown while the modules are being reorganised.
 function ModuleCard({
   item,
   index,
   arranging,
-  totalModules,
+  onStep,
 }: {
   item: ModuleSummary;
   index: number;
   arranging: boolean;
-  totalModules: number;
+  onStep: (direction: -1 | 1) => void;
 }) {
   const { module } = item;
   const [imgFailed, setImgFailed] = useState(false);
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: module.id });
   const hasImage = Boolean(module.image_key && !imgFailed);
   const imageSrc = module.image_key
     ? (module.image_key.startsWith("pictures/") ? `/api/${module.image_key}` : `/api/pictures/${module.image_key}`)
     : null;
 
   return (
-    <li className={`module-card module-item${arranging ? " arranging" : ""}`}>
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={`module-card module-item movable${isDragging ? " dragging" : ""}${arranging ? " arranging" : ""}`}
+      {...(listeners as React.HTMLAttributes<HTMLLIElement>)}
+    >
       <div className="module-card-cover">
         {hasImage && imageSrc ? (
           <img
@@ -139,11 +150,18 @@ function ModuleCard({
           </Link>
         )}
 
+        {/* While reorganising the link gives way to a plain row, so the
+            handle never sits inside a link that a tap would follow. */}
         {arranging && (
-          <span className="order">
-            <button className="tool" aria-label={`Move ${module.code} up`} disabled={index === 0} onClick={() => moveModule(module.id, -1)}><Icon name="up" size={16} /></button>
-            <button className="tool" aria-label={`Move ${module.code} down`} disabled={index === totalModules - 1} onClick={() => moveModule(module.id, 1)}><Icon name="down" size={16} /></button>
-          </span>
+          <button
+            type="button"
+            className="drag-handle"
+            data-drag-handle
+            aria-label={`Drag ${module.code} to reorder`}
+            {...dragHandleProps(onStep)}
+          >
+            #
+          </button>
         )}
       </div>
     </li>
@@ -155,13 +173,30 @@ export function Home() {
   const modules = useSuspendingLiveQuery(() => loadModules(week), ["home-modules", week?.term, week?.number, week?.upcoming]);
   const [adding, setAdding] = useState(false);
   const [arranging, setArranging] = useState(false);
+  const sensors = useDragSensors();
+  // The order on screen runs ahead of the database for the moment after a drop.
+  const [ordered, setOrder] = useOptimisticOrder(modules, (m) => m.module.id, modules);
   useTitle(null);
+
+  const save = (next: string[] | null) => {
+    if (!next) return;
+    setOrder(next);
+    reorderModules(next).catch((error: unknown) => {
+      setOrder(null);
+      showToast(`The new order could not be saved. ${(error as Error).message || "Try again in a moment."}`);
+    });
+  };
+  const ids = ordered.map((m) => m.module.id);
+  const onDragEnd = (event: DragEndEvent) => {
+    swallowClickAfterDrag();
+    save(droppedOrder(ids, String(event.active.id), event.over ? String(event.over.id) : null));
+  };
 
   if (modules.length === 0) {
     return (
       <div className="page wide">
         <h1>Add your first module</h1>
-        <p className="lede">Creating a module sets up all 22 weeks, with sessions in each.</p>
+        <p className="lede">Creating a module sets up all 22 weeks, ready for your readings and notes.</p>
         <NewModule />
       </div>
     );
@@ -173,8 +208,8 @@ export function Home() {
         <h1>Modules</h1>
         <span className="spacer" />
         {modules.length > 1 && (
-          <button className="quiet" aria-pressed={arranging} onClick={() => setArranging(!arranging)}>
-            {arranging ? "Done" : "Change order"}
+          <button type="button" className="quiet" aria-pressed={arranging} onClick={() => setArranging(!arranging)}>
+            {arranging ? "Done" : "Reorganise"}
           </button>
         )}
         {/* The page's own action sits by its heading, as on every page. */}
@@ -182,17 +217,21 @@ export function Home() {
       </div>
       {/* The new module opens where its button was, not below every card. */}
       {adding && <NewModule onDone={() => setAdding(false)} />}
-      <ul className="module-grid">
-        {modules.map((item, index) => (
-          <ModuleCard
-            key={item.module.id}
-            item={item}
-            index={index}
-            arranging={arranging}
-            totalModules={modules.length}
-          />
-        ))}
-      </ul>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} onDragCancel={swallowClickAfterDrag}>
+        <SortableContext items={ids} strategy={rectSortingStrategy}>
+          <ul className={`module-grid${arranging ? " arranging" : ""}`}>
+            {ordered.map((item, index) => (
+              <ModuleCard
+                key={item.module.id}
+                item={item}
+                index={index}
+                arranging={arranging}
+                onStep={(direction) => save(steppedOrder(ids, item.module.id, direction))}
+              />
+            ))}
+          </ul>
+        </SortableContext>
+      </DndContext>
     </div>
   );
 }

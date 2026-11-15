@@ -3,18 +3,27 @@ import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect } from "react";
 import { Link } from "../App";
 import { useTitle } from "../lib/ui";
-import { loadAcross } from "../lib/library";
-import { sessionLabel, WEEK_NUMBERS } from "../lib/modules";
+import { loadAcross, type ReadingView, type WeekOverview } from "../lib/library";
+import { WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
-import { clock } from "../lib/recorder";
-import { recordingState } from "./Recording";
-import { ReadingRow } from "./ReadingRow";
 import { readCount } from "../lib/progress";
+import { WeekCard } from "./ModulePage";
 import { db } from "../lib/db";
 import { countdown } from "../lib/sections";
 import { shortDate } from "../lib/dates";
 
 const KEY = "across-week";
+
+// The first reading in a week with a thumbnail of its own, primaries first,
+// so that a week with no cover picture is still shown by what is in it.
+function firstThumb(groups: ReadingView[][]): string | null {
+  for (const group of groups) {
+    for (const view of group) {
+      if (view.file?.thumb_key) return view.file.thumb_key;
+    }
+  }
+  return null;
+}
 
 // The next key dates across dissertation modules, counting down as job
 // deadlines do: amber within a week, red on the day or once passed.
@@ -48,9 +57,10 @@ function KeyDatesAhead() {
   );
 }
 
-// One week for every module. Reached from the tab or the top bar, it opens
-// on this week while term runs, as the phone's "This week" tab promises; in
-// the vacations it opens on the week you last chose here.
+// One week for every module, each shown as the same compact card a module's
+// own page uses. Reached from the tab or the top bar, it opens on this week
+// while term runs, as the phone's "This week" tab promises; in the vacations
+// it opens on the week you last chose here.
 export function AcrossPage({ term, number }: { term?: string; number?: number }) {
   const now = useTeachingWeek();
   const dates = useTermDates();
@@ -92,67 +102,20 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
       </div>
       {/* The page title comes first; the countdown follows the week picker. */}
       <KeyDatesAhead />
-      {data.map(({ module, view }) => {
-        const loose = view.primaries.length + view.readings.length + view.summaries.length;
-        const sessions = view.sessions;
-        const progress = readCount([...view.primaries, ...view.readings]);
-        const progressText = progress.total === 0
-          ? null
-          : progress.read === progress.total
-            ? `All ${progress.total} read`
-            : progress.read > 0
-              ? `${progress.read} of ${progress.total} read`
-              : `${progress.total} ${progress.total === 1 ? "reading" : "readings"}`;
-
-        return (
-          <section key={module.id} className="section across-module">
-            <div className="section-head">
-              <h2>{module.code}</h2>
-              {progressText && <span className="count">{progressText}</span>}
-              <span className="spacer" />
-              <Link to={{ view: "week", id: view.week.id }} className="where">
-                {view.week.title || (view.week.is_reading_week ? "Reading week" : "Open the week")}
-              </Link>
-            </div>
-            {view.primaries.length > 0 && (
-              <>
-                <p className="group-label">Primary readings</p>
-                <ul className="readings">{view.primaries.map((r) => <ReadingRow key={r.item.id} view={r} />)}</ul>
-              </>
-            )}
-            {view.readings.length > 0 && (
-              <>
-                <p className="group-label">Secondary readings</p>
-                <ul className="readings">{view.readings.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
-              </>
-            )}
-            {view.summaries.length > 0 && (
-              <>
-                <p className="group-label">Summaries</p>
-                <ul className="readings">{view.summaries.map((r) => <ReadingRow key={r.item.id} view={r} short />)}</ul>
-              </>
-            )}
-            {sessions.map(({ session, notes, slides, recordings }) => {
-              const parts = [
-                notes.length && ", notes",
-                slides.length && ", slides",
-                ...recordings.map((r) => `, ${recordingState(r) ?? (r.duration_seconds ? `recording, ${clock(r.duration_seconds)}` : "recording")}`),
-              ].filter(Boolean);
-              return (
-                <div key={session.id} className="across-session">
-                  <p className="small">
-                    <Link to={{ view: "session", id: session.id }}>{session.title || sessionLabel(session.kind)}</Link>
-                    <span className="muted">
-                      {parts.length > 0 ? parts.join("") : ": No notes yet"}
-                    </span>
-                  </p>
-                </div>
-              );
-            })}
-            {loose === 0 && sessions.length === 0 && <p className="small muted">No readings or sessions in this week yet. Open the week to add them.</p>}
-          </section>
-        );
-      })}
+      {/* Each module's chosen week as a card, laid out like a module's weeks. */}
+      <div className="week-grid across-week-grid">
+        {data.map(({ module, view }) => {
+          const overview: WeekOverview = {
+            week: view.week,
+            readingCount: readCount([...view.primaries, ...view.readings]),
+            thumb_key: view.week.image_key ?? firstThumb([view.primaries, view.readings, view.summaries]),
+            thumb_keys: [],
+            sessions: [],
+            isCurrentWeek,
+          };
+          return <WeekCard key={module.id} overview={overview} module={module} dates={dates} moduleCode={module.code} />;
+        })}
+      </div>
     </div>
   );
 }

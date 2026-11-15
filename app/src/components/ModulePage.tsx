@@ -1,11 +1,15 @@
 import { navigate } from "../lib/router";
 import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
-import { moveSection, addSection, isDissertation, isLibrary, moduleHasSessions, saveKeyDates, countdown, coverLabel, type CoverVariant } from "../lib/sections";
+import { reorderSections, addSection, isDissertation, isLibrary, hasCustomSections, saveKeyDates, countdown, coverLabel, type CoverVariant } from "../lib/sections";
+import { closestCenter, DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { rectSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { droppedOrder, dragHandleProps, steppedOrder, swallowClickAfterDrag, useDragSensors, useOptimisticOrder } from "../lib/drag";
 
 import { Menu } from "./Menu";
 import { useSuspendingLiveQuery } from "dexie-react-hooks";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fullTitle } from "../lib/titles";
 import { applySuggestion, keepMine, viaLabel } from "../lib/citations";
 import { update, newId } from "../lib/sync";
@@ -17,7 +21,7 @@ import type { ModuleRow, WeekRow } from "../lib/types";
 import { useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { Link } from "../App";
 import { loadModuleOverview } from "../lib/library";
-import { sessionLabel, weekCode, isSection } from "../lib/modules";
+import { weekCode, isSection } from "../lib/modules";
 import { BlockView } from "./BlockView";
 import { uploadModulePicture } from "../lib/uploads";
 import { downloadWeekArchive } from "../lib/weekArchive";
@@ -35,8 +39,8 @@ import {
   useModuleEssays,
 } from "../lib/assessment";
 
-
-function formatReadingCount(counts: { read: number; total: number }): string | null {
+// Exported so the This week page can say a week's reading count in the same words.
+export function formatReadingCount(counts: { read: number; total: number }): string | null {
   const { read, total } = counts;
   if (total === 0) return null;
   if (read === 0) return `${total} ${total === 1 ? "reading" : "readings"}`;
@@ -170,30 +174,52 @@ function WeekCoverImage({
   );
 }
 
+// What a card needs in order to be dragged, given only where its sections can
+// be put in a new order. The This week page leaves it out.
+export interface WeekCardDrag {
+  setNodeRef: (node: HTMLElement | null) => void;
+  listeners: React.HTMLAttributes<HTMLElement> | undefined;
+  style: React.CSSProperties;
+  dragging: boolean;
+  // Reorganising shows the "#" handle, the only place a finger can drag from.
+  arranging: boolean;
+  onStep: (direction: -1 | 1) => void;
+}
 
-function WeekCard({
+// A week as a compact card of one fixed height: its cover, then one line with
+// the week's code on the left and its reading count (or, with no readings,
+// its dates) on the right, then its title on one line. The This week page
+// passes moduleCode, so that each card also says which module it belongs to;
+// renaming applies only to sections, so the This week page can leave it out.
+export function WeekCard({
   overview,
   module,
   dates,
-  renaming,
-  onStartRename,
-  onEndRename,
+  moduleCode,
+  renaming = false,
+  onStartRename = () => {},
+  onEndRename = () => {},
+  drag,
 }: {
   overview: WeekOverview;
   module: ModuleRow;
   dates: ReturnType<typeof useTermDates>;
-  renaming: boolean;
-  onStartRename: () => void;
-  onEndRename: () => void;
+  moduleCode?: string;
+  renaming?: boolean;
+  onStartRename?: () => void;
+  onEndRename?: () => void;
+  drag?: WeekCardDrag;
 }) {
-  const { week, readingCount, thumb_key, thumb_keys, sessions, isCurrentWeek } = overview;
+  const { week, readingCount, thumb_key, thumb_keys, isCurrentWeek } = overview;
   const [fileOver, setFileOver] = useState(false);
   const coverPickerRef = useRef<HTMLInputElement>(null);
   const summary = formatReadingCount(readingCount);
   const isSec = isSection(week);
   const isShelf = isLibrary(module);
   const code = weekCode(week);
-
+  // The count takes the dates' place when there is one, so that every card
+  // keeps to a single meta line and no card is taller than the rest.
+  const metaText = summary ?? (!isSec ? weekDatesText(week.term, week.number, dates) : "");
 
   const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -226,9 +252,12 @@ function WeekCard({
 
   return (
     <article
-      id={`week-${code}`}
+      ref={drag?.setNodeRef}
+      style={drag?.style}
+      {...(drag?.listeners ?? {})}
+      id={moduleCode ? undefined : `week-${code}`}
       data-drop-week={week.id}
-      className={`week-card week${isShelf ? " is-shelf is-library" : ""}${isCurrentWeek ? " this-week" : ""}${fileOver ? " drop-over" : ""}`}
+      className={`week-card week${isShelf ? " is-shelf is-library" : ""}${isCurrentWeek ? " this-week" : ""}${fileOver ? " drop-over" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}${drag?.arranging ? " arranging" : ""}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -272,8 +301,6 @@ function WeekCard({
             { label: isLibrary(module) ? "Rename shelf" : "Rename", onSelect: onStartRename },
             { label: "Set cover picture", onSelect: () => coverPickerRef.current?.click() },
             { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-            { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
-            { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
             { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
             { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: () => void deleteSection(week, module.id) },
           ] : [
@@ -287,10 +314,20 @@ function WeekCard({
 
       <div className="week-card-body">
         <div className="week-card-meta">
-          <span className="week-code week-card-code">{code}</span>
-          {!isSec && (
-            <span className="week-card-dates">{weekDatesText(week.term, week.number, dates)}</span>
+          {/* The handle sits outside both links, so a tap on it never opens the week. */}
+          {drag?.arranging && (
+            <button
+              type="button"
+              className="drag-handle"
+              data-drag-handle
+              aria-label={`Drag ${code} to reorder`}
+              {...dragHandleProps(drag.onStep)}
+            >
+              #
+            </button>
           )}
+          <span className="week-code week-card-code">{moduleCode ? `${moduleCode} · ${code}` : code}</span>
+          {metaText && <span className="week-card-dates">{metaText}</span>}
         </div>
 
         {renaming ? (
@@ -320,36 +357,34 @@ function WeekCard({
             )}
           </Link>
         )}
-
-        {!week.is_reading_week && moduleHasSessions(module) && sessions.length > 0 && (
-          <div className="week-card-sessions week-head">
-            {sessions.map(({ session, hasNotes }) => (
-              <Link
-                key={session.id}
-                to={{ view: "session", id: session.id }}
-                className={`session-link week-card-session-link${hasNotes ? " has-notes" : ""}`}
-                title={`Notes for the ${(session.title || sessionLabel(session.kind)).toLowerCase()}`}
-              >
-                {session.title || sessionLabel(session.kind)}
-              </Link>
-            ))}
-          </div>
-        )}
-        {week.is_reading_week && (
-          <div className="week-card-sessions reading-week-placeholder">
-            <span className="reading-weeks">Independent study</span>
-          </div>
-        )}
-
-        {summary && (
-          <div className="week-card-footer">
-            <span className="count week-card-count">{summary}</span>
-          </div>
-        )}
       </div>
     </article>
   );
 }
+
+// A section's card as one of a sortable grid.
+function SortableWeekCard({
+  arranging,
+  onStep,
+  ...card
+}: Omit<Parameters<typeof WeekCard>[0], "drag"> & { arranging: boolean; onStep: (direction: -1 | 1) => void }) {
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: card.overview.week.id });
+  return (
+    <WeekCard
+      {...card}
+      drag={{
+        setNodeRef,
+        listeners: listeners as React.HTMLAttributes<HTMLElement> | undefined,
+        style: { transform: CSS.Translate.toString(transform), transition },
+        dragging: isDragging,
+        arranging,
+        onStep,
+      }}
+    />
+  );
+}
+
+const NO_WEEKS: WeekOverview[] = [];
 
 function KeyDates({ module }: { module: ModuleRow }) {
   const dates = module.key_dates ?? [];
@@ -415,30 +450,36 @@ export function ModulePage({ id }: { id: string }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [addingSection, setAddingSection] = useState(false);
-  const scrolledRef = useRef(false);
+  const [arranging, setArranging] = useState(false);
+  const scrolledFor = useRef<string | null>(null);
+  const sensors = useDragSensors();
+  // The sections a drag can reorder: every section of a dissertation or a
+  // library, and the admin and syllabus sections among a taught module's
+  // course materials. Only one of those grids is ever shown with them.
+  const sortableSource = useMemo(() => {
+    if (!data) return NO_WEEKS;
+    return hasCustomSections(data.module) ? data.weeks : data.weeks.filter((w) => w.week.term === "S");
+  }, [data]);
+  const [sortableWeeks, setSectionOrder] = useOptimisticOrder(sortableSource, (ov) => ov.week.id, data);
   useTitle(data?.module.code);
 
-
+  // Opening a taught module that has something in it brings the Content
+  // heading to the top of the screen, with every week laid out below it.
+  // The scroll waits one frame so that it lands after the router's own
+  // scroll on navigation; the module is marked done only once it has run,
+  // so a cancelled frame (as in Strict Mode) still leads to one scroll.
   useEffect(() => {
-    if (data && !scrolledRef.current) {
-      scrolledRef.current = true;
-      const targetWeek =
-        data.weeks.find((w) => w.isCurrentWeek)?.week ??
-        (data.module.last_opened_week_id
-          ? data.weeks.find((w) => w.week.id === data.module.last_opened_week_id)?.week
-          : null);
-      if (targetWeek) {
-        const code = weekCode(targetWeek);
-        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        setTimeout(() => {
-          document.getElementById(`week-${code}`)?.scrollIntoView({
-            behavior: reduce ? "auto" : "smooth",
-            block: "nearest",
-          });
-        }, 80);
-      }
+    if (!data || scrolledFor.current === id) return;
+    if (isDissertation(data.module) || isLibrary(data.module) || data.empty) {
+      scrolledFor.current = id;
+      return;
     }
-  }, [data]);
+    const frame = requestAnimationFrame(() => {
+      scrolledFor.current = id;
+      document.getElementById("module-content")?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [id, data]);
 
   useEffect(() => {
     if (!data) return;
@@ -474,6 +515,39 @@ export function ModulePage({ id }: { id: string }) {
   const customSections = weeks.filter((w) => w.week.term === "S");
   const termWeeks = weeks.filter((w) => w.week.term !== "S");
   const adminOpen = !isCollapsed || forcedOpen;
+  const canArrange = sortableWeeks.length > 1;
+  const reorganising = arranging && canArrange;
+  const sectionIds = sortableWeeks.map((ov) => ov.week.id);
+  const saveOrder = (next: string[] | null) => {
+    if (!next) return;
+    setSectionOrder(next);
+    reorderSections(module.id, next).catch((error: unknown) => {
+      setSectionOrder(null);
+      showToast(`The new order could not be saved. ${(error as Error).message || "Try again in a moment."}`);
+    });
+  };
+  const onSectionDragEnd = (event: DragEndEvent) => {
+    swallowClickAfterDrag();
+    saveOrder(droppedOrder(sectionIds, String(event.active.id), event.over ? String(event.over.id) : null));
+  };
+  const reorganiseButton = canArrange && (
+    <button type="button" className="quiet" aria-pressed={reorganising} onClick={() => setArranging(!reorganising)}>
+      {reorganising ? "Done" : "Reorganise"}
+    </button>
+  );
+  const sortableCard = (ov: WeekOverview) => (
+    <SortableWeekCard
+      key={ov.week.id}
+      overview={ov}
+      module={module}
+      dates={dates}
+      renaming={renamingId === ov.week.id}
+      onStartRename={() => setRenamingId(ov.week.id)}
+      onEndRename={() => setRenamingId(null)}
+      arranging={reorganising}
+      onStep={(direction) => saveOrder(steppedOrder(sectionIds, ov.week.id, direction))}
+    />
+  );
   // The page's main action, guarded so a double tap makes one section, not two.
   const addOneSection = async () => {
     if (addingSection) return;
@@ -552,6 +626,8 @@ export function ModulePage({ id }: { id: string }) {
                 <span className="toggle-count">({(customSectionsOnly ? 0 : customSections.length) + (essays.length > 0 ? essays.length : (hasAssessment ? 1 : 0))})</span>
               </button>
             </h2>
+            {/* A taught module's own sections, such as Admin, are reordered here. */}
+            {!customSectionsOnly && adminOpen && reorganiseButton}
             <Menu
               label="Add to course materials"
               trigger={
@@ -583,18 +659,15 @@ export function ModulePage({ id }: { id: string }) {
               ]}
             />
           </div>
-          <div id={`admin-grid-${module.id}`} className="week-grid" hidden={!adminOpen}>
-            {!customSectionsOnly && customSections.map((ov) => (
-              <WeekCard
-                key={ov.week.id}
-                overview={ov}
-                module={module}
-                dates={dates}
-                renaming={renamingId === ov.week.id}
-                onStartRename={() => setRenamingId(ov.week.id)}
-                onEndRename={() => setRenamingId(null)}
-              />
-            ))}
+          <div id={`admin-grid-${module.id}`} className={`week-grid${!customSectionsOnly && reorganising ? " arranging" : ""}`} hidden={!adminOpen}>
+            {/* The essays follow the sections and stay where they are. */}
+            {!customSectionsOnly && (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd} onDragCancel={swallowClickAfterDrag}>
+                <SortableContext items={sectionIds} strategy={rectSortingStrategy}>
+                  {sortableWeeks.map(sortableCard)}
+                </SortableContext>
+              </DndContext>
+            )}
             {essays.length > 0 ? (
               essays.map((essay) => (
                 <AssessmentCard
@@ -616,26 +689,39 @@ export function ModulePage({ id }: { id: string }) {
 
 
 
-      <section className="section module-weeks" style={{ marginTop: "1rem" }}>
+      <section id="module-content" data-scroll-anchor className="section module-weeks" style={{ marginTop: "1rem" }}>
         <div className="section-head" style={{ marginBottom: "0.75rem" }}>
           <h2 style={{ margin: 0, display: "inline-flex", alignItems: "center", minHeight: "2.75rem" }}>
             <span>{customSectionsOnly ? (library ? "Shelves" : "Sections") : "Content"}</span>
             <span className="toggle-count">({(customSectionsOnly ? weeks : termWeeks).length})</span>
           </h2>
+          {customSectionsOnly && <span className="spacer" />}
+          {customSectionsOnly && reorganiseButton}
         </div>
-        <div className="week-grid">
-          {(customSectionsOnly ? weeks : termWeeks).map((ov) => (
-            <WeekCard
-              key={ov.week.id}
-              overview={ov}
-              module={module}
-              dates={dates}
-              renaming={renamingId === ov.week.id}
-              onStartRename={() => setRenamingId(ov.week.id)}
-              onEndRename={() => setRenamingId(null)}
-            />
-          ))}
-        </div>
+        {customSectionsOnly ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd} onDragCancel={swallowClickAfterDrag}>
+            <SortableContext items={sectionIds} strategy={rectSortingStrategy}>
+              <div className={`week-grid${reorganising ? " arranging" : ""}`}>
+                {sortableWeeks.map(sortableCard)}
+              </div>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          // Weeks of term keep the order of the term.
+          <div className="week-grid">
+            {termWeeks.map((ov) => (
+              <WeekCard
+                key={ov.week.id}
+                overview={ov}
+                module={module}
+                dates={dates}
+                renaming={renamingId === ov.week.id}
+                onStartRename={() => setRenamingId(ov.week.id)}
+                onEndRename={() => setRenamingId(null)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {tray.length > 0 && <TraySection tray={tray} weeks={weeks.map((w) => w.week)} />}

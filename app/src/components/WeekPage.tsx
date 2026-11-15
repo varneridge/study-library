@@ -1,5 +1,5 @@
 import { NotesLoading } from "./ErrorBoundary";
-import { addMeeting, moveSection, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
+import { addMeeting, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,20 +15,23 @@ import { update } from "../lib/sync";
 import type { FileRow, ModuleRow, RecordingRow, WeekRow } from "../lib/types";
 import { recordingState } from "./Recording";
 import { Menu } from "./Menu";
-import { addSession, moveSession, setReadingWeek, deleteSessionAsking, deleteSection } from "../lib/edits";
+import { addSession, reorderSessions, setReadingWeek, deleteSessionAsking, deleteSection } from "../lib/edits";
 import { navigate } from "../lib/router";
 import { showToast, typing, useTitle, useSwipe } from "../lib/ui";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { blockText } from "../lib/notes";
-import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
 import { TitleEdit } from "./TitleEdit";
 import { WeekBoard } from "./WeekBoard";
-import { sessionMaterials, takesSlides } from "../lib/sessionMaterials";
+import { sessionMaterials } from "../lib/sessionMaterials";
 import { uploadModulePicture } from "../lib/uploads";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
 import { downloadWeekArchive } from "../lib/weekArchive";
 import { KIND_GROUP } from "../lib/kinds";
+import { closestCenter, DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { droppedOrder, dragHandleProps, steppedOrder, swallowClickAfterDrag, useDragSensors, useOptimisticOrder } from "../lib/drag";
 
 // When a week runs, and whether that is now, beside the crumbs.
 export function WeekWhen({ week }: { week: WeekRow }) {
@@ -93,7 +96,7 @@ function recordingLine(recording: RecordingRow): string {
 }
 
 // Where dropped files go depends on where they land: on a session they
-// become its slides, on primary readings they become primary readings, on
+// become its slides, replacing any it already has, on primary readings they become primary readings, on
 // summaries they become summaries, and anywhere else they are secondary
 // readings, unless their names say otherwise.
 export interface FileTarget { kind: "auto" | "primary" | "secondary" | "summary" | "slides"; sessionId?: string; label: string }
@@ -120,6 +123,10 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
   }
   const docOnly = isSyllabus(week) || isLibrary(module);
   const effectiveTarget = target ?? (docOnly ? { kind: "summary" as const, label: "documents" } : undefined);
+  // Checked before the files go in, since afterwards every session has slides.
+  const replacing = effectiveTarget?.kind === "slides" && effectiveTarget.sessionId
+    ? await sessionHasSlides(week.id, effectiveTarget.sessionId)
+    : false;
   const weeks = await db.weeks.where("module_id").equals(module.id).toArray();
   const plans = files.map((file) => {
     const plan = planFile(file, weeks, week);
@@ -137,7 +144,22 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
     return plan;
   });
   const count = await applyPlans(module, plans);
-  if (count) showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}${effectiveTarget?.kind === "slides" ? `, ${effectiveTarget.label}` : ""}. Uploading now.`);
+  if (!count) return;
+  // A session keeps one deck, so a drop on it is told as slides added or
+  // replaced rather than as a count of files that may have replaced each other.
+  if (effectiveTarget?.kind === "slides" && effectiveTarget.sessionId) {
+    showToast(`Slides ${replacing ? "replaced" : "added"} for ${effectiveTarget.label}. Uploading now.`);
+  } else {
+    showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}${effectiveTarget?.kind === "slides" ? `, ${effectiveTarget.label}` : ""}. Uploading now.`);
+  }
+}
+
+// Whether a session already holds a live deck of slides.
+async function sessionHasSlides(weekId: string, sessionId: string): Promise<boolean> {
+  const links = (await db.week_items.where("week_id").equals(weekId).toArray())
+    .filter((l) => !l.deleted && l.session_id === sessionId);
+  const items = await db.items.bulkGet(links.map((l) => l.item_id));
+  return items.some((item) => item && !item.deleted && item.kind === "slides");
 }
 
 function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boolean): FileTarget {
@@ -151,6 +173,7 @@ function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boole
 }
 
 const KINDS = SESSION_KINDS;
+const NO_SESSIONS: SessionView[] = [];
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
 function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
@@ -183,19 +206,22 @@ function notePreview(notes: NoteView[], limit: number): string {
 let morphSessionId: string | null = null;
 const MORPH_NAME = "session-notes";
 
+// A session's card, which a mouse or a pen can drag from anywhere that is not
+// a control and a finger from its "#" handle, once the week has two or more.
 function WeekSessionCard({
-  view, index, count, morph, dropOver, onAddSlides,
+  view, count, morph, dropOver, onAddSlides, onStep,
 }: {
-  view: SessionView; index: number; count: number; morph: boolean; dropOver: boolean; onAddSlides: (sessionId: string) => void;
+  view: SessionView; count: number; morph: boolean; dropOver: boolean; onAddSlides: (sessionId: string) => void; onStep: (direction: -1 | 1) => void;
 }) {
   const { session, slides, recordings, questions, notes } = view;
   const [renaming, setRenaming] = useState(false);
+  const movable = count > 1;
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: session.id, disabled: !movable });
   const kindLabel = sessionLabel(session.kind);
   const label = session.title || kindLabel;
   const preview = notePreview(notes, PREVIEW_CHARS);
   const materials = sessionMaterials(session.kind, { slides: slides.length, recordings: recordings.length, questions: questions.length });
   const shownRecordings = recordings.slice(0, 2);
-  const dropsSlides = takesSlides(session.kind);
 
   const head = (
     <span className="wsc-head">
@@ -209,12 +235,15 @@ function WeekSessionCard({
 
   return (
     <article
-      className={`week-session-card${preview ? "" : " empty"}${dropOver ? " drop-over" : ""}`}
-      style={morph ? { viewTransitionName: MORPH_NAME } : undefined}
-      // Only a lecture takes slides, so only a lecture is a place to drop them.
-      data-drop={dropsSlides ? "slides" : undefined}
-      data-session={dropsSlides ? session.id : undefined}
-      data-label={dropsSlides ? label : undefined}
+      ref={setNodeRef}
+      {...(listeners as React.HTMLAttributes<HTMLElement> | undefined)}
+      className={`week-session-card${preview ? "" : " empty"}${dropOver ? " drop-over" : ""}${movable ? " movable" : ""}${isDragging ? " dragging" : ""}`}
+      style={{ transform: CSS.Translate.toString(transform), transition, ...(morph ? { viewTransitionName: MORPH_NAME } : {}) }}
+      // Any session takes dropped slides, and a session that has some
+      // already has them replaced by the new deck.
+      data-drop="slides"
+      data-session={session.id}
+      data-label={label}
       // Capture runs before the link navigates, so the name is on this card
       // when the browser takes its picture of the old page.
       onClickCapture={(e) => {
@@ -258,7 +287,7 @@ function WeekSessionCard({
             if (m.kind === "add-slides") return (
               <button key="add-slides" type="button" className="wsc-add-chip" onClick={() => onAddSlides(session.id)} title="Add slides (PDF or PowerPoint)">
                 <Icon name="add" size={13} />
-                <span>{m.more ? "Add more slides" : "Add slides"}</span>
+                <span>Add slides</span>
               </button>
             );
             if (m.kind === "recordings") return [
@@ -280,6 +309,22 @@ function WeekSessionCard({
         </div>
       )}
 
+      {/* The handle stands beside the card's link rather than inside its
+          heading, since a button inside a link would open the session on a tap. */}
+      {movable && (
+        <div className="wsc-drag">
+          <button
+            type="button"
+            className="drag-handle"
+            data-drag-handle
+            aria-label={`Drag ${label} to reorder`}
+            {...dragHandleProps(onStep)}
+          >
+            #
+          </button>
+        </div>
+      )}
+
       <div className="wsc-menu">
         <Menu
           label={`More actions for ${label}`}
@@ -289,8 +334,6 @@ function WeekSessionCard({
               label: `Make this a ${k.label.toLowerCase()}`,
               onSelect: () => void update("sessions", session.id, { kind: k.value }),
             })),
-            { label: "Move up", onSelect: () => void moveSession(session, -1), hidden: index === 0 },
-            { label: "Move down", onSelect: () => void moveSession(session, 1), hidden: index === count - 1 },
             { label: "Delete session", onSelect: () => void deleteSessionAsking(session, label), danger: true },
           ]}
         />
@@ -307,15 +350,15 @@ export function WeekPage({ id }: { id: string }) {
   }, [data?.module.id]);
   const [over, setOver] = useState<FileTarget | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const [addCardOpen, setAddCardOpen] = useState(false);
-  const [addSessionOpen, setAddSessionOpen] = useState(false);
-  const addFilesButton = useRef<HTMLButtonElement>(null);
-  const addSessionButton = useRef<HTMLButtonElement>(null);
   const addTargetRef = useRef<FileTarget | undefined>(undefined);
   const picker = useRef<HTMLInputElement>(null);
   const coverPicker = useRef<HTMLInputElement>(null);
   const sessionPicker = useRef<HTMLInputElement>(null);
   const prefetched = useRef<string | null>(null);
+  const sensors = useDragSensors();
+  // The sessions in their own order, running ahead of the database for the
+  // moment after a drop so that a card does not jump back before it lands.
+  const [sessions, setSessionOrder] = useOptimisticOrder(data?.view.sessions ?? NO_SESSIONS, (s) => s.session.id, data);
 
   const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -380,8 +423,21 @@ export function WeekPage({ id }: { id: string }) {
 
   // Sessions keep their own order. The card last opened from here, or else
   // the first, is the one that morphs into its session page.
-  const morphId = view.sessions.some((s) => s.session.id === morphSessionId) ? morphSessionId : view.sessions[0]?.session.id ?? null;
+  const morphId = sessions.some((s) => s.session.id === morphSessionId) ? morphSessionId : sessions[0]?.session.id ?? null;
   const showMain = moduleHasNotes(module) && (view.sessions.length > 0 || section || moduleHasSessions(module));
+  const sessionIds = sessions.map((s) => s.session.id);
+  const saveSessionOrder = (next: string[] | null) => {
+    if (!next) return;
+    setSessionOrder(next);
+    reorderSessions(week.id, next).catch((error: unknown) => {
+      setSessionOrder(null);
+      showToast(`The new order could not be saved. ${(error as Error).message || "Try again in a moment."}`);
+    });
+  };
+  const onSessionDragEnd = (event: DragEndEvent) => {
+    swallowClickAfterDrag();
+    saveSessionOrder(droppedOrder(sessionIds, String(event.active.id), event.over ? String(event.over.id) : null));
+  };
   const pickSlides = (sessionId: string) => {
     if (sessionPicker.current) {
       sessionPicker.current.dataset.session = sessionId;
@@ -405,7 +461,9 @@ export function WeekPage({ id }: { id: string }) {
     ? isDocumentOnly
       ? `Drop to add documents to ${weekCode(week)}${titleAfter(week, ", ")}`
       : over.kind === "slides"
-        ? `Drop to add slides to ${over.label}`
+        ? view.sessions.some((s) => s.session.id === over.sessionId && s.slides.length > 0)
+          ? `Drop to replace the slides in ${over.label}`
+          : `Drop to add slides to ${over.label}`
         : over.kind === "primary"
           ? `Drop to add primary readings to ${weekCode(week)}`
           : over.kind === "secondary"
@@ -488,63 +546,17 @@ export function WeekPage({ id }: { id: string }) {
             Add document
           </button>
         ) : (
-          <>
-            <button ref={addFilesButton} className="button primary" onClick={() => setAddCardOpen(true)}>Add files</button>
-            <ChoiceCard
-              open={addCardOpen}
-              onClose={() => setAddCardOpen(false)}
-              anchor={addFilesButton}
-              label="Add files to this week"
-              title="Add files as"
-            >
-              <div className="choice-list">
-                <button
-                  type="button"
-                  className="choice-row"
-                  onClick={() => {
-                    setAddCardOpen(false);
-                    addTargetRef.current = undefined;
-                    picker.current?.click();
-                  }}
-                >
-                  <span>As in the file names</span>
-                </button>
-                <button
-                  type="button"
-                  className="choice-row"
-                  onClick={() => {
-                    setAddCardOpen(false);
-                    addTargetRef.current = { kind: "primary", label: "primary readings" };
-                    picker.current?.click();
-                  }}
-                >
-                  <span>{KIND_GROUP.primary}</span>
-                </button>
-                <button
-                  type="button"
-                  className="choice-row"
-                  onClick={() => {
-                    setAddCardOpen(false);
-                    addTargetRef.current = { kind: "secondary", label: "secondary readings" };
-                    picker.current?.click();
-                  }}
-                >
-                  <span>{KIND_GROUP.secondary}</span>
-                </button>
-                <button
-                  type="button"
-                  className="choice-row"
-                  onClick={() => {
-                    setAddCardOpen(false);
-                    addTargetRef.current = { kind: "summary", label: "summaries" };
-                    picker.current?.click();
-                  }}
-                >
-                  <span>{KIND_GROUP.summary}</span>
-                </button>
-              </div>
-            </ChoiceCard>
-          </>
+          // Each reading group has its own Add button, so this one takes the
+          // files as their names say rather than asking what they are first.
+          <button
+            className="button primary"
+            onClick={() => {
+              addTargetRef.current = undefined;
+              picker.current?.click();
+            }}
+          >
+            Add files
+          </button>
         )}
         {section && moduleHasMeetings(module) && (
           <button className="button" onClick={async () => navigate({ view: "session", id: await addMeeting(week.id) })}>Add a meeting</button>
@@ -556,8 +568,6 @@ export function WeekPage({ id }: { id: string }) {
               { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
               { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
               { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-              { label: "Move up", onSelect: () => void moveSection(week, -1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the first shelf." : "Already the first section."); }) },
-              { label: "Move down", onSelect: () => void moveSection(week, 1).then((ok) => { if (!ok) showToast(isLibrary(module) ? "Already the last shelf." : "Already the last section."); }) },
               { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
               { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
             ]}
@@ -602,56 +612,47 @@ export function WeekPage({ id }: { id: string }) {
         {showMain && (
           <div className="week-main-col">
             {(view.sessions.length > 0 || (!section && moduleHasSessions(module))) && (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSessionDragEnd} onDragCancel={swallowClickAfterDrag}>
               <div className="week-sessions">
-                {view.sessions.map((sessionView, index) => (
-                  <WeekSessionCard
-                    key={sessionView.session.id}
-                    view={sessionView}
-                    index={index}
-                    count={view.sessions.length}
-                    morph={sessionView.session.id === morphId}
-                    dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
-                    onAddSlides={pickSlides}
-                  />
-                ))}
-                {/* A second slot the size of the first, rather than an empty gap; beyond two, the week's menu adds sessions. */}
-                {!section && moduleHasSessions(module) && view.sessions.length < 2 && (
-                  <>
-                    <button
-                      ref={addSessionButton}
-                      type="button"
-                      className="week-add-card"
-                      onClick={() => setAddSessionOpen(true)}
-                    >
-                      <Icon name="add" size={16} />
-                      <span>{view.sessions.length ? "Add another session" : "Add a session"}</span>
-                    </button>
-                    <ChoiceCard
-                      open={addSessionOpen}
-                      onClose={() => setAddSessionOpen(false)}
-                      anchor={addSessionButton}
-                      label="Add a session to this week"
-                      title="Add a session"
-                    >
-                      <div className="choice-list">
-                        {KINDS.map((k) => (
-                          <button
-                            key={k.value}
-                            type="button"
-                            className="choice-row"
-                            onClick={() => {
-                              setAddSessionOpen(false);
-                              void addSession(week, k.value);
-                            }}
-                          >
-                            <span>{k.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </ChoiceCard>
-                  </>
+                <SortableContext items={sessionIds} strategy={verticalListSortingStrategy}>
+                  {sessions.map((sessionView) => (
+                    <WeekSessionCard
+                      key={sessionView.session.id}
+                      view={sessionView}
+                      count={sessions.length}
+                      morph={sessionView.session.id === morphId}
+                      dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
+                      onAddSlides={pickSlides}
+                      onStep={(direction) => saveSessionOrder(steppedOrder(sessionIds, sessionView.session.id, direction))}
+                    />
+                  ))}
+                </SortableContext>
+                {/* A week starts as a blank slate, offering both kinds of session in
+                    one click. With one session, a quiet row offers another, and once
+                    there are two the week's menu adds any more. */}
+                {!section && moduleHasSessions(module) && view.sessions.length === 0 && (
+                  <div className="week-blank-slate" role="group" aria-label="Add a session to this week">
+                    <p className="small muted">No sessions yet</p>
+                    <div className="row" style={{ gap: "0.5rem" }}>
+                      <button type="button" className="button" onClick={() => void addSession(week, "seminar")}>
+                        <Icon name="add" size={16} />
+                        <span>Add seminar</span>
+                      </button>
+                      <button type="button" className="button" onClick={() => void addSession(week, "lecture")}>
+                        <Icon name="add" size={16} />
+                        <span>Add lecture</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {!section && moduleHasSessions(module) && view.sessions.length === 1 && (
+                  <div className="week-add-row row" role="group" aria-label="Add another session to this week" style={{ gap: "0.5rem" }}>
+                    <button type="button" className="quiet" onClick={() => void addSession(week, "seminar")}>Add seminar</button>
+                    <button type="button" className="quiet" onClick={() => void addSession(week, "lecture")}>Add lecture</button>
+                  </div>
                 )}
               </div>
+              </DndContext>
             )}
             {/* A section's own notes: a chapter's plan, an argument, what to find. */}
             {section && <SectionNotes weekId={week.id} code={weekCode(week)} />}
@@ -692,7 +693,8 @@ export function WeekPage({ id }: { id: string }) {
           if (!sessionId) return;
           try {
             const added = await addSlides(sessionId, files);
-            if (added) showToast(added === 1 ? "Slides added." : `${added} sets of slides added.`);
+            // The card offers this only to a session without slides.
+            if (added) showToast("Slides added.");
           } catch (error) {
             showToast(`The slides could not be added. ${(error as Error).message || "Try again in a moment."}`);
           }

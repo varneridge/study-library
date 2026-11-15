@@ -44,7 +44,8 @@ export async function addSection(moduleId: string, title: string | null = null):
   return id;
 }
 
-// Moves a section one place up or down. Returns false at either end.
+// Moves a section one place up or down. Returns false at either end. Kept for
+// older callers and the tests; the pages now reorder by dragging.
 export async function moveSection(week: WeekRow, direction: -1 | 1): Promise<boolean> {
   const sections = await sectionsOf(week.module_id);
   const at = sections.findIndex((s) => s.id === week.id);
@@ -55,6 +56,25 @@ export async function moveSection(week: WeekRow, direction: -1 | 1): Promise<boo
     { table: "weeks", row: { id: other.id, number: week.number }, patch: true },
   ]);
   return true;
+}
+
+// Puts a module's sections in the order a drag left them in, numbered from
+// one. Sections that ids leaves out follow those it names, in their old
+// order, so no two sections end up sharing a number. A section numbered 0 is
+// the syllabus by that number alone, so it keeps it rather than becoming an
+// ordinary section. Only sections whose number changes are written.
+export async function reorderSections(moduleId: string, ids: string[]): Promise<void> {
+  const sections = await sectionsOf(moduleId);
+  const movable = sections.filter((s) => s.number !== 0);
+  const byId = new Map(movable.map((s) => [s.id, s]));
+  const named = [...new Set(ids)].filter((id) => byId.has(id));
+  const chosen = new Set(named);
+  const order = [...named, ...movable.filter((s) => !chosen.has(s.id)).map((s) => s.id)];
+  const changes: Change[] = [];
+  order.forEach((id, i) => {
+    if (byId.get(id)!.number !== i + 1) changes.push({ table: "weeks", row: { id, number: i + 1 }, patch: true });
+  });
+  if (changes.length) await commit(changes);
 }
 
 // Adds a supervision meeting to a section, named for the day. Returns its id.
