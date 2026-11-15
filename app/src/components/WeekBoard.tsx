@@ -11,15 +11,15 @@
 
 import { useDragSensors } from "../lib/drag";
 import {
-  closestCenter, pointerWithin, DndContext, type CollisionDetection, DragOverlay, useDroppable,
+  closestCenter, DndContext, type CollisionDetection, DragOverlay, useDroppable,
   type DragEndEvent, type DragOverEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import { rectSortingStrategy, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ReadingView } from "../lib/library";
-import { byWeek, weekCode } from "../lib/modules";
-import { moveToTray, moveToWeek, placeInWeek, positionsOf } from "../lib/moves";
+import { weekCode } from "../lib/modules";
+import { placeInWeek, positionsOf } from "../lib/moves";
 import { shortTitle } from "../lib/titles";
 import type { WeekRow } from "../lib/types";
 import { KIND_GROUP, KIND_LABEL } from "../lib/kinds";
@@ -32,12 +32,8 @@ import type { FileTarget } from "./WeekPage";
 
 type ListKey = "primary" | "secondary" | "summary" | "flat";
 
-// The week grid answers to where the pointer is, so the week under your
-// finger is the week you get. The lists answer to the nearest row.
-export const collide: CollisionDetection = (args) => {
-  const under = pointerWithin(args).filter((c) => /^(week:|tray$)/.test(String(c.id)));
-  return under.length ? under : closestCenter(args);
-};
+// The lists answer to the nearest row.
+export const collide: CollisionDetection = (args) => closestCenter(args);
 
 // A reading that can be picked up. The slide board uses it too.
 export function Sortable({ view, weeks, short, mode, isLibrary }: { view: ReadingView; weeks: WeekRow[]; short?: boolean; mode?: ReadingViewMode; isLibrary?: boolean }) {
@@ -113,15 +109,14 @@ export function Target({ id, label, current, reading }: { id: string; label: str
 
 const NONE: ReadingView[] = [];
 
-export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, moduleId, isLibrary, isSyllabus, dropKind = null, onAddTo }: {
-  week: WeekRow; primaries?: ReadingView[]; readings?: ReadingView[]; summaries?: ReadingView[]; weeks: WeekRow[]; moduleId: string;
+export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, isLibrary, isSyllabus, dropKind = null, onAddTo }: {
+  week: WeekRow; primaries?: ReadingView[]; readings?: ReadingView[]; summaries?: ReadingView[]; weeks: WeekRow[]; moduleId?: string;
   isLibrary?: boolean; isSyllabus?: boolean;
   // What files dragged over the page would become, so the matching list can light up.
   dropKind?: FileTarget["kind"] | null;
   // Adds files to one list; left out where the week takes documents only.
   onAddTo?: (kind: ReadingKind) => void;
 }) {
-  const sorted = useMemo(() => [...weeks].sort(byWeek), [weeks]);
   const all = useMemo(() => new Map([...primaries, ...readings, ...summaries].map((v) => [v.link!.id, v])), [primaries, readings, summaries]);
   const allViewsSorted = useMemo(() => {
     const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -190,15 +185,6 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
     setActive(null);
     const view = all.get(id);
     if (!view?.link || !overId) return;
-    if (overId.startsWith("week:")) {
-      const target = sorted.find((w) => w.id === overId.slice(5));
-      if (target) await moveToWeek(view.item, view.link, target);
-      return;
-    }
-    if (overId === "tray") {
-      await moveToTray(view.item, view.link, moduleId);
-      return;
-    }
     const to = listOf(overId);
     if (!to) return;
     const ids = [...(lists[to] ?? [])];
@@ -258,7 +244,6 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
           <List id="summary" label={summaryLabel} views={viewsOf("summary")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("summary")} arranging={reorganising} fileOver={fileOver("summary")} onAdd={addFor("summary")} />
         </>
       )}
-      {active && <MoveDock weeks={sorted} current={week} />}
       <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
         {dragged ? <div className="drag-card">{shortTitle(dragged.item)}<span className="where">{weekCode(week)}</span></div> : null}
       </DragOverlay>

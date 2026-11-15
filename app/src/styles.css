@@ -513,6 +513,11 @@ label.field { display: block; margin-bottom: 0.9rem; }
   gap: 0.75rem;
   margin-top: 1.25rem;
 }
+/* On the This week page, the modules split the width of the page evenly. */
+.across-week-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+}
 /* On a phone, modules and weeks sit two to a row, so that a whole term fits
    in a few screens; only the narrowest screens drop to one per row. These
    come after both grids' own rules so that they win at every phone width. */
@@ -575,6 +580,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
 
 .week-card-cover {
   position: relative;
+  flex: none;
   aspect-ratio: 16 / 10;
   width: 100%;
   overflow: hidden;
@@ -588,6 +594,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
    to the card: its first book's cover, drawn by the processor as the whole
    page, or a cover picture chosen for it. */
 .week-card-cover .shelf-covers {
+  position: absolute;
+  inset: 0;
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; box-sizing: border-box; padding: 8% 10%;
   background: var(--surface-hover);
@@ -600,7 +608,9 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .week-card.is-shelf .week-card-cover > img { object-fit: contain; background: var(--surface-hover); }
 /* Every cover is shown whole inside the card's frame, never cropped, so a
    portrait page and a landscape slide both keep everything printed on them. */
-.week-card-cover img {
+.week-card-cover > img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -613,6 +623,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
 }
 
 .week-card-cover-fallback {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border-bottom: 1px solid var(--rule);
@@ -687,19 +699,48 @@ label.field { display: block; margin-bottom: 0.9rem; }
   color: var(--accent);
 }
 
-/* The body holds two lines only, meta and title, so all cards match. */
+/* The body holds meta and a two-line title box, so all cards match in height. */
 .week-card-body {
-  padding: 0.45rem 0.65rem 0.55rem;
+  padding: 0.5rem 0.7rem 0.6rem;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
+  flex: 1;
+}
+.week-card-module {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.1rem;
+  border-bottom: 1px solid var(--rule);
+}
+.week-card-module-code {
+  flex: none;
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+}
+.week-card-module-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink);
 }
 .week-card-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   min-width: 0;
+  min-height: 1.25rem;
   font-size: var(--fs-xs);
   color: var(--muted);
 }
@@ -726,17 +767,18 @@ label.field { display: block; margin-bottom: 0.9rem; }
   white-space: nowrap;
 }
 
-/* One line of title, cut with an ellipsis, so that a long title cannot make
-   its card taller than the rest. The stretched link below is positioned on
-   the card, so this clipping does not clip it. */
+/* Up to two lines of title before an ellipsis, with a fixed two-line minimum
+   height so that one-line and two-line titles produce cards of identical height. */
 .week-card-title-link {
   font-family: var(--serif);
   font-size: var(--fs-md);
   line-height: 1.35;
+  min-height: calc(2 * 1.35em);
   color: var(--ink);
   text-decoration: none;
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
@@ -1358,25 +1400,23 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--r-xs);
   background: transparent;
-  color: var(--faint);
-  font-family: var(--sans);
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  color: var(--muted);
   line-height: 1;
   cursor: grab;
   touch-action: none;
   user-select: none;
   flex-shrink: 0;
-  transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+  align-self: center;
+  position: relative;
+  z-index: 2;
+  transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
 }
-.drag-handle:hover,
-.arranging .drag-handle {
-  color: var(--muted);
-  background: var(--surface);
-  border-color: var(--rule);
+.drag-handle:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
 }
 .drag-handle:active,
 .dragging .drag-handle {
@@ -1387,8 +1427,23 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .reading .drag-handle {
   display: none;
 }
+.readings.arranging > li.reading {
+  align-items: center;
+}
 .readings.arranging .reading .drag-handle {
   display: inline-flex;
+}
+.reading.tile .drag-handle {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+}
+.module-card.arranging .module-card-body {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 @media (pointer: coarse) {
   .drag-handle {
@@ -2611,7 +2666,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 @media (pointer: coarse), (max-width: 48rem) {
   a, button, select, summary, [role="checkbox"], [role="menuitem"] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   .icon-button { min-width: 2.75rem; min-height: 2.75rem; }
-  .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title, .hit-line, .tw-session, .accent-btn {
+  .button, .tool, .menu-button, .quiet:not(.cell-input), .found, .where, .week-title:not(.week-card-title-link), .hit-line, .tw-session, .accent-btn {
     min-height: 2.75rem; display: inline-flex; align-items: center;
   }
   .tool { min-width: 2.75rem; justify-content: center; }
@@ -2620,7 +2675,7 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
   }
   .button.week-note-btn { min-height: 2.75rem; }
   .hit-line { display: flex; }
-  .week-title { display: flex; min-height: 2.75rem; }
+  .week-title:not(.week-card-title-link) { display: flex; min-height: 2.75rem; }
   .menu-button { min-width: 2.75rem; justify-content: center; }
   .reading a.name, .recent .name, .module-row, .list .name, .list li > a, .session-link, .session-open, .notes-more, .topbar nav a, .topbar-across, .across-session a {
     min-height: 2.75rem; display: inline-flex; align-items: center;
@@ -4232,7 +4287,7 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 @media (hover: hover) { .essay-card:hover { background: var(--surface-hover); } }
 .essay-card-cover {
   position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.6rem;
-  aspect-ratio: 16 / 9; box-sizing: border-box; padding: 0.75rem;
+  flex: none; aspect-ratio: 16 / 10; box-sizing: border-box; padding: 0.75rem;
   background: var(--surface-hover); border-bottom: 1px solid var(--rule);
   color: inherit; text-decoration: none; container-type: inline-size;
 }
@@ -5266,10 +5321,12 @@ a.wsc-chip:hover { color: var(--ink); }
   transition: color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
 }
 .wsc-add-chip:hover { color: var(--accent); border-color: var(--accent); }
-/* The card's menu sits in its corner, out of the way until the card is in hand. */
+/* The card's menu and reorder handle sit in its corner, out of the way until the card is in hand. */
+.wsc-drag { position: absolute; top: 0.6rem; right: 2.5rem; opacity: 0; transition: opacity var(--dur-1) var(--ease-out); }
 .wsc-menu { position: absolute; top: 0.6rem; right: 0.6rem; opacity: 0; transition: opacity var(--dur-1) var(--ease-out); }
+.week-session-card:hover .wsc-drag, .week-session-card:focus-within .wsc-drag,
 .week-session-card:hover .wsc-menu, .week-session-card:focus-within .wsc-menu, .wsc-menu:has(.menu-panel) { opacity: 1; }
-@media (hover: none) { .wsc-menu { opacity: 1; } }
+@media (hover: none) { .wsc-drag, .wsc-menu { opacity: 1; } }
 .week-session-card:has(.menu-panel) { z-index: 2; }
 
 /* The slot for another session: the same rectangle as a card, drawn in outline. */

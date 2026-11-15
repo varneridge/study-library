@@ -10,10 +10,9 @@ import type { SessionKind } from "./types";
 export type Material =
   | { kind: "slides"; count: number }
   | { kind: "add-slides"; more: boolean }
-  | { kind: "recordings"; count: number }
-  | { kind: "questions"; count: number };
+  | { kind: "recordings"; count: number };
 
-export interface MaterialCounts { slides: number; recordings: number; questions: number }
+export interface MaterialCounts { slides: number; recordings: number; questions?: number }
 
 export function takesSlides(kind: SessionKind | string): boolean {
   return kind === "lecture";
@@ -24,6 +23,5 @@ export function sessionMaterials(kind: SessionKind | string, counts: MaterialCou
   if (counts.slides > 0) out.push({ kind: "slides", count: counts.slides });
   if (counts.slides === 0 && takesSlides(kind)) out.push({ kind: "add-slides", more: false });
   if (counts.recordings > 0) out.push({ kind: "recordings", count: counts.recordings });
-  if (kind === "seminar" || counts.questions > 0) out.push({ kind: "questions", count: counts.questions });
   return out;
 }

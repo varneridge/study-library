@@ -105,11 +105,18 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
       {/* Each module's chosen week as a card, laid out like a module's weeks. */}
       <div className="week-grid across-week-grid">
         {data.map(({ module, view }) => {
+          const slides = (view.sessions ?? []).flatMap((s) => s.slides);
+          const thumb_keys = module.kind === "library"
+            ? [...view.primaries, ...view.readings, ...view.summaries]
+                .map((r) => r.file?.thumb_key)
+                .filter((k): k is string => Boolean(k))
+                .slice(0, 3)
+            : [];
           const overview: WeekOverview = {
             week: view.week,
             readingCount: readCount([...view.primaries, ...view.readings]),
-            thumb_key: view.week.image_key ?? firstThumb([view.primaries, view.readings, view.summaries]),
-            thumb_keys: [],
+            thumb_key: view.week.image_key ?? (module.kind === "library" ? (thumb_keys[0] ?? null) : firstThumb([slides])),
+            thumb_keys,
             sessions: [],
             isCurrentWeek,
           };

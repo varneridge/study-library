@@ -313,6 +313,12 @@ export function WeekCard({
       <input ref={coverPickerRef} type="file" hidden accept="image/*" onChange={onPickCover} />
 
       <div className="week-card-body">
+        {moduleCode && (
+          <div className="week-card-module">
+            <span className="week-card-module-code">{module.code}</span>
+            {module.title && <span className="week-card-module-title">{module.title}</span>}
+          </div>
+        )}
         <div className="week-card-meta">
           {/* The handle sits outside both links, so a tap on it never opens the week. */}
           {drag?.arranging && (
@@ -323,10 +329,10 @@ export function WeekCard({
               aria-label={`Drag ${code} to reorder`}
               {...dragHandleProps(drag.onStep)}
             >
-              #
+              <Icon name="reorder" size={16} />
             </button>
           )}
-          <span className="week-code week-card-code">{moduleCode ? `${moduleCode} · ${code}` : code}</span>
+          <span className="week-code week-card-code">{code}</span>
           {metaText && <span className="week-card-dates">{metaText}</span>}
         </div>
 

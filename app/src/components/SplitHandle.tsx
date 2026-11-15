@@ -63,8 +63,6 @@ export function SplitHandle({ grid, value, onChange, label = "Resize the notes a
         onChange(next);
       }}
       onDoubleClick={() => onChange(DEFAULT_SPLIT)}
-    >
-      <span className="split-grip" aria-hidden="true" />
-    </div>
+    />
   );
 }

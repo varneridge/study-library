@@ -649,7 +649,7 @@ export function ReadingRow({
             });
           })}
         >
-          #
+          <Icon name="reorder" size={16} />
         </button>
       )}
       {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}

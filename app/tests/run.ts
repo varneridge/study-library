@@ -1577,6 +1577,18 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
     sessionMaterials("lecture", { slides: 1, recordings: 0, questions: 0 }),
     [{ kind: "slides", count: 1 }],
   );
+  assert.deepEqual(
+    sessionMaterials("seminar", { slides: 0, recordings: 0, questions: 4 }),
+    [],
+  );
+  const sessionSrc = readFileSync(new URL("../src/components/SessionPage.tsx", import.meta.url), "utf8");
+  assert.ok(!sessionSrc.includes("SeminarQuestions"), "SessionPage must not render SeminarQuestions");
+  const splitSrc = readFileSync(new URL("../src/components/SplitHandle.tsx", import.meta.url), "utf8");
+  assert.ok(!splitSrc.includes("split-grip"), "SplitHandle must not render a grip icon");
+  const boardSrc = readFileSync(new URL("../src/components/WeekBoard.tsx", import.meta.url), "utf8");
+  assert.ok(!boardSrc.includes("<MoveDock"), "WeekBoard must not render MoveDock during reorganise");
+  const acrossSrc = readFileSync(new URL("../src/components/AcrossPage.tsx", import.meta.url), "utf8");
+  assert.ok(acrossSrc.includes("firstThumb([slides])"), "AcrossPage uses week image_key or slide cover");
 });
 
 {

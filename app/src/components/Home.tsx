@@ -11,6 +11,7 @@ import { navigate } from "../lib/router";
 import { reorderModules } from "../lib/edits";
 import { droppedOrder, dragHandleProps, steppedOrder, swallowClickAfterDrag, useDragSensors, useOptimisticOrder } from "../lib/drag";
 import { showToast, useTitle } from "../lib/ui";
+import { Icon } from "./icons";
 import type { ModuleKind } from "../lib/types";
 
 function NewModule({ onDone }: { onDone?: () => void }) {
@@ -160,7 +161,7 @@ function ModuleCard({
             aria-label={`Drag ${module.code} to reorder`}
             {...dragHandleProps(onStep)}
           >
-            #
+            <Icon name="reorder" size={16} />
           </button>
         )}
       </div>

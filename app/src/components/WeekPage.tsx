@@ -290,7 +290,7 @@ function WeekSessionCard({
                 <span>Add slides</span>
               </button>
             );
-            if (m.kind === "recordings") return [
+            return [
               ...shownRecordings.map((r) => (
                 <Link key={r.id} to={{ view: "session", id: session.id }} className="wsc-chip" title="Open the recording">
                   <Icon name="play" size={13} />
@@ -299,12 +299,6 @@ function WeekSessionCard({
               )),
               m.count > shownRecordings.length && <span key="more-recordings" className="wsc-chip">{`${m.count - shownRecordings.length} more`}</span>,
             ];
-            return (
-              <span key="questions" className="wsc-chip" title="Seminar questions">
-                <Icon name="chat" size={14} />
-                <span>{m.count === 0 ? "Seminar questions" : `${m.count} question${m.count === 1 ? "" : "s"}`}</span>
-              </span>
-            );
           })}
         </div>
       )}
@@ -320,7 +314,7 @@ function WeekSessionCard({
             aria-label={`Drag ${label} to reorder`}
             {...dragHandleProps(onStep)}
           >
-            #
+            <Icon name="reorder" size={16} />
           </button>
         </div>
       )}

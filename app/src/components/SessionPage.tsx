@@ -25,7 +25,6 @@ import { groupReadings } from "../lib/kinds";
 import type { ReadingView } from "../lib/library";
 import { SplitHandle } from "./SplitHandle";
 import { readSplit, splitColumns, writeSplit } from "../lib/split";
-import { SeminarQuestions } from "./SeminarQuestions";
 import { TitleEdit } from "./TitleEdit";
 import { Icon } from "./icons";
 import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
@@ -153,9 +152,6 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
     } },
   ];
   const latest = view.recordings[view.recordings.length - 1];
-  // A seminar always offers its questions; another session shows them only once it has some.
-  const questions = (view.questions ?? []).map((qv) => qv.question).filter((q) => !q.deleted);
-  const showQuestions = session.kind === "seminar" || questions.length > 0;
 
   async function toggle() {
     setError(null);
@@ -317,7 +313,6 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
             style={hasSide && !narrow ? (splitColumns(splitFraction) as React.CSSProperties) : undefined}
           >
             <div className="session-notes" style={{ viewTransitionName: "session-notes" }}>
-              {showQuestions && <SeminarQuestions sessionId={session.id} questions={questions} />}
               <Suspense fallback={<NotesLoading />}>
                 <NoteEditor target={{ session_id: id }} label={`${sessionLabel(view.session.kind)} notes`} />
               </Suspense>

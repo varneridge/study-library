@@ -26,8 +26,9 @@ const paths: Record<string, React.ReactNode> = {
   plus: <path d="M10 4.5v11M4.5 10h11" />,
   undo: <><path d="M3.5 8.5 7 5M3.5 8.5 7 12" /><path d="M3.5 8.5h7a5 5 0 0 1 5 5v1" /></>,
   redo: <><path d="m16.5 8.5-3.5-3.5M16.5 8.5 13 12" /><path d="M16.5 8.5h-7a5 5 0 0 0-5 5v1" /></>,
-  // Two columns of dots, the usual sign that a row can be picked up.
+  // Two columns of dots, the usual sign that a row can be picked up, and three lines for reordering.
   grip: <><circle cx="7.5" cy="5.5" r="1" fill="currentColor" /><circle cx="12.5" cy="5.5" r="1" fill="currentColor" /><circle cx="7.5" cy="10" r="1" fill="currentColor" /><circle cx="12.5" cy="10" r="1" fill="currentColor" /><circle cx="7.5" cy="14.5" r="1" fill="currentColor" /><circle cx="12.5" cy="14.5" r="1" fill="currentColor" /></>,
+  reorder: <path d="M4 6.5h12M4 10h12M4 13.5h12" />,
   close: <path d="m5.5 5.5 9 9M14.5 5.5l-9 9" />,
   annotations: <><path d="M4 3.75h12v9.5H9.5L6 16.25v-3H4Z" /></>,
   pages: <><rect x="3.75" y="2.75" width="5.5" height="7" /><rect x="10.75" y="2.75" width="5.5" height="7" /><rect x="3.75" y="11.25" width="5.5" height="6" /><rect x="10.75" y="11.25" width="5.5" height="6" /></>,

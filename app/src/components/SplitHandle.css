@@ -6,11 +6,11 @@
   column-gap: 0.5rem;
 }
 
+/* The handle is drawn as a single vertical rule, so it needs no flex layout
+   of its own; the whole track stays the pointer target for dragging. */
 .split-handle {
   position: relative;
   align-self: stretch;
-  display: flex;
-  justify-content: center;
   cursor: col-resize;
   touch-action: none;
   user-select: none;
@@ -37,57 +37,10 @@
   background: var(--accent);
 }
 
-.split-grip {
-  position: sticky;
-  top: 40vh;
-  z-index: 1;
-  width: 0.625rem;
-  height: 2.75rem;
-  border-radius: 999px;
-  border: 1px solid var(--rule);
-  background: var(--card);
-  box-shadow: var(--shadow-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-}
-
-.split-grip::before,
-.split-grip::after {
-  content: "";
-  width: 1.5px;
-  height: 0.9rem;
-  border-radius: 1px;
-  background: var(--muted);
-  transition: background-color 120ms ease, height 120ms ease;
-}
-
-.split-handle:hover .split-grip,
-.split-handle:focus-visible .split-grip,
-.split-handle.dragging .split-grip {
-  border-color: var(--accent);
-  transform: scaleY(1.06);
-}
-
-.split-handle:hover .split-grip::before,
-.split-handle:hover .split-grip::after,
-.split-handle:focus-visible .split-grip::before,
-.split-handle:focus-visible .split-grip::after,
-.split-handle.dragging .split-grip::before,
-.split-handle.dragging .split-grip::after {
-  background: var(--accent);
-  height: 1.15rem;
-}
-
 .split-handle:focus-visible {
   box-shadow: 0 0 0 2px var(--accent, Highlight);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .split-handle::before,
-  .split-grip,
-  .split-grip::before,
-  .split-grip::after { transition: none; }
+  .split-handle::before { transition: none; }
 }
