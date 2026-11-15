@@ -340,7 +340,7 @@ processor.post("/recordings/:id/audio", async (c) => {
     ? await c.env.DB.prepare("SELECT id, r2_key FROM files WHERE id = ?1").bind(recording.file_id).first<{ id: string; r2_key: string }>()
     : null;
 
-  const nextStatus = alreadyTranscribed ? "done" : "transcribing";
+  const nextStatus = alreadyTranscribed ? "done" : "prepared";
   const statements = [
     c.env.DB.prepare(
       `INSERT INTO files (id, sha256, r2_key, mime, bytes, original_name, text_status, modified_at)
@@ -351,11 +351,6 @@ processor.post("/recordings/:id/audio", async (c) => {
       `UPDATE recordings SET file_id = ?2, duration_seconds = ?3, status = ?4, ${TOUCH} WHERE id = ?1`,
     ).bind(id, audioId, body.duration, nextStatus),
   ];
-  if (!alreadyTranscribed) {
-    statements.push(
-      c.env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('transcribe', json_object('recording_id', ?1), -1)").bind(id),
-    );
-  }
   if (source && body.delete_source) {
     statements.push(c.env.DB.prepare(`UPDATE files SET deleted = 1, ${TOUCH} WHERE id = ?1`).bind(source.id));
   }

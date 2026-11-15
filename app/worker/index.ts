@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { requireAccess } from "./auth";
 import type { Env } from "./env";
-import { bumpFile, completeUpload, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
-import { retryRecording, storeChunk } from "./recordings";
+import { bumpFile, completeUpload, redoFile, REDO_STEPS, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
+import { retryRecording, storeChunk, transcribeRecording } from "./recordings";
 import { servePicture, storePicture } from "./pictures";
 import { search } from "./search";
 import { maintain, purge } from "./maintenance";
@@ -94,6 +94,9 @@ app.put("/api/recordings/:id/chunks/:index", async (c) => {
 
 app.post("/api/recordings/:id/retry", async (c) => c.json({ ok: await retryRecording(c.env, c.req.param("id")) }));
 
+// Transcribes a prepared recording when asked, which is when its cost is incurred.
+app.post("/api/recordings/:id/transcribe", async (c) => c.json({ ok: await transcribeRecording(c.env, c.req.param("id")) }));
+
 // Looks again at a reading's first pages for its citation.
 app.post("/api/files/:id/identify", async (c) => {
   await c.env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('identify', json_object('file_id', ?1), 0)")
@@ -117,6 +120,15 @@ app.post("/api/thumbs", async (c) => c.json({ queued: await queueThumbs(c.env, c
 
 app.post("/api/files/:id/retry", async (c) => {
   return c.json({ ok: await retryFile(c.env, c.req.param("id")) });
+});
+
+// Runs one step of a file's processing again: its OCR, its cover or its citation.
+// A missing or unreadable body is answered as a bad step rather than a crash.
+app.post("/api/files/:id/redo", async (c) => {
+  const body = await c.req.json<{ step?: unknown }>().catch(() => null);
+  const step = REDO_STEPS.find((s) => s === body?.step);
+  if (!step) return c.json({ error: "invalid step" }, 400);
+  return c.json({ ok: await redoFile(c.env, c.req.param("id"), step) });
 });
 
 app.route("/api/processor", processor);

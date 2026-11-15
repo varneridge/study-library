@@ -2,7 +2,7 @@ import { extensionFor, safeFileName } from "../lib/names";
 import { useEffect, useRef, useState } from "react";
 import { navigate } from "../lib/router";
 import { clock, finishRecording, useRecordingNow } from "../lib/recorder";
-import { api } from "../lib/sync";
+import { api, update } from "../lib/sync";
 import { deleteRecording, withUndo } from "../lib/edits";
 import { confirmAction, showToast } from "../lib/ui";
 import { Menu } from "./Menu";
@@ -20,6 +20,32 @@ const STATUS: Record<string, string> = {
 
 export function recordingState(recording: RecordingRow): string | null {
   return STATUS[recording.status] ?? null;
+}
+
+// What transcribing a recording of this length should cost. OpenAI charges
+// $0.006 a minute for gpt-4o-transcribe and whisper-1, which is taken here as
+// about £0.0048 a minute, so the figure is a guide rather than a quote.
+export function formatTranscriptionCost(durationSeconds: number | null | undefined): string {
+  if (!durationSeconds || durationSeconds <= 0) return "~£0.01/min";
+  const pounds = (Math.max(durationSeconds, 1) / 60) * 0.0048;
+  if (pounds < 0.01) return "< £0.01";
+  return `£${pounds.toFixed(2)}`;
+}
+
+// Asks the Worker to transcribe a prepared recording. The row is marked as
+// transcribing at once so the offer disappears, and put back if the request
+// never arrives, since otherwise it would wait for a job that does not exist.
+async function startTranscription(recording: RecordingRow): Promise<void> {
+  const previous = recording.status;
+  await update("recordings", recording.id, { status: "transcribing" });
+  try {
+    await api(`/api/recordings/${encodeURIComponent(recording.id)}/transcribe`, { method: "POST" });
+  } catch {
+    await update("recordings", recording.id, { status: previous });
+    showToast("Transcription could not be started, so check the connection and try again.");
+    return;
+  }
+  showToast("Transcription started.");
 }
 
 // A transcript imported from Moodle, with no audio of its own.
@@ -71,6 +97,11 @@ export function RecordingPanel({
   const activeHere = now?.recordingId === recording.id;
   const playable = Boolean(file && file.mime.startsWith("audio/"));
   const turns = recording.turns ?? [];
+  // Read as a plain string, since the row's status type may not list "prepared" yet.
+  const status: string = recording.status;
+  // Audio that is ready but has no words yet is offered for transcription, with its cost.
+  const canTranscribe = playable && turns.length === 0 && (status === "prepared" || status === "done");
+  const cost = formatTranscriptionCost(recording.duration_seconds);
   const skip = (seconds: number) => {
     const el = audio.current;
     if (el) el.currentTime = Math.max(0, Math.min(el.duration || Infinity, el.currentTime + seconds));
@@ -138,6 +169,23 @@ export function RecordingPanel({
               },
             },
             {
+              label: "More...",
+              items: [
+                {
+                  label: `Transcribe again (${cost})`,
+                  hidden: !playable || turns.length === 0 || activeHere || status === "transcribing",
+                  onSelect: async () => {
+                    const ok = await confirmAction({
+                      title: "Transcribe this recording again?",
+                      body: `The new transcript replaces the current one when it arrives, and it costs about ${cost}.`,
+                      confirm: "Transcribe again",
+                    });
+                    if (ok) await startTranscription(recording);
+                  },
+                },
+              ],
+            },
+            {
               label: "Delete recording",
               danger: true,
               hidden: activeHere,
@@ -170,7 +218,7 @@ export function RecordingPanel({
             style={{ width: "100%" }}
           />
           <div className="player-tools">
-            <button className="tool" onClick={() => skip(-15)} aria-label="Back 15 seconds">−15 s</button>
+            <button className="tool" onClick={() => skip(-15)} aria-label="Back 15 seconds">-15 s</button>
             <button className="tool" onClick={() => skip(15)} aria-label="Forward 15 seconds">+15 s</button>
             <span className="spacer" />
             <div className="segmented" role="group" aria-label="Playback speed">
@@ -180,6 +228,9 @@ export function RecordingPanel({
             </div>
           </div>
         </>
+      )}
+      {canTranscribe && (
+        <button type="button" className="button" onClick={() => void startTranscription(recording)}>Transcribe ({cost})</button>
       )}
       {turns.length > 0 && (
         <>

@@ -139,11 +139,11 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
     setRenaming(false);
     if (value.trim() !== (session.title ?? "")) void update("sessions", session.id, { title: value.trim() || null });
   };
-  // What its row on the week page offers, here as well.
+  // A session holds one deck, so choosing slides when it has some replaces them.
+  const slidesAction = view.slides.length ? "Replace slides" : "Add slides";
+  // What its row on the week page offers, here as well. Adding things to the
+  // session lives in the Add menu beside it instead, on every screen size.
   const sessionMenu = [
-    { label: "Add slides", onSelect: () => slidesPicker.current?.click(), hidden: !narrow },
-    { label: "Add a Moodle transcript", onSelect: () => transcriptPicker.current?.click(), hidden: !narrow },
-    { label: "Add a recording file", onSelect: () => picker.current?.click(), hidden: !narrow },
     { label: "Rename", onSelect: () => setRenaming(true) },
     ...SESSION_KINDS.filter((k) => k.value !== session.kind && session.kind !== "supervision").map((k) => ({
       label: `Make this a ${k.label.toLowerCase()}`, onSelect: () => void update("sessions", session.id, { kind: k.value }),
@@ -246,29 +246,32 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
             Recording in another session. Go to it
           </button>
         ) : (
-          <>
-            {/* On a phone the quieter actions go in the session's menu, beside Record. */}
-            {!narrow && (
-              <>
-                <button className="quiet" onClick={() => slidesPicker.current?.click()} title="A PDF or PowerPoint, or photos of the slides">Add slides</button>
-                <button className="quiet" onClick={() => transcriptPicker.current?.click()} title="The .txt or .vtt file Moodle offers with a recording">Add a Moodle transcript</button>
-                <button className="quiet" onClick={() => picker.current?.click()}>Add a recording file</button>
-              </>
-            )}
-            <button className="button primary" onClick={toggle}>Record</button>
-          </>
+          <button className="button primary" onClick={toggle}>Record</button>
         )}
+        {/* The quieter ways of filling a session share one menu beside Record. It stays
+            while recording too, so slides can still go in during the lecture itself. */}
+        <Menu
+          label="Add to this session"
+          trigger={<span>Add</span>}
+          items={[
+            { label: slidesAction, onSelect: () => slidesPicker.current?.click() },
+            { label: "Add a recording file", onSelect: () => picker.current?.click() },
+            { label: "Add a Moodle transcript", onSelect: () => transcriptPicker.current?.click() },
+          ]}
+        />
         <Menu label={`More actions for this ${label.toLowerCase()}`} items={sessionMenu} />
         <input
           ref={slidesPicker} type="file" multiple hidden accept={SLIDES_ACCEPT}
           onChange={async (e) => {
             const files = Array.from(e.target.files ?? []);
             e.target.value = "";
+            // Read before the files go in, since afterwards the session has slides either way.
+            const replacing = view.slides.length > 0;
             try {
               const added = await addSlides(session.id, files);
-              if (added) showToast(added === 1 ? "Slides added." : `${added} sets of slides added.`);
+              if (added) showToast(replacing ? "Slides replaced." : "Slides added.");
             } catch (err) {
-              setError(`The slides could not be added. ${(err as Error).message || "Try again in a moment."}`);
+              setError(`The slides could not be ${replacing ? "replaced" : "added"}. ${(err as Error).message || "Try again in a moment."}`);
             }
           }}
         />

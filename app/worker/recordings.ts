@@ -52,3 +52,20 @@ export async function retryRecording(env: Env, recordingId: string): Promise<boo
   ]);
   return true;
 }
+
+// Transcribes a recording only when asked, since transcription is the step
+// that costs money. Only waiting or failed transcription jobs are cleared, so
+// any audio preparation still in hand is left to finish.
+export async function transcribeRecording(env: Env, recordingId: string): Promise<boolean> {
+  const recording = await env.DB.prepare("SELECT file_id, turns FROM recordings WHERE id = ?1")
+    .bind(recordingId).first<{ file_id: string | null; turns: string | null }>();
+  if (!recording || !recording.file_id) return false;
+  await env.DB.batch([
+    env.DB.prepare(
+      "DELETE FROM jobs WHERE json_extract(payload, '$.recording_id') = ?1 AND type = 'transcribe' AND status IN ('failed', 'queued')",
+    ).bind(recordingId),
+    env.DB.prepare(`UPDATE recordings SET status = 'transcribing', ${TOUCH} WHERE id = ?1`).bind(recordingId),
+    env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('transcribe', json_object('recording_id', ?1), -1)").bind(recordingId),
+  ]);
+  return true;
+}

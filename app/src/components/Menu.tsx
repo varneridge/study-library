@@ -1,14 +1,23 @@
 import { Icon } from "./icons";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { sheetHost, useCloseOnBack } from "../lib/ui";
 
+// An item either runs an action or, when it has items of its own, opens them
+// as a group in place beneath it. Groups go one level deep, which keeps
+// secondary actions out of sight without stacking a second popover or sheet.
 export interface MenuItem {
   label: string;
-  onSelect: () => void;
+  onSelect?: () => void;
+  items?: MenuItem[];
   danger?: boolean;
   hidden?: boolean;
 }
+
+const visible = (items: MenuItem[]) => items.filter((i) => !i.hidden);
+
+// A group with nothing left to show is left out altogether, so it never opens empty.
+const showable = (item: MenuItem) => !item.hidden && (!item.items || visible(item.items).length > 0);
 
 // A "more actions" menu. Closes on a click elsewhere or on Escape.
 export function Menu({
@@ -23,18 +32,22 @@ export function Menu({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [submenu, setSubmenu] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const actionSelectedRef = useRef(false);
   const [shift, setShift] = useState(0);
   const [flipY, setFlipY] = useState(false);
-  const shown = items.filter((i) => !i.hidden);
+  const shown = items.filter(showable);
 
   useCloseOnBack(open, () => setOpen(false));
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setSubmenu(null);
+      return;
+    }
     actionSelectedRef.current = false;
 
     const close = (e: MouseEvent) => {
@@ -81,13 +94,21 @@ export function Menu({
     };
   }, [open]);
 
-  const selectItem = (item: MenuItem) => {
+  const runItem = (item: MenuItem) => {
     actionSelectedRef.current = true;
     setOpen(false);
-    item.onSelect();
+    item.onSelect?.();
+  };
+
+  // Opening a group leaves the menu open, and opening one closes any other.
+  const toggleGroup = (item: MenuItem) => {
+    setSubmenu((current) => (current === item.label ? null : item.label));
   };
 
   // Keep the panel on screen when its button sits near an edge or near the bottom.
+  // It is measured again when a group opens, because the panel grows. Once
+  // flipped it stays flipped while open, since a flipped panel always seems to
+  // fit and measuring it would otherwise send it back down past the edge.
   useLayoutEffect(() => {
     if (!open || !panel.current || window.matchMedia("(max-width: 44rem)").matches) {
       setShift(0);
@@ -96,15 +117,13 @@ export function Menu({
     }
     const rect = panel.current.getBoundingClientRect();
     const margin = 8;
-    if (rect.left < margin) setShift(margin - rect.left);
-    else if (rect.right > window.innerWidth - margin) setShift(window.innerWidth - margin - rect.right);
+    if (rect.left < margin) setShift((s) => s + margin - rect.left);
+    else if (rect.right > window.innerWidth - margin) setShift((s) => s + window.innerWidth - margin - rect.right);
 
     if (rect.bottom > window.innerHeight - margin) {
       setFlipY(true);
-    } else {
-      setFlipY(false);
     }
-  }, [open]);
+  }, [open, submenu]);
 
   if (!shown.length) return null;
   const host = sheetHost();
@@ -134,16 +153,50 @@ export function Menu({
             ...(flipY ? { top: "auto", bottom: "100%", marginBottom: "0.25rem" } : {}),
           }}
         >
-          {shown.map((item) => (
-            <button
-              key={item.label}
-              role="menuitem"
-              className={item.danger ? "danger" : undefined}
-              onClick={() => selectItem(item)}
-            >
-              {item.label}
-            </button>
-          ))}
+          {shown.map((item) => {
+            if (!item.items) {
+              return (
+                <button
+                  key={item.label}
+                  role="menuitem"
+                  className={item.danger ? "danger" : undefined}
+                  onClick={() => runItem(item)}
+                >
+                  {item.label}
+                </button>
+              );
+            }
+            const expanded = submenu === item.label;
+            const subItems = visible(item.items);
+            // The group's buttons sit inside the panel, so the arrow keys reach them in order.
+            return (
+              <Fragment key={item.label}>
+                <button
+                  role="menuitem"
+                  className={`menu-parent${item.danger ? " danger" : ""}`}
+                  aria-expanded={expanded}
+                  onClick={() => toggleGroup(item)}
+                >
+                  {item.label}
+                  <span className="menu-chevron" aria-hidden="true">{expanded ? "▴" : "▾"}</span>
+                </button>
+                {expanded && (
+                  <div className="menu-sub" role="group" aria-label={item.label}>
+                    {subItems.map((sub) => (
+                      <button
+                        key={sub.label}
+                        role="menuitem"
+                        className={sub.danger ? "danger" : undefined}
+                        onClick={() => runItem(sub)}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
           <button role="menuitem" className="menu-cancel" onClick={() => setOpen(false)}>Cancel</button>
         </div>,
       )}

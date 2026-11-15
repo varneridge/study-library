@@ -165,6 +165,56 @@ export async function retryFile(env: Env, fileId: string): Promise<boolean> {
   return true;
 }
 
+// The steps of a file's processing that can be asked for again one at a time.
+export const REDO_STEPS = ["ocr", "thumb", "identify"] as const;
+export type RedoStep = (typeof REDO_STEPS)[number];
+
+// Runs one step of a file's processing again, ahead of the queue. ocr reads
+// every page again with the current OCR, as a rescan does for one file; thumb
+// draws the cover again even where one exists; identify looks at the first
+// pages again for the citation. Waiting or failed jobs of the same step are
+// cleared first, so the file never ends up with two of them queued.
+export async function redoFile(env: Env, fileId: string, step: RedoStep): Promise<boolean> {
+  const file = await env.DB.prepare("SELECT id, mime FROM files WHERE id = ?1 AND deleted = 0")
+    .bind(fileId).first<{ id: string; mime: string }>();
+  if (!file) return false;
+  const clear = (type: string) =>
+    env.DB.prepare(
+      `DELETE FROM jobs WHERE type = ?2 AND json_extract(payload, '$.file_id') = ?1 AND status IN ('failed', 'queued')`,
+    ).bind(fileId, type);
+  if (step === "ocr") {
+    await env.DB.batch([
+      clear("extract_text"),
+      env.DB.prepare(`UPDATE files SET text_status = 'ocr', ${TOUCH} WHERE id = ?1`).bind(fileId),
+      env.DB.prepare(
+        `INSERT INTO jobs (type, payload, priority, run_after)
+         VALUES ('extract_text', json_object('file_id', ?1, 'rescan', json('true'), 'keep_pages', json('false')),
+                 -CAST(strftime('%s', 'now') AS INTEGER), ${NOW})`,
+      ).bind(fileId),
+    ]);
+  } else if (step === "thumb") {
+    await env.DB.batch([
+      clear("thumb"),
+      env.DB.prepare(
+        `INSERT INTO jobs (type, payload, priority, run_after)
+         VALUES ('thumb', json_object('file_id', ?1, 'force', json('true')),
+                 -CAST(strftime('%s', 'now') AS INTEGER), ${NOW})`,
+      ).bind(fileId),
+    ]);
+  } else if (step === "identify") {
+    await env.DB.batch([
+      clear("identify"),
+      env.DB.prepare(
+        `INSERT INTO jobs (type, payload, priority, run_after)
+         VALUES ('identify', json_object('file_id', ?1), 0, ${NOW})`,
+      ).bind(fileId),
+    ]);
+  } else {
+    return false;
+  }
+  return true;
+}
+
 // Queues every PDF reading to be checked and, where it helps, read again
 // with the processor's current OCR. Each file is looked at on the laptop,
 // which decides what to do with it: a scan is rebuilt from its pages with

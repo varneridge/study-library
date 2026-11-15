@@ -16,7 +16,8 @@ import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/ki
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
-import { keepMine, lookAgain, pending, putBack, applySuggestion, viaLabel } from "../lib/citations";
+import { keepMine, lookAgain, pending, putBack, applySuggestion, redoFileStep, viaLabel } from "../lib/citations";
+import { dragHandleProps } from "../lib/drag";
 import { db } from "../lib/db";
 import { Icon } from "./icons";
 import { byPosition, keysAfter } from "../lib/keys";
@@ -103,6 +104,68 @@ export async function copyReference(item: ItemRow): Promise<void> {
   showToast("Could not copy the reference.");
 }
 
+type ReferenceFields = Partial<Record<"author" | "year" | "title" | "source" | "publisher" | "volume" | "issue" | "pages" | "doi", string>>;
+
+// Reads what it can from a pasted reference or DOI. Only what is found is
+// returned, so filling never blanks a field the reader has already typed.
+// Dashes in page ranges are written as hyphens, whatever the source used.
+export function parseReference(input: string): ReferenceFields {
+  const found: ReferenceFields = {};
+  let text = input.replace(/\s+/g, " ").trim();
+  const doi = /\b(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)\b/.exec(text);
+  if (doi) {
+    found.doi = doi[1];
+    text = text.replace(/(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)?10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+/i, " ");
+  } else {
+    const url = /https?:\/\/\S+/.exec(text);
+    if (url) {
+      found.doi = url[0].replace(/[.,;]+$/, "");
+      text = text.replace(url[0], " ");
+    }
+  }
+  const quoted = /'([^']+)'|"([^"]+)"|\u2018([^\u2019]+)\u2019|\u201c([^\u201d]+)\u201d/.exec(text);
+  const year = /\b(1[5-9]\d{2}|20\d{2})\b/.exec(text);
+  if (year) {
+    found.year = year[1];
+    const author = text.slice(0, year.index).replace(/[\s(,[]+$/, "").trim();
+    if (author && (!quoted || quoted.index > year.index)) found.author = author;
+  }
+  // A page range marked with p. or pp. wins over any other pair of numbers.
+  const pages = /\bpp?\.\s*(\d+\s*[-\u2013\u2014]\s*\d+)/i.exec(text) ?? /\b(?:pp?\.\s*)?(\d+\s*-\s*\d+)\b/i.exec(text);
+  if (pages) found.pages = pages[1].replace(/\s*[-\u2013\u2014]\s*/, "-");
+  const volume = /\b(\d+)\s*\((\d+)\)/.exec(text.replace(/\((1[5-9]\d{2}|20\d{2})\)/g, " "));
+  if (volume) {
+    found.volume = volume[1];
+    found.issue = volume[2];
+  }
+  let rest = "";
+  if (quoted) {
+    found.title = (quoted[1] ?? quoted[2] ?? quoted[3] ?? quoted[4]).replace(/[,.]+$/, "").trim();
+    rest = text.slice(quoted.index + quoted[0].length);
+  } else if (year) {
+    // Without quotation marks the title is taken as the sentence after the year.
+    const after = text.slice(year.index + year[0].length).replace(/^[\s).,:]+/, "");
+    const title = after.split(/\.\s/)[0].trim();
+    if (title && !/^\d/.test(title)) {
+      found.title = title.replace(/[.,]+$/, "");
+      rest = after.slice(after.indexOf(title) + title.length);
+    }
+  }
+  if (rest) {
+    // The next phrase is the journal or book, cut before any volume number.
+    const source = rest.replace(/^[\s.,:]+/, "").replace(/^In:?\s+/i, "").split(/,|\.\s|\s+\d/)[0].replace(/[.:]+$/, "").trim();
+    // "London: Verso" is a place and publisher rather than a source.
+    const imprint = /^[A-Z][A-Za-z .]+:\s*(.+)$/.exec(source);
+    if (imprint && !quoted) found.publisher = imprint[1].trim();
+    else if (source && !/^\d/.test(source) && !/^pp?\./i.test(source)) found.source = source;
+  }
+  return found;
+}
+
+// Whether pasted text looks enough like a reference to fill fields straight away.
+const looksLikeReference = (text: string) =>
+  /\b10\.\d{4,9}\//.test(text) || (/\b(1[5-9]\d{2}|20\d{2})\b/.test(text) && /['"\u2018\u201c]/.test(text));
+
 export function Editor({ view, onClose, start }: { view: ReadingView; onClose: () => void; start?: Suggestion | null }) {
   useCloseOnBack(true, onClose);
   const from = start ?? view.item;
@@ -111,7 +174,7 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     work_kind: from.work_kind ?? (view.item.kind === "primary" ? "primary" : "article"),
     author: from.author ?? "",
     editor: from.editor ?? "",
-    title: from.title,
+    title: from.title ?? "",
     source: from.source ?? "",
     publisher: from.publisher ?? "",
     volume: from.volume ?? "",
@@ -121,9 +184,39 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     doc_date: view.item.doc_date ?? "",
     doi: from.doi ?? "",
   });
+  // The rarer fields stay tucked away unless one of them already holds something.
+  const [moreFields, setMoreFields] = useState(() => Boolean(from.volume || from.issue || from.publisher || from.editor));
+  const [reference, setReference] = useState("");
   const auto = view.item.suggested?.applied ? view.item.suggested : null;
   const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setDraft({ ...draft, [key]: e.target.value });
+
+  const fill = (text: string) => {
+    const found = parseReference(text);
+    const count = Object.keys(found).length;
+    if (!count) {
+      showToast("No details were recognised in that, so nothing changed.");
+      return;
+    }
+    setDraft((d) => ({ ...d, ...found }));
+    if (found.volume || found.issue || found.publisher) setMoreFields(true);
+    setReference("");
+    showToast(`Filled ${count} ${count === 1 ? "field" : "fields"}. Check them before saving.`);
+  };
+
+  // A blank title is allowed, so one is made from whatever else was given.
+  const titleFor = (): string => {
+    const typed = draft.title.trim();
+    if (typed) return typed;
+    const when = draft.year.trim() || (draft.kind === "primary" ? draft.doc_date.trim() : "");
+    const byline = [draft.author.trim(), when ? `(${when})` : ""].filter(Boolean).join(" ");
+    return byline
+      || draft.source.trim()
+      || draft.doi.trim()
+      || view.file?.original_name?.replace(/\.[^.]+$/, "")
+      || view.item.title
+      || "Untitled";
+  };
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -133,7 +226,7 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
       work_kind: draft.kind === "slides" ? null : (draft.work_kind as WorkKind),
       author: draft.author.trim() || null,
       editor: draft.editor.trim() || null,
-      title: draft.title.trim() || view.item.title,
+      title: titleFor(),
       source: draft.source.trim() || null,
       publisher: draft.publisher.trim() || null,
       volume: draft.volume.trim() || null,
@@ -149,86 +242,125 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
   const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
   const isSessionItem = Boolean(view.link?.session_id);
   const allowsSlides = isSessionItem || view.item.kind === "slides";
+  const sourceLabel = draft.work_kind === "chapter" ? "Book title" : draft.work_kind === "article" ? "Journal" : "Source";
 
   return (
-    <form className="editor" onSubmit={save}>
+    <form className="editor editor-card" onSubmit={save}>
       {auto && !start && (
         <p className="small muted provenance">
           Filled in {viaLabel(auto.via)}.{" "}
           {auto.previous && <button type="button" className="link" onClick={() => { void putBack(view.item); onClose(); }}>Put back the old details</button>}
         </p>
       )}
-      <div className="grid">
-        <label className="field"><span>Type</span>
-          {isVideo ? (
-            <span className="badge" style={{ padding: "0.45rem 0.75rem", alignSelf: "center", display: "inline-flex", width: "fit-content" }}>Video</span>
-          ) : (
-            <select value={draft.kind} onChange={(e) => {
-              const k = e.target.value as ItemKind;
-              setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
-            }}>
-              {isSessionItem ? (
-                <option value="slides">{KIND_TITLE_LABEL.slides}</option>
-              ) : (
-                <>
-                  <option value="primary">{KIND_TITLE_LABEL.primary}</option>
-                  <option value="secondary">{KIND_TITLE_LABEL.secondary}</option>
-                  <option value="summary">{KIND_TITLE_LABEL.summary}</option>
-                  {allowsSlides && <option value="slides">{KIND_TITLE_LABEL.slides}</option>}
-                </>
-              )}
-            </select>
-          )}
-        </label>
-        {draft.kind === "secondary" && !isVideo && (
-          <label className="field"><span>Reference kind</span>
-            <select value={draft.work_kind} onChange={set("work_kind")}>
-              <option value="article">Journal article</option>
-              <option value="chapter">Book chapter</option>
-              <option value="book">Book</option>
-            </select>
-          </label>
-        )}
-      </div>
-      {draft.kind !== "summary" && (
-        <div className="grid">
-          <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, Given and Surname, Given" /></label>
-          {draft.work_kind === "chapter" && (
-            <label className="field"><span>Volume editor</span><input type="text" value={draft.editor} onChange={set("editor")} placeholder="Surname, Given" /></label>
-          )}
+      <div className="editor-card-layout">
+        {/* The cover sits beside the fields, so the details can be read off it while typing. */}
+        <div className="editor-card-preview">
+          <Cover view={view} mode="icons" isLibrary={true} still />
         </div>
-      )}
-      <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
-      {draft.kind !== "summary" && (
-        <>
-          <div className="grid">
-            <label className="field"><span>{draft.work_kind === "chapter" ? "Book title" : draft.work_kind === "article" ? "Journal" : "Source"}</span><input type="text" value={draft.source} onChange={set("source")} /></label>
-            <label className="field"><span>Pages</span><input type="text" value={draft.pages} onChange={set("pages")} /></label>
-            {draft.kind === "primary" ? (
-              <label className="field"><span>Date</span><input type="text" value={draft.doc_date} onChange={set("doc_date")} /></label>
-            ) : (
-              <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
-            )}
-          </div>
-          {draft.kind === "secondary" && (
-            <div className="grid">
-              {(draft.work_kind === "chapter" || draft.work_kind === "book") && (
-                <label className="field"><span>Publisher</span><input type="text" value={draft.publisher} onChange={set("publisher")} placeholder="Publisher name" /></label>
-              )}
-              {draft.work_kind === "article" && (
-                <>
-                  <label className="field"><span>Volume</span><input type="text" value={draft.volume} onChange={set("volume")} placeholder="e.g. 38" /></label>
-                  <label className="field"><span>Issue</span><input type="text" value={draft.issue} onChange={set("issue")} placeholder="e.g. 2" /></label>
-                </>
-              )}
-              <label className="field"><span>DOI or URL</span><input type="text" value={draft.doi} onChange={set("doi")} placeholder="10.1080/... or https://..." /></label>
+        <div className="editor-card-fields">
+          {draft.kind !== "summary" && !isVideo && (
+            <div className="editor-quick-fill">
+              <label className="field"><span>Paste a reference or DOI to fill fields</span>
+                <input
+                  type="text"
+                  value={reference}
+                  placeholder="e.g. 10.1080/... or Smith, J. (2020) 'Article Title', Journal, 12(3), pp. 45-67"
+                  onChange={(e) => setReference(e.target.value)}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData("text");
+                    if (looksLikeReference(text)) {
+                      e.preventDefault();
+                      fill(text);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    // Enter fills from the reference rather than saving half-finished details.
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (reference.trim()) fill(reference);
+                    }
+                  }}
+                />
+              </label>
+              <button type="button" className="quiet small" disabled={!reference.trim()} onClick={() => fill(reference)}>Fill fields</button>
             </div>
           )}
-        </>
-      )}
-      <div className="row">
-        <button className="button primary">Save</button>
-        <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+          {isVideo ? (
+            <div className="grid grid-2">
+              <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
+              <label className="field"><span>Creator or speaker</span><input type="text" value={draft.author} onChange={set("author")} /></label>
+              <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
+              <label className="field"><span>Source or URL</span><input type="text" value={draft.source} onChange={set("source")} placeholder="Channel, site or link" /></label>
+            </div>
+          ) : (
+            <>
+              <div className="grid">
+                <label className="field"><span>Type</span>
+                  <select value={draft.kind} onChange={(e) => {
+                    const k = e.target.value as ItemKind;
+                    setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
+                  }}>
+                    {isSessionItem ? (
+                      <option value="slides">{KIND_TITLE_LABEL.slides}</option>
+                    ) : (
+                      <>
+                        <option value="primary">{KIND_TITLE_LABEL.primary}</option>
+                        <option value="secondary">{KIND_TITLE_LABEL.secondary}</option>
+                        <option value="summary">{KIND_TITLE_LABEL.summary}</option>
+                        {allowsSlides && <option value="slides">{KIND_TITLE_LABEL.slides}</option>}
+                      </>
+                    )}
+                  </select>
+                </label>
+                {draft.kind === "secondary" && (
+                  <label className="field"><span>Reference kind</span>
+                    <select value={draft.work_kind} onChange={set("work_kind")}>
+                      <option value="article">Journal article</option>
+                      <option value="chapter">Book chapter</option>
+                      <option value="book">Book</option>
+                    </select>
+                  </label>
+                )}
+              </div>
+              {draft.kind === "summary" ? (
+                <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
+              ) : (
+                <>
+                  <div className="grid">
+                    <label className="field"><span>Author</span><input type="text" value={draft.author} onChange={set("author")} placeholder="Surname, Given and Surname, Given" /></label>
+                    {draft.kind === "primary" ? (
+                      <label className="field"><span>Date</span><input type="text" value={draft.doc_date} onChange={set("doc_date")} /></label>
+                    ) : (
+                      <label className="field"><span>Year</span><input type="text" inputMode="numeric" value={draft.year} onChange={set("year")} /></label>
+                    )}
+                  </div>
+                  <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
+                  <div className="grid">
+                    <label className="field"><span>{sourceLabel}</span><input type="text" value={draft.source} onChange={set("source")} /></label>
+                    <label className="field"><span>Pages</span><input type="text" value={draft.pages} onChange={set("pages")} /></label>
+                  </div>
+                  <label className="field"><span>DOI or URL</span><input type="text" value={draft.doi} onChange={set("doi")} placeholder="10.1080/... or https://..." /></label>
+                  <button type="button" className="quiet small" aria-expanded={moreFields} onClick={() => setMoreFields((v) => !v)}>
+                    {moreFields ? "Fewer fields" : "More fields (volume, publisher, editor)"}
+                  </button>
+                  {moreFields && (
+                    <div className="grid">
+                      <label className="field"><span>Volume</span><input type="text" value={draft.volume} onChange={set("volume")} placeholder="e.g. 38" /></label>
+                      <label className="field"><span>Issue</span><input type="text" value={draft.issue} onChange={set("issue")} placeholder="e.g. 2" /></label>
+                      <label className="field"><span>Publisher</span><input type="text" value={draft.publisher} onChange={set("publisher")} placeholder="Publisher name" /></label>
+                      <label className="field"><span>Volume editor</span><input type="text" value={draft.editor} onChange={set("editor")} placeholder="Surname, Given" /></label>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          <p className="small muted">Any field can stay blank. Without a title, one is made from the others.</p>
+          <div className="row">
+            <button className="button primary">Save</button>
+            <button type="button" className="quiet" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
       </div>
     </form>
   );
@@ -422,8 +554,9 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
 // and large icons show it as the tile, with the title set in its place when
 // there is no picture yet. Outside the library, rows stay text only unless the
 // reading is a video, but tiles always take a picture, because there the
-// picture is the tile.
-function Cover({ view, mode, isLibrary }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean }) {
+// picture is the tile. A still cover is never a link, as in Edit details,
+// where following it would throw away what had been typed.
+function Cover({ view, mode, isLibrary, still }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean; still?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null);
   const video = isVideoView(view);
   const tile = isTileMode(mode);
@@ -440,7 +573,7 @@ function Cover({ view, mode, isLibrary }: { view: ReadingView; mode: ReadingView
     </>
   );
   const className = `reading-cover shape-${coverShape(view)}${picture ? "" : " is-empty"}`;
-  if (!readable(view)) return <span className={className} aria-hidden="true">{body}</span>;
+  if (still || !readable(view)) return <span className={className} aria-hidden="true">{body}</span>;
   return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true}>{body}</Link>;
 }
 
@@ -481,6 +614,7 @@ export function ReadingRow({
   const online = useOnline();
   const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
   const hasVideoTranscript = Boolean(isVideo && view.file && parseVideoMeta(view.file.meta).transcript_text);
+  const isPdf = Boolean(view.file && view.file.mime === "application/pdf");
   const tile = isTileMode(mode);
   // A video with no picture yet gets one, taken on this device.
   useEffect(() => {
@@ -493,13 +627,31 @@ export function ReadingRow({
       style={drag?.style}
       /* No drag attributes: they made the whole row a focusable drag
          button, so Space after a click, or typed in Edit details, picked
-         the reading up. Moving by keyboard is through the menu. */
+         the reading up. Moving by keyboard is through the drag handle. */
       {...((drag?.listeners ?? {}) as React.HTMLAttributes<HTMLElement>)}
       // The row stays a list item for screen readers. The library's own
       // description tells them it can be picked up with the space bar.
       role={undefined}
       className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (editing || moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
     >
+      {/* On a touch screen, or when arranging, this stands in for dragging the
+          whole row, and its arrow keys move the reading one place at a time. */}
+      {drag && (
+        <button
+          type="button"
+          className="drag-handle"
+          data-drag-handle
+          aria-label={`Drag ${shortTitle(view.item)} to reorder`}
+          {...dragHandleProps((dir) => {
+            if (!view.link) return;
+            void nudge(view.item, view.link, dir).then((moved) => {
+              if (!moved) showToast(dir < 0 ? "Already at the top." : "Already at the foot.");
+            });
+          })}
+        >
+          #
+        </button>
+      )}
       {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       {!tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       <ReadingTitle view={view} short={short} />
@@ -520,20 +672,25 @@ export function ReadingRow({
         <Menu
           items={[
             { label: "Edit details", onSelect: () => { setEditFrom(null); setEditing(true); } },
-            { label: hasVideoTranscript ? "Replace transcript" : "Attach transcript", onSelect: () => transcriptPicker.current?.click(), hidden: !isVideo || !view.file },
-            { label: "Remove transcript", onSelect: () => void removeVideoTranscript(view.file!).then(() => showToast("Transcript removed.")), hidden: !hasVideoTranscript || !view.file, danger: true },
             { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: !citable(view.item) },
-            { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !citable(view.item) || !view.file || view.file.mime !== "application/pdf" },
-            { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
-            { label: `Move to ${KIND_GROUP.secondary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "secondary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "secondary" },
-            { label: `Move to ${KIND_GROUP.summary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "summary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "summary" },
-            // On a touch screen these stand in for dragging the row.
-            { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link },
-            { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link },
             { label: "Move to another week or module", onSelect: () => setMoving(true) },
-            { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
             { label: "Download file", onSelect: () => void download(view), hidden: !view.file },
-            { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(view.upload) },
+            {
+              // The rarer actions, and those that run a file's processing again, wait in here.
+              label: "More...",
+              items: [
+                { label: "Read the text again (re-OCR)", onSelect: () => void redoFileStep(view.file!.id, "ocr"), hidden: isVideo || !isPdf },
+                { label: "Update cover thumbnail", onSelect: () => void redoFileStep(view.file!.id, "thumb"), hidden: isVideo || !view.file },
+                { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: isVideo || !citable(view.item) || !isPdf },
+                { label: hasVideoTranscript ? "Replace transcript" : "Attach transcript", onSelect: () => transcriptPicker.current?.click(), hidden: !isVideo || !view.file },
+                { label: "Remove transcript", onSelect: () => void removeVideoTranscript(view.file!).then(() => showToast("Transcript removed.")), hidden: !hasVideoTranscript || !view.file, danger: true },
+                { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
+                { label: `Move to ${KIND_GROUP.secondary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "secondary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "secondary" },
+                { label: `Move to ${KIND_GROUP.summary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "summary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "summary" },
+                { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(view.upload) },
+                { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
+              ],
+            },
             { label: isVideo ? "Delete video" : deleteLabel(view.item.kind), onSelect: () => void deleteReading(view), danger: true },
           ]}
         />

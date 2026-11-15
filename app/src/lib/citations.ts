@@ -65,3 +65,27 @@ export async function lookAgain(item: ItemRow): Promise<void> {
   await api(`/api/files/${encodeURIComponent(item.file_id)}/identify`, { method: "POST" }).catch(() => undefined);
   showToast("Looking at the PDF again. Any change shows here in a minute or two.");
 }
+
+export type RedoStep = "ocr" | "thumb" | "identify";
+
+const REDO_MESSAGES: Record<RedoStep, string> = {
+  ocr: "Reading the text again. The updated pages will appear in a minute or two.",
+  thumb: "Updating the cover thumbnail.",
+  identify: "Looking at the PDF again for its details.",
+};
+
+// Asks for one step of a file's processing to be done again. The toast says
+// what is now happening, or that the request never reached the server.
+export async function redoFileStep(fileId: string, step: RedoStep): Promise<void> {
+  try {
+    await api(`/api/files/${encodeURIComponent(fileId)}/redo`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ step }),
+    });
+  } catch {
+    showToast("That could not be started, so check the connection and try again.");
+    return;
+  }
+  showToast(REDO_MESSAGES[step]);
+}
