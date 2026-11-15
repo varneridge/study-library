@@ -214,7 +214,6 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         const all = await pageSizes(opened);
         if (cancelled) return;
         restored.current = false;
-    touchedTab.current = false;
         viewports.current.clear();
         texts.current.clear();
         setSizes(all);

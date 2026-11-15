@@ -16,7 +16,8 @@ import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/ki
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
-import { keepMine, lookAgain, pending, putBack, applySuggestion, redoFileStep, viaLabel } from "../lib/citations";
+import { keepMine, lookAgain, pending, putBack, applySuggestion, redoFileStep, viaLabel, parseReference, type ReferenceFields } from "../lib/citations";
+export { parseReference, type ReferenceFields };
 import { dragHandleProps } from "../lib/drag";
 import { db } from "../lib/db";
 import { Icon } from "./icons";
@@ -102,64 +103,6 @@ export async function copyReference(item: ItemRow): Promise<void> {
     // Clipboard permission or focus error
   }
   showToast("Could not copy the reference.");
-}
-
-type ReferenceFields = Partial<Record<"author" | "year" | "title" | "source" | "publisher" | "volume" | "issue" | "pages" | "doi", string>>;
-
-// Reads what it can from a pasted reference or DOI. Only what is found is
-// returned, so filling never blanks a field the reader has already typed.
-// Dashes in page ranges are written as hyphens, whatever the source used.
-export function parseReference(input: string): ReferenceFields {
-  const found: ReferenceFields = {};
-  let text = input.replace(/\s+/g, " ").trim();
-  const doi = /\b(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)\b/.exec(text);
-  if (doi) {
-    found.doi = doi[1];
-    text = text.replace(/(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)?10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+/i, " ");
-  } else {
-    const url = /https?:\/\/\S+/.exec(text);
-    if (url) {
-      found.doi = url[0].replace(/[.,;]+$/, "");
-      text = text.replace(url[0], " ");
-    }
-  }
-  const quoted = /'([^']+)'|"([^"]+)"|\u2018([^\u2019]+)\u2019|\u201c([^\u201d]+)\u201d/.exec(text);
-  const year = /\b(1[5-9]\d{2}|20\d{2})\b/.exec(text);
-  if (year) {
-    found.year = year[1];
-    const author = text.slice(0, year.index).replace(/[\s(,[]+$/, "").trim();
-    if (author && (!quoted || quoted.index > year.index)) found.author = author;
-  }
-  // A page range marked with p. or pp. wins over any other pair of numbers.
-  const pages = /\bpp?\.\s*(\d+\s*[-\u2013\u2014]\s*\d+)/i.exec(text) ?? /\b(?:pp?\.\s*)?(\d+\s*-\s*\d+)\b/i.exec(text);
-  if (pages) found.pages = pages[1].replace(/\s*[-\u2013\u2014]\s*/, "-");
-  const volume = /\b(\d+)\s*\((\d+)\)/.exec(text.replace(/\((1[5-9]\d{2}|20\d{2})\)/g, " "));
-  if (volume) {
-    found.volume = volume[1];
-    found.issue = volume[2];
-  }
-  let rest = "";
-  if (quoted) {
-    found.title = (quoted[1] ?? quoted[2] ?? quoted[3] ?? quoted[4]).replace(/[,.]+$/, "").trim();
-    rest = text.slice(quoted.index + quoted[0].length);
-  } else if (year) {
-    // Without quotation marks the title is taken as the sentence after the year.
-    const after = text.slice(year.index + year[0].length).replace(/^[\s).,:]+/, "");
-    const title = after.split(/\.\s/)[0].trim();
-    if (title && !/^\d/.test(title)) {
-      found.title = title.replace(/[.,]+$/, "");
-      rest = after.slice(after.indexOf(title) + title.length);
-    }
-  }
-  if (rest) {
-    // The next phrase is the journal or book, cut before any volume number.
-    const source = rest.replace(/^[\s.,:]+/, "").replace(/^In:?\s+/i, "").split(/,|\.\s|\s+\d/)[0].replace(/[.:]+$/, "").trim();
-    // "London: Verso" is a place and publisher rather than a source.
-    const imprint = /^[A-Z][A-Za-z .]+:\s*(.+)$/.exec(source);
-    if (imprint && !quoted) found.publisher = imprint[1].trim();
-    else if (source && !/^\d/.test(source) && !/^pp?\./i.test(source)) found.source = source;
-  }
-  return found;
 }
 
 // Whether pasted text looks enough like a reference to fill fields straight away.
@@ -681,7 +624,7 @@ export function ReadingRow({
               items: [
                 { label: "Read the text again (re-OCR)", onSelect: () => void redoFileStep(view.file!.id, "ocr"), hidden: isVideo || !isPdf },
                 { label: "Update cover thumbnail", onSelect: () => void redoFileStep(view.file!.id, "thumb"), hidden: isVideo || !view.file },
-                { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: isVideo || !citable(view.item) || !isPdf },
+                { label: "Look up the details again", onSelect: () => void (view.file ? redoFileStep(view.file.id, "identify") : lookAgain(view.item)), hidden: isVideo || !citable(view.item) || !isPdf },
                 { label: hasVideoTranscript ? "Replace transcript" : "Attach transcript", onSelect: () => transcriptPicker.current?.click(), hidden: !isVideo || !view.file },
                 { label: "Remove transcript", onSelect: () => void removeVideoTranscript(view.file!).then(() => showToast("Transcript removed.")), hidden: !hasVideoTranscript || !view.file, danger: true },
                 { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },

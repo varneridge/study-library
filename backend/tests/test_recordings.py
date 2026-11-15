@@ -40,8 +40,11 @@ def test_live_chunks_become_a_transcribed_recording(api, module, tmp_path):
 
     row = api.pull_all()["recordings"]["r1"]
     api.push([{"table": "recordings", "row": {**row, "status": "uploaded", "modified_at": stamp()}}])
-    # Prepare the audio, then transcribe it. There is no summary step.
-    assert _processor(api).drain() == 2
+    # Prepare the audio, which leaves it at 'prepared' until requested.
+    assert _processor(api).drain() == 1
+    assert api.pull_all()["recordings"]["r1"]["status"] == "prepared"
+    api._json("POST", "/api/recordings/r1/transcribe")
+    assert _processor(api).drain() == 1
 
     state = api.pull_all()
     recording = state["recordings"]["r1"]
@@ -94,7 +97,10 @@ def test_uploaded_video_goes_through_multipart(api, tmp_path):
         "modified_at": stamp(), "deleted": False}}])
     assert api.claim() is None
     _recording(api, "r2", "uploaded", file_id="v1", source="upload")
-    assert _processor(api).drain() == 2
+    assert _processor(api).drain() == 1
+    assert api.pull_all()["recordings"]["r2"]["status"] == "prepared"
+    api._json("POST", "/api/recordings/r2/transcribe")
+    assert _processor(api).drain() == 1
 
     state = api.pull_all()
     assert state["recordings"]["r2"]["status"] == "done"
@@ -167,6 +173,7 @@ def test_a_failed_transcription_resumes_where_it_stopped(api, module, tmp_path, 
     flaky = FlakyTranscriber()
     processor = Processor(api, transcriber=flaky)
     assert processor.run_once()  # prepare_audio
+    api._json("POST", "/api/recordings/r1/transcribe")
     assert processor.run_once()  # transcribe, which fails on piece two
     assert flaky.calls == 2
     # The retry waits two minutes; bring it forward for the test.
@@ -246,7 +253,9 @@ def test_same_audio_is_not_transcribed_twice(api, module, tmp_path):
 
     transcriber = CountingTranscriber()
     processor = Processor(api, transcriber=transcriber)
-    assert processor.drain() == 2
+    assert processor.drain() == 1
+    api._json("POST", "/api/recordings/r1/transcribe")
+    assert processor.drain() == 1
     assert transcriber.calls == 1
 
     # If the recording is marked uploading -> uploaded again for the same audio,

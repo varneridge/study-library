@@ -395,7 +395,14 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
 
       // A row of a table, with a row of it just above, is never a page number or a
       // stray line in the margin, however much its cells look like either.
-      const overhead = [...order].reverse().find((other) => other !== l && other.y > l.y && Math.abs(other.x0 - l.x0) < body * 4);
+      let overhead: (typeof order)[number] | undefined;
+      for (let k = order.length - 1; k >= 0; k -= 1) {
+        const other = order[k];
+        if (other !== l && other.y > l.y && Math.abs(other.x0 - l.x0) < body * 4) {
+          overhead = other;
+          break;
+        }
+      }
       const tableRow = inRow(l) && Boolean(overhead) && overhead!.y - l.y < pageLeading * 1.6 && inRow(overhead!);
 
       if (nearEdge && isPageNum && !tableRow) continue;
@@ -405,8 +412,7 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
 
       const below = order.find((other) => other !== l && other.y < l.y && Math.abs(other.x0 - l.x0) < body * 4);
       const isolatedTop = !below || (l.y - below.y > pageLeading * 1.6);
-      const above = [...order].reverse().find((other) => other !== l && other.y > l.y && Math.abs(other.x0 - l.x0) < body * 4);
-      const isolatedBottom = !above || (above.y - l.y > pageLeading * 1.6);
+      const isolatedBottom = !overhead || (overhead.y - l.y > pageLeading * 1.6);
       const isolated = (l.y > height * 0.88 && isolatedTop) || (l.y < height * 0.12 && isolatedBottom);
 
       if (isolated && !isSentenceContinuation && !tableRow) {

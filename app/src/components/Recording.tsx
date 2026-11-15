@@ -15,6 +15,7 @@ const STATUS: Record<string, string> = {
   uploading: "Uploading recording",
   uploaded: "Waiting to process",
   processing: "Preparing audio",
+  prepared: "Ready to transcribe",
   transcribing: "Transcribing",
 };
 
@@ -97,10 +98,8 @@ export function RecordingPanel({
   const activeHere = now?.recordingId === recording.id;
   const playable = Boolean(file && file.mime.startsWith("audio/"));
   const turns = recording.turns ?? [];
-  // Read as a plain string, since the row's status type may not list "prepared" yet.
-  const status: string = recording.status;
   // Audio that is ready but has no words yet is offered for transcription, with its cost.
-  const canTranscribe = playable && turns.length === 0 && (status === "prepared" || status === "done");
+  const canTranscribe = playable && turns.length === 0 && (recording.status === "prepared" || recording.status === "done");
   const cost = formatTranscriptionCost(recording.duration_seconds);
   const skip = (seconds: number) => {
     const el = audio.current;

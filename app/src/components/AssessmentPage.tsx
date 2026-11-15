@@ -128,7 +128,11 @@ export function AssessmentCard({
       <div className="week-card-body">
         <div className="week-card-meta">
           <span className="week-card-code">Essay</span>
-          {assessment.dueDate && <span className="week-card-dates">Due {shortDate(dayOf(assessment.dueDate))}</span>}
+          {assessment.dueDate && (
+            <span className="week-card-dates">
+              Due {shortDate(dayOf(assessment.dueDate))}{due ? ` (${due.words})` : ""}
+            </span>
+          )}
         </div>
         {renaming ? (
           <input
@@ -155,11 +159,6 @@ export function AssessmentCard({
           <Link to={to} className="week-card-title-link essay-card-title">
             {displayTitle}
           </Link>
-        )}
-        {due && (
-          <div className="week-card-footer">
-            <span className="count">Due {due.words}</span>
-          </div>
         )}
       </div>
     </article>

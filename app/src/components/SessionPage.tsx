@@ -263,9 +263,12 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
             e.target.value = "";
             // Read before the files go in, since afterwards the session has slides either way.
             const replacing = view.slides.length > 0;
+            const trimmed = files.length > 1 && files.some((f) => !f.type.startsWith("image/") && !/\.(heic|heif)$/i.test(f.name));
             try {
               const added = await addSlides(session.id, files);
-              if (added) showToast(replacing ? "Slides replaced." : "Slides added.");
+              if (added) {
+                showToast(trimmed ? `A session holds one slide deck, so ${files[0].name} was kept.` : (replacing ? "Slides replaced." : "Slides added."));
+              }
             } catch (err) {
               setError(`The slides could not be ${replacing ? "replaced" : "added"}. ${(err as Error).message || "Try again in a moment."}`);
             }

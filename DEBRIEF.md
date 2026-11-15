@@ -1020,6 +1020,20 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.50.2:
+  - Three-line week titles and standardized card sizing across the app: expanded `.week-card-title-link` to 3 lines (`-webkit-line-clamp: 3; line-clamp: 3;`) with a fixed height (`height: calc(3 * 1.35em); min-height: calc(3 * 1.35em); max-height: calc(3 * 1.35em);`) matching `.week-card-cover-display` so 1-line, 2-line and 3-line titles yield identical card heights across all modules and This week; consolidated `AssessmentCard` footer into `.week-card-dates` so essay cards match week card height; and locked `.week-card .title-input` in renaming mode to the same fixed 3-line height.
+  - Ponytail code quality, data safety and lean fixes:
+    - Fixed slide replacement in `importing.ts` to assign `file_id: fileId` immediately on the reading row.
+    - Protected newly created empty sessions on syncing devices in `edits.ts` by checking if module patterns are already empty.
+    - Pinned syllabus (number 0) cards ahead of sortable drag source in `ModulePage.tsx` so unmovable cards cannot be dragged into an unsaved order.
+    - Preserved Back navigation scroll place in `ModulePage.tsx` by only scrolling to Content when `window.scrollY === 0`.
+    - Handled Irish names and possessive titles cleanly in `parseReference` (`citations.ts`), backed by unit tests.
+    - Prevented reader sidebar tab switches from being cleared on slow PDF page size calculation in `Reader.tsx`.
+    - Gated PDF figure canvas renders behind `IntersectionObserver` in `TextView.tsx` so illustrated documents do not render all figures on mount.
+    - Replaced array copy/reverse allocations with a reverse index loop in `reflow.ts` table detection.
+    - Aligned `.drag-handle` sizing inside `.week-card-meta` to `1.25rem`.
+    - Culled dead CSS rules (`.sync-panel-status`, `.sync:empty`, `.goto-button`, `.move-dock`) and unused `cover_clip` in `jobs.py`.
+    - Updated backend tests to match manual on-demand transcription (`POST /api/recordings/:id/transcribe`).
 - Improvements completed in 0.50.1:
   - Seminar questions retired completely from session materials and session pages: removed `{ kind: "questions" }` from `sessionMaterials` (`sessionMaterials.ts`, `WeekPage.tsx`) and removed `<SeminarQuestions />` rendering from `SessionPage.tsx` so renaming sessions to `seminar` never reintroduces seminar question blocks or chips.
   - Uniform week card heights and 2-line titles: pinned `.week-card-cover > img`, `.week-card-cover .shelf-covers`, and `.week-card-cover-fallback` to `position: absolute; inset: 0;` with `flex: none` on `.week-card-cover` and `.essay-card-cover` (`aspect-ratio: 16 / 10`) so uncropped portrait PDF thumbnails never stretch week cards vertically; set `.week-card-title-link` to a 2-line clamp (`-webkit-line-clamp: 2`, `min-height: calc(2 * 1.35em)`) and scoped `.week-title:not(.week-card-title-link)` under coarse-pointer media queries so week titles display up to two lines consistently across laptops and touch screens.

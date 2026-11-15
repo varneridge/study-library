@@ -267,8 +267,13 @@ export async function setReadingWeek(week: WeekRow, _module: ModuleRow, reading:
 export async function resetSessionsOnce(): Promise<number> {
   if (!((await getMeta<number>("cursor")) ?? 0)) return 0;
   if (await getMeta<boolean>("sessions-blank-v2")) return 0;
+  const liveModules = (await db.modules.toArray()).filter((m) => !m.deleted);
+  if (liveModules.length > 0 && liveModules.every((m) => !m.session_pattern || m.session_pattern.length === 0)) {
+    await setMeta("sessions-blank-v2", true);
+    return 0;
+  }
   const changes: Change[] = [];
-  for (const m of (await db.modules.toArray()).filter((m) => !m.deleted)) {
+  for (const m of liveModules) {
     if (m.session_pattern.length > 0) {
       changes.push({ table: "modules", row: { id: m.id, session_pattern: [] }, patch: true });
     }
@@ -356,10 +361,6 @@ export async function reorderModules(ids: string[]): Promise<void> {
 
 export async function reorderSessions(weekId: string, ids: string[]): Promise<void> {
   await reorderRows("sessions", await db.sessions.where("week_id").equals(weekId).toArray(), ids);
-}
-
-export async function reorderQuestions(sessionId: string, ids: string[]): Promise<void> {
-  await reorderRows("questions", await db.questions.where("session_id").equals(sessionId).toArray(), ids);
 }
 
 // Deletes, then offers to undo at the foot of the screen.

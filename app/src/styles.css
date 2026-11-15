@@ -264,24 +264,6 @@ button { cursor: pointer; }
   right: 0;
   left: auto;
 }
-.sync-panel-status {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  font-size: var(--fs-sm);
-  color: var(--ink);
-  margin: 0;
-}
-.sync-panel-status.problem { color: var(--danger); }
-.sync:empty {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  pointer-events: none;
-}
 /* Study or job search: one switch, the same on both sides, with the side
    you are on raised as a segmented control shows its choice. */
 .side-switch {
@@ -643,7 +625,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
   color: var(--ink);
   letter-spacing: -0.02em;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -699,7 +682,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   color: var(--accent);
 }
 
-/* The body holds meta and a two-line title box, so all cards match in height. */
+/* The body holds meta and a fixed three-line title box, so all cards match in height. */
 .week-card-body {
   padding: 0.5rem 0.7rem 0.6rem;
   display: flex;
@@ -712,9 +695,11 @@ label.field { display: block; margin-bottom: 0.9rem; }
   align-items: baseline;
   gap: 0.4rem;
   min-width: 0;
+  height: 1.35rem;
   padding-bottom: 0.25rem;
   margin-bottom: 0.1rem;
   border-bottom: 1px solid var(--rule);
+  box-sizing: border-box;
 }
 .week-card-module-code {
   flex: none;
@@ -740,6 +725,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   justify-content: space-between;
   gap: 0.5rem;
   min-width: 0;
+  height: 1.25rem;
   min-height: 1.25rem;
   font-size: var(--fs-xs);
   color: var(--muted);
@@ -767,18 +753,21 @@ label.field { display: block; margin-bottom: 0.9rem; }
   white-space: nowrap;
 }
 
-/* Up to two lines of title before an ellipsis, with a fixed two-line minimum
-   height so that one-line and two-line titles produce cards of identical height. */
+/* Up to three lines of title before an ellipsis, with a fixed three-line
+   box height so that one-line, two-line and three-line titles produce cards
+   of identical height everywhere. */
 .week-card-title-link {
   font-family: var(--serif);
   font-size: var(--fs-md);
   line-height: 1.35;
-  min-height: calc(2 * 1.35em);
+  height: calc(3 * 1.35em);
+  min-height: calc(3 * 1.35em);
+  max-height: calc(3 * 1.35em);
   color: var(--ink);
   text-decoration: none;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
@@ -816,7 +805,18 @@ label.field { display: block; margin-bottom: 0.9rem; }
 }
 .week-card-actions .menu > * { pointer-events: auto; }
 /* Controls inside a card sit above its stretched link, so they stay clickable. */
-.week-card .title-input { position: relative; z-index: 2; }
+.week-card-meta .drag-handle {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+}
+.week-card .title-input {
+  position: relative;
+  z-index: 2;
+  height: calc(3 * 1.35em);
+  box-sizing: border-box;
+}
 
 /* A week's page with nothing in it yet: one calm panel that says so, and the
    row of ways to add something, kept together and wrapping on a phone. */
@@ -1371,9 +1371,6 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 
 .navs { display: contents; }
 .narrow-only { display: none; }
-@media (min-width: 44.01rem) {
-  .goto-button { display: none !important; }
-}
 /* On a phone the top bar stays on one clean row with brand, sync and the side switch. */
 @media (max-width: 44rem) {
   .topbar { flex-wrap: nowrap; gap: 0.35rem; padding: 0 0.75rem; height: 3.25rem; min-height: 3.25rem; }
@@ -1743,15 +1740,6 @@ kbd {
   padding: 0.6rem 0.9rem; background: var(--paper); border: 1px solid var(--accent); border-radius: var(--r-md);
   box-shadow: var(--shadow-float); font-family: var(--serif); cursor: grabbing;
 }
-.move-dock {
-  position: fixed; left: 50%; transform: translateX(-50%); z-index: 40;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; max-width: calc(100vw - 2rem);
-  padding: 0.6rem 0.8rem; background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow-float);
-  animation: rise var(--dur-2) var(--ease-settle);
-}
-.move-dock p { margin: 0; flex-basis: 100%; color: var(--muted); }
-.dock-grid { display: grid; grid-template-columns: auto repeat(11, 1.9rem); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-sm); overflow: hidden; }
-.dock-grid .term { background: var(--paper); color: var(--muted); font-size: var(--fs-xs); padding: 0.3rem 0.45rem; }
 .target {
   display: grid; place-items: center; min-height: 1.9rem; background: var(--paper); font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums; transition: background-color 0.1s ease, color 0.1s ease;
@@ -1759,10 +1747,7 @@ kbd {
 .target.is-reading-week { font-style: italic; }
 .target.current { color: var(--faint); }
 .target.over { background: var(--accent); color: var(--accent-ink); }
-.move-dock > .target { padding: 0 0.8rem; border: 1px solid var(--rule); border-radius: var(--r-xs); }
 @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@media (prefers-reduced-motion: reduce) { .move-dock { animation: none; } }
-@media (max-width: 34rem) { .dock-grid { grid-template-columns: auto repeat(11, minmax(0, 1fr)); width: 100%; } }
 
 /* Files dragged in from the computer: the place they will land is marked,
    and a banner says what will happen. */
@@ -2630,7 +2615,6 @@ input[type="date"] { color: var(--ink); }
 .page-loading span:nth-child(2) { width: 90%; } .page-loading span:nth-child(3) { width: 82%; } .page-loading span:nth-child(4) { width: 60%; }
 /* The tab bar */
 .tab-bar { display: none; }
-.goto-button { color: var(--muted); }
 @media (max-width: 44rem) {
   html.with-tabs { --bottom-inset: calc(3.6rem + env(safe-area-inset-bottom, 0px)); }
   html.with-tabs.typing { --bottom-inset: 0px; }
@@ -2647,11 +2631,9 @@ input[type="date"] { color: var(--ink); }
   .tab.on { color: var(--accent); }
   .tab.on svg { stroke-width: 1.9; }
   html.with-tabs #main { padding-bottom: var(--bottom-inset); }
-  /* The top bar keeps the brand, sync, Go to and Jobs; the tabs take the rest. */
+  /* The top bar keeps the brand, sync and the side switch; the tabs take the rest. */
   html.with-tabs .topbar > .navs { display: none; }
   html.with-tabs .topbar > .topbar-tools { display: none; }
-  html.with-tabs .topbar > .goto-button { margin-left: 0.25rem; }
-  html.with-tabs .topbar > .sync:empty + .goto-button { margin-left: auto; }
 }
 
 /* Anything fixed to the foot of the screen sits above the tab bar and the home indicator. */
@@ -2659,8 +2641,6 @@ input[type="date"] { color: var(--ink); }
 body.recording-active .toast-region { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 .sheet-dialog .toast-region, body:has(dialog.sheet-dialog[open]) .toast-region { bottom: calc(5.5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 .rec-pill { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
-.move-dock { bottom: calc(1rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
-body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0px), env(safe-area-inset-bottom, 0px))); }
 
 /* Touch: 44-point targets, a pressed state in place of hover, no tap delay. */
 @media (pointer: coarse), (max-width: 48rem) {
@@ -4574,9 +4554,9 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
 .essay-sources-sheet .essay-source-group h3 { margin-top: 0.5rem; }
 
 /* On a touch screen the Assessment & essay card's title is a 44-point
-   target, as a week card's title is. */
+   target, as a week card's title is, while keeping its 3-line clamp. */
 @media (pointer: coarse), (max-width: 48rem) {
-  .essay-card-title { display: flex; align-items: center; min-height: 2.75rem; }
+  .essay-card-title { min-height: 2.75rem; }
 }
 
 /* Modern Job Cards */

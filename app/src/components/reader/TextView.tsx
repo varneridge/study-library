@@ -2,7 +2,7 @@
 // column of text sized for the screen, headings, notes in smaller type, and
 // the original page numbers in the margin of the text so it can be cited.
 
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mergeRects } from "./pages";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
@@ -112,7 +112,17 @@ function offsetAt(node: Node, offset: number): { page: number; at: number } | nu
 // fills the canvas, at the width the text column gives it.
 function FigureCrop({ doc, figure }: { doc: PDFDocumentProxy; figure: FigureBox }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
   useEffect(() => {
+    if (visible || !canvas.current || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) { setVisible(true); obs.disconnect(); }
+    }, { rootMargin: "600px" });
+    obs.observe(canvas.current);
+    return () => obs.disconnect();
+  }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
     let task: RenderTask | null = null;
     void (async () => {
@@ -136,7 +146,7 @@ function FigureCrop({ doc, figure }: { doc: PDFDocumentProxy; figure: FigureBox 
       await task.promise;
     })().catch(() => undefined);
     return () => { cancelled = true; task?.cancel(); };
-  }, [doc, figure]);
+  }, [doc, figure, visible]);
   // The caption below says what the picture is, so the canvas itself is not read out.
   return <canvas ref={canvas} className="tv-figure-canvas" aria-hidden="true" style={{ width: "100%", height: "auto" }} />;
 }

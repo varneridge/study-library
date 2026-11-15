@@ -9,7 +9,6 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 
 export interface Heading { title: string; page: number; level: number }
 export type Tab = "notes" | "pages" | "contents";
-export type ReaderTab = Tab;
 
 // Deeper entries are kept but drawn at this level, because a long book's
 // list stays readable when indentation stops growing.
@@ -338,7 +337,6 @@ export async function outline(
 // The sidebar opens on the contents until you choose a tab for this reading.
 // The contents tab is always shown, with a short note when a reading has
 // none, so the heading count no longer moves you elsewhere.
-export function defaultTab(current: ReaderTab, _headingCount: number, touched: boolean): ReaderTab {
-  if (!touched) return "contents";
-  return current;
+export function defaultTab(current: Tab, _headingCount: number, touched: boolean): Tab {
+  return touched ? current : "contents";
 }

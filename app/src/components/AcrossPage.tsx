@@ -3,7 +3,7 @@ import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect } from "react";
 import { Link } from "../App";
 import { useTitle } from "../lib/ui";
-import { loadAcross, type ReadingView, type WeekOverview } from "../lib/library";
+import { loadAcross, type WeekOverview } from "../lib/library";
 import { WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { readCount } from "../lib/progress";
@@ -13,17 +13,6 @@ import { countdown } from "../lib/sections";
 import { shortDate } from "../lib/dates";
 
 const KEY = "across-week";
-
-// The first reading in a week with a thumbnail of its own, primaries first,
-// so that a week with no cover picture is still shown by what is in it.
-function firstThumb(groups: ReadingView[][]): string | null {
-  for (const group of groups) {
-    for (const view of group) {
-      if (view.file?.thumb_key) return view.file.thumb_key;
-    }
-  }
-  return null;
-}
 
 // The next key dates across dissertation modules, counting down as job
 // deadlines do: amber within a week, red on the day or once passed.
@@ -112,10 +101,11 @@ export function AcrossPage({ term, number }: { term?: string; number?: number })
                 .filter((k): k is string => Boolean(k))
                 .slice(0, 3)
             : [];
+          const slideThumb = slides.find((v) => v.file?.thumb_key)?.file?.thumb_key ?? null;
           const overview: WeekOverview = {
             week: view.week,
             readingCount: readCount([...view.primaries, ...view.readings]),
-            thumb_key: view.week.image_key ?? (module.kind === "library" ? (thumb_keys[0] ?? null) : firstThumb([slides])),
+            thumb_key: view.week.image_key ?? (module.kind === "library" ? (thumb_keys[0] ?? null) : slideThumb),
             thumb_keys,
             sessions: [],
             isCurrentWeek,

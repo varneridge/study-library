@@ -227,40 +227,6 @@ def print_box(img) -> tuple[int, int, int, int] | None:
     return x[0], y[0], x[1], y[1]
 
 
-def cover_clip(page):
-    """The part of a portrait page that holds its print, with a thin even
-    margin, or None when there is no white margin worth taking away.
-
-    Thumbnails no longer use this, since they always show the whole page so
-    that nothing on it is ever cut away; it is kept for any caller that still
-    wants a page's printed area. Landscape slides are left whole, as their
-    white space is part of their design.
-    """
-    import pymupdf
-    from PIL import Image
-
-    rect = page.rect
-    if rect.width <= 0 or rect.height <= rect.width * 1.05:
-        return None
-    scale = min(1.0, 320 / rect.width)
-    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
-    img = Image.frombytes("RGB" if pix.n >= 3 else "L", [pix.width, pix.height], pix.samples)
-    box = print_box(img)
-    if not box:
-        return None
-    w, h = img.size
-    x0, y0, x1, y1 = box
-    # A page with only a line or two of print is drawn whole.
-    if (x1 - x0) < w * 0.3 or (y1 - y0) < h * 0.3:
-        return None
-    pad = 0.015 * max(w, h)
-    x0, y0 = max(0.0, x0 - pad), max(0.0, y0 - pad)
-    x1, y1 = min(float(w), x1 + pad), min(float(h), y1 + pad)
-    if x0 <= w * 0.01 and y0 <= h * 0.01 and x1 >= w * 0.99 and y1 >= h * 0.99:
-        return None
-    return pymupdf.Rect(rect.x0 + x0 / scale, rect.y0 + y0 / scale, rect.x0 + x1 / scale, rect.y0 + y1 / scale)
-
-
 def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
     """Draws the first page, or the page after a JSTOR cover sheet, as a
     WebP thumbnail. The whole page is drawn, never cropped, so a cover or a
@@ -279,12 +245,9 @@ def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int 
         return False
     import pymupdf
     from PIL import Image
-    # The full page, with no clip, so that a thumbnail always shows all of it.
-    area = rect
-    clip = None
-    scale = min(2.0, max(0.1, width / area.width))
+    scale = min(2.0, max(0.1, width / rect.width))
     matrix = pymupdf.Matrix(scale, scale)
-    pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
+    pix = page.get_pixmap(matrix=matrix, alpha=False)
     mode = "RGB" if pix.n >= 3 else "L"
     img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
     img.save(thumb_path, "WEBP", quality=quality)

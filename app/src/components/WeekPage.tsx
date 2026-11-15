@@ -6,7 +6,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Link } from "../App";
 import { db } from "../lib/db";
 import { prefetch, PREFETCH_MAX_BYTES } from "../lib/files";
-import { applyPlans, planFile, addSlides, SLIDES_ACCEPT } from "../lib/importing";
+import { applyPlans, planFile, addSlides, sessionDeck, SLIDES_ACCEPT } from "../lib/importing";
 import { byPosition } from "../lib/keys";
 import { clock } from "../lib/recorder";
 import { loadWeekPage, type NoteView, type SessionView } from "../lib/library";
@@ -125,7 +125,7 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
   const effectiveTarget = target ?? (docOnly ? { kind: "summary" as const, label: "documents" } : undefined);
   // Checked before the files go in, since afterwards every session has slides.
   const replacing = effectiveTarget?.kind === "slides" && effectiveTarget.sessionId
-    ? await sessionHasSlides(week.id, effectiveTarget.sessionId)
+    ? Boolean(await sessionDeck(week.id, effectiveTarget.sessionId))
     : false;
   const weeks = await db.weeks.where("module_id").equals(module.id).toArray();
   const plans = files.map((file) => {
@@ -152,14 +152,6 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
   } else {
     showToast(`${count} ${count === 1 ? "file" : "files"} added to ${weekCode(week)}${effectiveTarget?.kind === "slides" ? `, ${effectiveTarget.label}` : ""}. Uploading now.`);
   }
-}
-
-// Whether a session already holds a live deck of slides.
-async function sessionHasSlides(weekId: string, sessionId: string): Promise<boolean> {
-  const links = (await db.week_items.where("week_id").equals(weekId).toArray())
-    .filter((l) => !l.deleted && l.session_id === sessionId);
-  const items = await db.items.bulkGet(links.map((l) => l.item_id));
-  return items.some((item) => item && !item.deleted && item.kind === "slides");
 }
 
 function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boolean): FileTarget {
@@ -213,14 +205,14 @@ function WeekSessionCard({
 }: {
   view: SessionView; count: number; morph: boolean; dropOver: boolean; onAddSlides: (sessionId: string) => void; onStep: (direction: -1 | 1) => void;
 }) {
-  const { session, slides, recordings, questions, notes } = view;
+  const { session, slides, recordings, notes } = view;
   const [renaming, setRenaming] = useState(false);
   const movable = count > 1;
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: session.id, disabled: !movable });
   const kindLabel = sessionLabel(session.kind);
   const label = session.title || kindLabel;
   const preview = notePreview(notes, PREVIEW_CHARS);
-  const materials = sessionMaterials(session.kind, { slides: slides.length, recordings: recordings.length, questions: questions.length });
+  const materials = sessionMaterials(session.kind, { slides: slides.length, recordings: recordings.length });
   const shownRecordings = recordings.slice(0, 2);
 
   const head = (

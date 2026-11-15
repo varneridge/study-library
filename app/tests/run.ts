@@ -1570,15 +1570,15 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
   assert.equal(sessionLabel("seminar"), "Seminar");
   assert.equal(sessionLabel("lecture"), "Lecture");
   assert.deepEqual(
-    sessionMaterials("lecture", { slides: 0, recordings: 0, questions: 0 }),
-    [{ kind: "add-slides", more: false }],
+    sessionMaterials("lecture", { slides: 0, recordings: 0 }),
+    [{ kind: "add-slides" }],
   );
   assert.deepEqual(
-    sessionMaterials("lecture", { slides: 1, recordings: 0, questions: 0 }),
+    sessionMaterials("lecture", { slides: 1, recordings: 0 }),
     [{ kind: "slides", count: 1 }],
   );
   assert.deepEqual(
-    sessionMaterials("seminar", { slides: 0, recordings: 0, questions: 4 }),
+    sessionMaterials("seminar", { slides: 0, recordings: 0 }),
     [],
   );
   const sessionSrc = readFileSync(new URL("../src/components/SessionPage.tsx", import.meta.url), "utf8");
@@ -1588,7 +1588,7 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
   const boardSrc = readFileSync(new URL("../src/components/WeekBoard.tsx", import.meta.url), "utf8");
   assert.ok(!boardSrc.includes("<MoveDock"), "WeekBoard must not render MoveDock during reorganise");
   const acrossSrc = readFileSync(new URL("../src/components/AcrossPage.tsx", import.meta.url), "utf8");
-  assert.ok(acrossSrc.includes("firstThumb([slides])"), "AcrossPage uses week image_key or slide cover");
+  assert.ok(acrossSrc.includes("slideThumb"), "AcrossPage uses week image_key or slide cover");
 });
 
 {
@@ -1607,8 +1607,15 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
     assert.equal(toc[0].page, 4);
     const recordingSrc = readFileSync(new URL("../src/components/Recording.tsx", import.meta.url), "utf8");
     assert.ok(recordingSrc.includes("export function formatTranscriptionCost") && recordingSrc.includes("/api/recordings/"), "Recording manual transcription");
-    const rowSrc = readFileSync(new URL("../src/components/ReadingRow.tsx", import.meta.url), "utf8");
-    assert.ok(rowSrc.includes("export function parseReference") && rowSrc.includes("editor-card-layout"), "ReadingRow card editor and quick-fill");
+    const { parseReference } = await import("../src/lib/citations");
+    const ref = parseReference("O'Brien, P. (1999) 'Britain's war', Journal of History, 3(2), pp. 1-20");
+    assert.equal(ref.author, "O'Brien, P.");
+    assert.equal(ref.year, "1999");
+    assert.equal(ref.title, "Britain's war");
+    assert.equal(ref.source, "Journal of History");
+    assert.equal(ref.volume, "3");
+    assert.equal(ref.issue, "2");
+    assert.equal(ref.pages, "1-20");
     const settingsSrc = readFileSync(new URL("../src/components/Settings.tsx", import.meta.url), "utf8");
     assert.ok(settingsSrc.includes("zotero-theme-card") && settingsSrc.includes("Redraw reading covers"), "Settings Zotero theme cards");
     console.log(`ok   ${name}`);

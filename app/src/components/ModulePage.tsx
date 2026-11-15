@@ -462,10 +462,12 @@ export function ModulePage({ id }: { id: string }) {
   // The sections a drag can reorder: every section of a dissertation or a
   // library, and the admin and syllabus sections among a taught module's
   // course materials. Only one of those grids is ever shown with them.
-  const sortableSource = useMemo(() => {
+  const sectionPool = useMemo(() => {
     if (!data) return NO_WEEKS;
     return hasCustomSections(data.module) ? data.weeks : data.weeks.filter((w) => w.week.term === "S");
   }, [data]);
+  const pinnedSections = useMemo(() => sectionPool.filter((w) => w.week.number === 0), [sectionPool]);
+  const sortableSource = useMemo(() => sectionPool.filter((w) => w.week.number !== 0), [sectionPool]);
   const [sortableWeeks, setSectionOrder] = useOptimisticOrder(sortableSource, (ov) => ov.week.id, data);
   useTitle(data?.module.code);
 
@@ -482,7 +484,9 @@ export function ModulePage({ id }: { id: string }) {
     }
     const frame = requestAnimationFrame(() => {
       scrolledFor.current = id;
-      document.getElementById("module-content")?.scrollIntoView({ behavior: "auto", block: "start" });
+      if (window.scrollY === 0) {
+        document.getElementById("module-content")?.scrollIntoView({ behavior: "auto", block: "start" });
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [id, data]);
@@ -668,11 +672,24 @@ export function ModulePage({ id }: { id: string }) {
           <div id={`admin-grid-${module.id}`} className={`week-grid${!customSectionsOnly && reorganising ? " arranging" : ""}`} hidden={!adminOpen}>
             {/* The essays follow the sections and stay where they are. */}
             {!customSectionsOnly && (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd} onDragCancel={swallowClickAfterDrag}>
-                <SortableContext items={sectionIds} strategy={rectSortingStrategy}>
-                  {sortableWeeks.map(sortableCard)}
-                </SortableContext>
-              </DndContext>
+              <>
+                {pinnedSections.map((ov) => (
+                  <WeekCard
+                    key={ov.week.id}
+                    overview={ov}
+                    module={module}
+                    dates={dates}
+                    renaming={renamingId === ov.week.id}
+                    onStartRename={() => setRenamingId(ov.week.id)}
+                    onEndRename={() => setRenamingId(null)}
+                  />
+                ))}
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd} onDragCancel={swallowClickAfterDrag}>
+                  <SortableContext items={sectionIds} strategy={rectSortingStrategy}>
+                    {sortableWeeks.map(sortableCard)}
+                  </SortableContext>
+                </DndContext>
+              </>
             )}
             {essays.length > 0 ? (
               essays.map((essay) => (
@@ -708,6 +725,17 @@ export function ModulePage({ id }: { id: string }) {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd} onDragCancel={swallowClickAfterDrag}>
             <SortableContext items={sectionIds} strategy={rectSortingStrategy}>
               <div className={`week-grid${reorganising ? " arranging" : ""}`}>
+                {pinnedSections.map((ov) => (
+                  <WeekCard
+                    key={ov.week.id}
+                    overview={ov}
+                    module={module}
+                    dates={dates}
+                    renaming={renamingId === ov.week.id}
+                    onStartRename={() => setRenamingId(ov.week.id)}
+                    onEndRename={() => setRenamingId(null)}
+                  />
+                ))}
                 {sortableWeeks.map(sortableCard)}
               </div>
             </SortableContext>

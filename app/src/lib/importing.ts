@@ -149,7 +149,7 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
           table: "items",
           row: {
             id: existingId,
-            file_id: plan.existingFileId,
+            file_id: fileId,
             original_file_id: plan.existingOriginalFileId ?? null,
             last_page: null,
             last_spot: null,
@@ -243,7 +243,7 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
 }
 
 // The live deck a session already holds, if it has one, by its item id.
-async function sessionDeck(weekId: string, sessionId: string): Promise<string | null> {
+export async function sessionDeck(weekId: string, sessionId: string): Promise<string | null> {
   const links = (await db.week_items.where("week_id").equals(weekId).toArray())
     .filter((l) => !l.deleted && (l.session_id ?? null) === sessionId)
     .sort(byPosition);
@@ -260,7 +260,7 @@ export async function addSlides(sessionId: string, chosen: File[]): Promise<numb
   const week = session ? await db.weeks.get(session.week_id) : undefined;
   const module = week ? await db.modules.get(week.module_id) : undefined;
   if (!session || !week || !module || !chosen.length) return 0;
-  const files = await combinePhotos(chosen);
+  const files = (await combinePhotos(chosen)).slice(0, 1);
   const weeks = await db.weeks.where("module_id").equals(module.id).toArray();
   const plans = files.map((file) => ({ ...planFile(file, weeks, week), kind: "slides" as const, sessionId }));
   return applyPlans(module, plans);
