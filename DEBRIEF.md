@@ -1018,6 +1018,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.14:
+  - Header whitespace elimination and session page top navigation: resolved the large top whitespace by resetting the inherited 3rem margin and 0.75rem padding from .week-nav on .week-nav-top and reducing page top padding to 0.5rem across week and session pages; moved next and previous session navigation on SessionPage to the top right of the breadcrumb header in a fixed, stable position (with [ and ] keyboard shortcuts) matching WeekPage; pruned dead CSS rules (.week-sessions cascade leak) and unused imports across WeekPage and SessionPage.
 - Improvements completed in 0.49.13:
   - Week page polish, compact view differentiation, and tile thumbnails: removed hover grip handle elements and dead handle CSS rules; distinguished compact view with dense single-line rows, inline muted authors, and 0.15rem padding from normal view with two-line layout and 0.65rem padding; tightened week page top whitespace from 4.65rem to 2.65rem (.page.week-page padding-top to 1.25rem, breadcrumbs margin to 0.5rem, layout margin to 0.9rem); tightened gap between reading groups in .week-readings-col (.section margin-top to 1.1rem); and enabled first-page document thumbnails on icons and large icons views outside the library with top-aligned cropping (`object-position: center top`).
 - Improvements completed in 0.49.12:
@@ -1230,6 +1232,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.11 | Clean flat week page redesign: removed skeuomorphic ruled lines, restricted lecture materials strictly to lectures, equal-sized rectangular session and add-session cards, removed duplicate bottom blocks, and dynamic view transition target per card. |
 | 0.49.12 | Balanced 50/50 week layout with equal columns on desktop, responsive single-column collapse at 56rem, and flush vertical alignment of readings with session cards. |
 | 0.49.13 | Week page polish: removed hover grip handles, distinguished compact view with dense single-line rows, tightened top page whitespace and group gaps, and enabled top-cropped first-page thumbnails for icons views. |
+| 0.49.14 | Header whitespace elimination and session page top navigation: reset inherited 3rem margin on .week-nav-top, set 0.5rem top padding on week and session pages, moved session next/prev navigation to top header with [ and ] shortcuts, and pruned dead CSS and imports. |
 
 ## 18. The job search
 

@@ -1,5 +1,5 @@
 import { NotesLoading } from "./ErrorBoundary";
-import { addMeeting, moveSection, isDissertation, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
+import { addMeeting, moveSection, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,18 +7,17 @@ import { Link } from "../App";
 import { db } from "../lib/db";
 import { prefetch, PREFETCH_MAX_BYTES } from "../lib/files";
 import { applyPlans, planFile, addSlides, SLIDES_ACCEPT } from "../lib/importing";
-import { byPosition, keyBetween, keysAfter } from "../lib/keys";
+import { byPosition } from "../lib/keys";
 import { clock } from "../lib/recorder";
-import { loadWeekPage, type NoteView, type ReadingView, type SessionView } from "../lib/library";
-import { sessionLabel, notesLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
-import { commit, newId, update } from "../lib/sync";
-import type { FileRow, ModuleRow, RecordingRow, SessionRow, WeekRow } from "../lib/types";
+import { loadWeekPage, type NoteView, type SessionView } from "../lib/library";
+import { sessionLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
+import { update } from "../lib/sync";
+import type { FileRow, ModuleRow, RecordingRow, WeekRow } from "../lib/types";
 import { recordingState } from "./Recording";
 import { Menu } from "./Menu";
-import { addSession, deleteSession, moveSession, sessionHasContent, setReadingWeek, withUndo, deleteSessionAsking, deleteSection } from "../lib/edits";
+import { addSession, moveSession, setReadingWeek, deleteSessionAsking, deleteSection } from "../lib/edits";
 import { navigate } from "../lib/router";
-import { confirmAction, showToast, typing, useTitle, useSwipe } from "../lib/ui";
-import type { SessionKind } from "../lib/types";
+import { showToast, typing, useTitle, useSwipe } from "../lib/ui";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { blockText } from "../lib/notes";
 import { ChoiceCard } from "./ChoiceCard";
@@ -29,6 +28,7 @@ import { sessionMaterials, takesSlides } from "../lib/sessionMaterials";
 import { uploadModulePicture } from "../lib/uploads";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
 import { downloadWeekArchive } from "../lib/weekArchive";
+import { KIND_GROUP } from "../lib/kinds";
 
 // When a week runs, and whether that is now, beside the crumbs.
 export function WeekWhen({ week }: { week: WeekRow }) {
@@ -84,8 +84,6 @@ function TitleEditor({ week, editing, setEditing }: { week: WeekRow; editing: bo
     />
   );
 }
-
-import { KIND_GROUP } from "../lib/kinds";
 
 function recordingLine(recording: RecordingRow): string {
   const state = recordingState(recording);

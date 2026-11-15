@@ -19,17 +19,15 @@ import { mimeFor, queueUpload } from "../lib/uploads";
 import { ImportedPanel, RecordingPanel } from "./Recording";
 import { Menu } from "./Menu";
 import { importTranscript } from "../lib/transcriptImport";
-import { showToast } from "../lib/ui";
 import { noteSessionOpened } from "../lib/settings";
 import { ReadingRow } from "./ReadingRow";
 import { KIND_GROUP } from "../lib/kinds";
 import type { ReadingView } from "../lib/library";
 import { groupByKind, isReadingKind } from "../lib/readingKinds";
-import type { SeminarQuestion } from "../lib/seminarQuestions";
 import { SeminarQuestions } from "./SeminarQuestions";
 import { TitleEdit } from "./TitleEdit";
 import { Icon } from "./icons";
-import { useNarrow, useTitle } from "../lib/ui";
+import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
 // The week's readings beside the notes, set out by kind so primary readings,
@@ -111,6 +109,16 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
   const [renaming, setRenaming] = useState(false);
   useTitle(data ? `${data.module.code} ${weekCode(data.week)} ${data.session.title || sessionLabel(data.session.kind)}` : undefined);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "[" && nav.previous) navigate({ view: "session", id: nav.previous.session.id });
+      if (e.key === "]" && nav.next) navigate({ view: "session", id: nav.next.session.id });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nav.previous, nav.next]);
+
   const register = useCallback((recordingId: string, audio: HTMLAudioElement | null) => {
     if (audio) audios.current.set(recordingId, audio);
     else audios.current.delete(recordingId);
@@ -167,10 +175,44 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
 
   return (
     <div className="page wide session-page">
-      <div className="crumbs">
-        <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span>{" "}
-        <Link to={{ view: "week", id: week.id }}>{weekCode(week)}{titleAfter(week)}</Link>
-        <WeekWhen week={week} />
+      <div className="crumbs week-crumbs">
+        <div className="crumbs-path">
+          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span>{" "}
+          <Link to={{ view: "week", id: week.id }}>{weekCode(week)}{titleAfter(week)}</Link>
+          <WeekWhen week={week} />
+        </div>
+        {(nav.previous || nav.next) && (
+          <nav className="week-nav week-nav-top" aria-label="Other sessions">
+            {nav.previous ? (
+              <Link
+                to={{ view: "session", id: nav.previous.session.id }}
+                className="week-nav-btn prev"
+                title={`Previous session: ${name(nav.previous)} (press [)`}
+              >
+                <span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>
+                <span>{name(nav.previous)}</span>
+              </Link>
+            ) : (
+              <span className="week-nav-btn disabled" aria-hidden="true">
+                <span className="nav-dir back"><Icon name="down" size={14} /></span>
+              </span>
+            )}
+            {nav.next ? (
+              <Link
+                to={{ view: "session", id: nav.next.session.id }}
+                className="week-nav-btn next"
+                title={`Next session: ${name(nav.next)} (press ])`}
+              >
+                <span>{name(nav.next)}</span>
+                <span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span>
+              </Link>
+            ) : (
+              <span className="week-nav-btn disabled" aria-hidden="true">
+                <span className="nav-dir next"><Icon name="down" size={14} /></span>
+              </span>
+            )}
+          </nav>
+        )}
       </div>
       <div className="section-head" style={{ alignItems: "center", flexWrap: "wrap" }}>
         {renaming ? (
@@ -321,14 +363,6 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
           />
         );
       })}
-
-      {/* On to the session before or after, as a week page goes to the next week. */}
-      {(nav.previous || nav.next) && (
-        <nav className="week-nav" aria-label="Other sessions">
-          {nav.previous ? <Link to={{ view: "session", id: nav.previous.session.id }}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{name(nav.previous)}</Link> : <span />}
-          {nav.next ? <Link to={{ view: "session", id: nav.next.session.id }}>{name(nav.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link> : <span />}
-        </nav>
-      )}
     </div>
   );
 }

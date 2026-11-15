@@ -1910,11 +1910,9 @@ img, canvas, video { max-width: 100%; }
   .tw-readings { max-width: none; }
 }
 /* Module page: the sessions of every week, as links to their notes. */
-.week-sessions { display: inline-flex; gap: 0.6rem; margin-left: 0.75rem; flex: none; }
 .session-link { font-size: var(--fs-xs); color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; }
 .session-link.has-notes { color: var(--accent); }
 .session-link:hover { color: var(--ink); border-bottom-color: currentColor; }
-@media (max-width: 34rem) { .week-sessions { margin-left: 0.4rem; gap: 0.45rem; } }
 
 /* Slides: the arrows sit on the slide, faint, and fade out when idle. */
 /* One line above the slide: the deck's row with its menu, the choice of deck
@@ -4723,9 +4721,9 @@ body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5
   gap: 0.75rem;
   margin-bottom: 0.5rem;
 }
-/* A week opens on its notes and readings, so it needs less air above it than
+/* A week or session opens on its notes and readings, so it needs less air above it than
    a page that leads with a large title. */
-.page.week-page { padding-top: 1.25rem; }
+:is(.page.week-page, .page.session-page) { padding-top: 0.5rem; }
 .week-crumbs .crumbs-path {
   display: flex;
   align-items: center;
@@ -4737,7 +4735,9 @@ body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  margin-left: auto;
+  margin: 0 0 0 auto;
+  padding-top: 0;
+  border-top: 0;
   flex-shrink: 0;
 }
 .week-nav-btn {
