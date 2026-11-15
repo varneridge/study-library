@@ -1,0 +1,145 @@
+/* The Appearance panel, laid out as Zotero's Aa menu: theme swatches across
+   the top, the view ruled off beneath them, then one setting to a row. Every
+   rule sits under .appearance so nothing here reaches the rest of the app. */
+
+.appearance {
+  min-width: 17rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.appearance .appearance-themes {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.75rem;
+  padding: 0.25rem 0 0.75rem;
+}
+
+.appearance .theme-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.appearance .theme-swatch-face {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  transition: box-shadow 120ms ease;
+}
+
+.appearance .theme-swatch.plain .theme-swatch-face { background: #ffffff; color: #1f1f1f; }
+.appearance .theme-swatch.sepia .theme-swatch-face { background: #f4ecd8; color: #5b4636; }
+.appearance .theme-swatch.dark .theme-swatch-face { background: #1e1e1e; color: #e8e8e8; }
+
+.appearance .theme-swatch[aria-pressed="true"] .theme-swatch-face {
+  box-shadow: 0 0 0 2px var(--accent, Highlight);
+}
+
+.appearance .theme-swatch:focus-visible { outline: none; }
+.appearance .theme-swatch:focus-visible .theme-swatch-face {
+  box-shadow: 0 0 0 2px var(--accent, Highlight), 0 0 0 4px rgba(127, 127, 127, 0.35);
+}
+
+.appearance .theme-swatch-name {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.appearance .theme-swatch[aria-pressed="true"] .theme-swatch-name {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.appearance .appearance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0;
+}
+
+.appearance label.appearance-row { cursor: pointer; }
+
+.appearance .appearance-view {
+  border-top: 1px solid rgba(127, 127, 127, 0.25);
+  border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+  padding: 0.5rem 0;
+  margin-bottom: 0.25rem;
+}
+
+.appearance .appearance-label { font-size: 0.9rem; }
+
+.appearance .stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.appearance .stepper .zoom-at {
+  min-width: 3.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A checkbox drawn as a switch, keeping the native control underneath so it
+   still works with the keyboard and a screen reader. */
+.appearance .switch {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 2.4rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.35);
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  margin: 0;
+  transition: background-color 150ms ease;
+}
+
+.appearance .switch:checked {
+  background: var(--accent, Highlight);
+}
+
+.appearance .switch::after {
+  content: "";
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 150ms ease;
+}
+
+.appearance .switch:checked::after {
+  transform: translateX(1.05rem);
+}
+
+.appearance .switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent, Highlight);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appearance .switch,
+  .appearance .switch::after,
+  .appearance .theme-swatch-face {
+    transition: none;
+  }
+}

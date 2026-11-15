@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { fileBlob } from "../lib/files";
 import type { ReadingView } from "../lib/library";
+import { prefersReducedMotion, slideKeyframes, SLIDE_TIMING } from "../lib/motion";
 import { shortTitle } from "../lib/titles";
 import { Icon } from "./icons";
 
@@ -34,6 +35,7 @@ function SlideLightbox({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
+  const prevPageRef = useRef<number | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -94,6 +96,11 @@ function SlideLightbox({
         });
         renderTaskRef.current = renderTask;
         await renderTask.promise;
+        if (prevPageRef.current !== null && prevPageRef.current !== page && typeof target.animate === "function") {
+          const kf = slideKeyframes(page - prevPageRef.current, prefersReducedMotion());
+          if (kf) target.animate(kf, SLIDE_TIMING);
+        }
+        prevPageRef.current = page;
       } catch (err: unknown) {
         if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "RenderingCancelledException") {
           return;
@@ -181,6 +188,7 @@ export function SlideViewer({
   const box = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
   const genRef = useRef(0);
+  const prevPageRef = useRef<number | null>(null);
   const enlargeButtonRef = useRef<HTMLButtonElement>(null);
   const view = decks[Math.min(deck, decks.length - 1)];
 
@@ -189,6 +197,7 @@ export function SlideViewer({
     let loaded: PDFDocumentProxy | null = null;
     setDoc(null);
     setPage(0);
+    prevPageRef.current = null;
     // The frame keeps its size while the next deck opens: the shape this deck
     // had before, or else the one already showing, never a reset to 16 by 9.
     const known = deckRatios.get(view.item.id);
@@ -276,6 +285,11 @@ export function SlideViewer({
         const targetCtx = target.getContext("2d");
         if (targetCtx) {
           targetCtx.drawImage(offscreen, 0, 0);
+          if (prevPageRef.current !== null && prevPageRef.current !== page && typeof target.animate === "function") {
+            const kf = slideKeyframes(page - prevPageRef.current, prefersReducedMotion());
+            if (kf) target.animate(kf, SLIDE_TIMING);
+          }
+          prevPageRef.current = page;
         }
       } catch (err: unknown) {
         if (err && typeof err === "object" && "name" in err && (err as { name: string }).name === "RenderingCancelledException") {

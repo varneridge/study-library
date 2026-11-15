@@ -21,24 +21,17 @@ import { Menu } from "./Menu";
 import { importTranscript } from "../lib/transcriptImport";
 import { noteSessionOpened } from "../lib/settings";
 import { ReadingRow } from "./ReadingRow";
-import { KIND_GROUP } from "../lib/kinds";
+import { groupReadings } from "../lib/kinds";
 import type { ReadingView } from "../lib/library";
-import { groupByKind, isReadingKind } from "../lib/readingKinds";
+import { SplitHandle } from "./SplitHandle";
+import { readSplit, splitColumns, writeSplit } from "../lib/split";
 import { SeminarQuestions } from "./SeminarQuestions";
 import { TitleEdit } from "./TitleEdit";
 import { Icon } from "./icons";
 import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
-// The week's readings beside the notes, set out by kind so primary readings,
-// secondary readings, summaries and anything else are told apart at a glance.
-function readingGroups(readings: ReadingView[]): { key: string; label: string; views: ReadingView[] }[] {
-  const groups = [
-    ...groupByKind(readings, (r) => r.item.kind).map((g) => ({ key: g.kind, label: KIND_GROUP[g.kind], views: g.views })),
-    { key: "other", label: "Other readings", views: readings.filter((r) => !isReadingKind(r.item.kind)) },
-  ];
-  return groups.filter((g) => g.views.length > 0);
-}
+
 
 // Slides need pdf.js, which loads only when a session has slides to show.
 const SlideViewer = lazy(() => import("./SlideViewer").then((m) => ({ default: m.SlideViewer })));
@@ -102,6 +95,9 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
   const picker = useRef<HTMLInputElement>(null);
   const transcriptPicker = useRef<HTMLInputElement>(null);
   const narrow = useNarrow();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [splitFraction, setSplitFraction] = useState(readSplit);
+  const updateSplit = (next: number) => { setSplitFraction(writeSplit(next)); };
   const slidesPicker = useRef<HTMLInputElement>(null);
   // Only menus and the links at the foot of the page use this, so it does not suspend:
   // a second suspending query here would wait for the first instead of loading beside it.
@@ -309,41 +305,53 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
         <p className="small muted rec-hint">You can leave this page while it records. A bar at the foot of the screen keeps the recording in view, wherever you go.</p>
       )}
 
-      <div className={`session-grid${view.slides.length ? " with-slides" : readings.length ? " with-side" : ""}`}>
-        <div className="session-notes" style={{ viewTransitionName: "session-notes" }}>
-          {showQuestions && <SeminarQuestions sessionId={session.id} questions={questions} />}
-          <Suspense fallback={<NotesLoading />}>
-            <NoteEditor target={{ session_id: id }} label={`${sessionLabel(view.session.kind)} notes`} />
-          </Suspense>
-        </div>
-        {(view.slides.length > 0 || readings.length > 0) && (
-          <div className="session-side" style={{ viewTransitionName: "session-side" }}>
-            {readingGroups(readings).map((group) => (
-              <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
-                <h2 className="group-label">{group.label}</h2>
-                <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={nav.weeks} short />)}</ul>
-              </section>
-            ))}
-            {/* The slides come last, so nothing sits below them to pass under while they stay in view.
-                The deck shown has one line above it: its own row, with the reading's menu, and beside
-                that the choice of deck when there are several and Enlarge. */}
-            {view.slides.length > 0 && (
-              <Suspense fallback={<div className="slide-loading" aria-busy="true" />}>
-                <SlideViewer
-                  decks={view.slides}
-                  heading="Slides"
-                  className="side-readings side-slides"
-                  renderHeader={(deck, controls) => (
-                    <ul className="readings slides-row">
-                      <ReadingRow key={deck.item.id} view={deck} weeks={nav.weeks} short extra={controls} />
-                    </ul>
-                  )}
-                />
+      {(() => {
+        const hasSide = view.slides.length > 0 || readings.length > 0;
+        return (
+          <div
+            ref={gridRef}
+            className={`session-grid${hasSide ? (narrow ? " with-side" : " with-side split") : ""}`}
+            style={hasSide && !narrow ? (splitColumns(splitFraction) as React.CSSProperties) : undefined}
+          >
+            <div className="session-notes" style={{ viewTransitionName: "session-notes" }}>
+              {showQuestions && <SeminarQuestions sessionId={session.id} questions={questions} />}
+              <Suspense fallback={<NotesLoading />}>
+                <NoteEditor target={{ session_id: id }} label={`${sessionLabel(view.session.kind)} notes`} />
               </Suspense>
+            </div>
+            {hasSide && !narrow && (
+              <SplitHandle grid={gridRef} value={splitFraction} onChange={updateSplit} />
+            )}
+            {hasSide && (
+              <div className="session-side" style={{ viewTransitionName: "session-side" }}>
+                {groupReadings(readings).map((group) => (
+                  <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
+                    <h2 className="group-label">{group.label}</h2>
+                    <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={nav.weeks} short />)}</ul>
+                  </section>
+                ))}
+                {/* The slides come last, so nothing sits below them to pass under while they stay in view.
+                    The deck shown has one line above it: its own row, with the reading's menu, and beside
+                    that the choice of deck when there are several and Enlarge. */}
+                {view.slides.length > 0 && (
+                  <Suspense fallback={<div className="slide-loading" aria-busy="true" />}>
+                    <SlideViewer
+                      decks={view.slides}
+                      heading="Slides"
+                      className="side-readings side-slides"
+                      renderHeader={(deck, controls) => (
+                        <ul className="readings slides-row">
+                          <ReadingRow key={deck.item.id} view={deck} weeks={nav.weeks} short extra={controls} />
+                        </ul>
+                      )}
+                    />
+                  </Suspense>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {view.recordings.map((recording) => {
         const isTargetRec = rec ? recording.id === rec : recording.id === latest?.id;

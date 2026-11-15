@@ -6,12 +6,7 @@ import type { ModuleKind, SessionKind, Term, WeekRow } from "./types";
 export const TERMS: Term[] = ["AT", "WT"];
 export const WEEK_NUMBERS = Array.from({ length: 11 }, (_, i) => i + 1);
 
-export const PATTERNS: { label: string; value: SessionKind[] }[] = [
-  { label: "Lecture and seminar", value: ["lecture", "seminar"] },
-  { label: "One combined session", value: ["combined"] },
-  { label: "Lecture only", value: ["lecture"] },
-  { label: "Seminar only", value: ["seminar"] },
-];
+export const DEFAULT_PATTERN: SessionKind[] = ["combined"];
 
 // How a week is named: "AT3", or a dissertation section by its own name.
 export function weekCode(week: Pick<WeekRow, "term" | "number"> & { title?: string | null }): string {
@@ -66,7 +61,6 @@ export function notesLabel(session: { kind: SessionKind; title?: string | null }
 export interface NewModule {
   code: string;
   title: string;
-  pattern: SessionKind[];
   readingWeeks: string[];
   // A dissertation or library has sections you name, and no weeks of term.
   kind?: ModuleKind;
@@ -84,7 +78,7 @@ export async function createModule(input: NewModule): Promise<string> {
         id: moduleId,
         code: input.code.trim(),
         title: input.title.trim() || null,
-        session_pattern: input.pattern,
+        session_pattern: DEFAULT_PATTERN,
         description: null,
         last_opened_week_id: null,
         position: keysAfter(last, 1)[0],
@@ -110,7 +104,7 @@ export async function createModule(input: NewModule): Promise<string> {
     return moduleId;
   }
 
-  const sessionKeys = keysAfter(null, input.pattern.length);
+  const sessionKeys = keysAfter(null, 1);
   for (const term of TERMS) {
     for (const number of WEEK_NUMBERS) {
       const weekId = newId();
@@ -120,11 +114,9 @@ export async function createModule(input: NewModule): Promise<string> {
         row: { id: weekId, module_id: moduleId, term, number, title: null, is_reading_week: isReadingWeek },
       });
       if (isReadingWeek) continue;
-      input.pattern.forEach((kind, index) => {
-        changes.push({
-          table: "sessions",
-          row: { id: newId(), week_id: weekId, kind, title: null, position: sessionKeys[index] },
-        });
+      changes.push({
+        table: "sessions",
+        row: { id: newId(), week_id: weekId, kind: "combined" as SessionKind, title: null, position: sessionKeys[0] },
       });
     }
   }

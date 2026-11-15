@@ -13,8 +13,8 @@ import type { Size } from "./pages";
 
 const NoteEditor = lazy(() => import("../NoteEditor"));
 
-export type Tab = "notes" | "pages" | "contents";
-export interface Heading { title: string; page: number; level: number }
+import type { Heading, Tab } from "../../lib/outline";
+export type { Heading, Tab };
 
 const Thumb = memo(function Thumb({ doc, index, size, current, onGo }: {
   doc: PDFDocumentProxy; index: number; size: Size; current: boolean; onGo: (page: number) => void;

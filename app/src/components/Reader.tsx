@@ -17,6 +17,7 @@ import { dismissToast, openShortcuts, showToast, typing, useNarrow, useTitle } f
 import type { HighlightRow, Spot } from "../lib/types";
 import { Menu } from "./Menu";
 import { IconButton } from "./icons";
+import { defaultTab } from "../lib/outline";
 import { Sidebar, type Tab } from "./reader/Sidebar";
 import { TextView, type TextSelection } from "./reader/TextView";
 import { rectsFor, reflow, type Reflowed } from "../lib/reflow";
@@ -88,7 +89,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const [fit, setFit] = useState(1);
   const theme: Theme = appTheme === "light" ? "plain" : appTheme;
   const [left, setLeft] = useState(() => !window.matchMedia?.("(max-width: 34rem)").matches && localStorage.getItem("reader-sidebar") !== "closed");
-  const [tab, setTab] = useState<Tab>("notes");
+  const touchedTab = useRef(false);
+  const [tab, setTabState] = useState<Tab>("notes");
+  const setTab = (which: Tab) => {
+    touchedTab.current = true;
+    setTabState(which);
+  };
   const noteHandle = useRef<NoteEditorHandle>(null);
   const [tool, setTool] = useState<"select" | "highlight">("select");
   // Pages, as printed, or the text set to fit the screen. Phones start with text.
@@ -190,6 +196,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     listenViewports.current.clear();
     texts.current.clear();
     restored.current = false;
+    touchedTab.current = false;
 
     if (!data || isVideoMime(data.file?.mime ?? data.upload?.mime)) return;
     let cancelled = false;
@@ -206,6 +213,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         const all = await pageSizes(opened);
         if (cancelled) return;
         restored.current = false;
+    touchedTab.current = false;
         viewports.current.clear();
         texts.current.clear();
         setSizes(all);
@@ -220,7 +228,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
             .catch(() => undefined);
         }
         void textColumn(loaded).then((c) => { if (!cancelled) setColumn(c); }).catch(() => undefined);
-        void outline(loaded).then((h) => { if (!cancelled) setHeadings(h); });
+        void outline(loaded, { cancelled: () => cancelled }).then((h) => {
+          if (!cancelled) {
+            setHeadings(h);
+            setTabState((prev) => defaultTab(prev, h.length, touchedTab.current));
+          }
+        });
         if (data.file && data.file.text_status !== "ready") void bumpFile(data.file.id);
       } catch {
         if (!cancelled) {

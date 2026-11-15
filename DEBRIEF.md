@@ -1018,6 +1018,14 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.16:
+  - Dedicated Video kind and uniform tile layout: recognised videos by MIME type (`isVideoMime`, `displayKind`), placing them in a distinct Videos section between secondary readings and summaries with video-specific actions (Delete video, hidden document move targets) and badge representation in details; created uniform tile grids across mixed document and video items using container-level aspect ratio sizing (`1 / 1` container with letterboxing when mixed, `5 / 7` for pages, `16 / 9` for wide items) and full uncropped page rendering (`object-fit: contain; object-position: center;`).
+  - Week cards compact layout: eliminated dead vertical space in week cards on ModulePage with shallow `5 / 2` covers, tighter body padding, and `height: auto;` in `.week-grid`.
+  - Simplified module creation: removed redundant lecture + seminar / combined pattern selector from module creation; all modules now start uniformly with flexible blank session slots per week that can be designated as lecture or seminar on demand.
+  - Zotero-style Reader appearance menu: redesigned reading appearance popover with Zotero styling, circular theme swatches (Aa), clean segmented Pages vs Text controls, zoom/size steppers, and smooth sliding toggle switches.
+  - Automatic table of contents extraction: enhanced PDF outline extraction with font-size heuristic fallback for unbookmarked documents; opened contents sidebar tab by default whenever headings exist while preserving user selection across page switches.
+  - Equal session layout and dynamic split divider: equalised session page side column to 50/50 whether slides are present or not, with an accessible keyboard- and pointer-controlled in-memory split handle (`SplitHandle`) that scales the layout dynamically without persisting to storage.
+  - Micro-animations: added smooth directional slide turn transitions (`slideKeyframes`) in `SlideViewer`, playful hover spin on the settings cog icon, and reduced-motion fallbacks.
 - Improvements completed in 0.49.15:
   - Fluid view transition morph without navigation jumps: eliminated the jump before morph transitions by synchronising scroll restoration and animation timing; set history.scrollRestoration to manual with per-URL scroll tracking applied in useLayoutEffect before the transition snapshot is captured; replaced steep ease-settle curve with design system ease-out starting from rest; removed root cross-fade overrides to prevent brightness flash; clipped snapshot content overflow so notes reveal naturally inside the card boundary; and pinned sticky topbar and tab bar to their own transition layers.
 - Improvements completed in 0.49.14:
@@ -1236,6 +1244,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.13 | Week page polish: removed hover grip handles, distinguished compact view with dense single-line rows, tightened top page whitespace and group gaps, and enabled top-cropped first-page thumbnails for icons views. |
 | 0.49.14 | Header whitespace elimination and session page top navigation: reset inherited 3rem margin on .week-nav-top, set 0.5rem top padding on week and session pages, moved session next/prev navigation to top header with [ and ] shortcuts, and pruned dead CSS and imports. |
 | 0.49.15 | Smooth view transition morph: eliminated jump before transition with manual scroll restoration and per-route scroll tracking, smoothed animation curve with ease-out, clipped snapshot overflow, and pinned topbar and tab bar layers. |
+| 0.49.16 | Dedicated Video kind and uniform tile layout, compact week cards without dead vertical space, simplified module creation with flexible session designations, Zotero-style reader appearance panel, automatic outline extraction with default contents tab, equal 50/50 session layout with dynamic split resize handle, and micro-animations for slide turns and settings cog. |
 
 ## 18. The job search
 

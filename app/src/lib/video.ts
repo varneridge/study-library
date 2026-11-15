@@ -22,9 +22,8 @@ export interface VideoMeta {
   transcript_updated_at?: string | null;
 }
 
-export function isVideoMime(mime?: string | null): boolean {
-  return Boolean(mime && mime.startsWith("video/"));
-}
+import { isVideoMime } from "./kinds";
+export { isVideoMime };
 
 export function parseVideoMeta(meta?: string | null): VideoMeta {
   if (!meta) return {};

@@ -1,0 +1,48 @@
+/* The session grid gains a third, narrow track for the handle whenever the
+   handle is shown. Three classes outrank the stylesheet's own two-class rules
+   for the grid, so the columns follow the split however those are written. */
+.session-grid.with-side.split {
+  grid-template-columns: minmax(0, var(--split-a, 1fr)) 0.75rem minmax(0, var(--split-b, 1fr));
+  column-gap: 0.5rem;
+}
+
+.split-handle {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-radius: 0.375rem;
+  outline: none;
+}
+
+.split-grip {
+  position: sticky;
+  top: 40vh;
+  width: 0.25rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.18;
+  transition: opacity 120ms ease, height 120ms ease;
+}
+
+.split-handle:hover .split-grip,
+.split-handle.dragging .split-grip {
+  opacity: 0.45;
+  height: 3.5rem;
+}
+
+.split-handle:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent, Highlight);
+}
+
+.split-handle:focus-visible .split-grip {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .split-grip { transition: none; }
+}

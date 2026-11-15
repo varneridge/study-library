@@ -221,6 +221,29 @@ button { cursor: pointer; }
   transition-duration: var(--dur-1);
   transition-timing-function: var(--ease-out);
 }
+.topbar-btn svg,
+.settings-cog svg,
+.tool.settings svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.topbar-btn[title="Settings"]:hover svg,
+.topbar-btn[title="Settings"]:focus-visible svg,
+.settings-cog:hover svg,
+.settings-cog:focus-visible svg,
+.tool.settings:hover svg,
+.tool.settings:focus-visible svg {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .topbar-btn[title="Settings"]:hover svg,
+  .topbar-btn[title="Settings"]:focus-visible svg,
+  .settings-cog:hover svg,
+  .settings-cog:focus-visible svg,
+  .tool.settings:hover svg,
+  .tool.settings:focus-visible svg {
+    transform: none;
+  }
+}
 .topbar a:not(.brand)[aria-current="page"], .topbar button[aria-current="page"] {
   background: var(--accent-soft); color: var(--accent);
 }
@@ -462,8 +485,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
 /* Weeks in the module card grid */
 .week-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-  grid-auto-rows: 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr));
+  align-items: start;
   gap: 0.75rem;
   margin-top: 1.25rem;
 }
@@ -477,7 +500,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: auto;
   background: var(--surface);
   border-radius: var(--r-md);
   overflow: hidden;
@@ -513,7 +536,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
 
 .week-card-cover {
   position: relative;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 5 / 2;
   width: 100%;
   overflow: hidden;
   background: var(--surface-hover);
@@ -623,11 +646,10 @@ label.field { display: block; margin-bottom: 0.9rem; }
 }
 
 .week-card-body {
-  padding: 0.65rem 0.75rem 0.75rem;
+  padding: 0.55rem 0.75rem 0.65rem;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 .week-card-meta {
   display: flex;
@@ -717,8 +739,8 @@ label.field { display: block; margin-bottom: 0.9rem; }
 }
 
 .week-card-footer {
-  margin-top: auto;
-  padding-top: 0.4rem;
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
   font-size: var(--fs-xs);
   color: var(--muted);
 }
@@ -757,7 +779,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
   background: var(--surface-hover); border: 1px solid var(--rule); border-radius: var(--r-xs);
   color: inherit; text-decoration: none;
 }
-.reading-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reading-cover img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
 .reading.mode-compact .reading-cover { width: 1.75rem; aspect-ratio: 3 / 4; }
 .reading.mode-compact .reading-cover.shape-wide { width: 3.1rem; aspect-ratio: 16 / 9; }
 .reading.mode-normal .reading-cover { width: 3.25rem; aspect-ratio: 3 / 4; }
@@ -811,12 +833,20 @@ label.field { display: block; margin-bottom: 0.9rem; }
   margin-inline: 0; padding: 0.5rem; border-radius: var(--r-md);
   flex-wrap: wrap; align-items: flex-start; gap: 0.45rem 0.5rem;
 }
-.reading.tile .reading-cover { order: -1; flex: 0 0 100%; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--r-sm); background: var(--surface); }
-.reading.tile .reading-cover.shape-wide { aspect-ratio: 16 / 9; }
-.reading.tile .reading-cover.shape-page img { object-fit: cover; }
-/* A page tile shows the top of the first page, where the title and author
-   are, rather than its middle; video frames and slides keep their centre. */
-.reading.tile .reading-cover:not(.shape-wide) img { object-position: center top; }
+.readings:has(> .reading.tile .shape-wide):not(:has(> .reading.tile .shape-page)) { --tile-ar: 16 / 9; }
+.readings:has(> .reading.tile .shape-wide):has(> .reading.tile .shape-page) { --tile-ar: 1 / 1; }
+.reading.tile .reading-cover {
+  order: -1; flex: 0 0 100%; width: 100%;
+  aspect-ratio: var(--tile-ar, 5 / 7);
+  display: grid; place-items: center;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.reading.tile .reading-cover img {
+  width: 100%; height: 100%;
+  object-fit: contain; object-position: center; display: block;
+}
 .reading.tile .name { font-size: var(--fs-sm); line-height: 1.35; }
 .reading.mode-large .name { font-size: var(--fs-md); }
 .reading.tile .name .main { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1098,9 +1128,8 @@ a.quiet { text-decoration: none; }
 
 /* Session mode */
 .session-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; margin-top: 1.25rem; }
-.session-grid.with-slides { grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); }
-.session-grid.with-side { grid-template-columns: minmax(0, 1fr) 17rem; }
-@media (max-width: 56rem) { .session-grid.with-slides, .session-grid.with-side { grid-template-columns: minmax(0, 1fr); } }
+.session-grid.with-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 56rem) { .session-grid.with-side { grid-template-columns: minmax(0, 1fr); } }
 /* The side column scrolls with the page. Its slides, which come last,
    stay in view while you write; nothing sits beneath them to pass under. */
 .session-side { min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }

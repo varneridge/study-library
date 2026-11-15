@@ -4,7 +4,7 @@ import { Link } from "../App";
 import { Icon } from "./icons";
 import { loadModules, type ModuleSummary } from "../lib/library";
 import { useTeachingWeek } from "../lib/term";
-import { createModule, PATTERNS, WEEK_NUMBERS } from "../lib/modules";
+import { createModule, WEEK_NUMBERS } from "../lib/modules";
 import { navigate } from "../lib/router";
 import { moveModule } from "../lib/edits";
 import { showToast, useTitle } from "../lib/ui";
@@ -13,7 +13,6 @@ import type { ModuleKind } from "../lib/types";
 function NewModule({ onDone }: { onDone?: () => void }) {
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
-  const [pattern, setPattern] = useState(0);
   const [kind, setKind] = useState<ModuleKind>("taught");
   const [autumn, setAutumn] = useState("6");
   const [winter, setWinter] = useState("6");
@@ -26,7 +25,7 @@ function NewModule({ onDone }: { onDone?: () => void }) {
     setSaving(true);
     const readingWeeks = [autumn && `AT${autumn}`, winter && `WT${winter}`].filter(Boolean) as string[];
     try {
-      const id = await createModule({ code, title, pattern: PATTERNS[pattern].value, readingWeeks, kind });
+      const id = await createModule({ code, title, readingWeeks, kind });
       onDone?.();
       navigate({ view: "module", id });
     } catch (error) {
@@ -62,17 +61,6 @@ function NewModule({ onDone }: { onDone?: () => void }) {
         <p className="small muted">An open library for books, secondary literature and downloaded references, organised by shelves you name (such as Historiography, Reference, or Primary sources) with no term weeks.</p>
       ) : (<>
       <p className="small muted">Weeks of term, each with its sessions, readings and notes.</p>
-      <div className="field">
-        <span className="small muted">Each week has</span>
-        <div className="choices">
-          {PATTERNS.map((p, i) => (
-            <label key={p.label}>
-              <input type="radio" name="pattern" checked={pattern === i} onChange={() => setPattern(i)} />
-              {p.label}
-            </label>
-          ))}
-        </div>
-      </div>
       <div className="row">
         <label className="field">
           <span>Autumn reading week</span>

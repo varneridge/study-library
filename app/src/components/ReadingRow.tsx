@@ -146,6 +146,7 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     onClose();
   }
 
+  const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
   const isSessionItem = Boolean(view.link?.session_id);
   const allowsSlides = isSessionItem || view.item.kind === "slides";
 
@@ -159,23 +160,27 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
       )}
       <div className="grid">
         <label className="field"><span>Type</span>
-          <select value={draft.kind} onChange={(e) => {
-            const k = e.target.value as ItemKind;
-            setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
-          }}>
-            {isSessionItem ? (
-              <option value="slides">{KIND_TITLE_LABEL.slides}</option>
-            ) : (
-              <>
-                <option value="primary">{KIND_TITLE_LABEL.primary}</option>
-                <option value="secondary">{KIND_TITLE_LABEL.secondary}</option>
-                <option value="summary">{KIND_TITLE_LABEL.summary}</option>
-                {allowsSlides && <option value="slides">{KIND_TITLE_LABEL.slides}</option>}
-              </>
-            )}
-          </select>
+          {isVideo ? (
+            <span className="badge" style={{ padding: "0.45rem 0.75rem", alignSelf: "center", display: "inline-flex", width: "fit-content" }}>Video</span>
+          ) : (
+            <select value={draft.kind} onChange={(e) => {
+              const k = e.target.value as ItemKind;
+              setDraft({ ...draft, kind: k, work_kind: k === "primary" ? "primary" : draft.work_kind === "primary" ? "article" : draft.work_kind });
+            }}>
+              {isSessionItem ? (
+                <option value="slides">{KIND_TITLE_LABEL.slides}</option>
+              ) : (
+                <>
+                  <option value="primary">{KIND_TITLE_LABEL.primary}</option>
+                  <option value="secondary">{KIND_TITLE_LABEL.secondary}</option>
+                  <option value="summary">{KIND_TITLE_LABEL.summary}</option>
+                  {allowsSlides && <option value="slides">{KIND_TITLE_LABEL.slides}</option>}
+                </>
+              )}
+            </select>
+          )}
         </label>
-        {draft.kind === "secondary" && (
+        {draft.kind === "secondary" && !isVideo && (
           <label className="field"><span>Reference kind</span>
             <select value={draft.work_kind} onChange={set("work_kind")}>
               <option value="article">Journal article</option>
@@ -332,14 +337,15 @@ async function removeFromWeek(view: ReadingView) {
 }
 
 export async function deleteReading(view: ReadingView): Promise<boolean> {
-  const noun = view.item.kind === "slides" ? "slides" : view.item.kind === "summary" ? "summary" : "reading";
+  const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
+  const noun = isVideo ? "video" : view.item.kind === "slides" ? "slides" : view.item.kind === "summary" ? "summary" : "reading";
   const name = view.item.kind === "slides" ? "these slides" : `this ${noun}`;
   const highlights = (await db.highlights.where("item_id").equals(view.item.id).toArray()).filter((h) => !h.deleted).length;
   if (highlights > 0) {
     const ok = await confirmAction({
       title: `Delete ${name}?`,
       body: `Its ${highlights} ${highlights === 1 ? "highlight" : "highlights"} and notes go with it. You can restore it from Settings for 90 days.`,
-      confirm: deleteLabel(view.item.kind),
+      confirm: isVideo ? "Delete video" : deleteLabel(view.item.kind),
       danger: true,
     });
     if (!ok) return false;
@@ -518,9 +524,9 @@ export function ReadingRow({
             { label: "Remove transcript", onSelect: () => void removeVideoTranscript(view.file!).then(() => showToast("Transcript removed.")), hidden: !hasVideoTranscript || !view.file, danger: true },
             { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: !citable(view.item) },
             { label: "Look up the details again", onSelect: () => void lookAgain(view.item), hidden: !citable(view.item) || !view.file || view.file.mime !== "application/pdf" },
-            { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
-            { label: `Move to ${KIND_GROUP.secondary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "secondary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "secondary" },
-            { label: `Move to ${KIND_GROUP.summary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "summary"), hidden: !view.link || Boolean(view.link.session_id) || view.item.kind === "summary" },
+            { label: `Move to ${KIND_GROUP.primary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "primary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "primary" },
+            { label: `Move to ${KIND_GROUP.secondary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "secondary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "secondary" },
+            { label: `Move to ${KIND_GROUP.summary}`, onSelect: () => void placeInWeek(view.item, view.link!, [], 0, "summary"), hidden: isVideo || !view.link || Boolean(view.link.session_id) || view.item.kind === "summary" },
             // On a touch screen these stand in for dragging the row.
             { label: "Move up", onSelect: () => void nudge(view.item, view.link!, -1).then((moved) => { if (!moved) showToast("Already at the top."); }), hidden: !view.link },
             { label: "Move down", onSelect: () => void nudge(view.item, view.link!, 1).then((moved) => { if (!moved) showToast("Already at the foot."); }), hidden: !view.link },
@@ -528,7 +534,7 @@ export function ReadingRow({
             { label: "Remove from this week", onSelect: () => void removeFromWeek(view), hidden: !view.link },
             { label: "Download file", onSelect: () => void download(view), hidden: !view.file },
             { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(view.upload) },
-            { label: deleteLabel(view.item.kind), onSelect: () => void deleteReading(view), danger: true },
+            { label: isVideo ? "Delete video" : deleteLabel(view.item.kind), onSelect: () => void deleteReading(view), danger: true },
           ]}
         />
       )}

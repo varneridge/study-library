@@ -14,8 +14,10 @@ import { sheetHost, useCloseOnBack, useNarrow } from "../../lib/ui";
 import { Icon, IconButton } from "../icons";
 import type { Theme } from "./pages";
 
+import "./appearance.css";
+export { outline, type Heading } from "../../lib/outline";
+
 export interface Active { id: string; x: number; y: number }
-export interface Heading { title: string; page: number; level: number }
 
 // The theme here is the app's theme: choosing one in the reader colours
 // every screen, as choosing it in Settings does.
@@ -24,28 +26,6 @@ export const THEMES: { value: Theme; label: string; app: "light" | "sepia" | "da
   { value: "sepia", label: "Sepia", app: "sepia" },
   { value: "dark", label: "Dark", app: "dark" },
 ];
-
-// The PDF's own contents list, with each entry resolved to a page.
-export async function outline(doc: PDFDocumentProxy): Promise<Heading[]> {
-  const items = await doc.getOutline().catch(() => null);
-  if (!items) return [];
-  const out: Heading[] = [];
-  const walk = async (list: typeof items, level: number) => {
-    for (const item of list) {
-      try {
-        const dest = typeof item.dest === "string" ? await doc.getDestination(item.dest) : item.dest;
-        const ref = dest?.[0];
-        const page = ref && typeof ref === "object" ? await doc.getPageIndex(ref) : typeof ref === "number" ? ref : null;
-        if (page !== null) out.push({ title: item.title, page, level });
-      } catch {
-        // An entry pointing nowhere is skipped.
-      }
-      if (item.items?.length && level < 2) await walk(item.items, level + 1);
-    }
-  };
-  await walk(items, 0);
-  return out;
-}
 
 // Closes a toolbar menu on outside click, Escape or the back gesture.
 function useMenuClose(open: boolean, setOpen: (on: boolean) => void) {
@@ -229,37 +209,70 @@ export function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, can
   const host = sheetHost();
   const panel = (
     <div ref={sheet} className="menu-panel appearance" role="dialog" aria-label="Appearance">
-      <p className="panel-label">Theme</p>
-      <div className="segmented" role="group" aria-label="Theme">
+      <div className="appearance-themes" role="group" aria-label="Theme">
         {THEMES.map((t) => (
-          <button key={t.value} className={`tool theme-chip ${t.value}`} aria-pressed={theme === t.value} onClick={() => setTheme(t.value)}>{t.label}</button>
+          <button
+            key={t.value}
+            className={`theme-swatch ${t.value}`}
+            aria-pressed={theme === t.value}
+            onClick={() => setTheme(t.value)}
+          >
+            <span className="theme-swatch-face" aria-hidden="true">Aa</span>
+            <span className="theme-swatch-name">{t.label}</span>
+          </button>
         ))}
       </div>
-      <p className="panel-label">Layout</p>
-      <div className="segmented" role="group" aria-label="Layout">
-        <button className="tool" aria-pressed={layout === "text"} onClick={() => setLayout("text")}>Text</button>
-        <button className="tool" aria-pressed={layout === "pages"} onClick={() => setLayout("pages")}>Pages</button>
+
+      <div className="appearance-row appearance-view">
+        <span className="appearance-label">View</span>
+        <div className="segmented" role="group" aria-label="Layout">
+          <button className="tool" aria-pressed={layout === "pages"} onClick={() => setLayout("pages")}>Pages</button>
+          <button className="tool" aria-pressed={layout === "text"} onClick={() => setLayout("text")}>Text</button>
+        </div>
       </div>
-      <p className="panel-label">Size</p>
-      {layout === "text" ? (
-        <div className="row" style={{ gap: "0.35rem" }}>
-          <button className="tool" aria-label="Smaller text" onClick={() => setTextSize(Math.max(0.8, Math.round((textSize - 0.1) * 10) / 10))}>A−</button>
-          <span className="zoom-at">{Math.round(textSize * 100)}%</span>
-          <button className="tool" aria-label="Larger text" onClick={() => setTextSize(Math.min(1.6, Math.round((textSize + 0.1) * 10) / 10))}>A+</button>
-        </div>
+
+      {layout === "pages" ? (
+        <>
+          <div className="appearance-row">
+            <span className="appearance-label">Zoom</span>
+            <div className="stepper">
+              <button className="tool" aria-label="Smaller" onClick={() => changeZoom(scale / 1.15)}>−</button>
+              <span className="zoom-at">{Math.round(scale * 100)}%</span>
+              <button className="tool" aria-label="Larger" onClick={() => changeZoom(scale * 1.15)}>+</button>
+            </div>
+          </div>
+          <label className="appearance-row">
+            <span className="appearance-label">Fit to width</span>
+            <input
+              type="checkbox"
+              className="switch"
+              role="switch"
+              checked={zoom === null}
+              onChange={(e) => changeZoom(e.target.checked ? null : scale)}
+            />
+          </label>
+          {canTrim && (
+            <label className="appearance-row">
+              <span className="appearance-label">Trim margins</span>
+              <input
+                type="checkbox"
+                className="switch"
+                role="switch"
+                checked={trim}
+                onChange={(e) => setTrim(e.target.checked)}
+              />
+            </label>
+          )}
+        </>
       ) : (
-        <div className="row" style={{ gap: "0.35rem" }}>
-          <button className="tool" aria-label="Smaller" onClick={() => changeZoom(scale / 1.15)}>−</button>
-          <span className="zoom-at">{Math.round(scale * 100)}%</span>
-          <button className="tool" aria-label="Larger" onClick={() => changeZoom(scale * 1.15)}>+</button>
-          <button className="tool" aria-pressed={zoom === null} onClick={() => changeZoom(null)}>Fit to width</button>
+        <div className="appearance-row">
+          <span className="appearance-label">Font size</span>
+          <div className="stepper">
+            <button className="tool" aria-label="Smaller text" onClick={() => setTextSize(Math.max(0.8, Math.round((textSize - 0.1) * 10) / 10))}>A−</button>
+            <span className="zoom-at">{Math.round(textSize * 100)}%</span>
+            <button className="tool" aria-label="Larger text" onClick={() => setTextSize(Math.min(1.6, Math.round((textSize + 0.1) * 10) / 10))}>A+</button>
+          </div>
         </div>
-      )}
-      {canTrim && layout === "pages" && (
-        <label className="choices panel-check">
-          <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
-          Trim white margins when fitted
-        </label>
       )}
     </div>
   );
