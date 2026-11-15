@@ -1,6 +1,7 @@
 import { readingFileName } from "../lib/names";
 import { combinePhotos, isImage, READING_ACCEPT } from "../lib/photos";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
 import type { ReadingView } from "../lib/library";
@@ -130,6 +131,9 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
   // The rarer fields stay tucked away unless one of them already holds something.
   const [moreFields, setMoreFields] = useState(() => Boolean(from.volume || from.issue || from.publisher || from.editor));
   const [reference, setReference] = useState("");
+  // What the last quick fill did, said beside the field rather than in a
+  // toast, since a toast can sit behind the card's backdrop.
+  const [notice, setNotice] = useState<string | null>(null);
   const auto = view.item.suggested?.applied ? view.item.suggested : null;
   const set = (key: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setDraft({ ...draft, [key]: e.target.value });
@@ -138,13 +142,13 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
     const found = parseReference(text);
     const count = Object.keys(found).length;
     if (!count) {
-      showToast("No details were recognised in that, so nothing changed.");
+      setNotice("No details were recognised in that, so nothing changed.");
       return;
     }
     setDraft((d) => ({ ...d, ...found }));
     if (found.volume || found.issue || found.publisher) setMoreFields(true);
     setReference("");
-    showToast(`Filled ${count} ${count === 1 ? "field" : "fields"}. Check them before saving.`);
+    setNotice(`Filled ${count} ${count === 1 ? "field" : "fields"}. Check them before saving.`);
   };
 
   // A blank title is allowed, so one is made from whatever else was given.
@@ -228,6 +232,9 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
               <button type="button" className="quiet small" disabled={!reference.trim()} onClick={() => fill(reference)}>Fill fields</button>
             </div>
           )}
+          {/* Always present and never hidden, even when empty, because a status
+              that appears together with its message is often not announced. */}
+          <p className="small muted editor-notice" role="status">{notice ?? ""}</p>
           {isVideo ? (
             <div className="grid grid-2">
               <label className="field"><span>Title</span><input type="text" value={draft.title} onChange={set("title")} /></label>
@@ -306,6 +313,64 @@ export function Editor({ view, onClose, start }: { view: ReadingView; onClose: (
         </div>
       </div>
     </form>
+  );
+}
+
+// Edit details as a card in front of the page: the reading's picture at its
+// ordinary size on one side and the fields on the other, stacked on a phone.
+// Editing inside the row made a tile span the whole grid, which stretched its
+// picture across the screen; here the row and the grid stay exactly as they
+// were.
+//
+// The card is put in the page's body rather than in the row, so the row's own
+// styles (a tile's full-width picture, a compact row's tiny one) cannot reach
+// it. React still passes the card's events up to the row, though, so presses,
+// keys and touches stop at the card: a drag started while selecting text would
+// otherwise pick up the reading behind it, and a swipe could turn the week.
+//
+// Escape, Cancel and a press on the dim backdrop all close it unsaved. A press
+// that began inside the card and was released outside it, as when selecting
+// text in a field, does not count as a press on the backdrop.
+export function EditorDialog({ view, onClose, start }: { view: ReadingView; onClose: () => void; start?: Suggestion | null }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const pressedOutside = useRef(false);
+  const headingId = useId();
+  const isVideo = isVideoMime(view.file?.mime ?? view.upload?.mime);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, []);
+
+  // Whether a point lies on the backdrop, outside the card's own box.
+  const outside = (e: React.MouseEvent<HTMLDialogElement>) => {
+    if (e.target !== e.currentTarget) return false;
+    const box = e.currentTarget.getBoundingClientRect();
+    return e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom;
+  };
+
+  return createPortal(
+    <dialog
+      ref={ref}
+      className={`dialog editor-dialog${isVideo ? " is-video" : ""}`}
+      aria-labelledby={headingId}
+      data-no-drag
+      onCancel={(e) => { e.preventDefault(); onClose(); }}
+      onPointerDown={(e) => { e.stopPropagation(); pressedOutside.current = outside(e); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        const close = pressedOutside.current && outside(e);
+        pressedOutside.current = false;
+        if (close) onClose();
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
+      <h2 id={headingId}>{isVideo ? "Edit video details" : "Edit details"}</h2>
+      <Editor view={view} start={start} onClose={onClose} />
+    </dialog>,
+    document.body,
   );
 }
 
@@ -575,7 +640,7 @@ export function ReadingRow({
       // The row stays a list item for screen readers. The library's own
       // description tells them it can be picked up with the space bar.
       role={undefined}
-      className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (editing || moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
+      className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
     >
       {/* On a touch screen, or when arranging, this stands in for dragging the
           whole row, and its arrow keys move the reading one place at a time. */}
@@ -595,8 +660,7 @@ export function ReadingRow({
           <Icon name="reorder" size={16} />
         </button>
       )}
-      {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
-      {!tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
+      <Cover view={view} mode={mode} isLibrary={isLibrary} />
       <ReadingTitle view={view} short={short} />
       {/* What the reading's state is. In rows these sit inline, as before; in
           tiles they take a line of their own beneath the title. */}
@@ -670,12 +734,13 @@ export function ReadingRow({
           </div>
         </div>
       )}
-      {(editing || moving) && (
+      {moving && weeks && (
         <div className="reading-edit" style={{ flexBasis: "100%" }}>
-          {editing && <Editor view={view} start={editFrom} onClose={() => { setEditing(false); setEditFrom(null); }} />}
-          {moving && weeks && <MovePicker view={view} onMoved={() => setMoving(false)} />}
+          <MovePicker view={view} onMoved={() => setMoving(false)} />
         </div>
       )}
+      {/* Edit details floats in front of the page, so the row keeps its size. */}
+      {editing && <EditorDialog view={view} start={editFrom} onClose={() => { setEditing(false); setEditFrom(null); }} />}
     </li>
   );
 }

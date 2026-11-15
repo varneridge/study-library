@@ -1625,6 +1625,44 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
   }
 }
 
+{
+  const name = "drag sensor rules, placed order, and modal edit dialog";
+  try {
+    const { mayStartDrag, placedOrder } = await import("../src/lib/drag");
+    // Mouse drag on handle or row
+    assert.ok(mayStartDrag({
+      nativeEvent: { isPrimary: true, button: 0, pointerType: "mouse", target: { closest: () => null } },
+    } as never), "mouse drag outside control starts drag");
+    // Mouse on input control
+    assert.ok(!mayStartDrag({
+      nativeEvent: { isPrimary: true, button: 0, pointerType: "mouse", target: { closest: () => ({ tagName: "INPUT" }) } },
+    } as never), "mouse drag on input refuses drag");
+    // Touch on drag handle
+    assert.ok(mayStartDrag({
+      nativeEvent: { isPrimary: true, button: 0, pointerType: "touch", target: { closest: (sel: string) => sel === "[data-drag-handle]" ? {} : null } },
+    } as never), "touch on drag handle starts drag");
+    // Touch outside handle
+    assert.ok(!mayStartDrag({
+      nativeEvent: { isPrimary: true, button: 0, pointerType: "touch", target: { closest: () => null } },
+    } as never), "touch outside drag handle refuses drag");
+
+    // placedOrder tests
+    assert.deepEqual(placedOrder(["a", "b", "c"], "a", "b"), ["b", "a", "c"]);
+    assert.deepEqual(placedOrder(["a", "b", "c"], "c", "a"), ["c", "a", "b"]);
+    assert.deepEqual(placedOrder(["a", "b"], "x", "list:primary"), ["a", "b", "x"]);
+
+    // ReadingRow EditorDialog export and structure
+    const readingRowSrc = readFileSync(new URL("../src/components/ReadingRow.tsx", import.meta.url), "utf8");
+    assert.ok(readingRowSrc.includes("export function EditorDialog"), "ReadingRow exports EditorDialog");
+    assert.ok(readingRowSrc.includes("createPortal("), "EditorDialog portals to document.body");
+    assert.ok(readingRowSrc.includes("className={`dialog editor-dialog"), "EditorDialog uses dialog.editor-dialog");
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
+
 registerNotesAndReadingsTests(test);
 registerListenTests(test);
 

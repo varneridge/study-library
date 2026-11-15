@@ -5370,3 +5370,44 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appe
 .settings-subhead { margin: 1.5rem 0 0.4rem; font-size: var(--fs-md); font-weight: 600; font-family: var(--sans); }
 .settings-section.danger-section h2 { color: var(--danger); }
 .button.danger:active:not(:disabled) { background-color: color-mix(in srgb, var(--danger) 26%, var(--paper)); }
+
+/* Edit details: a card in front of the page, with the reading's picture at
+   its ordinary size on one side and the fields on the other. The row behind
+   keeps its size, so a tile no longer spans the grid with its picture blown
+   up across the screen. A document's page is upright and a video's frame
+   wide, so each column is sized to suit its picture. */
+.dialog.editor-dialog {
+  width: min(46rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.editor-dialog > h2 { margin: 0 0 0.9rem; }
+.editor-dialog .editor.editor-card { border: 0; border-radius: 0; background: none; padding: 0; margin: 0; }
+.editor-dialog .editor-card-layout { grid-template-columns: 10rem minmax(0, 1fr); gap: 1.25rem; }
+.editor-dialog.is-video .editor-card-layout { grid-template-columns: 13rem minmax(0, 1fr); }
+.editor-card-preview .reading-cover.shape-wide { aspect-ratio: 16 / 9; }
+.editor-notice { margin: 0; }
+/* On a phone the card rises as a sheet, as every dialog does there. */
+@media (max-width: 44rem) {
+  .dialog.editor-dialog { width: 100%; max-height: 92vh; max-height: 92dvh; }
+}
+/* Too narrow for two columns, the picture sits above the fields, still at
+   an ordinary size rather than the width of the screen. */
+@media (max-width: 34rem) {
+  .editor-dialog .editor-card-layout,
+  .editor-dialog.is-video .editor-card-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .editor-dialog .editor-card-preview { width: 100%; max-width: 7.5rem; }
+  .editor-dialog.is-video .editor-card-preview { max-width: 13rem; }
+}
+
+/* A clicked handle takes focus so that the arrow keys move its row at once,
+   and it shows that focus, since otherwise nothing says the keys will work. */
+.drag-handle:focus-visible,
+.drag-handle:focus:not(:active) { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent); }
+/* A section card's handle is drawn small to fit its meta line, but a finger
+   still needs a full-sized target to start a drag from it. */
+@media (pointer: coarse) {
+  .week-card-meta .drag-handle { width: 2.25rem; height: 2.25rem; min-width: 2.25rem; min-height: 2.25rem; margin-block: -0.5rem; }
+}
