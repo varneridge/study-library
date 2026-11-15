@@ -173,7 +173,7 @@ def split_spreads(source: str, dest: str, ignore_text: bool = False) -> int:
     return split
 
 
-# A pixel this light counts as blank paper when a cover is cropped.
+# A pixel this light counts as blank paper when a page's print is found.
 BLANK_LEVEL = 235
 # A row or column counts as printed when this share of it is darker.
 PRINT_DENSITY = 0.003
@@ -231,9 +231,10 @@ def cover_clip(page):
     """The part of a portrait page that holds its print, with a thin even
     margin, or None when there is no white margin worth taking away.
 
-    Book covers and scanned pages often sit in a wide white border, which
-    makes them look small and lost as a thumbnail. Landscape slides are left
-    whole, as their white space is part of their design.
+    Thumbnails no longer use this, since they always show the whole page so
+    that nothing on it is ever cut away; it is kept for any caller that still
+    wants a page's printed area. Landscape slides are left whole, as their
+    white space is part of their design.
     """
     import pymupdf
     from PIL import Image
@@ -262,7 +263,8 @@ def cover_clip(page):
 
 def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int = 80) -> bool:
     """Draws the first page, or the page after a JSTOR cover sheet, as a
-    WebP thumbnail. A portrait page is cropped to its print first."""
+    WebP thumbnail. The whole page is drawn, never cropped, so a cover or a
+    scanned page keeps its margins and the app shows it exactly as printed."""
     if len(doc) == 0:
         return False
     # Skip JSTOR/publisher cover sheet if multi-page
@@ -277,8 +279,9 @@ def render_slide_thumbnail(doc, thumb_path: str, width: int = 640, quality: int 
         return False
     import pymupdf
     from PIL import Image
-    clip = cover_clip(page)
-    area = clip if clip is not None else rect
+    # The full page, with no clip, so that a thumbnail always shows all of it.
+    area = rect
+    clip = None
     scale = min(2.0, max(0.1, width / area.width))
     matrix = pymupdf.Matrix(scale, scale)
     pix = page.get_pixmap(matrix=matrix, alpha=False, clip=clip)
@@ -659,7 +662,7 @@ def thumb(ctx: Context, job: dict) -> None:
             thumb_key = store_thumbnail(ctx, file, doc, tmp)
             if thumb_key:
                 log.info("file %s thumbnail ready: %s", file["id"], thumb_key)
-            # Cropping covers again only redraws them; week titles are already settled.
+            # Redrawing covers only redraws them, now as whole pages; week titles are already settled.
             if not job["payload"].get("covers"):
                 maybe_autotitle_for_file(ctx.api, file["id"], doc)
 

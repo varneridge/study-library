@@ -354,7 +354,15 @@ export function startSync(): void {
       }
     }, POLL_MS);
   }
-  void flush().then(() => pull()).then(() => import("./names")).then((names) => names.nameSlidesOnce()).catch(() => undefined);
+  // Once the first pull is in, older data is tidied a single time: slides
+  // are named, and weeks are cleared of the empty sessions made for them.
+  void flush()
+    .then(() => pull())
+    .then(() => import("./names"))
+    .then((names) => names.nameSlidesOnce())
+    .then(() => import("./edits"))
+    .then((edits) => edits.resetSessionsOnce())
+    .catch(() => undefined);
 }
 
 export function stopSync(): void {

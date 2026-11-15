@@ -5,7 +5,7 @@ import { combinePhotos } from "./photos";
 import { byPosition, keysAfter } from "./keys";
 import { parseTitle, stripExtension, type Parsed } from "./parse";
 import { commit, newId, type Change } from "./sync";
-import { mimeFor, queueUpload, sha256 } from "./uploads";
+import { cancelUploadsForItem, mimeFor, queueUpload, sha256 } from "./uploads";
 import { nameForNewSlides } from "./names";
 import type { ItemKind, ModuleRow, WeekRow } from "./types";
 
@@ -93,15 +93,20 @@ export async function hashPlans(plans: PlannedFile[], onEach?: () => void): Prom
 }
 
 // Creates items, links and uploads for every plan that is not skipped.
-// Plans without a week go to the module's unsorted tray.
+// Plans without a week go to the module's unsorted tray. A session holds a
+// single deck, so slides for a session that already has one replace its
+// file in place, keeping the reading, its title and its place in the week.
 export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promise<number> {
   await hashPlans(plans);
   const weeks = new Map((await db.weeks.where("module_id").equals(module.id).toArray()).map((w) => [w.id, w]));
   const changes: Change[] = [];
   const uploads: Parameters<typeof queueUpload>[0][] = [];
   const nextKeys = new Map<string, string[]>();
-  // Names given to slides in this batch, so two decks in one session are numbered.
+  // Names given to slides in this batch, so two loose decks in one week are numbered.
   const slideNames = new Map<string, string[]>();
+  // The deck each session holds, found once and then kept current as this
+  // batch adds or replaces one, so a later file replaces an earlier one.
+  const decks = new Map<string, string | null>();
   let count = 0;
 
   const ordered = [...plans].sort(
@@ -125,7 +130,41 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
       const sessions = (await db.sessions.where("week_id").equals(week.id).toArray())
         .filter((s) => !s.deleted)
         .sort(byPosition);
-      sessionId = (sessions.find((s) => s.kind !== "seminar") ?? sessions[0])?.id ?? null;
+      sessionId = (sessions.find((s) => s.kind === "lecture") ?? sessions[0])?.id ?? null;
+    }
+
+    // Slides with no session to go to stay loose in the week, as before, so
+    // two decks dropped on a week without sessions do not replace each other.
+    if (plan.kind === "slides" && week && sessionId) {
+      const scope = `${week.id}:${sessionId}`;
+      if (!decks.has(scope)) decks.set(scope, await sessionDeck(week.id, sessionId));
+      const existingId = decks.get(scope);
+      if (existingId) {
+        await cancelUploadsForItem(existingId);
+        for (let i = uploads.length - 1; i >= 0; i -= 1) {
+          if (uploads[i].item_id === existingId) uploads.splice(i, 1);
+        }
+        const fileId = plan.existingFileId ?? newId();
+        changes.push({
+          table: "items",
+          row: {
+            id: existingId,
+            file_id: plan.existingFileId,
+            original_file_id: plan.existingOriginalFileId ?? null,
+            last_page: null,
+            last_spot: null,
+          },
+          patch: true,
+        });
+        if (!plan.existingFileId) {
+          uploads.push({
+            file_id: fileId, item_id: existingId, name: plan.file.name, mime: plan.mime,
+            sha256: plan.sha!, bytes: plan.file.size, blob: plan.file,
+          });
+        }
+        count += 1;
+        continue;
+      }
     }
 
     // Slides in a week are named for their place, as "HY248 AT4 Lecture slides".
@@ -186,6 +225,7 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
         table: "week_items",
         row: { id: newId(), week_id: week.id, item_id: itemId, session_id: sessionId, position: nextKeys.get(scope)!.shift()! },
       });
+      if (plan.kind === "slides" && sessionId) decks.set(scope, itemId);
     }
 
     if (!plan.existingFileId) {
@@ -202,9 +242,19 @@ export async function applyPlans(module: ModuleRow, plans: PlannedFile[]): Promi
   return count;
 }
 
+// The live deck a session already holds, if it has one, by its item id.
+async function sessionDeck(weekId: string, sessionId: string): Promise<string | null> {
+  const links = (await db.week_items.where("week_id").equals(weekId).toArray())
+    .filter((l) => !l.deleted && (l.session_id ?? null) === sessionId)
+    .sort(byPosition);
+  const items = await db.items.bulkGet(links.map((l) => l.item_id));
+  return items.find((item) => item && !item.deleted && item.kind === "slides")?.id ?? null;
+}
+
 // Adds files to a session as its slides, from wherever the session is shown:
 // its row on the week page or its own page. Pictures chosen together become
-// one deck, a slide each.
+// one deck, a slide each. If the session already has slides, the new deck
+// replaces them.
 export async function addSlides(sessionId: string, chosen: File[]): Promise<number> {
   const session = await db.sessions.get(sessionId);
   const week = session ? await db.weeks.get(session.week_id) : undefined;

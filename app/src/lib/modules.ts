@@ -6,7 +6,8 @@ import type { ModuleKind, SessionKind, Term, WeekRow } from "./types";
 export const TERMS: Term[] = ["AT", "WT"];
 export const WEEK_NUMBERS = Array.from({ length: 11 }, (_, i) => i + 1);
 
-export const DEFAULT_PATTERN: SessionKind[] = ["combined"];
+// A new week starts with no sessions, so each one is added as it is needed.
+export const DEFAULT_PATTERN: SessionKind[] = [];
 
 // How a week is named: "AT3", or a dissertation section by its own name.
 export function weekCode(week: Pick<WeekRow, "term" | "number"> & { title?: string | null }): string {
@@ -31,15 +32,15 @@ export function byWeek<T extends Pick<WeekRow, "term" | "number">>(a: T, b: T): 
   return weekOrder(a) - weekOrder(b);
 }
 
-// The kinds of session, in the order they are offered.
+// The kinds of session, in the order they are offered. A combined session
+// from before is shown and treated as a seminar.
 export const SESSION_KINDS: { value: SessionKind; label: string }[] = [
-  { value: "lecture", label: "Lecture" },
   { value: "seminar", label: "Seminar" },
-  { value: "combined", label: "Combined session" },
+  { value: "lecture", label: "Lecture" },
 ];
 
 export function sessionLabel(kind: SessionKind): string {
-  return kind === "lecture" ? "Lecture" : kind === "seminar" ? "Seminar" : kind === "supervision" ? "Supervision" : "Session";
+  return kind === "lecture" ? "Lecture" : kind === "supervision" ? "Supervision" : "Seminar";
 }
 
 export function notesLabel(session: { kind: SessionKind; title?: string | null }, hasNotes: boolean): string {
@@ -66,7 +67,8 @@ export interface NewModule {
   kind?: ModuleKind;
 }
 
-// Creates the module with all 22 weeks and their sessions in one commit.
+// Creates the module with all 22 weeks in one commit. Every week starts as
+// a blank slate with no sessions, and sessions are added as they are needed.
 export async function createModule(input: NewModule): Promise<string> {
   const existing = (await db.modules.toArray()).filter((m) => !m.deleted);
   const last = existing.map((m) => m.position).sort().pop() ?? null;
@@ -104,19 +106,12 @@ export async function createModule(input: NewModule): Promise<string> {
     return moduleId;
   }
 
-  const sessionKeys = keysAfter(null, 1);
   for (const term of TERMS) {
     for (const number of WEEK_NUMBERS) {
-      const weekId = newId();
       const isReadingWeek = input.readingWeeks.includes(`${term}${number}`);
       changes.push({
         table: "weeks",
-        row: { id: weekId, module_id: moduleId, term, number, title: null, is_reading_week: isReadingWeek },
-      });
-      if (isReadingWeek) continue;
-      changes.push({
-        table: "sessions",
-        row: { id: newId(), week_id: weekId, kind: "combined" as SessionKind, title: null, position: sessionKeys[0] },
+        row: { id: newId(), module_id: moduleId, term, number, title: null, is_reading_week: isReadingWeek },
       });
     }
   }
