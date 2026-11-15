@@ -599,7 +599,7 @@ export function WeekPage({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Two columns, as on a session page: the notes and sessions on the left, the readings beside them on the right. */}
+      {/* Two columns: the notes and sessions on the left, the readings beside them on the right. */}
       <div className={`week-layout${showMain ? "" : " readings-only"}`}>
         {showMain && (
           <div className="week-main-col">
