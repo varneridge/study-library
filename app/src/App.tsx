@@ -8,7 +8,7 @@ import { SessionPage } from "./components/SessionPage";
 import { Settings } from "./components/Settings";
 import { WeekPage } from "./components/WeekPage";
 import { href, navigate, useRoute, type Route } from "./lib/router";
-import { startSync, stopSync, subscribeSync, type SyncState } from "./lib/sync";
+import { flush, pull, startSync, stopSync, subscribeSync, type SyncState } from "./lib/sync";
 import { resumeUploads } from "./lib/uploads";
 import { pumpChunks, recoverRecordings } from "./lib/recorder";
 import { db } from "./lib/db";
@@ -16,7 +16,6 @@ import { byPosition } from "./lib/keys";
 import { openShortcuts, typing, useCloseOnBack } from "./lib/ui";
 import { Overlays } from "./components/Overlays";
 import { DropAnywhere } from "./components/DropAnywhere";
-import { Palette } from "./components/Palette";
 import { RecorderPill } from "./components/RecorderPill";
 import { PageLoading } from "./components/ErrorBoundary";
 import { Icon, type IconName } from "./components/icons";
@@ -60,18 +59,23 @@ export function Link({ to, children, className, current, currentSide, title, lab
   );
 }
 
-// Takes no space when idle, while staying a live region so changes are announced.
-// While files upload, it opens a list of them with their progress.
+// A compact icon in the top bar, in the manner of Word's save indicator: a
+// cloud with a tick once everything is saved, a spinning loop while changes
+// or files are on their way, and a warning sign when something needs your
+// attention. Pressing it opens the details, with the upload list beneath them.
+// The live region inside keeps announcing changes, so a screen reader hears
+// them without opening anything.
 function SyncStatus() {
   const [state, setState] = useState<SyncState | null>(null);
   const [open, setOpen] = useState(false);
+  const [justSynced, setJustSynced] = useState(false);
+  const wasBusy = useRef(false);
   const ref = useRef<HTMLSpanElement>(null);
   const [, tick] = useState(0);
   const uploads = useLiveQuery(() => db.uploads.toArray(), [], []);
   useCloseOnBack(open, () => setOpen(false));
   useEffect(() => subscribeSync(setState), []);
   useEffect(() => onUploadProgress(() => tick((n) => n + 1)), []);
-  useEffect(() => { if (!uploads.length) setOpen(false); }, [uploads.length]);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
@@ -87,35 +91,97 @@ function SyncStatus() {
       document.removeEventListener("keydown", key);
     };
   }, [open]);
-  let text = "";
-  let problem: string | null = null;
-  if (state && !state.online) text = uploads.length ? `Offline, ${uploads.length} to upload` : "Offline";
-  else if (state?.error) { text = "Sync problem"; problem = state.error; }
-  else if (uploads.length) text = `Uploading ${uploads.length}`;
-  if (!text && !uploads.length) {
-    return <span className="sync" aria-live="polite" />;
+
+  const failedUploads = uploads.filter((u) => u.status === "failed");
+  const activeUploads = uploads.filter((u) => u.status !== "failed");
+  const hasProblem = Boolean((state && !state.online) || state?.expired || state?.error || failedUploads.length > 0);
+  const busy = Boolean(state?.busy || activeUploads.length > 0);
+
+  // The tick shows for a moment after work finishes, so a save is confirmed
+  // rather than passing unseen, and is withdrawn at once if a problem appears.
+  useEffect(() => {
+    if (busy || hasProblem) setJustSynced(false);
+    else if (wasBusy.current) setJustSynced(true);
+    wasBusy.current = busy;
+  }, [busy, hasProblem]);
+  useEffect(() => {
+    if (!justSynced) return;
+    const timer = window.setTimeout(() => setJustSynced(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [justSynced]);
+
+  let short: string;
+  let liveText: string;
+  if (state && !state.online) {
+    short = "Offline";
+    liveText = uploads.length ? `Offline, ${uploads.length} to upload` : "Offline";
+  } else if (state?.expired) {
+    short = liveText = "Session expired";
+  } else if (state?.error) {
+    short = liveText = "Sync problem";
+  } else if (activeUploads.length > 0) {
+    short = "Uploading";
+    liveText = `Uploading ${activeUploads.length}`;
+  } else if (failedUploads.length > 0) {
+    short = "Upload failed";
+    liveText = failedUploads.length === 1 ? "1 upload failed" : `${failedUploads.length} uploads failed`;
+  } else {
+    // Routine background syncs are shown by the icon but not announced, so a
+    // screen reader is not interrupted every time the app checks for changes.
+    short = busy ? "Syncing" : "Saved";
+    liveText = "";
   }
-  if (!uploads.length) {
-    return <span className={`sync${problem ? " problem" : ""}`} title={problem ?? undefined} aria-live="polite">{text}</span>;
+  const label = `Sync status: ${short}`;
+
+  let message: React.ReactNode;
+  if (state && !state.online) message = "Offline. Changes are saved on this device and will sync when you reconnect.";
+  else if (state?.expired) message = "Session expired. Reload to sign in again.";
+  else if (state?.error) {
+    message = (
+      <>
+        {state.error}{" "}
+        <button type="button" className="button small" onClick={() => void flush().then(() => pull()).catch(() => undefined)}>Try again</button>
+      </>
+    );
   }
+  else if (activeUploads.length > 0) message = "Uploading files...";
+  else if (failedUploads.length > 0) message = "Some uploads could not finish.";
+  else if (busy) message = "Syncing your changes...";
+  else message = "Saved and up to date.";
+
   return (
     <span className="sync menu" ref={ref}>
-      <button className={`sync-button${uploads.some((u) => u.status === "failed") ? " problem" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>{text}</button>
+      <button
+        type="button"
+        className={`topbar-btn sync-indicator${hasProblem ? " problem" : busy ? " busy" : justSynced ? " done" : ""}`}
+        aria-label={label}
+        title={label}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name={hasProblem ? "warning" : busy ? "syncSpin" : "syncDone"} size={18} />
+        <span className="sr-only" aria-live="polite">{liveText}</span>
+      </button>
       {open && (
-        <div className="menu-panel uploads-panel" role="dialog" aria-label="Uploads">
-          {uploads.map((u) => {
-            const p = uploadProgress(u.id);
-            return (
-              <div key={u.id} className="upload-row">
-                <span className="name" title={u.name}>{u.name}</span>
-                {u.status === "failed"
-                  ? <button className="link" onClick={() => retryUpload(u.id)}>Retry</button>
-                  : <span className="where">{p !== undefined ? `${Math.round(p * 100)}%` : "Waiting"}</span>}
-                <span className="bar"><span style={{ width: `${Math.round((p ?? 0) * 100)}%` }} /></span>
-              </div>
-            );
-          })}
-          <p className="small muted" style={{ margin: "0.5rem 0 0" }}>Uploads carry on if you close the app, and resume when you return.</p>
+        <div className="menu-panel sync-panel" role="dialog" aria-label="Sync status">
+          <p className="sync-message" style={{ margin: 0 }}>{message}</p>
+          {uploads.length > 0 && (
+            <>
+              {uploads.map((u) => {
+                const p = uploadProgress(u.id);
+                return (
+                  <div key={u.id} className="upload-row">
+                    <span className="name" title={u.name}>{u.name}</span>
+                    {u.status === "failed"
+                      ? <button type="button" className="link" onClick={() => retryUpload(u.id)}>Retry</button>
+                      : <span className="where">{p !== undefined ? `${Math.round(p * 100)}%` : "Waiting"}</span>}
+                    <span className="bar"><span style={{ width: `${Math.round((p ?? 0) * 100)}%` }} /></span>
+                  </div>
+                );
+              })}
+              <p className="small muted" style={{ margin: "0.5rem 0 0" }}>Uploads carry on if you close the app, and resume when you return.</p>
+            </>
+          )}
         </div>
       )}
     </span>
@@ -194,7 +260,13 @@ function TabBar({ route }: { route: Route }) {
 }
 
 // While a field has the cursor on a touch screen, the keyboard is up, so
-// the tab bar steps aside rather than float over it.
+// the tab bar steps aside rather than float over it. While it is up, the
+// cursor is also kept clear of the keyboard: whenever the visible area
+// shrinks or the caret moves, a caret that has slipped under the keyboard is
+// brought back into view by scrolling the nearest scrolling pane.
+const KEYBOARD_CLEARANCE = 28;
+const SCROLL_PANES = ".scroller, .pane-body, .session-notes, .sheet-dialog";
+
 function useTypingClass() {
   useEffect(() => {
     const editable = (el: EventTarget | null) => {
@@ -203,27 +275,101 @@ function useTypingClass() {
       return el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "file", "range"].includes((el as HTMLInputElement).type);
     };
     const root = document.documentElement;
-    const check = () => { if (!editable(document.activeElement)) root.classList.remove("typing"); };
+    const viewport = window.visualViewport;
+
+    // The pane that scrolls the caret, preferring the app's known scrolling
+    // panes and otherwise any ancestor that can still scroll further down.
+    const scrollParent = (start: Node | null): HTMLElement | null => {
+      let node: HTMLElement | null = start instanceof HTMLElement ? start : start?.parentElement ?? null;
+      for (; node && node !== document.body; node = node.parentElement) {
+        const canScroll = node.scrollHeight > node.clientHeight + 1;
+        if (canScroll && node.matches(SCROLL_PANES)) return node;
+        if (canScroll && /(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+      }
+      return null;
+    };
+
+    let frame = 0;
+    // A smooth scroll takes a moment, and the caret reports its old place
+    // until it ends, so a second correction is held back until it has settled.
+    let settleUntil = 0;
+    const ensureVisible = () => {
+      if (!viewport || !root.classList.contains("typing")) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (performance.now() < settleUntil) return;
+        const active = document.activeElement;
+        if (!editable(active)) return;
+        const selection = window.getSelection();
+        const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+        // A caret inside the field is used when it has a real box; an input's
+        // caret, or a collapsed range on an empty line, reports none, so the
+        // field's own box stands in for it.
+        let rect: DOMRect | null = range && active!.contains(range.startContainer) ? range.getBoundingClientRect() : null;
+        if (!rect || (rect.width === 0 && rect.height === 0)) rect = active!.getBoundingClientRect();
+        const overflow = rect.bottom - (viewport.offsetTop + viewport.height - KEYBOARD_CLEARANCE);
+        if (overflow <= 0) return;
+        const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+        const pane = scrollParent(range && active!.contains(range.startContainer) ? range.startContainer : active);
+        const paneHasRoom = pane !== null && pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1;
+        if (paneHasRoom) pane.scrollBy({ top: overflow, behavior });
+        else window.scrollBy({ top: overflow, behavior });
+        settleUntil = performance.now() + 350;
+      });
+    };
+    const onSelection = () => ensureVisible();
+
+    // The viewport and selection are only watched while typing, so ordinary
+    // reading and scrolling pay nothing for this.
+    let watching = false;
+    const watch = (yes: boolean) => {
+      if (yes === watching) return;
+      watching = yes;
+      if (yes) {
+        viewport?.addEventListener("resize", ensureVisible);
+        viewport?.addEventListener("scroll", ensureVisible);
+        document.addEventListener("selectionchange", onSelection);
+      } else {
+        viewport?.removeEventListener("resize", ensureVisible);
+        viewport?.removeEventListener("scroll", ensureVisible);
+        document.removeEventListener("selectionchange", onSelection);
+        cancelAnimationFrame(frame);
+      }
+    };
+
+    const check = () => {
+      if (!editable(document.activeElement)) {
+        root.classList.remove("typing");
+        watch(false);
+      }
+    };
     // A field taken off the page while it has the cursor fires no focusout,
     // so while the class is on it is checked again every half second.
     let timer: ReturnType<typeof setInterval> | undefined;
     const on = (e: FocusEvent) => {
       if (!editable(e.target)) return;
       root.classList.add("typing");
+      watch(true);
+      ensureVisible();
       clearInterval(timer);
       timer = setInterval(() => { check(); if (!root.classList.contains("typing")) clearInterval(timer); }, 500);
     };
     const off = () => setTimeout(check, 50);
     document.addEventListener("focusin", on);
     document.addEventListener("focusout", off);
-    return () => { clearInterval(timer); document.removeEventListener("focusin", on); document.removeEventListener("focusout", off); };
+    return () => {
+      clearInterval(timer);
+      watch(false);
+      document.removeEventListener("focusin", on);
+      document.removeEventListener("focusout", off);
+    };
   }, []);
 }
 
 
 // Study Library and the job search share one top bar. The brand names the
 // side you are on and leads to its home, the switch moves between the two
-// sides, and Go to, Search and Settings sit in the same place on both.
+// sides, and the sync indicator, Search and Settings sit in the same place on both.
 function SideSwitch({ jobs }: { jobs: boolean }) {
   return (
     <nav className="side-switch" aria-label="Study or job search">
@@ -242,23 +388,17 @@ function TopBar({ route }: { route: Route }) {
       {jobs
         ? <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
         : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
-      <SyncStatus />
-      {/* On a phone the tab bar does the navigating; Go to stays up here. */}
-      <button className="icon-button narrow-only goto-button" aria-label="Go to a module, week or reading" title="Go to" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
-        <Icon name="goto" size={22} />
-      </button>
       {!jobs && (
         <div className="navs">
           <ModuleLinks route={route} />
           <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
         </div>
       )}
+      {/* A direct child of the bar rather than one of the tools, so it stays
+          in view on a phone, where the tab bar takes over the tools. */}
+      <SyncStatus />
       <SideSwitch jobs={jobs} />
       <nav className="topbar-tools" aria-label="Tools">
-        <button type="button" className="topbar-btn" title="Go to (Ctrl K)" onClick={() => window.dispatchEvent(new Event("open-palette"))}>
-          <span className="sr-only">Go to</span>
-          <Icon name="goto" size={18} />
-        </button>
         <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
           <span className="sr-only">Search</span>
           <Icon name="search" size={18} />
@@ -379,7 +519,6 @@ export function App() {
       </main>
       {!bare && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />
-      <Palette />
       {route.view !== "essay" && route.view !== "jobs" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>

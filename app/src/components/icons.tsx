@@ -48,6 +48,12 @@ const paths: Record<string, React.ReactNode> = {
   viewLarge: <><rect x="3.25" y="3.25" width="13.5" height="9.75" /><path d="M3.25 16.25h8.5" /></>,
   clock: <><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.25l3 1.75" /></>,
   external: <><path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5" /><path d="M8.5 5H4.25v10.75H15V11.5" /></>,
+  // The top bar's sync indicator: a loop that spins while changes or files
+  // are on their way, a cloud with a tick once they are saved, and a hazard
+  // sign when something needs your attention.
+  syncSpin: <><path d="M16.5 10a6.5 6.5 0 0 1-11.1 4.6M3.5 10a6.5 6.5 0 0 1 11.1-4.6" /><path d="M14.5 2.75v2.75h-2.75M5.5 17.25v-2.75h2.75" /></>,
+  syncDone: <><path d="M5.5 14.5h9a3 3 0 0 0 .4-5.97A4.5 4.5 0 0 0 6.2 7.2 3.5 3.5 0 0 0 5.5 14.5Z" /><path d="m8 11.25 1.5 1.5 3-3" /></>,
+  warning: <><path d="M10 3.25 17.25 16H2.75L10 3.25Z" /><path d="M10 8.25v3.75" /><circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none" /></>,
 };
 
 

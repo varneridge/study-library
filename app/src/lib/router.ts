@@ -131,6 +131,15 @@ let popstateGuarding = false;
 let scrollOnCommit: number | null = null;
 // How far down each page was when it was left, so Back returns to the same place.
 const positions = new Map<string, number>();
+// Whether the next route change should play a view transition. Only a move
+// that keeps one thing on screen while the rest changes around it (a week and
+// one of its sessions) earns the morph, because a full-page cross-fade on every
+// other navigation reads as a flash rather than as movement.
+let nextMorph = false;
+
+function morphsBetween(prev: Route, next: Route): boolean {
+  return (prev.view === "week" && next.view === "session") || (prev.view === "session" && next.view === "week");
+}
 
 export function setNavigationGuard(guard: NavigationGuard | null): () => void {
   activeGuard = guard;
@@ -160,25 +169,40 @@ if (typeof window !== "undefined") {
         popstateGuarding = false;
       }
     }
+    const prev = parseRoute(new URL(currentAppliedUrl, "http://localhost").search);
     positions.set(currentAppliedUrl, window.scrollY);
     currentAppliedUrl = window.location.href;
     scrollOnCommit = positions.get(currentAppliedUrl) ?? 0;
+    // Stepping back from a session to its week morphs just as the forward move did.
+    nextMorph = morphsBetween(prev, parseRoute(window.location.search));
     listeners.forEach((listener) => listener());
   });
 }
 
-export async function navigate(route: Route, replace = false): Promise<void> {
+// Accepts the older boolean form, navigate(route, true) for a replace, as
+// well as an options object that can also ask for the morph transition.
+export async function navigate(
+  route: Route,
+  opts: boolean | { replace?: boolean; morph?: boolean } = false,
+): Promise<void> {
+  const isReplace = typeof opts === "boolean" ? opts : Boolean(opts.replace);
+  const morph = typeof opts === "boolean" ? false : Boolean(opts.morph);
   if (activeGuard) {
     const allow = await activeGuard();
     if (!allow) return;
   }
   const url = href(route);
   const isOverlay = Boolean(typeof history !== "undefined" && history.state?.overlay);
+  // The route being left is read before the URL changes, so a switch of tab or
+  // week within one page can keep its scroll position instead of jumping to the top.
+  const prev = parseRoute(new URL(currentAppliedUrl, "http://localhost").search);
+  const samePage = prev.view === route.view && (!("id" in prev) || !("id" in route) || prev.id === route.id);
   positions.set(currentAppliedUrl, window.scrollY);
-  if (replace || isOverlay) history.replaceState(null, "", url);
+  if (isReplace || isOverlay) history.replaceState(null, "", url);
   else history.pushState(null, "", url);
   currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
-  scrollOnCommit = replace ? null : 0;
+  scrollOnCommit = isReplace || samePage ? null : 0;
+  nextMorph = morph || morphsBetween(prev, route);
   listeners.forEach((listener) => listener());
 }
 
@@ -204,12 +228,16 @@ function settleTransition(): void {
 
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(typeof location !== "undefined" ? location.search : ""));
-  const [pending, startRouteTransition] = useTransition();
+  const [, startRouteTransition] = useTransition();
   useEffect(() => {
     // A transition keeps the current page on screen until the next one has its data.
     const update = () => {
+      // The morph is spent by the first change that reads it, so a later
+      // navigation never inherits it by accident.
+      const morph = nextMorph;
+      nextMorph = false;
       const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => Promise<void> | void) => { skipTransition: () => void } }) : null;
-      if (doc?.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (morph && doc?.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         const transition = doc.startViewTransition(() => {
           return new Promise<void>((resolve) => {
             // A transition still waiting from an earlier navigation is released first.
@@ -227,6 +255,10 @@ export function useRoute(): Route {
           });
         });
       } else {
+        // Every other change swaps the page in place, with no snapshot or
+        // cross-fade, so nothing on screen flashes. A morph still waiting from
+        // an earlier navigation is released first so it can never freeze the screen.
+        settleTransition();
         startRouteTransition(() => setRoute(parseRoute(location.search)));
       }
     };
@@ -246,10 +278,5 @@ export function useRoute(): Route {
     }
     settleTransition();
   }, [route]);
-  // Lets the stylesheet dim the old page when the next one is slow to arrive. A
-  // layout effect clears it in the same commit, so the new snapshot is never dimmed.
-  useLayoutEffect(() => {
-    document.documentElement.classList.toggle("navigating", pending);
-  }, [pending]);
   return route;
 }

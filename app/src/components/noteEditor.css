@@ -1,8 +1,15 @@
 /* Word-style floating toolbar, calm document typography and smooth handles */
 
 .note-editor .bn-toolbar.bn-formatting-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: 2px;
+  max-width: calc(100vw - 1.5rem);
   padding: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--card);
@@ -10,12 +17,28 @@
   animation: nt-in var(--dur-2) var(--ease-settle);
 }
 
+.note-editor .bn-toolbar.bn-formatting-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.note-editor .bn-toolbar.bn-formatting-toolbar > * {
+  flex-shrink: 0;
+}
+
 .note-editor .bn-formatting-toolbar .bn-button {
-  min-width: 28px;
-  height: 28px;
+  min-width: 30px;
+  height: 30px;
   border-radius: var(--r-sm);
   color: var(--muted);
   transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+
+/* Uniform control heights so global mobile min-height rules never stretch the block-type selector */
+.note-editor .bn-formatting-toolbar :is(.bn-button, button, select, input, [role="combobox"], .mantine-Select-input, .mantine-Button-root) {
+  box-sizing: border-box;
+  height: 30px;
+  min-height: 30px;
+  font-size: 0.8125rem;
 }
 
 .note-editor .bn-formatting-toolbar .bn-button:hover {
@@ -30,6 +53,7 @@
 }
 
 .note-editor .nt-sep {
+  flex-shrink: 0;
   width: 1px;
   align-self: stretch;
   margin: 4px 2px;
