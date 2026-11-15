@@ -17,7 +17,7 @@ import { recordingState } from "./Recording";
 import { Menu } from "./Menu";
 import { addSession, deleteSession, moveSession, sessionHasContent, setReadingWeek, withUndo, deleteSessionAsking, deleteSection } from "../lib/edits";
 import { navigate } from "../lib/router";
-import { confirmAction, showToast, typing, useNarrow, useTitle, useSwipe } from "../lib/ui";
+import { confirmAction, showToast, typing, useTitle, useSwipe } from "../lib/ui";
 import type { SessionKind } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { blockText } from "../lib/notes";
@@ -25,7 +25,7 @@ import { ChoiceCard } from "./ChoiceCard";
 import { Icon } from "./icons";
 import { TitleEdit } from "./TitleEdit";
 import { WeekBoard } from "./WeekBoard";
-import { SessionSlides, SlideBoard } from "./SlideBoard";
+import { sessionMaterials, takesSlides } from "../lib/sessionMaterials";
 import { uploadModulePicture } from "../lib/uploads";
 import { importTranscript, isTranscriptFile } from "../lib/transcriptImport";
 import { downloadWeekArchive } from "../lib/weekArchive";
@@ -109,7 +109,7 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
   const texts = files.filter(isTranscriptFile);
   if (texts.length) {
     const sessions = (await db.sessions.where("week_id").equals(week.id).toArray()).filter((s) => !s.deleted).sort(byPosition);
-    const session = sessions.find((s) => s.id === target?.sessionId) ?? sessions.find((s) => s.kind !== "seminar") ?? sessions[0];
+    const session = sessions.find((s) => s.id === target?.sessionId) ?? sessions.find((s) => s.kind === "lecture") ?? sessions[0];
     if (!session) showToast("This week has no session to add a transcript to.");
     else {
       for (const file of texts) {
@@ -155,68 +155,6 @@ function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boole
 const KINDS = SESSION_KINDS;
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
-function SessionBlock({
-  view, index, count, weeks, onAddSlides, dropOver,
-}: {
-  view: SessionView; index: number; count: number; weeks: WeekRow[]; onAddSlides: (sessionId: string) => void; dropOver?: boolean;
-}) {
-  const { session, slides, recordings, questions } = view;
-  const [renaming, setRenaming] = useState(false);
-  const label = session.title || sessionLabel(session.kind);
-  const narrow = useNarrow();
-
-
-  const remove = () => void deleteSessionAsking(session, label);
-
-  return (
-    <section className={`session${dropOver ? " drop-over" : ""}`} data-drop="slides" data-session={session.id} data-label={label}>
-      <div className="session-head">
-        {renaming ? (
-          <TitleEdit
-            level={2}
-            value={session.title ?? ""}
-            label="Session name"
-            placeholder={sessionLabel(session.kind)}
-            onSave={(next) => {
-              setRenaming(false);
-              if (next.trim() !== (session.title ?? "")) void update("sessions", session.id, { title: next.trim() || null });
-            }}
-            onCancel={() => setRenaming(false)}
-          />
-        ) : (
-          // The one way into the session: its name, with its notes, slides and recordings behind it.
-          <h2 className="session-title">
-            <Link to={{ view: "session", id: session.id }} className="session-open" title="Notes, slides and recordings">
-              {label}<span className="go" aria-hidden="true"><Icon name="caret" size={16} /></span>
-            </Link>
-          </h2>
-        )}
-        {!narrow && <button className="quiet" onClick={() => onAddSlides(session.id)}>Add slides</button>}
-        <Menu
-          label={`More actions for ${label}`}
-          items={[
-            { label: "Add slides", onSelect: () => onAddSlides(session.id), hidden: !narrow },
-            { label: "Rename", onSelect: () => setRenaming(true) },
-            ...KINDS.filter((k) => k.value !== session.kind && session.kind !== "supervision").map((k) => ({
-              label: `Make this a ${k.label.toLowerCase()}`,
-              onSelect: () => void update("sessions", session.id, { kind: k.value }),
-            })),
-            { label: "Move up", onSelect: () => void moveSession(session, -1), hidden: index === 0 },
-            { label: "Move down", onSelect: () => void moveSession(session, 1), hidden: index === count - 1 },
-            { label: "Delete session", onSelect: () => void remove(), danger: true },
-          ]}
-        />
-      </div>
-      <SessionSlides sessionId={session.id} fallback={slides} />
-      {recordings.map((r) => (
-        <p key={r.id} className="small muted" style={{ margin: "0.5rem 0 0" }}>
-          <Link to={{ view: "session", id: session.id }}>{recordingLine(r)}</Link>
-        </p>
-      ))}
-    </section>
-  );
-}
-
 function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
   const target = useMemo(() => ({ week_id: weekId }), [weekId]);
   return (
@@ -229,10 +167,8 @@ function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
   );
 }
 
-// How much of a session's notes a card shows. The primary card is a page of
-// notebook paper, so it takes enough text to fill five ruled lines.
-const PRIMARY_PREVIEW_CHARS = 480;
-const SECONDARY_PREVIEW_CHARS = 200;
+// How much of a session's notes a card shows; the card clamps it to four lines.
+const PREVIEW_CHARS = 360;
 
 function notePreview(notes: NoteView[], limit: number): string {
   const texts = notes
@@ -243,111 +179,124 @@ function notePreview(notes: NoteView[], limit: number): string {
   return texts.join(" ").slice(0, limit);
 }
 
+// The card that morphs into the session page is the one last opened from
+// here, so the way back lands on the same card. A plain variable is enough:
+// it is read when the week page renders and written as a card is opened.
+let morphSessionId: string | null = null;
+const MORPH_NAME = "session-notes";
+
 function WeekSessionCard({
-  view,
-  primary,
-  onAddSlides,
+  view, index, count, morph, dropOver, onAddSlides,
 }: {
-  view: SessionView;
-  primary?: boolean;
-  onAddSlides: (sessionId: string) => void;
+  view: SessionView; index: number; count: number; morph: boolean; dropOver: boolean; onAddSlides: (sessionId: string) => void;
 }) {
   const { session, slides, recordings, questions, notes } = view;
-  const label = session.title || sessionLabel(session.kind);
-  const preview = notePreview(notes, primary ? PRIMARY_PREVIEW_CHARS : SECONDARY_PREVIEW_CHARS);
-  const hasNotes = preview.length > 0;
-  const isSeminar = session.kind === "seminar";
-  const hasSlides = slides.length > 0;
-  const hasRecordings = recordings.length > 0;
-  const hasQuestions = questions.length > 0;
-  const takesSlides = !isSeminar || hasSlides;
-  const showsMaterials = takesSlides || hasRecordings || isSeminar || hasQuestions;
+  const [renaming, setRenaming] = useState(false);
+  const kindLabel = sessionLabel(session.kind);
+  const label = session.title || kindLabel;
+  const preview = notePreview(notes, PREVIEW_CHARS);
+  const materials = sessionMaterials(session.kind, { slides: slides.length, recordings: recordings.length, questions: questions.length });
   const shownRecordings = recordings.slice(0, 2);
+  const dropsSlides = takesSlides(session.kind);
+
+  const head = (
+    <span className="wsc-head">
+      <span className={`wsc-badge ${session.kind}`}>{kindLabel}</span>
+      {session.title && <span className="wsc-title">{session.title}</span>}
+    </span>
+  );
+  const body = preview
+    ? <span className="wsc-preview">{preview}</span>
+    : <span className="wsc-prompt"><Icon name="notes" size={15} /><span>{`Start your ${kindLabel.toLowerCase()} notes`}</span></span>;
 
   return (
     <article
-      className={`week-session-card ${primary ? "primary week-main-session-card" : "secondary"}${hasNotes ? " has-notes" : " empty"}`}
-      // Only the primary card shares a name with the session page, so it is the one that morphs into it.
-      style={primary ? { viewTransitionName: "session-notes" } : undefined}
+      className={`week-session-card${preview ? "" : " empty"}${dropOver ? " drop-over" : ""}`}
+      style={morph ? { viewTransitionName: MORPH_NAME } : undefined}
+      // Only a lecture takes slides, so only a lecture is a place to drop them.
+      data-drop={dropsSlides ? "slides" : undefined}
+      data-session={dropsSlides ? session.id : undefined}
+      data-label={dropsSlides ? label : undefined}
+      // Capture runs before the link navigates, so the name is on this card
+      // when the browser takes its picture of the old page.
+      onClickCapture={(e) => {
+        if (!(e.target as Element).closest("a")) return;
+        morphSessionId = session.id;
+        e.currentTarget.parentElement?.querySelectorAll<HTMLElement>(".week-session-card").forEach((card) => { card.style.viewTransitionName = ""; });
+        e.currentTarget.style.viewTransitionName = MORPH_NAME;
+      }}
     >
-      <div className="wsc-head">
-        <span className={`wsc-badge ${session.kind}`}>{sessionLabel(session.kind)}</span>
-        {session.title && <span className="wsc-title">{session.title}</span>}
-        <Link
-          to={{ view: "session", id: session.id }}
-          className="wsc-open"
-          title={`Open ${label} notes and materials`}
-        >
-          <span>Open notes</span>
-          <Icon name="forward" size={14} />
+      {renaming ? (
+        <div className="wsc-body">
+          <TitleEdit
+            level={2}
+            value={session.title ?? ""}
+            label="Session name"
+            placeholder={kindLabel}
+            onSave={(next) => {
+              setRenaming(false);
+              if (next.trim() !== (session.title ?? "")) void update("sessions", session.id, { title: next.trim() || null });
+            }}
+            onCancel={() => setRenaming(false)}
+          />
+          {body}
+        </div>
+      ) : (
+        <Link to={{ view: "session", id: session.id }} className="wsc-body" title={`Open ${label}`}>
+          {head}
+          {body}
         </Link>
-      </div>
+      )}
 
-      <Link
-        to={{ view: "session", id: session.id }}
-        className="wsc-notes-area"
-        title={hasNotes ? "Open and edit these notes" : "Start writing notes"}
-      >
-        {hasNotes ? (
-          <span className="wsc-preview">{preview}</span>
-        ) : (
-          <span className="wsc-prompt">
-            <Icon name="notes" size={15} />
-            <span>{`Start your notes for this ${sessionLabel(session.kind).toLowerCase()} here`}</span>
-          </span>
-        )}
-      </Link>
-
-      {showsMaterials && (
-        <div className="wsc-footer">
-          {primary && takesSlides && <span className="wsc-footer-label">Lecture materials</span>}
-          <div className="wsc-meta">
-            {takesSlides && (hasSlides ? (
-              <>
-                <span className="wsc-chip" title={`${slides.length} slide deck${slides.length === 1 ? "" : "s"}`}>
-                  <Icon name="slides" size={14} />
-                  <span>{slides.length === 1 ? (slides[0]?.item.title || "Slides") : `${slides.length} slide decks`}</span>
-                </span>
-                <button
-                  type="button"
-                  className="wsc-add-chip"
-                  onClick={() => onAddSlides(session.id)}
-                  aria-label={`Add more slides to ${label}`}
-                  title="Add more slides (PDF or PowerPoint)"
-                >
-                  <Icon name="add" size={13} />
-                  <span>Add more</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="wsc-add-chip"
-                onClick={() => onAddSlides(session.id)}
-                title="Add slides (PDF or PowerPoint)"
-              >
-                <Icon name="add" size={13} />
-                <span>Add slides</span>
-              </button>
-            ))}
-            {shownRecordings.map((recording) => (
-              <Link key={recording.id} to={{ view: "session", id: session.id }} className="wsc-chip recording" title="Open the recording">
-                <Icon name="play" size={13} />
-                <span>{recordingLine(recording)}</span>
-              </Link>
-            ))}
-            {recordings.length > shownRecordings.length && (
-              <span className="wsc-chip">{`${recordings.length - shownRecordings.length} more`}</span>
-            )}
-            {(isSeminar || hasQuestions) && (
-              <span className="wsc-chip" title="Seminar questions">
-                <Icon name="chat" size={14} />
-                <span>{questions.length === 0 ? "Questions" : `${questions.length} question${questions.length === 1 ? "" : "s"}`}</span>
+      {materials.length > 0 && (
+        <div className="wsc-meta">
+          {materials.map((m) => {
+            if (m.kind === "slides") return (
+              <span key="slides" className="wsc-chip" title={`${m.count} slide deck${m.count === 1 ? "" : "s"}`}>
+                <Icon name="slides" size={14} />
+                <span>{m.count === 1 ? (slides[0]?.item.title || "Slides") : `${m.count} slide decks`}</span>
               </span>
-            )}
-          </div>
+            );
+            if (m.kind === "add-slides") return (
+              <button key="add-slides" type="button" className="wsc-add-chip" onClick={() => onAddSlides(session.id)} title="Add slides (PDF or PowerPoint)">
+                <Icon name="add" size={13} />
+                <span>{m.more ? "Add more slides" : "Add slides"}</span>
+              </button>
+            );
+            if (m.kind === "recordings") return [
+              ...shownRecordings.map((r) => (
+                <Link key={r.id} to={{ view: "session", id: session.id }} className="wsc-chip" title="Open the recording">
+                  <Icon name="play" size={13} />
+                  <span>{recordingLine(r)}</span>
+                </Link>
+              )),
+              m.count > shownRecordings.length && <span key="more-recordings" className="wsc-chip">{`${m.count - shownRecordings.length} more`}</span>,
+            ];
+            return (
+              <span key="questions" className="wsc-chip" title="Seminar questions">
+                <Icon name="chat" size={14} />
+                <span>{m.count === 0 ? "Seminar questions" : `${m.count} question${m.count === 1 ? "" : "s"}`}</span>
+              </span>
+            );
+          })}
         </div>
       )}
+
+      <div className="wsc-menu">
+        <Menu
+          label={`More actions for ${label}`}
+          items={[
+            { label: "Rename", onSelect: () => setRenaming(true) },
+            ...KINDS.filter((k) => k.value !== session.kind && session.kind !== "supervision").map((k) => ({
+              label: `Make this a ${k.label.toLowerCase()}`,
+              onSelect: () => void update("sessions", session.id, { kind: k.value }),
+            })),
+            { label: "Move up", onSelect: () => void moveSession(session, -1), hidden: index === 0 },
+            { label: "Move down", onSelect: () => void moveSession(session, 1), hidden: index === count - 1 },
+            { label: "Delete session", onSelect: () => void deleteSessionAsking(session, label), danger: true },
+          ]}
+        />
+      </div>
     </article>
   );
 }
@@ -431,12 +380,9 @@ export function WeekPage({ id }: { id: string }) {
   const hasSectionNotes = (data.sectionNotes ?? []).some((n) => n.blocks.some((b) => blockText(b).trim()));
   const isDocumentOnly = isSyllabus(week) || isLibrary(module);
 
-  // The lecture, or failing that the first session that is not a seminar, takes
-  // the large card on the left. Any others sit beneath it.
-  const primarySession = view.sessions.find((s) => s.session.kind === "lecture")
-    ?? view.sessions.find((s) => s.session.kind !== "seminar")
-    ?? view.sessions[0];
-  const otherSessions = view.sessions.filter((s) => s !== primarySession);
+  // Sessions keep their own order. The card last opened from here, or else
+  // the first, is the one that morphs into its session page.
+  const morphId = view.sessions.some((s) => s.session.id === morphSessionId) ? morphSessionId : view.sessions[0]?.session.id ?? null;
   const showMain = moduleHasNotes(module) && (view.sessions.length > 0 || section || moduleHasSessions(module));
   const pickSlides = (sessionId: string) => {
     if (sessionPicker.current) {
@@ -657,45 +603,57 @@ export function WeekPage({ id }: { id: string }) {
       <div className={`week-layout${showMain ? "" : " readings-only"}`}>
         {showMain && (
           <div className="week-main-col">
-            {primarySession && <WeekSessionCard view={primarySession} primary onAddSlides={pickSlides} />}
-            {otherSessions.map((sessionView) => (
-              <WeekSessionCard key={sessionView.session.id} view={sessionView} onAddSlides={pickSlides} />
-            ))}
-            {!section && moduleHasSessions(module) && (
-              <>
-                <button
-                  ref={addSessionButton}
-                  type="button"
-                  className={`week-add-session${primarySession ? "" : " roomy"}`}
-                  onClick={() => setAddSessionOpen(true)}
-                >
-                  <Icon name="add" size={14} />
-                  <span>{primarySession ? "Add another session" : "Add a session"}</span>
-                </button>
-                <ChoiceCard
-                  open={addSessionOpen}
-                  onClose={() => setAddSessionOpen(false)}
-                  anchor={addSessionButton}
-                  label="Add a session to this week"
-                  title="Add a session"
-                >
-                  <div className="choice-list">
-                    {KINDS.map((k) => (
-                      <button
-                        key={k.value}
-                        type="button"
-                        className="choice-row"
-                        onClick={() => {
-                          setAddSessionOpen(false);
-                          void addSession(week, k.value);
-                        }}
-                      >
-                        <span>{k.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </ChoiceCard>
-              </>
+            {(view.sessions.length > 0 || (!section && moduleHasSessions(module))) && (
+              <div className="week-sessions">
+                {view.sessions.map((sessionView, index) => (
+                  <WeekSessionCard
+                    key={sessionView.session.id}
+                    view={sessionView}
+                    index={index}
+                    count={view.sessions.length}
+                    morph={sessionView.session.id === morphId}
+                    dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
+                    onAddSlides={pickSlides}
+                  />
+                ))}
+                {/* A second slot the size of the first, rather than an empty gap; beyond two, the week's menu adds sessions. */}
+                {!section && moduleHasSessions(module) && view.sessions.length < 2 && (
+                  <>
+                    <button
+                      ref={addSessionButton}
+                      type="button"
+                      className="week-add-card"
+                      onClick={() => setAddSessionOpen(true)}
+                    >
+                      <Icon name="add" size={16} />
+                      <span>{view.sessions.length ? "Add another session" : "Add a session"}</span>
+                    </button>
+                    <ChoiceCard
+                      open={addSessionOpen}
+                      onClose={() => setAddSessionOpen(false)}
+                      anchor={addSessionButton}
+                      label="Add a session to this week"
+                      title="Add a session"
+                    >
+                      <div className="choice-list">
+                        {KINDS.map((k) => (
+                          <button
+                            key={k.value}
+                            type="button"
+                            className="choice-row"
+                            onClick={() => {
+                              setAddSessionOpen(false);
+                              void addSession(week, k.value);
+                            }}
+                          >
+                            <span>{k.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </ChoiceCard>
+                  </>
+                )}
+              </div>
             )}
             {/* A section's own notes: a chapter's plan, an argument, what to find. */}
             {section && <SectionNotes weekId={week.id} code={weekCode(week)} />}
@@ -727,26 +685,6 @@ export function WeekPage({ id }: { id: string }) {
         </aside>
       </div>
 
-      {moduleHasSessions(module) && (
-        <SlideBoard week={week} weeks={weeks ?? []} moduleId={module.id} sessions={view.sessions}>
-        {view.sessions.map((sessionView, index) => (
-          <SessionBlock
-            key={sessionView.session.id}
-            view={sessionView}
-            index={index}
-            count={view.sessions.length}
-            dropOver={over?.kind === "slides" && over.sessionId === sessionView.session.id}
-            weeks={weeks ?? []}
-            onAddSlides={(sessionId) => {
-              if (sessionPicker.current) {
-                sessionPicker.current.dataset.session = sessionId;
-                sessionPicker.current.click();
-              }
-            }}
-          />
-        ))}
-        </SlideBoard>
-      )}
       <input
         ref={sessionPicker} type="file" multiple hidden accept={SLIDES_ACCEPT}
         onChange={async (e) => {
