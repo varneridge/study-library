@@ -1018,6 +1018,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.13:
+  - Week page polish, compact view differentiation, and tile thumbnails: removed hover grip handle elements and dead handle CSS rules; distinguished compact view with dense single-line rows, inline muted authors, and 0.15rem padding from normal view with two-line layout and 0.65rem padding; tightened week page top whitespace from 4.65rem to 2.65rem (.page.week-page padding-top to 1.25rem, breadcrumbs margin to 0.5rem, layout margin to 0.9rem); tightened gap between reading groups in .week-readings-col (.section margin-top to 1.1rem); and enabled first-page document thumbnails on icons and large icons views outside the library with top-aligned cropping (`object-position: center top`).
 - Improvements completed in 0.49.12:
   - Balanced 50/50 week layout and flush readings alignment: updated `.week-layout` to an equal two-column split (`grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)`) on desktop with responsive single-column collapse at 56rem; reset top margins and paddings on the first section and board header inside `.week-readings-col` so the readings column aligns flush with the top of the session cards without any vertical gap.
 - Improvements completed in 0.49.11:
@@ -1227,6 +1229,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.10 | Two-column notebook week layout mirroring SessionPage with ruled-paper primary session card and side readings, and true View Transition morph holding browser promise until React layout commit. |
 | 0.49.11 | Clean flat week page redesign: removed skeuomorphic ruled lines, restricted lecture materials strictly to lectures, equal-sized rectangular session and add-session cards, removed duplicate bottom blocks, and dynamic view transition target per card. |
 | 0.49.12 | Balanced 50/50 week layout with equal columns on desktop, responsive single-column collapse at 56rem, and flush vertical alignment of readings with session cards. |
+| 0.49.13 | Week page polish: removed hover grip handles, distinguished compact view with dense single-line rows, tightened top page whitespace and group gaps, and enabled top-cropped first-page thumbnails for icons views. |
 
 ## 18. The job search
 

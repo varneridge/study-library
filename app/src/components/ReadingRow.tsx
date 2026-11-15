@@ -414,13 +414,15 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
 // video's frame, with a play button over any video. Compact rows show it only
 // when there is one; normal rows keep a place for it so titles line up; icons
 // and large icons show it as the tile, with the title set in its place when
-// there is no picture yet.
+// there is no picture yet. Outside the library, rows stay text only unless the
+// reading is a video, but tiles always take a picture, because there the
+// picture is the tile.
 function Cover({ view, mode, isLibrary }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null);
   const video = isVideoView(view);
-  if (!video && !isLibrary) return null;
-  const key = view.file?.thumb_key ?? null;
   const tile = isTileMode(mode);
+  if (!video && !isLibrary && !tile) return null;
+  const key = view.file?.thumb_key ?? null;
   const picture = key && failed !== key ? key : null;
   if (!picture && !video && mode === "compact") return null;
   const body = (
@@ -492,7 +494,6 @@ export function ReadingRow({
       role={undefined}
       className={`reading mode-${mode}${tile ? " tile" : ""}${tile && (editing || moving || comparing) ? " expanded" : ""}${!online && !view.cached && readable(view) ? " unavailable" : ""}${drag ? " movable" : ""}${drag?.dragging ? " dragging" : ""}`}
     >
-      {drag && <span className="handle" aria-hidden="true"><Icon name="grip" size={16} /></span>}
       {tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       {!tile && <Cover view={view} mode={mode} isLibrary={isLibrary} />}
       <ReadingTitle view={view} short={short} />

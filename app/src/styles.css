@@ -780,7 +780,25 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .reading.mode-normal .play-badge { width: 1.9rem; }
 .reading.mode-large .play-badge { width: 3.5rem; }
 .reading.mode-normal { align-items: center; }
-.readings > li.reading.mode-normal { padding-block: 0.7rem; }
+.readings > li.reading.mode-normal { padding-block: 0.65rem; }
+.reading.mode-normal .name .sub { margin-top: 0.2rem; }
+/* Compact rows take one line each, with the author run on after the title in
+   small muted type and both cut short with an ellipsis, so that a long week
+   fits on one screen; the full citation stays in the row's tooltip and
+   accessible name. The rules hang on the list's view class rather than the
+   row's, because rows default to compact wherever a page names no view. */
+.readings.view-compact > li.reading { padding-block: 0.15rem; }
+.readings.view-compact .reading .name {
+  display: flex; align-items: baseline; gap: 0.45rem; min-width: 0; overflow: hidden;
+  font-size: var(--fs-sm); line-height: 1.3; white-space: nowrap;
+}
+.readings.view-compact .reading .name .main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.readings.view-compact .reading .name .sub {
+  flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  margin: 0; font-size: var(--fs-xs); color: var(--muted);
+}
+.readings.view-compact .reading .menu-button { padding-block: 0; }
+@media (pointer: coarse) { .readings.view-compact .reading .name { align-items: center; } }
 /* In rows a reading's state sits inline beside its title, as it always has. */
 .reading .reading-meta { display: contents; }
 
@@ -796,6 +814,9 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .reading.tile .reading-cover { order: -1; flex: 0 0 100%; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--r-sm); background: var(--surface); }
 .reading.tile .reading-cover.shape-wide { aspect-ratio: 16 / 9; }
 .reading.tile .reading-cover.shape-page img { object-fit: cover; }
+/* A page tile shows the top of the first page, where the title and author
+   are, rather than its middle; video frames and slides keep their centre. */
+.reading.tile .reading-cover:not(.shape-wide) img { object-position: center top; }
 .reading.tile .name { font-size: var(--fs-sm); line-height: 1.35; }
 .reading.mode-large .name { font-size: var(--fs-md); }
 .reading.tile .name .main { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -803,7 +824,6 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .reading.tile .reading-meta { order: 2; display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; flex: 0 0 100%; }
 .reading.tile .reading-meta:empty { display: none; }
 .reading.tile > .compare, .reading.tile > .reading-edit { order: 3; }
-.reading.tile .handle { display: none; }
 /* Editing a tile's details opens it across the whole grid. */
 .reading.tile.expanded { grid-column: 1 / -1; }
 
@@ -823,12 +843,7 @@ label.field { display: block; margin-bottom: 0.9rem; }
 .reading a.name:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 .reading .state { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
 .reading .state.problem { color: var(--danger); }
-/* The grip takes no room: it appears in the margin when you point at a row
-   you can move, as a hint that the whole row can be picked up. */
-.reading.movable { position: relative; }
-.handle { position: absolute; left: -1.4rem; top: 0.7rem; color: var(--faint); font-size: var(--fs-sm); line-height: 1; opacity: 0; transition: opacity 0.12s ease; pointer-events: none; }
-.reading.movable:hover .handle, .reading.movable:focus-visible .handle { opacity: 1; }
-.reading.movable { cursor: grab; }
+.reading.movable { position: relative; cursor: grab; }
 .menu { position: relative; }
 .menu-panel {
   position: absolute; right: 0; top: 1.6rem; z-index: 10; min-width: 12rem;
@@ -1220,7 +1235,6 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
 .skip { position: absolute; left: -999px; top: 0; z-index: 60; background: var(--accent); color: var(--accent-ink); padding: 0.5rem 0.9rem; }
 .skip:focus { left: 0.5rem; top: 0.5rem; }
 main:focus { outline: none; }
-@media (pointer: coarse) { .handle { display: none; } }
 
 /* Recordings */
 .player-tools { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; font-size: var(--fs-sm); }
@@ -2341,8 +2355,8 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="sepia"]) { color-scheme: dark; } }
 input[type="date"] { color: var(--ink); }
 
-/* Drawn icons in place of typed characters: the ••• menu, the week caret and
-   the drag grip, at the weight of the reader's icons. */
+/* Drawn icons in place of typed characters: the ••• menu and the week caret,
+   at the weight of the reader's icons. */
 .menu-button { display: inline-flex; align-items: center; justify-content: center; padding: 0.2rem 0.35rem; color: var(--muted); }
 .menu-button.has-label {
   gap: 0.35rem;
@@ -2361,7 +2375,6 @@ input[type="date"] { color: var(--ink); }
 .menu-button:hover, .menu-button[aria-expanded="true"] { color: var(--ink); }
 .caret-icon { display: inline-flex; transform: rotate(-90deg); transition: transform 0.15s ease; color: var(--muted); }
 .caret-icon.open { transform: none; }
-.reading .handle { display: inline-flex; align-items: center; }
 .page-loading { display: grid; gap: 0.8rem; padding-top: 2rem; }
 .page-loading span { display: block; height: 0.8rem; background: linear-gradient(90deg, var(--rule) 0%, var(--surface-hover) 50%, var(--rule) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
 .page-loading .pl-title { height: 2rem; width: 40%; margin-bottom: 0.6rem; }
@@ -2485,9 +2498,9 @@ body.recording-active .move-dock { bottom: calc(5rem + max(var(--bottom-inset, 0
 .menu-backdrop, .menu-panel .menu-cancel { display: none; }
 @keyframes sheet-in { from { transform: translateY(1.5rem); opacity: 0; } to { transform: none; opacity: 1; } }
 
-/* No dragging by touch: no handles, no "drop here" hints, no grab cursor. */
+/* No dragging by touch: no "drop here" hints, no grab cursor. */
 @media (pointer: coarse) {
-  .reading .handle, .drop-hint { display: none; }
+  .drop-hint { display: none; }
   .touch-hide { display: none !important; }
 }
 
@@ -4708,7 +4721,11 @@ body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  margin-bottom: 0.5rem;
 }
+/* A week opens on its notes and readings, so it needs less air above it than
+   a page that leads with a large title. */
+.page.week-page { padding-top: 1.25rem; }
 .week-crumbs .crumbs-path {
   display: flex;
   align-items: center;
@@ -4757,12 +4774,15 @@ body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
-  margin: 1.25rem 0 1.5rem;
+  margin: 0.9rem 0 1.5rem;
 }
 .week-layout.readings-only { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 56rem) { .week-layout { grid-template-columns: minmax(0, 1fr); } }
 .week-main-col { min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
 .week-readings-col { min-width: 0; display: flex; flex-direction: column; gap: 1.5rem; }
+/* The groups sit closer than sections elsewhere, since each already has its own
+   heading to mark where it starts. The first keeps no top margin at all. */
+.week-readings-col .section { margin-top: 1.1rem; }
 .week-readings-col :is(.side-readings, .section, .board-head, .group-label):first-child { margin-top: 0; padding-top: 0; }
 
 /* Session cards: flat tinted surfaces, no shadow and no rules, so the type
