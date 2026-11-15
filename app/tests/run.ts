@@ -11,7 +11,8 @@ import { todayLocal, parseISO, formatISO, daysInMonth, addDays, addMonths, weekd
 import { parseRoute } from "../src/lib/router";
 import { notesQueue } from "../src/lib/notesQueue";
 
-import { notesLabel } from "../src/lib/modules";
+import { DEFAULT_PATTERN, notesLabel, SESSION_KINDS, sessionLabel } from "../src/lib/modules";
+import { sessionMaterials } from "../src/lib/sessionMaterials";
 import { storedAccent, ACCENTS } from "../src/lib/appearance";
 import { crc32, createZip } from "../src/lib/zip";
 import { positionsFor, splitQuestions, type Saved } from "../src/lib/notes";
@@ -1561,6 +1562,49 @@ test("wordcraftChrome parses reports and validates embedded insets", () => {
   assert.ok(query.includes(`fileGuard=${FILE_TAB_COVER.width},${FILE_TAB_COVER.height}`));
   assert.ok(query.includes(`tabInset=${INSETS_REGULAR.tabStart},${INSETS_REGULAR.tabEnd}`));
 });
+
+test("blank-slate sessions offer seminar and lecture, and a session holds one slide deck", () => {
+  assert.deepEqual(DEFAULT_PATTERN, []);
+  assert.deepEqual(SESSION_KINDS.map((k) => k.value), ["seminar", "lecture"]);
+  assert.equal(sessionLabel("combined"), "Seminar");
+  assert.equal(sessionLabel("seminar"), "Seminar");
+  assert.equal(sessionLabel("lecture"), "Lecture");
+  assert.deepEqual(
+    sessionMaterials("lecture", { slides: 0, recordings: 0, questions: 0 }),
+    [{ kind: "add-slides", more: false }],
+  );
+  assert.deepEqual(
+    sessionMaterials("lecture", { slides: 1, recordings: 0, questions: 0 }),
+    [{ kind: "slides", count: 1 }],
+  );
+});
+
+{
+  const name = "contents default tab, TOC extraction, transcription cost, reference quick-fill, and Zotero themes";
+  try {
+    const { defaultTab, headingsFromContentsPage } = await import("../src/lib/outline");
+    assert.equal(defaultTab("notes", 0, false), "contents");
+    assert.equal(defaultTab("notes", 3, true), "notes");
+    const toc = headingsFromContentsPage([
+      { page: 1, text: "Contents", size: 14 },
+      { page: 1, text: "1. The Origins of the War ........ 5", size: 11 },
+      { page: 1, text: "2. The July Crisis ........ 12", size: 11 },
+      { page: 4, text: "1. The Origins of the War", size: 14 },
+    ], 20);
+    assert.equal(toc.length, 2);
+    assert.equal(toc[0].page, 4);
+    const recordingSrc = readFileSync(new URL("../src/components/Recording.tsx", import.meta.url), "utf8");
+    assert.ok(recordingSrc.includes("export function formatTranscriptionCost") && recordingSrc.includes("/api/recordings/"), "Recording manual transcription");
+    const rowSrc = readFileSync(new URL("../src/components/ReadingRow.tsx", import.meta.url), "utf8");
+    assert.ok(rowSrc.includes("export function parseReference") && rowSrc.includes("editor-card-layout"), "ReadingRow card editor and quick-fill");
+    const settingsSrc = readFileSync(new URL("../src/components/Settings.tsx", import.meta.url), "utf8");
+    assert.ok(settingsSrc.includes("zotero-theme-card") && settingsSrc.includes("Redraw reading covers"), "Settings Zotero theme cards");
+    console.log(`ok   ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`FAIL ${name}\n${(error as Error).message}`);
+  }
+}
 
 registerNotesAndReadingsTests(test);
 registerListenTests(test);

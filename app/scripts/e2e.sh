@@ -9,12 +9,13 @@
 # non-zero if any failed. It waits for everything to finish: nothing to poll.
 set -u
 src="$(cd "$(dirname "$0")/../.." && pwd)"
+[ -f "$src/app/package.json" ] && [ -d "$src/backend" ] || { echo "e2e.sh: cannot locate repository root at $src" >&2; exit 1; }
 dest="$HOME/study-library"
 py="$HOME/.venvs/study/bin/python"
 export PATH="$(dirname "$py"):$PATH"
 port=8790
 
-rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv \
+rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv --exclude .oracle \
   --exclude backend/audit --exclude app/tests/e2e/shots --exclude app/tests/e2e/files "$src/" "$dest/"
 cd "$dest/app" || exit 1
 

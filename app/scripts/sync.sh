@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT/backend/sync" ] || { echo "sync.sh: cannot locate repository root" >&2; exit 1; }
 # --delete keeps the WSL mirror identical to the repository, so a file removed
 # here (such as a retired module) cannot linger and still be imported there.
-rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv \
+rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv --exclude .oracle \
   --exclude backend/audit --exclude app/tests/e2e/shots --exclude app/tests/e2e/files "$REPO_ROOT/" ~/study-library/
 cd ~/study-library/backend
 . ~/.venvs/study/bin/activate
