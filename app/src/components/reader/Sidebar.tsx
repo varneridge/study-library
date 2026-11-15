@@ -1,5 +1,6 @@
-// The reader's left pane: your notes on the reading, with its highlights
-// in them as quotations, then page thumbnails and the PDF's contents list.
+// The reader's left pane: the reading's contents list first, since that is
+// where most readings are entered, then page thumbnails, then your notes on
+// the reading with its highlights in them as quotations.
 
 import { NotesLoading } from "../ErrorBoundary";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
@@ -72,13 +73,15 @@ export function Sidebar({
   onGoPage: (page: number) => void; onOpenHighlight: (highlightId: string, page: number) => void;
   onQuoteRemoved: (highlightId: string) => void; onQuoteRestored?: (highlightId: string) => void; onClose: () => void;
 }) {
-  const tabs: { value: Tab; label: string; icon: "notes" | "pages" | "outline"; hidden?: boolean }[] = [
-    { value: "notes", label: "Notes", icon: "notes" },
+  // Contents stays visible even when a reading has none, so the tabs never
+  // shift position and the empty pane can say why the list is blank.
+  const tabs: { value: Tab; label: string; icon: "notes" | "pages" | "outline" }[] = [
+    { value: "contents", label: "Contents", icon: "outline" },
     { value: "pages", label: "Pages", icon: "pages" },
-    { value: "contents", label: "Contents", icon: "outline", hidden: headings.length === 0 },
+    { value: "notes", label: "Notes", icon: "notes" },
   ];
 
-  const visibleTabs = tabs.filter((t) => !t.hidden);
+  const visibleTabs = tabs;
   // Each quotation's card shows its highlight's comment from these, live.
   const highlightMap = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
   const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -137,7 +140,7 @@ export function Sidebar({
             {sizes.map((size, i) => <Thumb key={i} doc={doc} index={i} size={size} current={i === current} onGo={onGoPage} />)}
           </div>
         )}
-        {tab === "contents" && (
+        {tab === "contents" && (headings.length > 0 ? (
           <ol className="contents">
             {headings.map((h, i) => (
               <li key={i} style={{ paddingLeft: `${h.level}rem` }}>
@@ -147,7 +150,9 @@ export function Sidebar({
               </li>
             ))}
           </ol>
-        )}
+        ) : (
+          <p className="small muted contents-empty">No contents found in this reading.</p>
+        ))}
       </div>
     </aside>
   );

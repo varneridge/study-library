@@ -70,7 +70,7 @@ async function generateThumbs() {
 async function cropCovers() {
   try {
     const { queued } = (await (await api("/api/thumbs?covers=1", { method: "POST" })).json()) as { queued: number };
-    showToast(queued ? `${queued} ${queued === 1 ? "cover" : "covers"} will be cropped to their print.` : "No reading covers to crop.");
+    showToast(queued ? `${queued} ${queued === 1 ? "cover" : "covers"} will be redrawn.` : "No reading covers to redraw.");
   } catch {
     showToast("Could not queue the covers. Check you are online.");
   }
@@ -105,11 +105,11 @@ function ProcessorState() {
       {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
       <p className="small muted" style={{ marginTop: "1rem" }}>
         Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
-        straightened, two-page spreads split. Covers made before covers were cropped to their print can be cropped too.
+        straightened, two-page spreads split. Covers can also be redrawn as full uncropped pages.
       </p>
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
-        <button className="button" onClick={() => void cropCovers()}>Crop reading covers</button>
+        <button className="button" onClick={() => void cropCovers()}>Redraw reading covers</button>
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
     </>
@@ -164,9 +164,24 @@ function AppearanceChoice() {
     <>
       <h2>Appearance</h2>
       <p className="small muted">Theme mode and accent palette across every screen, the reader panels and the pages themselves. Syncs across all your devices.</p>
-      <div className="segmented appearance-choice" role="group" aria-label="Appearance" style={{ marginTop: "0.75rem" }}>
+      {/* Each theme is shown as a small page in its own colours, so the choice can be seen before it is made.
+          The label stays on the button as its name, which the theme tests look for. */}
+      <div className="zotero-themes appearance-choice" role="group" aria-label="Appearance" style={{ marginTop: "0.75rem" }}>
         {APPEARANCES.map((a) => (
-          <button key={a.value} className={`tool theme-chip ${a.value}`} aria-pressed={current === a.value} onClick={() => void chooseAppearance(a.value)}>{a.label}</button>
+          <button
+            key={a.value}
+            type="button"
+            className={`theme-chip zotero-theme-card ${a.value}`}
+            aria-pressed={current === a.value}
+            aria-label={a.label}
+            onClick={() => void chooseAppearance(a.value)}
+          >
+            <span className="zotero-theme-page" aria-hidden="true">
+              <span className="zotero-theme-aa">Aa</span>
+              <span className="zotero-theme-lines"><span /><span /></span>
+            </span>
+            <span className="zotero-theme-label">{a.label}</span>
+          </button>
         ))}
       </div>
 
@@ -433,7 +448,7 @@ export function Settings() {
         </nav>
 
         <div className="settings-content">
-          <section id="section-appearance" className="settings-section">
+          <section id="section-appearance" className="settings-section settings-card">
             <AppearanceChoice />
             <ColourNames
               values={colourNamesDraft.draft}
@@ -441,14 +456,14 @@ export function Settings() {
             />
           </section>
 
-          <section id="section-term-dates" className="settings-section">
+          <section id="section-term-dates" className="settings-section settings-card">
             <TermDatesSetting
               dates={termDatesDraft.draft}
               onChange={(term, val) => termDatesDraft.setField(term, val)}
             />
           </section>
 
-          <section id="section-shortcuts" className="settings-section keyboard-only">
+          <section id="section-shortcuts" className="settings-section settings-card keyboard-only">
             <h2>Keyboard shortcuts</h2>
             <p className="small muted" style={{ margin: "0.2rem 0 0.6rem" }}>
               / opens search. On a week, [ and ] navigate between weeks. Press ? anywhere for the full list.
@@ -458,11 +473,11 @@ export function Settings() {
             </div>
           </section>
 
-          <section id="section-processor" className="settings-section">
+          <section id="section-processor" className="settings-section settings-card">
             <ProcessorState />
           </section>
 
-          <section id="section-device" className="settings-section">
+          <section id="section-device" className="settings-section settings-card">
             <h2>On this device</h2>
             <label className="choices" style={{ marginTop: "0.75rem" }}>
               <input
@@ -502,11 +517,11 @@ export function Settings() {
             )}
           </section>
 
-          <section id="section-bin" className="settings-section">
+          <section id="section-bin" className="settings-section settings-card">
             <Bin />
           </section>
 
-          <section id="section-danger" className="settings-section danger-section">
+          <section id="section-danger" className="settings-section settings-card danger-section danger-card">
             <h2>Start again on this device</h2>
             <p className="small muted">
               Removes the local copy and downloads everything again from the server. Unsaved edits on this device are lost.

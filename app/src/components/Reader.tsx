@@ -1,5 +1,6 @@
 import { sessionLabel } from "../lib/modules";
 import { copyReference, deleteReading, download, Editor, MovePicker, replaceFile } from "./ReadingRow";
+import { redoFileStep } from "../lib/citations";
 import { READING_ACCEPT } from "../lib/photos";
 import type { ReadingView } from "../lib/library";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -90,7 +91,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const theme: Theme = appTheme === "light" ? "plain" : appTheme;
   const [left, setLeft] = useState(() => !window.matchMedia?.("(max-width: 34rem)").matches && localStorage.getItem("reader-sidebar") !== "closed");
   const touchedTab = useRef(false);
-  const [tab, setTabState] = useState<Tab>("notes");
+  const [tab, setTabState] = useState<Tab>("contents");
   const setTab = (which: Tab) => {
     touchedTab.current = true;
     setTabState(which);
@@ -970,7 +971,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const chooseTrim = (on: boolean) => { setTrim(on); localStorage.setItem("reader-trim", on ? "on" : "off"); };
 
   return (
-    <div style={{ "--tool": toolColour } as React.CSSProperties} className={`reader ${theme}${narrow ? " narrow" : ""}${barHidden && narrow && !finding ? " bar-hidden" : ""}${tool === "highlight" ? " tool-highlight" : ""}`}>
+    <div style={{ "--tool": toolColour } as React.CSSProperties} className={`reader ${theme}${narrow ? " narrow" : ""}${barHidden && narrow && !finding && !left ? " bar-hidden" : ""}${tool === "highlight" ? " tool-highlight" : ""}`}>
       <div className="reader-bar" role="toolbar" aria-label="Reader">
         <div className="group">
           <IconButton icon="back" label={backLabel} onClick={back} />
@@ -1040,8 +1041,16 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
               { label: "Copy reference", onSelect: () => void copyReference(item), hidden: !citable(item) },
               { label: "Move to another week or module", onSelect: () => setSheet("move") },
               { label: "Download file", onSelect: () => void download(asView), hidden: !file },
-              { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(upload) },
-              { label: "Keyboard shortcuts", onSelect: () => openShortcuts() },
+              {
+                label: "More...",
+                items: [
+                  { label: "Read the text again (re-OCR)", onSelect: () => file && void redoFileStep(file.id, "ocr"), hidden: !file || isVideoMime(file.mime) },
+                  { label: "Update cover thumbnail", onSelect: () => file && void redoFileStep(file.id, "thumb"), hidden: !file },
+                  { label: "Look up the details again", onSelect: () => file && void redoFileStep(file.id, "identify"), hidden: !file || isVideoMime(file.mime) },
+                  { label: "Replace file", onSelect: () => replacer.current?.click(), hidden: Boolean(upload) },
+                  { label: "Keyboard shortcuts", onSelect: () => openShortcuts() },
+                ],
+              },
               { label: deleteLabel(item.kind), danger: true, onSelect: async () => { if (await deleteReading(asView)) back(); } },
             ]}
           />
@@ -1108,6 +1117,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           {textReady && (
             <div style={{ "--tv-size": textSize } as React.CSSProperties}>
               <TextView
+                doc={doc}
                 reflowed={reflowed!}
                 kicker={place ? place.label : ""}
                 title={item.title}

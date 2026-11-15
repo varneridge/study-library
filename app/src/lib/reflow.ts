@@ -10,6 +10,8 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
 export interface Piece { start: number; end: number; rect: [number, number, number, number] }
+// A stretch of a line set apart from the rest by a wide gap, as one cell of a table row.
+export interface Cell { text: string; start: number; end: number; x0: number; x1: number }
 export interface Line {
   page: number; start: number; end: number; text: string; hyphen: boolean; x0: number; x1: number; y: number; size: number;
   // The last word runs on into the next line with no hyphen to show it, as
@@ -19,13 +21,26 @@ export interface Line {
   aside?: boolean;
   // The left and right edges of the column the line sits in.
   colLeft: number; colRight: number;
+  // The line's stretches, when wide gaps split it into two or more, as in a table.
+  cells?: Cell[];
 }
-export interface Block { kind: "heading" | "para" | "note"; lines: Line[] }
+// Where a figure sits on its page, in PDF coordinates [x0, y0, x1, y1].
+export interface FigureBox { page: number; box: [number, number, number, number] }
+export interface Block {
+  kind: "heading" | "para" | "note" | "break" | "table" | "figure";
+  // For headings: 2 for a title or major heading, 3 for a subtitle or subheading.
+  level?: 1 | 2 | 3;
+  // For tables: one array of cells per row. Its lines are the same cells, row by row.
+  rows?: Line[][];
+  // For figures: the picture above the caption, which is the block's lines.
+  figure?: FigureBox;
+  lines: Line[];
+}
 export interface PageText { page: number; text: string; pieces: Piece[]; height: number }
 export interface Reflowed { blocks: Block[]; pages: PageText[]; words: number; usable: boolean }
 
 interface RawPart { text: string; x: number; w: number; h: number; y: number; cap?: boolean }
-interface RawLine { y: number; size: number; x0: number; x1: number; parts: RawPart[]; colLeft?: number; colRight?: number; top?: number; bottom?: number; aside?: boolean }
+interface RawLine { y: number; size: number; x0: number; x1: number; parts: RawPart[]; colLeft?: number; colRight?: number; top?: number; bottom?: number; aside?: boolean; cells?: Cell[] }
 
 // Lines a database or publisher adds to every download: JSTOR's footer and
 // cover, Taylor & Francis's contact line and copyright, and bare links.
@@ -34,6 +49,13 @@ const PUBLISHER_FOOTER = /(?:created from lse on|downloaded from https?:\/\/|cam
 
 const HYPHEN_END = /[a-z\u00e0-\u024f][-\u00ad\u2010\u2011\u2013]$/i;
 const ABBREV = /\b(?:[A-Z]\.|[A-Z][a-z]{1,4}\.|e\.g\.|i\.e\.|cf\.|viz\.|al\.|etc\.|vs\.|vols?\.|nos?\.|pp?\.|\bsec\.|eds?\.|figs?\.)[)'"\u201d\u2019\]]*$/;
+// A line that marks a section break on its own: three asterisks, an asterism, or a short rule.
+const SECTION_BREAK = /^(?:\*\s*\*\s*\*|\u2042|[*\u2022\u00b7~-]{3,}|(?:\*\s+){2,}\*)$/;
+// The caption of a figure, map or plate, which sits below the picture it names.
+const FIGURE_CAPTION = /^(?:Figure|Fig\.?|Plate|Map|Illustration)\s+(?:\d+|[IVXLCDM]+)\b/i;
+const TABLE_CAPTION = /^Table\s+(?:\d+|[IVXLCDM]+)\b/i;
+// A heading that opens a major part of the text rather than a subsection of it.
+const MAJOR_HEADING = /^((?:Chapter|Part|Section)\s+(?:\d+|[IVXLCDM]+)|[IVXLCDM]+\.|Introduction|Conclusion|Epilogue|Preface|Foreword|Abstract|Bibliography|References)\b/i;
 const LIST_ITEM = /^(?:(?:\d{1,2}|[a-z]|[ivx]{1,4})[.)]\s+|[•\u2022\u2023\u25e6\u2043\u2219-]\s+)/i;
 
 function median(values: number[]): number {
@@ -77,7 +99,16 @@ async function readPage(doc: PDFDocumentProxy, index: number): Promise<{ lines: 
       const rows = [...new Set(ys.map((y) => Math.round(y)))].sort((a, b) => b - a);
       let run = 1, best = 1;
       for (let i = 1; i < rows.length; i += 1) { run = rows[i - 1] - rows[i] < typical * 2.6 ? run + 1 : 1; best = Math.max(best, run); }
-      if (best >= 4) gutters.push({ x: key * 2, top: rows[0] + typical * 2, bottom: rows[rows.length - 1] - typical });
+      // The text beside a box is running text, which fills the space it spans.
+      // The columns of a table also start at one point on row after row, but
+      // what sits before them is a few short cells with wide gaps, not a gutter.
+      const covers = rows.map((ry) => {
+        const before = parts.filter((q) => Math.abs(q.y - ry) < typical * 0.6 && q.x + q.w < key * 2);
+        if (!before.length) return 0;
+        const span = Math.max(...before.map((q) => q.x + q.w)) - Math.min(...before.map((q) => q.x));
+        return before.reduce((sum, q) => sum + q.w, 0) / Math.max(1, span);
+      });
+      if (best >= 4 && median(covers) > 0.6) gutters.push({ x: key * 2, top: rows[0] + typical * 2, bottom: rows[rows.length - 1] - typical });
     }
   }
   const across = (from: number, to: number) => gutters.some((g) => from < g.x - 1 && to > g.x - 3);
@@ -225,7 +256,8 @@ function readingOrder(lines: RawLine[], width: number, height?: number): RawLine
 // abstract, is read after the text it sits beside rather than woven into it.
 function sidebarsLast(lines: RawLine[], width: number): RawLine[] {
   const typical = median(lines.map((l) => l.size)) || 10;
-  const isSide = (l: RawLine) => l.x0 > width * 0.6 && lines.some((m) => m !== l && Math.abs(m.y - l.y) < l.size && m.x1 < l.x0 - typical * 2 && m.x0 < width * 0.4);
+  // The text beside a box runs wide; a short line beside it is another cell of a table row.
+  const isSide = (l: RawLine) => l.x0 > width * 0.6 && lines.some((m) => m !== l && Math.abs(m.y - l.y) < l.size && m.x1 < l.x0 - typical * 2 && m.x0 < width * 0.4 && m.x1 - m.x0 > width * 0.3);
   const side = lines.filter(isSide);
   if (!side.length || side.length > lines.length * 0.3) return lines;
   const main = lines.filter((l) => !side.includes(l));
@@ -246,6 +278,12 @@ function sidebarsLast(lines: RawLine[], width: number): RawLine[] {
   return [...main.slice(0, cut), ...side, ...main.slice(cut)];
 }
 
+// Whether wide gaps split a line into two or more stretches, as the cells of a table row.
+function multiCell(l: RawLine): boolean {
+  const size = median(l.parts.map((p) => p.h));
+  return l.parts.some((p, i) => i > 0 && p.x - (l.parts[i - 1].x + l.parts[i - 1].w) > Math.max(size * 1.8, 14));
+}
+
 const signature = (text: string) => text.toLowerCase().replace(/\d+/g, "#").replace(/\s+/g, " ").trim();
 
 export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
@@ -253,12 +291,14 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
   for (let i = 0; i < doc.numPages; i += 1) raw.push(await readPage(doc, i));
 
   // Lines that repeat near the top or bottom of several pages are running heads.
-  const edgeCounts = new Map<string, number>();
-  raw.forEach(({ lines, height }) => {
+  // They are counted by page, so rows of figures repeated within one page,
+  // as at the top of a table, are not taken for a running head.
+  const edgePages = new Map<string, Set<number>>();
+  raw.forEach(({ lines, height }, index) => {
     for (const l of lines) {
       if (l.y > height * 0.9 || l.y < height * 0.08) {
         const sig = signature(l.parts.map((p) => p.text).join(" "));
-        edgeCounts.set(sig, (edgeCounts.get(sig) ?? 0) + 1);
+        edgePages.set(sig, (edgePages.get(sig) ?? new Set<number>()).add(index));
       }
     }
   });
@@ -270,6 +310,9 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
 
   const pages: PageText[] = [];
   const lines: Line[] = [];
+  // Each page's usual distance between lines, for telling a deliberate blank
+  // line or the space left for a picture from an ordinary line break.
+  const leadings: number[] = [];
   let chars = 0;
   const ocrDoc = raw.filter((r) => r.ocr).length > raw.length / 2;
   raw.forEach(({ lines: pageLines, width, height }, page) => {
@@ -296,6 +339,9 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       }
     }
     const pageLeading = median(lineGaps) || body * 1.3;
+    leadings[page] = pageLeading;
+    // A line in a table row: split by wide gaps, or sharing its baseline with another line.
+    const inRow = (r: RawLine) => multiCell(r) || order.some((o) => o !== r && Math.abs(o.y - r.y) < Math.min(o.size, r.size) * 0.5);
 
     for (const l of order) {
       let lineText = "";
@@ -309,17 +355,27 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
         // punctuation, and is left out as a raised one is.
         .map((part) => (ocrDoc ? { ...part, text: part.text.replace(/(?<=(?:\S['\u2019\u201d")\]]|[^\d\s][.,;:]))\d{1,3}(?=[.,;:)\]]{0,2}$)/, "") } : part));
       if (!parts.length) continue;
+      // The line's stretches between wide gaps, which become a table's cells.
+      const segs: Cell[] = [];
+      const cellGap = Math.max(lineSize * 1.8, 14);
       parts.forEach((part, i) => {
         const prev = parts[i - 1];
+        let wide = !prev;
         if (prev && !prev.cap) {
           const gap = part.x - (prev.x + prev.w);
           const threshold = ocrDoc ? -0.05 * Math.min(prev.h, part.h) : Math.min(prev.h, part.h) * 0.12;
           if (gap > threshold && !/\s$/.test(lineText) && !/^\s/.test(part.text)) { lineText += " "; text += " "; }
+          wide = gap > cellGap;
         }
+        if (wide) segs.push({ text: "", start: text.length, end: text.length, x0: part.x, x1: part.x + part.w });
+        const seg = segs[segs.length - 1];
+        seg.end = text.length + part.text.length;
+        seg.x1 = part.x + part.w;
         pieces.push({ start: text.length, end: text.length + part.text.length, rect: [part.x, part.y - part.h * 0.22, part.x + part.w, part.y + part.h * 0.8] });
         lineText += part.text;
         text += part.text;
       });
+      for (const seg of segs) seg.text = text.slice(seg.start, seg.end);
       text += "\n";
       const clean = lineText.replace(/\s+/g, " ").trim();
       if (!clean) continue;
@@ -337,9 +393,14 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
         || /^\d{1,4}\s*\|\s*.{2,60}$/.test(clean)
         || /^.{2,60}\s*\|\s*\d{1,4}$/.test(clean);
 
-      if (nearEdge && isPageNum) continue;
+      // A row of a table, with a row of it just above, is never a page number or a
+      // stray line in the margin, however much its cells look like either.
+      const overhead = [...order].reverse().find((other) => other !== l && other.y > l.y && Math.abs(other.x0 - l.x0) < body * 4);
+      const tableRow = inRow(l) && Boolean(overhead) && overhead!.y - l.y < pageLeading * 1.6 && inRow(overhead!);
 
-      const isRepeatedEdge = (edgeCounts.get(signature(clean)) ?? 0) >= repeats && clean.length < 180;
+      if (nearEdge && isPageNum && !tableRow) continue;
+
+      const isRepeatedEdge = (edgePages.get(signature(clean))?.size ?? 0) >= repeats && clean.length < 180;
       if (nearEdge && isRepeatedEdge && !isSentenceContinuation) continue;
 
       const below = order.find((other) => other !== l && other.y < l.y && Math.abs(other.x0 - l.x0) < body * 4);
@@ -348,7 +409,7 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       const isolatedBottom = !above || (above.y - l.y > pageLeading * 1.6);
       const isolated = (l.y > height * 0.88 && isolatedTop) || (l.y < height * 0.12 && isolatedBottom);
 
-      if (isolated && !isSentenceContinuation) {
+      if (isolated && !isSentenceContinuation && !tableRow) {
         if (clean.length < 4 && !/[a-z]{2,}/i.test(clean)) continue;
         const marginBand = l.y > height * (ocrDoc ? 0.89 : 0.915) || l.y < height * 0.075;
         if (marginBand && l.size < body * 1.15 && clean.length < 110) continue;
@@ -360,6 +421,7 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       lines.push({
         page, start, end: start + lineText.length, text: lineText, hyphen: isHyphen, x0: l.x0, x1: l.x1, y: l.y, size: l.size, aside: l.aside,
         colLeft: l.colLeft ?? l.x0, colRight: l.colRight ?? l.x1,
+        ...(segs.length >= 2 && segs.every((c) => c.text.trim()) ? { cells: segs } : {}),
       });
     }
     pages.push({ page, text, pieces, height });
@@ -384,6 +446,10 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
   const FOOTNOTE_MARKER = /^\d{1,3}(?:\.|\s)\s*[A-Z"'\u201c(]/;
   const SECTION_NUM = /^(?:[IVXLCDM]+\.?|\d{1,2}\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+|Introduction|Conclusion|Epilogue|Preface|Foreword)\b/i;
 
+  // Tables are found before paragraphs, so their rows are never joined into
+  // prose, nor hidden as notes when they are set small.
+  const { tableAt, inTable } = findTables(lines, body);
+
   let open: Block | null = null; // the paragraph being built
   let lastPara: Line | null = null;
   let heading: Block | null = null;
@@ -396,6 +462,20 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
     const t = line.text.trim();
     const pageH = raw[line.page]?.height ?? 800;
     const atBottom = line.y < pageH * 0.35;
+
+    if (inTable.has(line)) {
+      const rows = tableAt.get(line);
+      if (rows) blocks.push({ kind: "table", rows, lines: rows.flat() });
+      open = null; lastPara = null; heading = null;
+      continue;
+    }
+
+    // A row of asterisks or a short rule marks a section break.
+    if (!line.aside && SECTION_BREAK.test(t)) {
+      blocks.push({ kind: "break", lines: [line] });
+      open = null; lastPara = null; heading = null;
+      continue;
+    }
 
     // Detect footnotes using position and marker patterns as well as font size.
     let isNote = line.size < body * low;
@@ -434,8 +514,20 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
     }
 
     if (kind === "heading") {
-      const continues = heading && heading.lines.length < 4 && heading.lines[heading.lines.length - 1].page === line.page;
-      if (!continues) { heading = { kind: "heading", lines: [] }; blocks.push(heading); }
+      // Read through a widened name, so the loop's narrowing of heading does not hide it.
+      const current = heading as Block | null;
+      const prevHeading = current && current.lines[current.lines.length - 1].page === line.page ? current : null;
+      // Lines join one heading only when they are set alike, so a smaller
+      // subtitle under a title becomes a heading of its own.
+      const prevSize: number | null = prevHeading ? prevHeading.lines[0].size : null;
+      const continues = prevHeading !== null && prevSize !== null && prevHeading.lines.length < 4 && Math.abs(line.size - prevSize) < 1.2;
+      if (!continues) {
+        const major: boolean = line.size > body * (ocrDoc ? 1.3 : 1.24) || allCaps || MAJOR_HEADING.test(t);
+        const under: boolean = prevSize !== null && line.size < prevSize;
+        const level: 2 | 3 = /^\d+\.\d+\b/.test(t) || under || !major ? 3 : 2;
+        heading = { kind: "heading", level, lines: [] };
+        blocks.push(heading);
+      }
       heading!.lines.push(line);
       open = null;
       lastPara = null;
@@ -475,17 +567,144 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
           : /^[A-Z\u201c"'\d]/.test(t) && (indent || short || isList);
       }
     }
-    if (breakHere) { open = { kind: "para", lines: [] }; blocks.push(open); }
+    if (breakHere) {
+      // A wide blank space between two finished paragraphs in the same column
+      // is a deliberate break, as between scenes or sections of prose. The space
+      // above a figure's caption is the picture's, not a break.
+      const leading = leadings[line.page] ?? body * 1.3;
+      const blank = open && lastPara && lastPara.page === line.page && !lastPara.aside && !line.aside
+        && Math.abs(line.colLeft - lastPara.colLeft) < body * 2 && ends(lastPara)
+        && lastPara.y - line.y > leading * 2.75 && !FIGURE_CAPTION.test(t);
+      if (blank) blocks.push({ kind: "break", lines: [] });
+      open = { kind: "para", lines: [] };
+      blocks.push(open);
+    }
     open!.lines.push(line);
     lastPara = line;
   }
 
   if (ocrDoc) glueSplitWords(blocks);
+  markFigures(blocks, lines, leadings, raw.map((r) => r.height), body);
+  mergeTablesAcrossPages(blocks);
 
   const words = Math.round(chars / 6);
   // A scan with no text layer, or a page of figures, cannot be read as text.
   const usable = words > 80 * Math.min(doc.numPages, 3) / 3;
-  return { blocks: blocks.filter((b) => b.lines.some((l) => l.text.trim())), pages, words, usable };
+  return { blocks: blocks.filter((b) => b.kind === "break" || b.lines.some((l) => l.text.trim())), pages, words, usable };
+}
+
+// One cell of a table row as a line of its own, keeping its place in the page's text.
+function cellLine(line: Line, cell: Cell): Line {
+  return {
+    page: line.page, start: cell.start, end: cell.end, text: cell.text, hyphen: false, x0: cell.x0, x1: cell.x1,
+    y: line.y, size: line.size, colLeft: line.colLeft, colRight: line.colRight,
+  };
+}
+
+// The cells a line holds: its own stretches if wide gaps split it, or else the whole line.
+function cellsOf(line: Line): Line[] {
+  if (line.cells && line.cells.length >= 2) return line.cells.map((c) => cellLine(line, c));
+  const { cells: _cells, glue: _glue, ...whole } = line;
+  return [{ ...whole, hyphen: false }];
+}
+
+// Rows of two or more short cells whose columns line up, two rows running or
+// more, are a table. A row's cells can come from one line split by wide gaps
+// or from separate lines on the same baseline. Cells are kept short, so the
+// two halves of a two-column page are never taken for a table's columns.
+function findTables(lines: Line[], body: number): { tableAt: Map<Line, Line[][]>; inTable: Set<Line> } {
+  const tableAt = new Map<Line, Line[][]>();
+  const inTable = new Set<Line>();
+  interface Row { members: Line[]; cells: Line[] }
+  const rows: Row[] = [];
+  for (const line of lines) {
+    const last = rows[rows.length - 1];
+    const prev = last?.members[last.members.length - 1];
+    if (prev && prev.page === line.page && !prev.aside && !line.aside
+      && Math.abs(prev.y - line.y) < Math.min(prev.size, line.size) * 0.5 && line.x0 > prev.x1 - 1) {
+      last.members.push(line);
+      last.cells.push(...cellsOf(line));
+    } else {
+      rows.push({ members: [line], cells: cellsOf(line) });
+    }
+  }
+  const tol = body * 2.5;
+  const lead = (r: Row) => r.members[0];
+  for (let i = 0; i < rows.length; i += 1) {
+    const captioned = i > 0 && TABLE_CAPTION.test(lead(rows[i - 1]).text.trim());
+    const limit = captioned ? 80 : 40;
+    const fits = (r: Row) => r.cells.length >= 2 && !r.members.some((m) => m.aside)
+      && r.cells.every((c) => c.text.trim().length <= limit);
+    if (!fits(rows[i])) continue;
+    const head = rows[i].cells;
+    // A column lines up when its cells share a left edge, or a right edge, as numbers do.
+    const linesUp = (r: Row) => {
+      if (Math.abs(r.cells.length - head.length) > 1) return false;
+      const matched = r.cells.filter((c) => head.some((h) => Math.abs(c.x0 - h.x0) < tol || Math.abs(c.x1 - h.x1) < tol)).length;
+      return matched >= Math.min(2, r.cells.length);
+    };
+    let j = i + 1;
+    while (j < rows.length && fits(rows[j]) && lead(rows[j]).page === lead(rows[i]).page && linesUp(rows[j])) {
+      const gap = lead(rows[j - 1]).y - lead(rows[j]).y;
+      if (gap <= 0 || gap > lead(rows[j]).size * 3.5) break;
+      j += 1;
+    }
+    if (j - i < 2) continue;
+    const run = rows.slice(i, j);
+    const lengths = run.flatMap((r) => r.cells.map((c) => c.text.trim().length));
+    if (!captioned && median(lengths) > 30) continue;
+    tableAt.set(run[0].members[0], run.map((r) => r.cells));
+    for (const r of run) for (const m of r.members) inTable.add(m);
+    i = j - 1;
+  }
+  return { tableAt, inTable };
+}
+
+// A table that ends one page and goes on at the top of the next is one table.
+// A header row repeated at the top of the next page is dropped.
+function mergeTablesAcrossPages(blocks: Block[]): void {
+  const sameText = (a: Line[], b: Line[]) => a.length === b.length && a.every((c, k) => c.text.trim() === b[k].text.trim());
+  for (let i = 0; i < blocks.length; i += 1) {
+    const first = blocks[i];
+    if (first.kind !== "table" || !first.rows?.length) continue;
+    let j = i + 1;
+    while (j < blocks.length && blocks[j].kind === "note") j += 1;
+    const next = blocks[j];
+    if (!next || next.kind !== "table" || !next.rows?.length) continue;
+    const endPage = first.rows[first.rows.length - 1][0].page;
+    if (next.rows[0][0].page !== endPage + 1) continue;
+    const width = Math.max(...first.rows.map((r) => r.length));
+    if (Math.abs(next.rows[0].length - width) > 1) continue;
+    const more = sameText(next.rows[0], first.rows[0]) ? next.rows.slice(1) : next.rows;
+    first.rows = [...first.rows, ...more];
+    first.lines = first.rows.flat();
+    blocks.splice(j, 1);
+    i -= 1;
+  }
+}
+
+// A short caption such as "Figure 2" with a wide space above it on its page
+// names a picture in that space. The caption becomes a figure, with the box
+// the picture fills. Captions are often set small, so a short note can be one too.
+function markFigures(blocks: Block[], lines: Line[], leadings: number[], heights: number[], body: number): void {
+  const index = new Map(lines.map((l, i) => [l, i]));
+  for (const block of blocks) {
+    if (!["para", "heading", "note"].includes(block.kind) || block.lines.length < 1 || block.lines.length > 3) continue;
+    const first = block.lines[0];
+    if (!FIGURE_CAPTION.test(first.text.trim())) continue;
+    const at = index.get(first) ?? -1;
+    const prev = at > 0 ? lines[at - 1] : undefined;
+    const height = heights[first.page] ?? 800;
+    const prevY = prev && prev.page === first.page ? prev.y : height * 0.9;
+    const leading = leadings[first.page] ?? body * 1.3;
+    if (prevY - first.y <= leading * 3.2) continue;
+    block.kind = "figure";
+    delete block.level;
+    block.figure = {
+      page: first.page,
+      box: [first.colLeft, first.y + first.size * 1.4, first.colRight, prevY - first.size * 0.6],
+    };
+  }
 }
 
 // The rectangles on a page covered by part of its text, for saving a highlight.
@@ -557,7 +776,8 @@ function glueSplitWords(blocks: Block[]): void {
     for (let i = 1; i < w.length - 1; i += 1) { const c = clean(w[i]); if (c) counts.set(c, (counts.get(c) ?? 0) + 1); }
   }
   for (const block of blocks) {
-    if (block.kind === "heading") continue;
+    // Only running text: a table's cells and a heading's lines are never one word split in two.
+    if (block.kind !== "para" && block.kind !== "note" && block.kind !== "figure") continue;
     block.lines.forEach((line, i) => {
       const next = block.lines[i + 1];
       if (!next || line.hyphen) return;

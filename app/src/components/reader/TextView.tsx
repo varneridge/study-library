@@ -4,7 +4,8 @@
 
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { mergeRects } from "./pages";
-import { atOf, fracOf, rangesFor, rectsFor, type Block, type Line, type Reflowed } from "../../lib/reflow";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+import { atOf, fracOf, rangesFor, rectsFor, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
 import { caretAt, fingerDown, SETTLE_NOW, settleDelay, whenLifted } from "../../lib/selection";
 import { paragraphStartFor } from "../../lib/listen/script";
@@ -107,41 +108,117 @@ function offsetAt(node: Node, offset: number): { page: number; at: number } | nu
   return { page: Number(el.dataset.p), at: Number(el.dataset.o) + within };
 }
 
+// A figure's picture, cut from its page: the page is drawn so the figure's box
+// fills the canvas, at the width the text column gives it.
+function FigureCrop({ doc, figure }: { doc: PDFDocumentProxy; figure: FigureBox }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let task: RenderTask | null = null;
+    void (async () => {
+      const [x0, y0, x1, y1] = figure.box;
+      const width = x1 - x0, height = y1 - y0;
+      const el = canvas.current;
+      if (!el || width <= 0 || height <= 0) return;
+      const page = await doc.getPage(figure.page + 1);
+      if (cancelled) return;
+      const shown = el.parentElement?.clientWidth || width;
+      const scale = Math.min(4, Math.max(1, shown / width)) * (window.devicePixelRatio || 1);
+      const viewport = page.getViewport({ scale });
+      // PDF space runs up from the foot of the page and the canvas down from its
+      // top, so the box's top left corner is moved to the canvas's origin.
+      const [left, top] = viewport.convertToViewportPoint(x0, y1);
+      el.width = Math.ceil(width * scale);
+      el.height = Math.ceil(height * scale);
+      const context = el.getContext("2d");
+      if (!context) return;
+      task = page.render({ canvasContext: context, viewport, transform: [1, 0, 0, 1, -left, -top] } as Parameters<typeof page.render>[0]);
+      await task.promise;
+    })().catch(() => undefined);
+    return () => { cancelled = true; task?.cancel(); };
+  }, [doc, figure]);
+  // The caption below says what the picture is, so the canvas itself is not read out.
+  return <canvas ref={canvas} className="tv-figure-canvas" aria-hidden="true" style={{ width: "100%", height: "auto" }} />;
+}
+
 const Body = memo(function Body({
-  blocks, marksByPage, notes, onHighlight, words,
+  blocks, marksByPage, notes, onHighlight, words, doc,
 }: {
   blocks: Block[]; marksByPage: Map<number, Mark[]>; notes: boolean; onHighlight?: (id: string, x: number, y: number) => void;
   /** Listen is open: every word is its own element, so each can be tapped and hovered. */
   words: boolean;
+  /** The PDF, for drawing figures from their pages. Without it a figure shows its caption alone. */
+  doc?: PDFDocumentProxy | null;
 }) {
   let lastPage = -1;
+  const pageMark = (page: number) => <span className="pg" data-pg={page} aria-label={`Page ${page + 1}`}>{page + 1}</span>;
+  // A run of lines as flowing text, with a page number where a new page begins.
+  const inline = (lines: Line[]) => lines.map((line, li) => {
+    const marker = line.page !== lastPage;
+    lastPage = line.page;
+    // A hyphen, or a word the OCR layer split, runs on with no space.
+    const join = li < lines.length - 1 && !line.hyphen && !line.glue ? " " : "";
+    return (
+      <Fragment key={li}>
+        {marker && pageMark(line.page)}
+        <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} words={words} />
+        {join && <Join line={line} next={lines[li + 1]} marks={marksByPage.get(line.page) ?? []} />}
+      </Fragment>
+    );
+  });
+  // One table cell, with the page number on the first cell of a row that begins a page.
+  const cell = (line: Line, first: boolean) => {
+    const marker = first && line.page !== lastPage;
+    if (first) lastPage = line.page;
+    return (
+      <>
+        {marker && pageMark(line.page)}
+        <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} words={words} />
+      </>
+    );
+  };
   return (
     <>
       {blocks.map((block, bi) => {
         // Footnotes are excluded from text view: on a phone they break up the text.
         if (block.kind === "note") return null;
-        const Tag = block.kind === "heading" ? "h2" : "p";
+        if (block.kind === "break") {
+          if (block.lines.length > 0) lastPage = block.lines[block.lines.length - 1].page;
+          return <hr key={bi} className="tv-break" aria-hidden="true" />;
+        }
+        if (block.kind === "table" && block.rows?.length) {
+          const [head, ...rest] = block.rows;
+          return (
+            <div key={bi} className="tv-table-wrap">
+              <table className="tv-table">
+                <thead><tr>{head.map((c, ci) => <th key={ci}>{cell(c, ci === 0)}</th>)}</tr></thead>
+                {rest.length > 0 && (
+                  <tbody>
+                    {rest.map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci}>{cell(c, ci === 0)}</td>)}</tr>)}
+                  </tbody>
+                )}
+              </table>
+            </div>
+          );
+        }
+        if (block.kind === "figure") {
+          return (
+            <figure key={bi} className="tv-figure">
+              {doc && block.figure && <FigureCrop doc={doc} figure={block.figure} />}
+              <figcaption className="tv-figcaption">{inline(block.lines)}</figcaption>
+            </figure>
+          );
+        }
+        if (!block.lines.length) return null;
+        const heading = block.kind === "heading";
+        const Tag = heading ? (block.level === 3 ? "h3" : "h2") : "p";
         // A heading that opens a page has its page number above it, not inside it.
-        const opens = block.kind === "heading" && block.lines[0].page !== lastPage;
+        const opens = heading && block.lines[0].page !== lastPage;
         if (opens) lastPage = block.lines[0].page;
         return (
           <Fragment key={bi}>
-          {opens && <div className="pg-line"><span className="pg" data-pg={block.lines[0].page} aria-label={`Page ${block.lines[0].page + 1}`}>{block.lines[0].page + 1}</span></div>}
-          <Tag>
-            {block.lines.map((line, li) => {
-              const marker = line.page !== lastPage;
-              lastPage = line.page;
-              // A hyphen, or a word the OCR layer split, runs on with no space.
-              const join = li < block.lines.length - 1 && !line.hyphen && !line.glue ? " " : "";
-              return (
-                <Fragment key={li}>
-                  {marker && <span className="pg" data-pg={line.page} aria-label={`Page ${line.page + 1}`}>{line.page + 1}</span>}
-                  <Run line={line} marks={marksByPage.get(line.page) ?? []} onHighlight={onHighlight} words={words} />
-                  {join && <Join line={line} next={block.lines[li + 1]} marks={marksByPage.get(line.page) ?? []} />}
-                </Fragment>
-              );
-            })}
-          </Tag>
+          {opens && <div className="pg-line">{pageMark(block.lines[0].page)}</div>}
+          <Tag className={heading && block.level === 3 ? "tv-subhead" : undefined}>{inline(block.lines)}</Tag>
           </Fragment>
         );
       })}
@@ -155,7 +232,7 @@ const Body = memo(function Body({
  * cannot miss. Otherwise the character under the finger comes from caretAt, as
  * the place reader uses it, and a tap that lands between runs (the margin of a
  * paragraph, the space after it, a page number) falls back to the first run of
- * the paragraph or heading it is in, so a tap anywhere in a paragraph plays
+ * the paragraph, heading, table cell or caption it is in, so a tap anywhere in a paragraph plays
  * from it.
  */
 function tapPoint(target: EventTarget | null, x: number, y: number): { page: number; at: number } | null {
@@ -169,13 +246,13 @@ function tapPoint(target: EventTarget | null, x: number, y: number): { page: num
   }
   const own = el?.closest<HTMLElement>("[data-o]");
   if (own) return { page: Number(own.dataset.p), at: Number(own.dataset.o) };
-  const run = el?.closest("p, h2")?.querySelector<HTMLElement>("[data-o]");
+  const run = el?.closest("p, h2, h3, td, th, figcaption")?.querySelector<HTMLElement>("[data-o]");
   return run ? { page: Number(run.dataset.p), at: Number(run.dataset.o) } : null;
 }
 
 export function TextView({
   reflowed, kicker, title, byline, standfirst, highlights, needles, currentHit, start, onSpot, onSelect, onHighlight, notes = false,
-  articleRef, onWordTap, listening = false,
+  articleRef, onWordTap, listening = false, doc = null,
 }: {
   notes?: boolean;
   reflowed: Reflowed; kicker: string; title: string; byline: string | null; standfirst: string | null;
@@ -192,6 +269,8 @@ export function TextView({
    * started. Pass true for as long as the listen bar is shown.
    */
   listening?: boolean;
+  /** The PDF the text came from, so figures can show their pictures. */
+  doc?: PDFDocumentProxy | null;
 }) {
   const listenMode = Boolean(listening);
   const root = useRef<HTMLElement | null>(null);
@@ -454,7 +533,7 @@ export function TextView({
         </p>
       </header>
       <div className="tv-body">
-        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} onHighlight={onHighlight} words={listenMode} />
+        <Body blocks={reflowed.blocks} marksByPage={marksByPage} notes={notes} onHighlight={onHighlight} words={listenMode} doc={doc} />
       </div>
     </article>
   );
