@@ -1018,6 +1018,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.15:
+  - Fluid view transition morph without navigation jumps: eliminated the jump before morph transitions by synchronising scroll restoration and animation timing; set history.scrollRestoration to manual with per-URL scroll tracking applied in useLayoutEffect before the transition snapshot is captured; replaced steep ease-settle curve with design system ease-out starting from rest; removed root cross-fade overrides to prevent brightness flash; clipped snapshot content overflow so notes reveal naturally inside the card boundary; and pinned sticky topbar and tab bar to their own transition layers.
 - Improvements completed in 0.49.14:
   - Header whitespace elimination and session page top navigation: resolved the large top whitespace by resetting the inherited 3rem margin and 0.75rem padding from .week-nav on .week-nav-top and reducing page top padding to 0.5rem across week and session pages; moved next and previous session navigation on SessionPage to the top right of the breadcrumb header in a fixed, stable position (with [ and ] keyboard shortcuts) matching WeekPage; pruned dead CSS rules (.week-sessions cascade leak) and unused imports across WeekPage and SessionPage.
 - Improvements completed in 0.49.13:
@@ -1233,6 +1235,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.12 | Balanced 50/50 week layout with equal columns on desktop, responsive single-column collapse at 56rem, and flush vertical alignment of readings with session cards. |
 | 0.49.13 | Week page polish: removed hover grip handles, distinguished compact view with dense single-line rows, tightened top page whitespace and group gaps, and enabled top-cropped first-page thumbnails for icons views. |
 | 0.49.14 | Header whitespace elimination and session page top navigation: reset inherited 3rem margin on .week-nav-top, set 0.5rem top padding on week and session pages, moved session next/prev navigation to top header with [ and ] shortcuts, and pruned dead CSS and imports. |
+| 0.49.15 | Smooth view transition morph: eliminated jump before transition with manual scroll restoration and per-route scroll tracking, smoothed animation curve with ease-out, clipped snapshot overflow, and pinned topbar and tab bar layers. |
 
 ## 18. The job search
 

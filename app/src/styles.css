@@ -4899,25 +4899,30 @@ a.wsc-chip:hover { color: var(--ink); }
   .wsc-meta { padding: 0 1rem 0.9rem; }
 }
 
-/* View Transitions morph animation between week page and session notes */
-@keyframes vt-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes vt-fade-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-::view-transition-old(root) {
-  animation: var(--dur-1) var(--ease-in) both vt-fade-out;
-}
-::view-transition-new(root) {
-  animation: var(--dur-2) var(--ease-settle) both vt-fade-in;
-}
+/* View Transitions morph between a week's session card and the session's notes.
+   Every group, the page's own included, runs on one clock and one curve, so the
+   page never swaps ahead of the card and the browser's cross-fade stays whole.
+   The curve starts at rest, because one that starts fast covers half the
+   distance in the first frame and reads as a jump. */
 ::view-transition-group(*) {
   animation-duration: var(--dur-3);
-  animation-timing-function: var(--ease-settle);
+  animation-timing-function: var(--ease-out);
 }
+/* A short card and a tall column keep their own proportions and are uncovered
+   by the growing frame, rather than stretched to its width and spilling below it. */
+::view-transition-old(session-notes),
+::view-transition-new(session-notes),
+::view-transition-old(session-side),
+::view-transition-new(session-side) {
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+  overflow: clip;
+}
+/* The bars are lifted out too, so a card or column tucked beneath one never
+   rises over it while the transition runs. */
+.topbar { view-transition-name: topbar; }
+.tab-bar { view-transition-name: tab-bar; }
 
 /* One search field: the app's clear button only, never the browser's second one. */
 input[type="search"]::-webkit-search-cancel-button,

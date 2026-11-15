@@ -125,9 +125,12 @@ const listeners = new Set<() => void>();
 let activeGuard: NavigationGuard | null = null;
 let currentAppliedUrl = typeof window !== "undefined" ? window.location.href : "/";
 let popstateGuarding = false;
-// Set by navigate and spent once the new page has committed, so the old
-// page never jumps to the top while it is still on screen.
-let scrollOnCommit = false;
+// Where the next page should sit, set by navigate or by a step through the
+// history and spent once that page has committed, so the old page never
+// moves while it is still on screen.
+let scrollOnCommit: number | null = null;
+// How far down each page was when it was left, so Back returns to the same place.
+const positions = new Map<string, number>();
 
 export function setNavigationGuard(guard: NavigationGuard | null): () => void {
   activeGuard = guard;
@@ -138,6 +141,9 @@ export function setNavigationGuard(guard: NavigationGuard | null): () => void {
 
 if (typeof window !== "undefined") {
   currentAppliedUrl = window.location.href;
+  // The browser would otherwise restore the scroll before popstate fires, moving
+  // the page being left before the transition has taken its picture of it.
+  history.scrollRestoration = "manual";
   window.addEventListener("popstate", async () => {
     if (popstateGuarding) return;
     if (hasOpenOverlay()) return;
@@ -154,7 +160,9 @@ if (typeof window !== "undefined") {
         popstateGuarding = false;
       }
     }
+    positions.set(currentAppliedUrl, window.scrollY);
     currentAppliedUrl = window.location.href;
+    scrollOnCommit = positions.get(currentAppliedUrl) ?? 0;
     listeners.forEach((listener) => listener());
   });
 }
@@ -166,10 +174,11 @@ export async function navigate(route: Route, replace = false): Promise<void> {
   }
   const url = href(route);
   const isOverlay = Boolean(typeof history !== "undefined" && history.state?.overlay);
+  positions.set(currentAppliedUrl, window.scrollY);
   if (replace || isOverlay) history.replaceState(null, "", url);
   else history.pushState(null, "", url);
   currentAppliedUrl = typeof window !== "undefined" ? window.location.href : url;
-  scrollOnCommit = !replace;
+  scrollOnCommit = replace ? null : 0;
   listeners.forEach((listener) => listener());
 }
 
@@ -199,17 +208,21 @@ export function useRoute(): Route {
   useEffect(() => {
     // A transition keeps the current page on screen until the next one has its data.
     const update = () => {
-      const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => Promise<void> | void) => void }) : null;
+      const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => Promise<void> | void) => { skipTransition: () => void } }) : null;
       if (doc?.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        doc.startViewTransition(() => {
+        const transition = doc.startViewTransition(() => {
           return new Promise<void>((resolve) => {
             // A transition still waiting from an earlier navigation is released first.
             settleTransition();
             transitionResolve = resolve;
             startRouteTransition(() => setRoute(parseRoute(location.search)));
             // Safety net, so a page that is slow to commit can never leave the screen frozen.
+            // The animation is dropped rather than played, because playing it now would
+            // morph the old page into itself and then cut to the new one when it lands.
             window.setTimeout(() => {
-              if (transitionResolve === resolve) settleTransition();
+              if (transitionResolve !== resolve) return;
+              transition?.skipTransition();
+              settleTransition();
             }, 400);
           });
         });
@@ -223,14 +236,19 @@ export function useRoute(): Route {
     };
   }, []);
   useLayoutEffect(() => {
-    // The new route is now in the DOM, so the transition may take its new snapshot.
+    // The new route is in the DOM, so it is put where it belongs and only then
+    // may the transition take its new snapshot.
+    if (scrollOnCommit !== null) {
+      const top = scrollOnCommit;
+      scrollOnCommit = null;
+      if (top === 0) window.scrollTo(0, 0);
+      else window.scrollTo(0, top);
+    }
     settleTransition();
-    if (!scrollOnCommit) return;
-    scrollOnCommit = false;
-    window.scrollTo(0, 0);
   }, [route]);
-  // Lets the stylesheet dim the old page when the next one is slow to arrive.
-  useEffect(() => {
+  // Lets the stylesheet dim the old page when the next one is slow to arrive. A
+  // layout effect clears it in the same commit, so the new snapshot is never dimmed.
+  useLayoutEffect(() => {
     document.documentElement.classList.toggle("navigating", pending);
   }, [pending]);
   return route;
