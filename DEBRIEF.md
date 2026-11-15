@@ -1018,6 +1018,11 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.9:
+  - Fixed position top bar and navigation: added `scrollbar-gutter: stable` to html to eliminate scrollbar jump when switching between study and job search; standardised page container sizing to wide across week pages; unified brand letter-spacing and tool positions.
+  - Subtle fixed-position week navigation: moved previous and next week buttons to the top right of the breadcrumb header in a fixed, stable position so the buttons remain in the exact same spot under cursor or finger when navigating across weeks; preserved keyboard shortcuts [ and ] and full test compatibility.
+  - Space-efficient week layout and notes preview: redesigned the week page to feature prominent session cards with live note excerpts and lecture space (slides and recordings indicators or seminar questions) directly above readings, eliminating the need to scroll to the bottom of the page.
+  - Native view transition morph animation: wrapped navigation in the standard document View Transitions API (`startViewTransition`) with reduced-motion fallback; linked session cards on week pages directly to the session notes container for a smooth 60fps morph and expansion animation.
 - Improvements completed in 0.49.8:
   - Micro-level performance and stability optimisations: converted remaining page-loading queries to `useSuspendingLiveQuery` in SessionPage, AssessmentPage, Settings, and SearchPage to eliminate blank frame gaps; consolidated session neighbour navigation into a single query reducing IndexedDB reads from 14 to 4; added persistent heading placeholders in Settings to prevent layout shifts; prevented search typing prefixes from cluttering recent searches; and safeguarded concurrent essay save failure states.
 - Improvements completed in 0.49.7:
@@ -1212,6 +1217,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.6 | Seamless page navigation: eliminated navigation flicker and white screen gaps by applying route changes inside React transitions, using suspending live queries (`useSuspendingLiveQuery`) across routed pages, unifying the shell in App so chrome elements persist across routes, narrowing page error keys for This week, the job search, the reading and the word processor, and moving scroll to top until after page commit. |
 | 0.49.7 | Module content section header: added matching "Content" (or "Shelves" / "Sections") section heading with count badge above the weeks grid on ModulePage. |
 | 0.49.8 | Micro-level performance and stability optimisations: converted remaining page queries to `useSuspendingLiveQuery` in SessionPage, AssessmentPage, Settings, and SearchPage; consolidated session neighbour navigation to four reads; stabilised Settings layout with persistent placeholder; cleaned search typing prefixes; and safeguarded concurrent essay save failure states. |
+| 0.49.9 | Fixed element positions and layout stabilisation across pages, subtle top-of-page week navigation, space-efficient week layout with session cards and notes preview, and smooth hardware-accelerated View Transition morph animations into session notes. |
 
 ## 18. The job search
 

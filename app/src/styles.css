@@ -147,6 +147,7 @@
 .tint-s5 { --module-tint: var(--s5); }
 
 *, *::before, *::after { box-sizing: border-box; }
+html { scrollbar-gutter: stable; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
 body {
   font-family: var(--sans);
@@ -2001,7 +2002,7 @@ img, canvas, video { max-width: 100%; }
 /* Job search. A part of its own, in the same type, rules and tokens as the
    rest. Stage colours come from the applications spreadsheet, as square chips
    rather than filled cells, so the table still reads as a page. */
-.jobs-bar .brand { letter-spacing: 0.01em; }
+.jobs-bar .brand { letter-spacing: -0.01em; }
 @media (max-width: 44rem) {
   /* On a phone the switch sits opposite the brand, beside Go to, on both sides. */
   .topbar > .side-switch { margin-left: 0.5rem; }
@@ -4695,11 +4696,232 @@ body.recording-active:has(.settings-sticky-bar) .toast-region { bottom: calc(9.5
 }
 
 /* Previous and next: the drawn chevron, never a typed arrow. */
-.week-nav a { display: inline-flex; align-items: center; gap: 0.35rem; }
-.week-nav .nav-dir { display: inline-flex; color: var(--faint); transition: color var(--dur-1) var(--ease-out); }
-.week-nav .nav-dir.back { rotate: 90deg; }
-.week-nav .nav-dir.next { rotate: -90deg; }
-@media (hover: hover) { .week-nav a:hover .nav-dir { color: var(--accent); } }
+:is(.week-nav, .week-nav-top) a { display: inline-flex; align-items: center; gap: 0.35rem; }
+:is(.week-nav, .week-nav-top) .nav-dir { display: inline-flex; color: var(--faint); transition: color var(--dur-1) var(--ease-out); }
+:is(.week-nav, .week-nav-top) .nav-dir.back { rotate: 90deg; }
+:is(.week-nav, .week-nav-top) .nav-dir.next { rotate: -90deg; }
+@media (hover: hover) { :is(.week-nav, .week-nav-top) a:hover .nav-dir { color: var(--accent); } }
+
+/* Week navigation placed subtly at top of page in a fixed position */
+.week-crumbs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.week-crumbs .crumbs-path {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.week-nav-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.week-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.85rem;
+  padding: 0 0.55rem;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.week-nav-btn:hover:not(.disabled) {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--rule);
+}
+.week-nav-btn.disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Week sessions card grid with notes preview and lecture materials */
+.week-sessions-section {
+  margin: 1.25rem 0 1.5rem;
+}
+.week-sessions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+.week-session-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 1rem 1.15rem;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+  text-decoration: none;
+  color: inherit;
+  position: relative;
+}
+.week-session-card:hover {
+  border-color: var(--rule-strong);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.wsc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.wsc-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--ink);
+}
+.wsc-badge.lecture {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wsc-badge.seminar {
+  background: color-mix(in srgb, var(--s1) 15%, transparent);
+  color: var(--s1);
+}
+.wsc-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsc-open {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0.85;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.week-session-card:hover .wsc-open {
+  opacity: 1;
+}
+.wsc-notes-area {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  min-height: 4.25rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--rule) 60%, transparent);
+  margin-bottom: 0.85rem;
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.week-session-card:hover .wsc-notes-area {
+  background: var(--surface-hover);
+  border-color: var(--rule);
+}
+.wsc-preview {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wsc-prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  font-style: italic;
+  height: 100%;
+  min-height: 2.75rem;
+}
+.wsc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+.wsc-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.wsc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+}
+.wsc-add-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--r-xs);
+  background: transparent;
+  border: 1px dashed var(--rule-strong);
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.wsc-add-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* View Transitions morph animation between week page and session notes */
+@keyframes vt-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes vt-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+::view-transition-old(root) {
+  animation: var(--dur-1) var(--ease-in) both vt-fade-out;
+}
+::view-transition-new(root) {
+  animation: var(--dur-2) var(--ease-settle) both vt-fade-in;
+}
+::view-transition-group(*) {
+  animation-duration: var(--dur-3);
+  animation-timing-function: var(--ease-settle);
+}
 
 /* One search field: the app's clear button only, never the browser's second one. */
 input[type="search"]::-webkit-search-cancel-button,

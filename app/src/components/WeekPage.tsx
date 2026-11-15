@@ -9,7 +9,7 @@ import { prefetch, PREFETCH_MAX_BYTES } from "../lib/files";
 import { applyPlans, planFile, addSlides, SLIDES_ACCEPT } from "../lib/importing";
 import { byPosition, keyBetween, keysAfter } from "../lib/keys";
 import { clock } from "../lib/recorder";
-import { loadWeekPage, type ReadingView } from "../lib/library";
+import { loadWeekPage, type NoteView, type ReadingView, type SessionView } from "../lib/library";
 import { sessionLabel, notesLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
 import { commit, newId, update } from "../lib/sync";
 import type { FileRow, ModuleRow, RecordingRow, SessionRow, WeekRow } from "../lib/types";
@@ -18,7 +18,6 @@ import { Menu } from "./Menu";
 import { addSession, deleteSession, moveSession, sessionHasContent, setReadingWeek, withUndo, deleteSessionAsking, deleteSection } from "../lib/edits";
 import { navigate } from "../lib/router";
 import { confirmAction, showToast, typing, useNarrow, useTitle, useSwipe } from "../lib/ui";
-import type { SessionView } from "../lib/library";
 import type { SessionKind } from "../lib/types";
 import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib/term";
 import { blockText } from "../lib/notes";
@@ -230,6 +229,107 @@ function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
   );
 }
 
+function notePreview(notes: NoteView[]): string {
+  const texts = notes
+    .flatMap((n) => n.blocks)
+    .map(blockText)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return texts.join(" ").slice(0, 180);
+}
+
+function WeekSessionCard({
+  view,
+  onAddSlides,
+}: {
+  view: SessionView;
+  onAddSlides?: (sessionId: string) => void;
+}) {
+  const { session, slides, recordings, questions, notes } = view;
+  const label = session.title || sessionLabel(session.kind);
+  const preview = notePreview(notes);
+  const hasNotes = preview.length > 0;
+  const isLecture = session.kind === "lecture";
+  const isSeminar = session.kind === "seminar";
+  const hasSlides = slides.length > 0;
+  const hasRecordings = recordings.length > 0;
+  const hasQuestions = questions.length > 0;
+
+  return (
+    <div
+      className={`week-session-card${hasNotes ? " has-notes" : " empty"}`}
+      style={{ viewTransitionName: `session-${session.id}` }}
+    >
+      <div className="wsc-head">
+        <span className={`wsc-badge ${session.kind}`}>{sessionLabel(session.kind)}</span>
+        {session.title && <span className="wsc-title">{session.title}</span>}
+        <Link
+          to={{ view: "session", id: session.id }}
+          className="wsc-open"
+          title={`Open ${label} notes and materials`}
+        >
+          <span>Open</span>
+          <Icon name="forward" size={14} />
+        </Link>
+      </div>
+
+      <Link
+        to={{ view: "session", id: session.id }}
+        className="wsc-notes-area"
+        title={hasNotes ? "Click to open and edit notes" : "Click to write notes"}
+      >
+        {hasNotes ? (
+          <p className="wsc-preview">{preview}</p>
+        ) : (
+          <div className="wsc-prompt">
+            <Icon name="notes" size={15} />
+            <span>Click to write notes…</span>
+          </div>
+        )}
+      </Link>
+
+      <div className="wsc-footer">
+        {isLecture || hasSlides ? (
+          <div className="wsc-meta">
+            {hasSlides ? (
+              <span className="wsc-chip" title={`${slides.length} slide deck${slides.length === 1 ? "" : "s"}`}>
+                <Icon name="slides" size={14} />
+                <span>{slides.length === 1 ? (slides[0]?.item.title || "Slides") : `${slides.length} slide decks`}</span>
+              </span>
+            ) : onAddSlides ? (
+              <button
+                type="button"
+                className="wsc-add-chip"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddSlides(session.id);
+                }}
+                title="Add slides (PDF or PowerPoint)"
+              >
+                <Icon name="add" size={13} />
+                <span>Add slides</span>
+              </button>
+            ) : null}
+            {hasRecordings && (
+              <span className="wsc-chip recording" title="Session recording">
+                <Icon name="play" size={13} />
+                <span>{recordingLine(recordings[0]!)}</span>
+              </span>
+            )}
+          </div>
+        ) : isSeminar || hasQuestions ? (
+          <div className="wsc-meta">
+            <span className="wsc-chip" title="Seminar questions">
+              <Icon name="chat" size={14} />
+              <span>{questions.length === 0 ? "Questions" : `${questions.length} question${questions.length === 1 ? "" : "s"}`}</span>
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function WeekPage({ id }: { id: string }) {
   const data = useSuspendingLiveQuery(() => loadWeekPage(id), ["week-page", id]);
   const weeks = useLiveQuery(async () => {
@@ -345,7 +445,7 @@ export function WeekPage({ id }: { id: string }) {
 
   return (
     <div
-      className={`page week-page dropzone${over ? " over" : ""}`}
+      className={`page wide week-page dropzone${over ? " over" : ""}`}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
@@ -357,9 +457,41 @@ export function WeekPage({ id }: { id: string }) {
       onDrop={onDrop}
     >
       {overText && <div className="drop-banner" role="status">{overText}</div>}
-      <div className="crumbs">
-        <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> {weekCode(week)}
-        <WeekWhen week={week} />
+      <div className="crumbs week-crumbs">
+        <div className="crumbs-path">
+          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> {weekCode(week)}
+          <WeekWhen week={week} />
+        </div>
+        <nav className="week-nav week-nav-top" aria-label="Other weeks">
+          {data.previous ? (
+            <Link
+              to={{ view: "week", id: data.previous.id }}
+              className="week-nav-btn prev"
+              title={section ? "Previous section (press [)" : "Previous week (press [)"}
+            >
+              <span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>
+              <span>{weekCode(data.previous)}</span>
+            </Link>
+          ) : (
+            <span className="week-nav-btn disabled" aria-hidden="true">
+              <span className="nav-dir back"><Icon name="down" size={14} /></span>
+            </span>
+          )}
+          {data.next ? (
+            <Link
+              to={{ view: "week", id: data.next.id }}
+              className="week-nav-btn next"
+              title={section ? "Next section (press ])" : "Next week (press ])"}
+            >
+              <span>{weekCode(data.next)}</span>
+              <span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span>
+            </Link>
+          ) : (
+            <span className="week-nav-btn disabled" aria-hidden="true">
+              <span className="nav-dir next"><Icon name="down" size={14} /></span>
+            </span>
+          )}
+        </nav>
       </div>
       <div className="section-head" style={{ marginBottom: 0, alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: 0 }}><TitleEditor week={week} editing={renaming} setEditing={setRenaming} /></div>
@@ -474,33 +606,36 @@ export function WeekPage({ id }: { id: string }) {
         />
       </div>
 
-      {/* Prominent notes buttons above readings */}
-      {(view.sessions.length > 0 || section) && moduleHasNotes(module) && (
+      {/* Sessions and notes cards with preview and space for lecture */}
+      {view.sessions.length > 0 && moduleHasNotes(module) && (
+        <section className="week-sessions-section" aria-label="Sessions and notes">
+          <div className="week-sessions-grid">
+            {view.sessions.map((sessionView) => (
+              <WeekSessionCard
+                key={sessionView.session.id}
+                view={sessionView}
+                onAddSlides={(sessionId) => {
+                  if (sessionPicker.current) {
+                    sessionPicker.current.dataset.session = sessionId;
+                    sessionPicker.current.click();
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+      {section && moduleHasNotes(module) && (
         <div className="week-notes-bar" role="navigation" aria-label="Notes">
-          {view.sessions.map((s) => {
-            const has = s.notes.some((n) => n.blocks.some((b) => blockText(b).trim()));
-            return (
-              <Link
-                key={s.session.id}
-                to={{ view: "session", id: s.session.id }}
-                className={`button week-note-btn${has ? " has-notes" : " empty"}`}
-              >
-                <Icon name="notes" size={16} />
-                <span>{notesLabel(s.session, has)}</span>
-              </Link>
-            );
-          })}
-          {section && (
-            <a href="#section-notes" className={`button week-note-btn${hasSectionNotes ? " has-notes" : " empty"}`}>
-              <Icon name="notes" size={16} />
-              <span>{hasSectionNotes ? "Section notes" : "Add section notes"}</span>
-            </a>
-          )}
+          <a href="#section-notes" className={`button week-note-btn${hasSectionNotes ? " has-notes" : " empty"}`}>
+            <Icon name="notes" size={16} />
+            <span>{hasSectionNotes ? "Section notes" : "Add section notes"}</span>
+          </a>
         </div>
       )}
 
       {/* Each group lights up for a drop of its own; the whole board only for files whose names decide. */}
-      <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined}>
+      <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined} style={{ viewTransitionName: `session-side-${week.id}` }}>
         <WeekBoard
           week={week}
           primaries={view.primaries}
@@ -544,15 +679,6 @@ export function WeekPage({ id }: { id: string }) {
         ))}
         </SlideBoard>
       )}
-
-      <nav className="week-nav" aria-label="Other weeks">
-        {data.previous ? (
-          <Link to={{ view: "week", id: data.previous.id }} title={section ? "Previous section (press [)" : "Previous week (press [)"}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{weekCode(data.previous)}{titleAfter(data.previous)}</Link>
-        ) : <span />}
-        {data.next ? (
-          <Link to={{ view: "week", id: data.next.id }} title={section ? "Next section (press ])" : "Next week (press ])"}>{weekCode(data.next)}{titleAfter(data.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link>
-        ) : <span />}
-      </nav>
       <input
         ref={sessionPicker} type="file" multiple hidden accept={SLIDES_ACCEPT}
         onChange={async (e) => {

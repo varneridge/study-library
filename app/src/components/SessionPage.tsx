@@ -268,14 +268,14 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
       )}
 
       <div className={`session-grid${view.slides.length ? " with-slides" : readings.length ? " with-side" : ""}`}>
-        <div className="session-notes">
+        <div className="session-notes" style={{ viewTransitionName: `session-${id}` }}>
           {showQuestions && <SeminarQuestions sessionId={session.id} questions={questions} />}
           <Suspense fallback={<NotesLoading />}>
             <NoteEditor target={{ session_id: id }} label={`${sessionLabel(view.session.kind)} notes`} />
           </Suspense>
         </div>
         {(view.slides.length > 0 || readings.length > 0) && (
-          <div className="session-side">
+          <div className="session-side" style={{ viewTransitionName: `session-side-${week.id}` }}>
             {readingGroups(readings).map((group) => (
               <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
                 <h2 className="group-label">{group.label}</h2>

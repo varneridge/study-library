@@ -188,7 +188,14 @@ export function useRoute(): Route {
   useEffect(() => {
     // A transition keeps the current page on screen until the next one has its data.
     const update = () => {
-      startRouteTransition(() => setRoute(parseRoute(location.search)));
+      const doc = typeof document !== "undefined" ? (document as Document & { startViewTransition?: (cb: () => void) => void }) : null;
+      if (doc?.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        doc.startViewTransition(() => {
+          startRouteTransition(() => setRoute(parseRoute(location.search)));
+        });
+      } else {
+        startRouteTransition(() => setRoute(parseRoute(location.search)));
+      }
     };
     listeners.add(update);
     return () => {
