@@ -5,7 +5,7 @@
 // under Course materials & assessments, opened like a week.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
 import { navigate } from "../lib/router";
 import {
@@ -386,31 +386,35 @@ function EssayDocumentSheet({
 }
 
 export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }) {
-  const module = useLiveQuery(async () => {
+  const module = useSuspendingLiveQuery(async () => {
     const found = await db.modules.get(id);
     return found && !found.deleted ? found : null;
-  }, [id]);
+  }, ["assessment-module", id]);
   useTitle(module ? `${module.code} essay` : undefined);
-  if (module === undefined) return null;
   if (module === null) return <div className="page"><p className="muted">This module no longer exists.</p></div>;
   return <AssessmentBody module={module} essayId={essayId} />;
 }
 
 function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: string }) {
   const assessment = useModuleAssessment(module.id, module.code, essayId);
-  // Every field save goes through here so the status beside the title stays truthful, with a
-  // counter so that overlapping saves cannot report "Saved" while another is still running.
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const inflightSaves = useRef(0);
+  const failedSave = useRef(false);
+  // Every field save goes through here so the status beside the title stays truthful. A counter
+  // holds the status at "Saving" while any save is running, and a failure is remembered until the
+  // last overlapping save settles, so a later success cannot report "Saved" over a lost change.
   const save = async (patch: Parameters<typeof saveModuleAssessment>[1]) => {
+    if (inflightSaves.current === 0) failedSave.current = false;
     inflightSaves.current += 1;
     setSaveState("saving");
     try {
       await saveModuleAssessment(module.id, patch, { moduleCode: module.code, essayId });
-      if (inflightSaves.current === 1) setSaveState("saved");
     } catch (err) {
       console.error("Saving the essay failed", err);
-      setSaveState("error");
+      failedSave.current = true;
     } finally {
       inflightSaves.current -= 1;
+      if (inflightSaves.current === 0) setSaveState(failedSave.current ? "error" : "saved");
     }
   };
 
@@ -424,8 +428,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [zoom, setZoom] = useState(1);
   const [fitWidth, setFitWidth] = useState(true);
   const [fitScale, setFitScale] = useState(1);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
-  const inflightSaves = useRef(0);
   const cancelTarget = useRef(false);
   const [editingFnId, setEditingFnId] = useState<string | null>(null);
   const [editingFnText, setEditingFnText] = useState("");

@@ -1,4 +1,4 @@
-import { useLiveQuery } from "dexie-react-hooks";
+import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "../App";
 import { db } from "../lib/db";
@@ -33,7 +33,8 @@ function recentSearches(): string[] {
 function remember(query: string) {
   const q = query.trim();
   if (q.length < 3) return;
-  const list = [q, ...recentSearches().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 8);
+  const lower = q.toLowerCase();
+  const list = [q, ...recentSearches().filter((x) => !lower.startsWith(x.toLowerCase()))].slice(0, 8);
   try { localStorage.setItem(RECENT, JSON.stringify(list)); } catch { /* A full or blocked store only loses the recent list. */ }
 }
 
@@ -68,7 +69,7 @@ export function SearchPage({ q = "" }: { q?: string }) {
   const moduleButton = useRef<HTMLButtonElement>(null);
   const [, refresh] = useState(0);
   const first = useRef<Route | null>(null);
-  const modules = useLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), [], []);
+  const modules = useSuspendingLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), ["search-modules"]);
   useTitle(query ? `Search: ${query}` : "Search");
 
   useEffect(() => setLimit(STEP), [query]);

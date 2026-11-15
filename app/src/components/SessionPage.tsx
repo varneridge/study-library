@@ -7,7 +7,7 @@ import { update } from "../lib/sync";
 import type { SessionRow, WeekRow } from "../lib/types";
 import { NotesLoading } from "./ErrorBoundary";
 import { WeekWhen } from "./WeekPage";
-import { useLiveQuery } from "dexie-react-hooks";
+import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "../App";
 import { loadSession } from "../lib/library";
@@ -74,10 +74,30 @@ export async function addRecordingFile(sessionId: string, file: File) {
   });
 }
 
+// The module's weeks, for the menus on the reading rows, and the sessions either side
+// of this one in the module's order, for moving on without going back to the week. One
+// query serves both, and it reads every session of the module at once with anyOf rather
+// than asking week by week, so it costs four reads however many weeks the module has.
+type Neighbour = { session: SessionRow; week: WeekRow } | null;
+type SessionNav = { weeks: WeekRow[]; previous: Neighbour; next: Neighbour };
+const NO_NAV: SessionNav = { weeks: [], previous: null, next: null };
+
+async function loadSessionNav(id: string): Promise<SessionNav> {
+  const session = await db.sessions.get(id);
+  const week = session ? await db.weeks.get(session.week_id) : undefined;
+  if (!week) return NO_NAV;
+  const weeks = (await db.weeks.where("module_id").equals(week.module_id).toArray()).filter((w) => !w.deleted).sort(byWeek);
+  const sessions = (await db.sessions.where("week_id").anyOf(weeks.map((w) => w.id)).toArray()).filter((x) => !x.deleted);
+  const order = weeks.flatMap((w) => sessions.filter((x) => x.week_id === w.id).sort(byPosition).map((x) => ({ session: x, week: w })));
+  const at = order.findIndex((o) => o.session.id === id);
+  if (at < 0) return { weeks, previous: null, next: null };
+  return { weeks, previous: order[at - 1] ?? null, next: order[at + 1] ?? null };
+}
+
 export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?: number; turn?: number }) {
   // Remembered as opened, so the home page can offer it again.
   useEffect(() => { void noteSessionOpened(id); }, [id]);
-  const data = useLiveQuery(() => loadSession(id), [id]);
+  const data = useSuspendingLiveQuery(() => loadSession(id), ["session-page", id]);
   const recorder = useRecorder(id);
   const [error, setError] = useState<string | null>(null);
   const audios = useRef(new Map<string, HTMLAudioElement>());
@@ -85,28 +105,10 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
   const transcriptPicker = useRef<HTMLInputElement>(null);
   const narrow = useNarrow();
   const slidesPicker = useRef<HTMLInputElement>(null);
-  // The module's weeks, so the rows here offer the same menu as on a week page.
-  const moduleWeeks = useLiveQuery(async () => {
-    const session = await db.sessions.get(id);
-    const week = session ? await db.weeks.get(session.week_id) : undefined;
-    return week ? (await db.weeks.where("module_id").equals(week.module_id).toArray()).filter((w) => !w.deleted).sort(byWeek) : [];
-  }, [id], [] as WeekRow[]);
+  // Only menus and the links at the foot of the page use this, so it does not suspend:
+  // a second suspending query here would wait for the first instead of loading beside it.
+  const nav = useLiveQuery(() => loadSessionNav(id), [id], NO_NAV);
   const [renaming, setRenaming] = useState(false);
-  // The sessions either side of this one, in the module's order, for moving
-  // on without going back to the week.
-  const around = useLiveQuery(async () => {
-    const session = await db.sessions.get(id);
-    const week = session ? await db.weeks.get(session.week_id) : undefined;
-    if (!session || !week) return null;
-    const weeks = (await db.weeks.where("module_id").equals(week.module_id).toArray()).filter((w) => !w.deleted).sort(byWeek);
-    const order: { session: SessionRow; week: WeekRow }[] = [];
-    for (const w of weeks) {
-      const list = (await db.sessions.where("week_id").equals(w.id).toArray()).filter((x) => !x.deleted).sort(byPosition);
-      for (const x of list) order.push({ session: x, week: w });
-    }
-    const at = order.findIndex((o) => o.session.id === id);
-    return { previous: order[at - 1] ?? null, next: order[at + 1] ?? null };
-  }, [id]);
   useTitle(data ? `${data.module.code} ${weekCode(data.week)} ${data.session.title || sessionLabel(data.session.kind)}` : undefined);
 
   const register = useCallback((recordingId: string, audio: HTMLAudioElement | null) => {
@@ -125,7 +127,6 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
     audio.scrollIntoView({ block: "nearest" });
   }, []);
 
-  if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This session no longer exists.</p></div>;
   const { module, week, session, view, audio, readings } = data;
   const label = session.title || sessionLabel(session.kind);
@@ -278,7 +279,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
             {readingGroups(readings).map((group) => (
               <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
                 <h2 className="group-label">{group.label}</h2>
-                <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={moduleWeeks} short />)}</ul>
+                <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={nav.weeks} short />)}</ul>
               </section>
             ))}
             {/* The slides come last, so nothing sits below them to pass under while they stay in view.
@@ -292,7 +293,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
                   className="side-readings side-slides"
                   renderHeader={(deck, controls) => (
                     <ul className="readings slides-row">
-                      <ReadingRow key={deck.item.id} view={deck} weeks={moduleWeeks} short extra={controls} />
+                      <ReadingRow key={deck.item.id} view={deck} weeks={nav.weeks} short extra={controls} />
                     </ul>
                   )}
                 />
@@ -322,10 +323,10 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
       })}
 
       {/* On to the session before or after, as a week page goes to the next week. */}
-      {around && (around.previous || around.next) && (
+      {(nav.previous || nav.next) && (
         <nav className="week-nav" aria-label="Other sessions">
-          {around.previous ? <Link to={{ view: "session", id: around.previous.session.id }}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{name(around.previous)}</Link> : <span />}
-          {around.next ? <Link to={{ view: "session", id: around.next.session.id }}>{name(around.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link> : <span />}
+          {nav.previous ? <Link to={{ view: "session", id: nav.previous.session.id }}><span className="nav-dir back" aria-hidden="true"><Icon name="down" size={14} /></span>{name(nav.previous)}</Link> : <span />}
+          {nav.next ? <Link to={{ view: "session", id: nav.next.session.id }}>{name(nav.next)}<span className="nav-dir next" aria-hidden="true"><Icon name="down" size={14} /></span></Link> : <span />}
         </nav>
       )}
     </div>

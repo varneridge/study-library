@@ -1018,6 +1018,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.49.8:
+  - Micro-level performance and stability optimisations: converted remaining page-loading queries to `useSuspendingLiveQuery` in SessionPage, AssessmentPage, Settings, and SearchPage to eliminate blank frame gaps; consolidated session neighbour navigation into a single query reducing IndexedDB reads from 14 to 4; added persistent heading placeholders in Settings to prevent layout shifts; prevented search typing prefixes from cluttering recent searches; and safeguarded concurrent essay save failure states.
 - Improvements completed in 0.49.7:
   - Module content section header: added a matching section header ("Content", "Shelves", or "Sections") with item count styling matching "Course materials & assessments" above the weeks grid on ModulePage.
 - Improvements completed in 0.49.6:
@@ -1209,6 +1211,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.49.5 | Collapsible headings and seminar questions, Word-style floating text formatting toolbar, reading categories, and notes editor streamlining: collapsible and expandable headings (H1 to H3) and seminar questions with answer fold buttons and global fold toggle; floating Word-style selection mini-toolbar with calm styling and floating shadow; restriction of session notes block types strictly to 3 collapsible headings, quote, bullet list, numbered list, divider, table, and normal text; removal of the '+' button on session paragraph side menus with smoother grab handles; simplified reading notes toolbar limited to single font size, bold, italic, underline, bullet and numbered lists; disabled block relocation shortcuts on Ctrl+Arrow and Cmd+Arrow to preserve native word jumping and text selection; and three-group categorisation for Primary readings, Secondary readings, and Summaries across weeks and sessions with drop target support. |
 | 0.49.6 | Seamless page navigation: eliminated navigation flicker and white screen gaps by applying route changes inside React transitions, using suspending live queries (`useSuspendingLiveQuery`) across routed pages, unifying the shell in App so chrome elements persist across routes, narrowing page error keys for This week, the job search, the reading and the word processor, and moving scroll to top until after page commit. |
 | 0.49.7 | Module content section header: added matching "Content" (or "Shelves" / "Sections") section heading with count badge above the weeks grid on ModulePage. |
+| 0.49.8 | Micro-level performance and stability optimisations: converted remaining page queries to `useSuspendingLiveQuery` in SessionPage, AssessmentPage, Settings, and SearchPage; consolidated session neighbour navigation to four reads; stabilised Settings layout with persistent placeholder; cleaned search typing prefixes; and safeguarded concurrent essay save failure states. |
 
 ## 18. The job search
 

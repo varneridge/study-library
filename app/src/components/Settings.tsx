@@ -1,4 +1,4 @@
-import { useLiveQuery } from "dexie-react-hooks";
+import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
 import { formatBytes, keepEverything, setKeepEverything } from "../lib/files";
@@ -78,7 +78,15 @@ async function cropCovers() {
 
 function ProcessorState() {
   const status = useProcessorStatus();
-  if (!status) return null;
+  // The heading is drawn before the status arrives, so the sections below it do not move down.
+  if (!status) {
+    return (
+      <>
+        <h2>Background processor</h2>
+        <p className="small muted">Checking the processor…</p>
+      </>
+    );
+  }
   const quiet = processorQuiet(status);
   const waiting = status.queued + status.running;
   return (
@@ -217,9 +225,8 @@ function ColourNames({
 const KIND_LABEL = { module: "Module", reading: "Reading", session: "Session", question: "Question", recording: "Recording" };
 
 function Bin() {
-  const entries = useLiveQuery(loadBin, []);
+  const entries = useSuspendingLiveQuery(loadBin, ["settings-bin"]);
   const [busy, setBusy] = useState<string | null>(null);
-  if (!entries) return null;
   return (
     <>
       <h2>Recently deleted</h2>
