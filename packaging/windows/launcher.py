@@ -2,8 +2,9 @@
 
 PyInstaller compiles this file into StudyLibrary.exe. It prepares the runtime
 environment (bundled tools, per-user .env, model paths), makes sure that only
-one copy runs at a time, and then hands control to the application entry point,
-which defaults to study.desktop:main and can be overridden with STUDY_ENTRY.
+one copy runs at a time, registers the studylibrary:// link handler for the
+current user, and then hands control to the application entry point, which
+defaults to study.desktop:main and can be overridden with STUDY_ENTRY.
 
 ``StudyLibrary.exe --self-test <report.json>`` performs every preparation step,
 runs each bundled tool once, imports the entry module without calling it, looks
@@ -14,7 +15,9 @@ is 0 only when every check passed.
 ``StudyLibrary.exe -m <module> [args...]`` prepares the environment and runs
 the module as ``python -m`` would, without the single-instance lock, because
 study.desktop relaunches the frozen build this way for its supervisor and its
-children, which run alongside the copy that holds the lock.
+children, which run alongside the copy that holds the lock. The studylibrary://
+link handler uses the same route, so that "Connect this computer" works while
+the application is already running.
 """
 from __future__ import annotations
 
@@ -41,6 +44,9 @@ ENTRY_ENV = "STUDY_ENTRY"
 DEFAULT_ENTRY = "study.desktop:main"
 CHILD_MODULES_ATTR = "CHILD_MODULES"
 TOOL_TIMEOUT_S = 30
+# These must stay identical to desktop.CONNECT_KEYS and desktop.CONNECT_SCHEME.
+CONNECT_KEYS = ("PROCESSOR_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET")
+PROTOCOL = "studylibrary"
 log = logging.getLogger("studylibrary.launcher")
 
 
@@ -72,6 +78,32 @@ def prepare(env: MutableMapping[str, str]) -> Prepared:
     slassets.export_asset_env(assets, paths["models"], env)
     required = rt.required_keys(template.read_text(encoding="utf-8-sig")) if template.is_file() else []
     return Prepared(home, paths, specs, tools, assets, env_file, seeded, rt.missing_keys(required, env))
+
+
+def protocol_command(exe: str) -> str:
+    """The command Windows runs for a studylibrary:// link. It goes through the
+    lock-free module route, so that it can run beside the copy holding the lock."""
+    return f'"{exe}" -m study.desktop --connect "%1"'
+
+
+def register_protocol(exe: str) -> None:
+    """Registers the link handler for the current user, which needs no administrator rights."""
+    if os.name != "nt":
+        return
+    import winreg
+
+    base = rf"Software\Classes\{PROTOCOL}"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "URL:Study Library")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base + r"\shell\open\command") as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, protocol_command(exe))
+
+
+def manual_keys(missing: Sequence[str]) -> List[str]:
+    """The missing settings that only a person editing the file can supply, since
+    the connect keys are filled in by the studylibrary:// link instead."""
+    return [key for key in missing if key not in CONNECT_KEYS]
 
 
 def load_entry(spec: str) -> Callable[[], Any]:
@@ -177,14 +209,25 @@ def _focus_running_instance(home: Path) -> None:
         rt.message_box("Study Library", "Study Library is already running, so this second copy will close.")
 
 
-def _offer_settings(prep: Prepared) -> None:
-    keys = ", ".join(prep.missing_keys)
+def _offer_settings(prep: Prepared, keys_to_fill: Sequence[str]) -> None:
+    keys = ", ".join(keys_to_fill)
     question = (
         f"Study Library still needs these settings before every feature will work: {keys}. "
         "Would you like to open the settings file now? Save it and restart Study Library once it is filled in."
     )
     if rt.message_box("Study Library settings", question, "question") and os.name == "nt":
         subprocess.Popen(["notepad.exe", str(prep.env_file)])
+
+
+def _register_link_handler() -> None:
+    """Only the installed build registers itself, so that a development run never
+    points the link handler at a temporary location."""
+    if not rt.is_frozen():
+        return
+    try:
+        register_protocol(sys.executable)
+    except OSError:
+        log.warning("could not register the %s:// link handler", PROTOCOL, exc_info=True)
 
 
 def _start_asset_repair(prep: Prepared) -> None:
@@ -220,8 +263,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rt.clear_instance_info(home)  # anything written from now on belongs to this process
         prep = prepare(env)
         log.info("tools: %s", {n: (s.source, s.path) for n, s in prep.tools.items()})
-        if prep.missing_keys:
-            _offer_settings(prep)
+        _register_link_handler()
+        manual = manual_keys(prep.missing_keys)
+        if manual:
+            _offer_settings(prep, manual)
         _start_asset_repair(prep)
         result = load_entry(env.get(ENTRY_ENV, DEFAULT_ENTRY))()
         return result if isinstance(result, int) else 0

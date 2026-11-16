@@ -23,10 +23,11 @@ def test_prepare_seeds_env_and_reports_missing_required_keys(tmp_path):
     env = _env(tmp_path)
     prep = launcher.prepare(env)
     assert prep.env_seeded and prep.env_file.is_file()
-    assert prep.missing_keys == ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]
+    assert prep.missing_keys == ["PROCESSOR_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]
+    assert launcher.manual_keys(prep.missing_keys) == []
     assert env["KOKORO_MODEL_PATH"].endswith("kokoro-v1.0.onnx")
     assert env["STUDY_DATA_DIR"] == str(tmp_path / "home" / "data")
-    prep.env_file.write_text("R2_ACCESS_KEY_ID=a\nR2_SECRET_ACCESS_KEY=b\n")
+    prep.env_file.write_text("PROCESSOR_KEY=a\nCF_ACCESS_CLIENT_ID=b\nCF_ACCESS_CLIENT_SECRET=c\n")
     env2 = _env(tmp_path)
     prep2 = launcher.prepare(env2)
     assert not prep2.env_seeded and prep2.missing_keys == []

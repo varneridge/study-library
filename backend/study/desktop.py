@@ -7,10 +7,15 @@ From the Startup folder, at sign-in:      pythonw -m study.desktop --headless
   the same with no window; this process stays on as their supervisor.
 --app-only opens the window only. --once works through the queue in the
 foreground and exits, for a terminal.
+--connect LINK is what the studylibrary:// link handler runs for "Connect this
+computer": it checks the three credentials in the link against STUDY_URL and
+only then saves them to the .env in the home folder, which the supervisor
+notices and restarts its children for.
 
 Everything lives under %LOCALAPPDATA%\\StudyLibrary, or $STUDY_HOME:
   repo\\               a git checkout that follows origin/production
   repo\\backend\\.env   the processor's settings, as in WSL
+  .env                 settings saved by "Connect this computer", read last
   .venv\\              the Python environment
   tessdata\\           eng, fra, deu and osd for Tesseract
   models\\kokoro\\      the Kokoro ONNX model and voices
@@ -21,6 +26,7 @@ backend/setup-windows.ps1 builds all of it.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import logging.handlers
 import os
@@ -29,10 +35,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger("study.desktop")
 
@@ -53,6 +63,13 @@ CREATE_NEW_PROCESS_GROUP = 0x00000200
 DETACHED_PROCESS = 0x00000008
 WAIT_OBJECT_0 = 0x00000000
 WAIT_ABANDONED = 0x00000080
+# "Connect this computer": the link scheme and the three settings it carries.
+# The launcher keeps its own copies of the first two, and a test holds them equal.
+CONNECT_SCHEME = "studylibrary"
+CONNECT_KEYS = ("PROCESSOR_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET")
+CONNECT_HINT = "connect=processor"
+CONNECT_VERSION = "1"
+CONNECT_TIMEOUT_SECONDS = 15
 
 
 def default_home() -> Path:
@@ -111,11 +128,10 @@ def _scripts(home: Path) -> Path:
 
 def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment the processor and speech server run in: the caller's,
-    with the .env on top, and the tools winget installed put first on PATH,
-    because the Tesseract and Ghostscript installers do not add themselves."""
+    with the .env files on top, and the tools winget installed put first on
+    PATH, because the Tesseract and Ghostscript installers do not add themselves."""
     home = Path(home)
-    env = dict(os.environ if base is None else base)
-    env.update(load_env_file(home / "repo" / "backend" / ".env"))
+    env = _settings(home, base)
     programs = Path(_get(env, "ProgramFiles") or r"C:\Program Files")
     # Newest by version, not by spelling: gs10.04.0 sorts before gs9.56.1 as text.
     ghostscript = sorted(programs.glob("gs/gs*/bin"), key=_version)
@@ -137,6 +153,170 @@ def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> di
     env["PYTHONPATH"] = os.pathsep.join(p for p in pythonpath if p)
     env["STUDY_MODELS_DIR"] = str(home / "models")
     return env
+
+
+def env_files(home: Path) -> tuple[Path, Path]:
+    """The two settings files in the order they are read: the checkout's, then
+    the home folder's, which wins because "Connect this computer" writes it."""
+    home = Path(home)
+    return home / "repo" / "backend" / ".env", home / ".env"
+
+
+def _settings(home: Path, base: Mapping[str, str] | None = None) -> dict[str, str]:
+    env = dict(os.environ if base is None else base)
+    for path in env_files(home):
+        env.update(load_env_file(path))
+    return env
+
+
+def settings_stamp(home: Path) -> tuple:
+    """Changes whenever either settings file is created, edited or removed, so
+    the supervisor can tell that its children need restarting."""
+    stamp = []
+    for path in env_files(home):
+        try:
+            info = path.stat()
+            stamp.append((info.st_mtime_ns, info.st_size))
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
+class ConnectError(ValueError):
+    """A connect link or its credentials were refused. The message is safe to
+    show and to log, because it never contains a value from the link."""
+
+
+# One to 512 printable ASCII characters, without space, quotes or "#", so that
+# a value is the same whether a person, Notepad or load_env_file reads it.
+_CONNECT_VALUE = re.compile(r"[\x21\x24-\x26\x28-\x7e]{1,512}")
+_CONNECT_LINK = re.compile(rf"{CONNECT_SCHEME}:(?://)?([^?#]*)\?(.*)", re.IGNORECASE)
+
+
+def parse_connect_link(link: str) -> dict[str, str]:
+    """The three settings in a studylibrary://connect?v=1&... link. Anything
+    unexpected refuses the whole link: another scheme or path, another version,
+    a missing, repeated or extra setting, or a value that is not plain ASCII."""
+    refused = ConnectError("This is not a valid connect link.")
+    match = _CONNECT_LINK.fullmatch(link.strip())
+    if not match or match.group(1).strip("/") != "connect":
+        raise refused
+    try:
+        pairs = urllib.parse.parse_qsl(match.group(2), keep_blank_values=True, strict_parsing=True, errors="strict")
+    except ValueError:
+        raise refused from None
+    if sorted(key for key, _ in pairs) != sorted(("v", *CONNECT_KEYS)):
+        raise refused
+    found = dict(pairs)
+    if found["v"] != CONNECT_VERSION:
+        raise ConnectError("This connect link comes from a different version of Study Library.")
+    if not all(_CONNECT_VALUE.fullmatch(found[key]) for key in CONNECT_KEYS):
+        raise refused
+    return {key: found[key] for key in CONNECT_KEYS}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Cloudflare Access answers an unknown token with a redirect to its login
+    page, and following it would carry the headers somewhere else."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+def _ping(url: str, headers: Mapping[str, str]) -> Any:
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "StudyLibrary-desktop", **headers})
+    with urllib.request.build_opener(_NoRedirect()).open(request, timeout=CONNECT_TIMEOUT_SECONDS) as response:
+        return json.loads(response.read(65536))
+
+
+def check_credentials(study_url: str, values: Mapping[str, str], ping: Callable[[str, Mapping[str, str]], Any] = _ping) -> None:
+    """Asks this installation's own STUDY_URL, and nowhere else, whether the
+    credentials are accepted. Nothing is sent unless STUDY_URL is an https address."""
+    parts = urllib.parse.urlsplit(study_url or "")
+    if parts.scheme != "https" or not parts.hostname:
+        raise ConnectError("STUDY_URL is not set to an https address, so the credentials cannot be checked.")
+    url = f"https://{parts.netloc.rpartition('@')[2]}/api/ping"
+    headers = {"CF-Access-Client-Id": values["CF_ACCESS_CLIENT_ID"], "CF-Access-Client-Secret": values["CF_ACCESS_CLIENT_SECRET"]}
+    try:
+        answer = ping(url, headers)
+    except urllib.error.HTTPError:
+        raise ConnectError("Study Library refused these credentials.") from None
+    except OSError:
+        raise ConnectError("Study Library could not be reached to check the credentials.") from None
+    except ValueError:
+        raise ConnectError("Study Library gave an answer that was not understood.") from None
+    if not isinstance(answer, dict) or answer.get("ok") is not True:
+        raise ConnectError("Study Library did not accept these credentials.")
+
+
+def merge_env_text(text: str, values: Mapping[str, str]) -> str:
+    """The .env text with each setting in values written once, in place of its
+    first line, with any repeats dropped and any missing ones added at the end.
+    Comments and every other line stay exactly as they were."""
+    lines: list[str] = []
+    written: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
+            key = line.partition("=")[0].strip()
+            if key in values:
+                if key not in written:
+                    written.add(key)
+                    lines.append(f"{key}={values[key]}")
+                continue
+        lines.append(raw)
+    lines.extend(f"{key}={value}" for key, value in values.items() if key not in written)
+    return "\n".join(lines) + "\n"
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    handle, name = tempfile.mkstemp(dir=path.parent, prefix=".env.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as out:
+            out.write(text)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, path)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+
+
+def connect(home: Path, link: str, ping: Callable[[str, Mapping[str, str]], Any] = _ping) -> Path:
+    """Checks the link's credentials against this installation's STUDY_URL and,
+    only if they are accepted, saves them to the .env in the home folder. A
+    refused link or a failed write leaves the existing file as it was."""
+    home = Path(home)
+    values = parse_connect_link(link)
+    check_credentials(_settings(home).get("STUDY_URL", ""), values, ping)
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / ".env"
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        text = ""
+    _write_atomic(path, merge_env_text(text, values))
+    return path
+
+
+def window_url(url: str, env: Mapping[str, str]) -> str:
+    """The address to open, with the hint that makes the app offer to connect
+    this computer for as long as any of the three settings is missing."""
+    if all(env.get(key) for key in CONNECT_KEYS):
+        return url
+    base, hash_, fragment = url.partition("#")
+    return f"{base}{'&' if '?' in base else '?'}{CONNECT_HINT}{hash_}{fragment}"
+
+
+def _notify(text: str, error: bool = False) -> None:
+    """Says the outcome of --connect, which runs under pythonw with no console."""
+    (log.error if error else log.info)("%s", text)
+    if WINDOWS:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, text, "Study Library", 0x10 if error else 0x40)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -412,9 +592,16 @@ def _apply_update(home: Path, children: dict[str, _Child]) -> bool:
     return update_checkout(home)
 
 
+def _child_environment(home: Path) -> dict[str, str]:
+    env = prepare_environment(home)
+    env["PROCESSOR_STOP_FILE"] = str(_stop_file(home))
+    return env
+
+
 def supervise(home: Path) -> int:
     """Keeps the processor and speech server running, restarts either if it
-    exits, and moves to new code every six hours."""
+    exits, restarts both when a settings file changes, and moves to new code
+    every six hours."""
     home = Path(home)
     instance = acquire_single_instance(MUTEX_NAME, 120.0 if os.environ.get("STUDY_HANDOVER") else 0.0)
     if instance is None:
@@ -425,13 +612,22 @@ def supervise(home: Path) -> int:
         _spawn_supervisor(home, handover=True)
         return 0
     _stop_file(home).unlink(missing_ok=True)
-    env = prepare_environment(home)
-    env["PROCESSOR_STOP_FILE"] = str(_stop_file(home))
+    stamp = settings_stamp(home)
+    env = _child_environment(home)
     now = time.monotonic()
     children = {name: _Child(name, _start(home, env, name), now) for name in COMMANDS}
     log.info("started the processor and the speech server")
     next_update = now + UPDATE_SECONDS
     while True:
+        if settings_stamp(home) != stamp:
+            # Taken before the settings are read, so that an edit made in
+            # between is noticed on the next tick instead of being lost.
+            stamp = settings_stamp(home)
+            log.info("the settings changed; restarting the processor and the speech server")
+            _stop_children(home, children)
+            env = _child_environment(home)
+            now = time.monotonic()
+            children = {name: _Child(name, _start(home, env, name), now) for name in COMMANDS}
         now = time.monotonic()
         for child in children.values():
             if child.proc.poll() is None:
@@ -458,12 +654,31 @@ def supervise(home: Path) -> int:
         time.sleep(5)
 
 
+def _run_connect(home: Path, link: str) -> int:
+    """What the studylibrary:// link handler runs. Exits 0 once saved, 2 when
+    the link or its credentials are refused, and 1 when the file cannot be written."""
+    try:
+        connect(home, link)
+    except ConnectError as error:
+        log.warning("connect refused: %s", error)
+        _notify(f"Study Library could not connect this computer. {error}", error=True)
+        return 2
+    except OSError:
+        log.exception("connect could not save the settings")
+        _notify("Study Library could not save the settings, so this computer is not connected yet.", error=True)
+        return 1
+    log.info("connected this computer")
+    _notify("This computer is connected to Study Library. It starts using the new settings within a few seconds.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m study.desktop")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--headless", action="store_true", help="Run the processor and speech server, with no window")
     mode.add_argument("--app-only", action="store_true", help="Open the window only")
     mode.add_argument("--once", action="store_true", help="Work through the queue in this window, then exit")
+    mode.add_argument("--connect", metavar="LINK", help="Check and save the credentials in a studylibrary:// link")
     args = parser.parse_args(argv)
     home = default_home()
     (home / "logs").mkdir(parents=True, exist_ok=True)
@@ -472,6 +687,8 @@ def main(argv: list[str] | None = None) -> int:
         handlers=[logging.handlers.RotatingFileHandler(home / "logs" / "desktop.log", maxBytes=1_000_000,
                                                        backupCount=1, encoding="utf-8")],
     )
+    if args.connect is not None:
+        return _run_connect(home, args.connect)
     if args.once:
         return subprocess.call([_python(home), "-m", "study.processor", "--once"],
                                cwd=_workdir(home), env=prepare_environment(home))
@@ -484,11 +701,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.app_only:
         # Exits at once if a supervisor is already running.
         _spawn_supervisor(home, handover=False)
-    url = prepare_environment(home).get("STUDY_URL")
+    env = prepare_environment(home)
+    url = env.get("STUDY_URL")
     if not url:
-        log.error("STUDY_URL is not set in %s", home / "repo" / "backend" / ".env")
+        log.error("STUDY_URL is not set in %s or %s", *env_files(home))
         return 1
-    open_window(url)
+    open_window(window_url(url, env))
     return 0
 
 

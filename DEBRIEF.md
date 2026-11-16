@@ -1311,6 +1311,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.52.1 | Packaged Windows executable startup fixes: fixed NotADirectoryError (WinError 267) by launching child processes from home in frozen builds, and added module execution support (-m) to the standalone launcher so background workers run alongside the single-instance locked UI |
 | 0.52.2 | Packaged speech server import fix: bundle tts.server as a required hidden import in studylibrary.spec, reference it as tts.server:app in desktop commands, and verify child worker importability during launcher self-test |
 | 0.52.3 | PyInstaller NumPy 2.x C-extension bundling fix: added numpy to PACKAGES_TO_COLLECT in studylibrary.spec so all submodules and C-extensions (numpy._core) are collected |
+| 0.52.4 | "Connect this computer" one-click pairing: Windows desktop installer ships without secrets, registering studylibrary:// protocol handler for the current user; signed-in Edge sessions generate a short-lived link from the Worker; one-click protocol launch proves service credentials against /api/ping before atomic write to %LOCALAPPDATA%\StudyLibrary\.env; desktop supervisor detects settings stamp changes and reloads background processor within five seconds; and rsync excludes build and Study directories in test runs |
 
 ## 18. The job search
 

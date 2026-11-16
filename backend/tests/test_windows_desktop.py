@@ -450,14 +450,14 @@ def launcher(tmp_path, monkeypatch):
 def test_main_starts_the_supervisor_and_opens_the_window(launcher):
     desktop, _home_dir, calls = launcher
     assert desktop.main([]) == 0
-    assert calls == [("supervisor", False), ("window", "https://study.example")]
+    assert calls == [("supervisor", False), ("window", "https://study.example?connect=processor")]
 
 
 def test_main_headless_supervises_and_app_only_just_opens(launcher):
     desktop, home, calls = launcher
     assert desktop.main(["--headless"]) == 0
     assert desktop.main(["--app-only"]) == 0
-    assert calls == [("supervise", home), ("window", "https://study.example")]
+    assert calls == [("supervise", home), ("window", "https://study.example?connect=processor")]
 
 
 def test_main_without_study_url_fails(launcher, monkeypatch):

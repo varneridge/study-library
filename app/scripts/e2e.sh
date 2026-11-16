@@ -15,7 +15,7 @@ py="$HOME/.venvs/study/bin/python"
 export PATH="$(dirname "$py"):$PATH"
 port=8790
 
-rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv --exclude .oracle \
+rsync -a --delete --exclude node_modules --exclude .wrangler --exclude .git --exclude dist --exclude .venv --exclude .oracle --exclude build --exclude Study \
   --exclude backend/audit --exclude app/tests/e2e/shots --exclude app/tests/e2e/files "$src/" "$dest/"
 cd "$dest/app" || exit 1
 

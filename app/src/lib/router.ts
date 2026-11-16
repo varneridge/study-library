@@ -24,6 +24,9 @@ export type Route =
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
+  if (params.get("connect") === "processor") {
+    return { view: "settings" };
+  }
   const view = params.get("v");
   const id = params.get("id") ?? "";
   switch (view) {

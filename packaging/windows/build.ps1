@@ -210,8 +210,9 @@ Invoke-Native $Py @($Helpers, "env-template", "--root", $Root, "--out", $Templat
 
 Write-Step "Running PyInstaller"
 $env:SL_ENV_TEMPLATE = $Template
+$workPath = Join-Path $env:TEMP "study-library-pyi-work"
 Invoke-Native $Py @("-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", (Join-Path $Build "pyi-dist"),
-    "--workpath", (Join-Path $Build "pyi-work"), (Join-Path $Here "studylibrary.spec"))
+    "--workpath", $workPath, (Join-Path $Here "studylibrary.spec"))
 Copy-Item -Path (Join-Path $Build "vendor") -Destination (Join-Path $AppOut "vendor") -Recurse -Force
 Invoke-Native $Py @($Helpers, "scan", "--dist", $AppOut)
 Invoke-Sign (Join-Path $AppOut "StudyLibrary.exe")

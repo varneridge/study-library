@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { requireAccess } from "./auth";
+import { accessEmail, connectLink } from "./connect";
 import type { Env } from "./env";
 import { bumpFile, completeUpload, redoFile, REDO_STEPS, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
 import { retryRecording, storeChunk, transcribeRecording } from "./recordings";
@@ -31,6 +32,24 @@ app.get("/api/status", async (c) => {
   const row = (jobs.results?.[0] ?? {}) as { queued?: number | null; running?: number | null; failed?: number | null };
   const value = (seen.results?.[0] as { value?: number } | undefined)?.value ?? null;
   return c.json({ processor_seen: value, queued: row.queued ?? 0, running: row.running ?? 0, failed: row.failed ?? 0 });
+});
+
+app.post("/api/connect", async (c) => {
+  const jwt = c.req.header("cf-access-jwt-assertion");
+  const email = accessEmail(jwt);
+  if (!email && (c.env.ALLOW_UNAUTHENTICATED !== "true" || c.req.header("cf-access-client-id") || jwt)) {
+    return c.json({ error: "person_required" }, 403);
+  }
+  const link = connectLink({
+    PROCESSOR_KEY: c.env.PROCESSOR_KEY,
+    PROCESSOR_ACCESS_CLIENT_ID: c.env.PROCESSOR_ACCESS_CLIENT_ID,
+    PROCESSOR_ACCESS_CLIENT_SECRET: c.env.PROCESSOR_ACCESS_CLIENT_SECRET,
+  });
+  if (!link) {
+    return c.json({ error: "connect_not_configured" }, 503);
+  }
+  c.header("Cache-Control", "no-store");
+  return c.json({ link });
 });
 
 app.post("/api/sync/push", async (c) => {

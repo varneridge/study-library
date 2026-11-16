@@ -9,6 +9,9 @@ export interface Env {
   DEV_RESET?: string;
   // Shared secret for the processor. Set with `wrangler secret put PROCESSOR_KEY`.
   PROCESSOR_KEY?: string;
+  // Cloudflare Access service token credentials for background processor.
+  PROCESSOR_ACCESS_CLIENT_ID?: string;
+  PROCESSOR_ACCESS_CLIENT_SECRET?: string;
 }
 
 export const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";

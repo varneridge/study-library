@@ -243,8 +243,8 @@ def secret_findings(template_text: str) -> List[str]:
 
 def cmd_env_template(args) -> int:
     root = Path(args.root)
-    for rel in (".env.example", "backend/.env.example"):
-        candidate = root / rel
+    candidates = (HERE / "env.template", root / "packaging" / "windows" / "env.template", root / ".env.example", root / "backend" / ".env.example")
+    for candidate in candidates:
         if candidate.is_file():
             source = candidate
             break

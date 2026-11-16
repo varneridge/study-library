@@ -76,6 +76,65 @@ async function cropCovers() {
   }
 }
 
+function ConnectComputer() {
+  const [link, setLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchLink = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api("/api/connect", { method: "POST" });
+      if (res.status === 200) {
+        const data = (await res.json()) as { link: string };
+        setLink(data.link);
+      } else if (res.status === 503) {
+        setError(
+          "The Worker has no processor settings yet, so run wrangler secret put PROCESSOR_ACCESS_CLIENT_ID and PROCESSOR_ACCESS_CLIENT_SECRET."
+        );
+      } else if (res.status === 403) {
+        setError("Connecting a computer needs your own sign-in rather than a service token.");
+      } else {
+        setError("Could not generate a connection link. Check you are online.");
+      }
+    } catch {
+      setError("Could not generate a connection link. Check you are online.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchLink();
+  }, []);
+
+  return (
+    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
+      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>This computer</h3>
+      {loading && <p className="small muted">Preparing connection link…</p>}
+      {error && (
+        <div>
+          <p className="small problem">{error}</p>
+          <button type="button" className="button" style={{ marginTop: "0.4rem" }} onClick={() => void fetchLink()}>
+            Retry
+          </button>
+        </div>
+      )}
+      {link && !error && (
+        <div>
+          <a href={link} className="button primary">
+            Connect this computer
+          </a>
+          <p className="small muted" style={{ marginTop: "0.5rem" }}>
+            Open Study Library once on this computer first. When Edge asks, choose Open, and tick Always allow to skip the question next time.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProcessorState() {
   const status = useProcessorStatus();
   // The heading is drawn before the status arrives, so the sections below it do not move down.
@@ -112,6 +171,7 @@ function ProcessorState() {
         <button className="button" onClick={() => void cropCovers()}>Redraw reading covers</button>
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
+      <ConnectComputer />
     </>
   );
 }
@@ -416,6 +476,15 @@ export function Settings() {
       window.addEventListener("scrollend", onScrollEnd, { once: true });
     }
   };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace(/^#/, "");
+      if (hash && SECTIONS.some((s) => s.id === hash)) {
+        scrollToSection(hash);
+      }
+    }
+  }, []);
 
   const isCoarse = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
   const visibleSections = SECTIONS.filter((s) => !isCoarse || s.id !== "section-shortcuts");

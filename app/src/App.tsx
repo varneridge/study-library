@@ -472,6 +472,19 @@ export function App() {
   useAccentSync();
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connect") === "processor") {
+      params.delete("connect");
+      const qs = params.toString();
+      const targetHash = window.location.hash || "#section-processor";
+      const newUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}${targetHash}`;
+      window.history.replaceState(window.history.state, "", newUrl);
+      navigate({ view: "settings" });
+    }
+  }, []);
+
+  useEffect(() => {
     // "/" goes to search from anywhere outside a text field.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "?" && !typing(e)) { e.preventDefault(); openShortcuts(); return; }
