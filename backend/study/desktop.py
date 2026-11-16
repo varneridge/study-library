@@ -44,6 +44,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from study import update
+
 log = logging.getLogger("study.desktop")
 
 WINDOWS = os.name == "nt"
@@ -673,6 +675,8 @@ def _run_connect(home: Path, link: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if (code := update.route(argv, _notify)) is not None:
+        return code
     parser = argparse.ArgumentParser(prog="python -m study.desktop")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--headless", action="store_true", help="Run the processor and speech server, with no window")

@@ -14,6 +14,7 @@ import { ago, processorQuiet, useProcessorStatus } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { DatePicker } from "./DatePicker";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
+import { availableUpdate, currentVersion, updateHref, type Release } from "../lib/update";
 
 const APPEARANCES: { value: Appearance; label: string }[] = [
   { value: "light", label: "Light" },
@@ -172,7 +173,46 @@ function ProcessorState() {
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
       <ConnectComputer />
+      <UpdateSettings />
     </>
+  );
+}
+
+function UpdateSettings() {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [release, setRelease] = useState<Release | null>(null);
+
+  async function check() {
+    setBusy(true);
+    setStatus("Checking GitHub for a newer release…");
+    try {
+      const found = await availableUpdate();
+      setRelease(found);
+      setStatus(found ? `Study Library ${found.version} is available.` : "This is the latest version of Study Library.");
+    } catch {
+      setStatus("GitHub could not be reached, so the check did not finish. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
+      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Updates</h3>
+      <p className="small muted">You are using Study Library {currentVersion}.</p>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.5rem" }}>
+        <button type="button" className="button" onClick={() => void check()} disabled={busy}>
+          Check for updates
+        </button>
+        {release && (
+          <a href={updateHref(release)} className="button primary" style={{ textDecoration: "none" }}>
+            Update to {release.version}
+          </a>
+        )}
+      </div>
+      {status && <p className="small muted" style={{ marginTop: "0.5rem" }}>{status}</p>}
+    </div>
   );
 }
 

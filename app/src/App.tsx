@@ -23,6 +23,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { retryUpload, onUploadProgress, uploadProgress } from "./lib/uploads";
 import { useAppearanceSync, useAccentSync } from "./lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 // The reader carries pdf.js, the largest part of the app, so it loads when a
 // reading is first opened rather than with the home page.
@@ -536,6 +537,7 @@ export function App() {
     <>
       {!bare && <a className="skip" href="#main">Skip to content</a>}
       {!bare && <TopBar route={route} />}
+      {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}
       <main id="main" tabIndex={bare ? undefined : -1}>
         {/* This boundary stays mounted, so a page change waits on the old page rather than a blank one. */}

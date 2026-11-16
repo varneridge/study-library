@@ -1312,6 +1312,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.52.2 | Packaged speech server import fix: bundle tts.server as a required hidden import in studylibrary.spec, reference it as tts.server:app in desktop commands, and verify child worker importability during launcher self-test |
 | 0.52.3 | PyInstaller NumPy 2.x C-extension bundling fix: added numpy to PACKAGES_TO_COLLECT in studylibrary.spec so all submodules and C-extensions (numpy._core) are collected |
 | 0.52.4 | "Connect this computer" one-click pairing: Windows desktop installer ships without secrets, registering studylibrary:// protocol handler for the current user; signed-in Edge sessions generate a short-lived link from the Worker; one-click protocol launch proves service credentials against /api/ping before atomic write to %LOCALAPPDATA%\StudyLibrary\.env; desktop supervisor detects settings stamp changes and reloads background processor within five seconds; and rsync excludes build and Study directories in test runs |
+| 0.52.5 | In-app update notifications and installer updater: quiet top banner appears when GitHub releases have a newer version, offering Update now and Later (dismissed for current session); Settings displays current version and on-demand GitHub release check; studylibrary://update protocol handler downloads release StudyLibrarySetup.exe with progress notification and starts elevated installer with ShellExecute; and unit tests cover version comparison, session dismissal and routing |
 
 ## 18. The job search
 

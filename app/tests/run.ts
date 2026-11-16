@@ -48,6 +48,7 @@ import { INSETS_COMPACT, INSETS_REGULAR, parseChrome, dockGeometry, editorQuery,
 import { registerListenTests } from "./test_listen";
 import { registerCalendarTests } from "./calendar";
 import { registerRoutingTests } from "./routing";
+import { runUpdateTests } from "./test_update";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -1669,6 +1670,7 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
 
 registerNotesAndReadingsTests(test);
 registerListenTests(test);
+await runUpdateTests();
 
 if (failed) {
 
