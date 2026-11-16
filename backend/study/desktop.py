@@ -130,8 +130,10 @@ def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> di
     # Tools print UTF-8; without this Windows decodes their output as cp1252,
     # which has no character for some bytes of names such as "Łódź".
     env["PYTHONUTF8"] = "1"
-    # The repository root for backend.tts, backend/ for study, as run-processor.sh sets.
-    pythonpath = [str(home / "repo"), str(home / "repo" / "backend"), _pop(env, "PYTHONPATH") or ""]
+    # backend/ only, which holds both study and tts. The packaged build has no
+    # repository root to import "backend" from, so putting the root here as
+    # well would let a "backend.tts" import work from source and fail frozen.
+    pythonpath = [str(home / "repo" / "backend"), _pop(env, "PYTHONPATH") or ""]
     env["PYTHONPATH"] = os.pathsep.join(p for p in pythonpath if p)
     env["STUDY_MODELS_DIR"] = str(home / "models")
     return env
@@ -281,10 +283,33 @@ def _stop_file(home: Path) -> Path:
     return Path(home) / "processor.stop"
 
 
+# The speech server is named relative to backend/, as study is, because that
+# is the one folder both layouts share: a source install runs from
+# repo\backend with it on PYTHONPATH, and the packaged build carries study and
+# tts as top-level packages, with no "backend" package anywhere inside it.
+TTS_APP = "tts.server:app"
+
 COMMANDS = {
     "processor": ["-m", "study.processor"],
-    "tts": ["-m", "uvicorn", "backend.tts.server:app", "--host", "127.0.0.1", "--port", str(TTS_PORT)],
+    "tts": ["-m", "uvicorn", TTS_APP, "--host", "127.0.0.1", "--port", str(TTS_PORT)],
 }
+
+
+def _child_modules(commands: Mapping[str, list[str]]) -> tuple[str, ...]:
+    """The modules the children import first: each one after "-m", and the
+    application uvicorn loads by name, which no static analysis can see."""
+    found: list[str] = []
+    for args in commands.values():
+        module = args[args.index("-m") + 1]
+        found.append(module)
+        if module == "uvicorn":
+            found.append(args[args.index("-m") + 2].partition(":")[0])
+    return tuple(dict.fromkeys(found))
+
+
+# The packaged build's --self-test looks for each of these inside the bundle,
+# because importing study.desktop alone proves nothing about its children.
+CHILD_MODULES = _child_modules(COMMANDS)
 
 
 def _start(home: Path, env: Mapping[str, str], name: str) -> subprocess.Popen:

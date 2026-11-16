@@ -58,6 +58,51 @@ def test_self_test_runs_tool_checks(tmp_path):
     assert launcher.run_tool_check(str(tmp_path / "nope.exe"), [])["exit_code"] is None
 
 
+def _entry_with_children(tmp_path, monkeypatch, name, children):
+    """An entry module that, like study.desktop, lists the modules its child
+    processes start by name, with a package that exists and a module that the
+    build left out of it. Each test passes its own name, because an imported
+    module stays in sys.modules and would otherwise leak into the next test."""
+    pkg = tmp_path / "pkg"
+    (pkg / "bundled_pkg").mkdir(parents=True, exist_ok=True)
+    (pkg / "bundled_pkg" / "__init__.py").write_text("")
+    (pkg / "bundled_pkg" / "server.py").write_text("app = object()\n")
+    (pkg / f"{name}.py").write_text(f"CHILD_MODULES = {tuple(children)!r}\ndef main():\n    return 0\n")
+    monkeypatch.syspath_prepend(str(pkg))
+    return f"{name}:main"
+
+
+def test_check_child_modules_finds_what_a_child_imports_without_running_it(tmp_path, monkeypatch):
+    # "no_such_package_xyz.server" stands for "backend.tts.server" in the frozen
+    # build: its parent package is absent, which find_spec reports by raising.
+    spec = _entry_with_children(tmp_path, monkeypatch, "entry_listing_children",
+                                ["json", "bundled_pkg.server", "no_such_package_xyz.server"])
+    assert launcher.check_child_modules(spec) == {
+        "json": True, "bundled_pkg.server": True, "no_such_package_xyz.server": False}
+    assert "bundled_pkg.server" not in sys.modules, "the check must not import the module itself"
+    assert launcher.check_child_modules("json:dumps") == {}, "an entry without CHILD_MODULES has nothing to check"
+
+
+def test_self_test_fails_when_a_child_module_is_missing_from_the_build(tmp_path, monkeypatch):
+    """The regression for the speech server: the entry module imported, so the
+    old self-test passed, while uvicorn's "backend.tts.server:app" could not."""
+    home = tmp_path / "home"
+    prepared = launcher.Prepared(home, {"models": home / "models"}, [], {}, [], home / ".env", False, [])
+    monkeypatch.setattr(launcher, "prepare", lambda env: prepared)
+    report_path = tmp_path / "report.json"
+
+    bad = _entry_with_children(tmp_path, monkeypatch, "entry_missing_a_child",
+                               ["bundled_pkg.server", "no_such_package_xyz.server"])
+    assert launcher.self_test(report_path, {launcher.ENTRY_ENV: bad}, execute_tools=False) == 1
+    report = json.loads(report_path.read_text())
+    assert report["entry"]["importable"] is True
+    assert report["entry"]["child_modules"] == {"bundled_pkg.server": True, "no_such_package_xyz.server": False}
+    assert report["errors"] == ["child module no_such_package_xyz.server is not in this build"]
+
+    good = _entry_with_children(tmp_path, monkeypatch, "entry_with_every_child", ["bundled_pkg.server"])
+    assert launcher.self_test(report_path, {launcher.ENTRY_ENV: good}, execute_tools=False) == 0
+
+
 def test_main_runs_entry_under_lock_and_second_instance_exits(tmp_path, monkeypatch):
     pkg = tmp_path / "pkg"
     pkg.mkdir()

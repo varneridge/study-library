@@ -29,10 +29,15 @@ from pathlib import Path
 
 import pytest
 
-# backend.tts is imported from the repository root, study from backend/.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# study and tts are both imported from backend/, which is the one folder that a
+# source install and the packaged build share; the packaged build has no
+# repository root and so no "backend" package. REPO_ROOT is kept only to find
+# the PyInstaller spec.
+BACKEND = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND.parent
+SPEC = REPO_ROOT / "packaging" / "windows" / "studylibrary.spec"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
 
 WINDOWS = sys.platform == "win32"
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -99,7 +104,8 @@ def test_prepare_environment_puts_tools_first_and_sets_variables(tmp_path):
     assert env["STUDY_URL"] == "https://from-env", "the .env must win, as `set -a; . ./.env` does"
     assert env["TESSDATA_PREFIX"] == str(home / "tessdata")
     assert env["PYTHONUTF8"] == "1"
-    assert env["PYTHONPATH"].split(os.pathsep) == [str(home / "repo"), str(home / "repo" / "backend"), "earlier"]
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(home / "repo" / "backend"), "earlier"], \
+        "no repository root, so a source install cannot import what the packaged build lacks"
     assert env["STUDY_MODELS_DIR"] == str(home / "models")
     assert base["PATH"] == "inherited", "the caller's mapping is left alone"
 
@@ -279,7 +285,7 @@ def test_spawn_worker_starts_both_children_windowless_with_their_own_logs(tmp_pa
 
     assert [args[1:] for args, _ in started] == [
         ["-m", "study.processor"],
-        ["-m", "uvicorn", "backend.tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
+        ["-m", "uvicorn", "tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
     ]
     for args, kwargs in started:
         assert Path(kwargs["cwd"]) == home / "repo" / "backend"
@@ -301,6 +307,65 @@ def test_spawn_worker_sets_aside_a_log_over_the_limit(tmp_path, monkeypatch):
     desktop.spawn_worker(home, {})
     assert (home / "logs" / "processor.log.1").stat().st_size == desktop.LOG_LIMIT + 1
     assert (home / "logs" / "processor.log").stat().st_size == 0
+
+
+def _uvicorn_app(desktop) -> str:
+    args = desktop.COMMANDS["tts"]
+    return args[args.index("uvicorn") + 1]
+
+
+def test_the_speech_server_app_imports_from_backend_alone_as_in_the_packaged_build():
+    """The regression for "No module named 'backend'": uvicorn imports the app
+    by name in a fresh interpreter, so the name must resolve with backend/ as
+    the only project folder on the path, which is all the packaged build (and
+    the spec's own sys.path) provides. The repository root is struck from the
+    path explicitly, so a checkout that happens to have it there still fails a
+    "backend.tts..." name, as the frozen build would."""
+    from study import desktop
+
+    module = _uvicorn_app(desktop).partition(":")[0]
+    code = textwrap.dedent(f"""
+        import importlib.util, os, sys
+        root = os.path.normcase(os.path.abspath({str(REPO_ROOT)!r}))
+        sys.path[:] = [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) != root]
+        try:
+            spec = importlib.util.find_spec({module!r})
+        except ImportError as error:
+            sys.exit(f"{{type(error).__name__}}: {{error}}")
+        sys.exit(0 if spec is not None else "not found")
+    """)
+    env = {**os.environ, "PYTHONPATH": str(BACKEND)}
+    result = subprocess.run([sys.executable, "-c", code], cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, f"{module} does not import from backend/: {result.stderr.strip()}"
+
+
+def test_child_modules_name_what_each_child_imports_first():
+    from study import desktop
+
+    assert desktop.CHILD_MODULES == ("study.processor", "uvicorn", "tts.server")
+    assert _uvicorn_app(desktop) == desktop.TTS_APP == "tts.server:app"
+
+
+def _spec_list(name: str) -> list[str]:
+    import ast
+
+    for node in ast.parse(SPEC.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return list(ast.literal_eval(node.value))
+    raise AssertionError(f"{SPEC.name} has no {name} list")
+
+
+@pytest.mark.skipif(not SPEC.is_file(), reason="the PyInstaller spec is not in this checkout")
+def test_the_spec_bundles_every_module_a_child_imports_first():
+    """Each child module is either collected whole as a package or named as a
+    required hidden import, so the frozen build carries it although nothing
+    imports it statically."""
+    from study import desktop
+
+    collected, required = _spec_list("PACKAGES_TO_COLLECT"), _spec_list("REQUIRED_MODULES")
+    missing = [m for m in desktop.CHILD_MODULES if m not in required and m.partition(".")[0] not in collected]
+    assert not missing, f"{SPEC.name} does not bundle {missing}"
+    assert not any(m.startswith("backend") for m in collected + required), "there is no backend package to bundle"
 
 
 def _windows_popen(started):
@@ -364,7 +429,7 @@ def test_the_packaged_build_starts_its_supervisor_and_children_from_home(tmp_pat
     assert [args for args, _ in started] == [
         [str(exe), "-m", "study.desktop", "--headless"],
         [str(exe), "-m", "study.processor"],
-        [str(exe), "-m", "uvicorn", "backend.tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
+        [str(exe), "-m", "uvicorn", "tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
     ]
     assert [Path(kwargs["cwd"]) for _, kwargs in started] == [home, home, home]
 
@@ -856,7 +921,7 @@ def test_stop_wakes_an_idle_loop_at_once(monkeypatch):
 
 def _server():
     pytest.importorskip("fastapi")
-    from backend.tts import server
+    from tts import server
 
     return server
 
@@ -996,7 +1061,7 @@ def test_the_onnx_model_speaks_with_word_times():
     env = _prepared()
     code = textwrap.dedent("""
         import json, sys
-        from backend.tts import server
+        from tts import server
         engine = server.default_engine()
         pcm, tokens = engine.synthesise("The Concordat was signed in 1801.", "bf_emma")
         print(json.dumps({"engine": type(engine).__name__, "samples": int(pcm.size), "words": len(tokens),

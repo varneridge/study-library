@@ -23,9 +23,28 @@ TEMPLATE = Path(os.environ.get("SL_ENV_TEMPLATE", HERE / "env.template"))
 # analysis. Missing ones are skipped, so the list can name optional extras.
 PACKAGES_TO_COLLECT = ["study", "kokoro_onnx", "espeakng_loader", "language_tags", "phonemizer", "onnxruntime", "uvicorn"]
 
+# Modules that study.desktop starts by name in a child process, which static
+# analysis cannot follow: uvicorn receives the speech server as the string
+# "tts.server:app". These are required, so the build stops here rather than
+# producing an executable whose speech server dies on its first import. They go
+# in as hidden imports and not through collect_all, because collect_all would
+# also copy any Kokoro model a developer keeps in backend/tts/models, whereas
+# the packaged build fetches its models into the per-user home through slassets.
+# backend/tests/test_windows_desktop.py checks that every study.desktop.CHILD_MODULES
+# entry is covered either here or by PACKAGES_TO_COLLECT.
+REQUIRED_MODULES = ["tts.server"]
+
 datas = [(str(HERE / "manifest.json"), "."), (str(TEMPLATE), ".")]
 binaries = []
 hiddenimports = ["slruntime", "slassets"]
+for module in REQUIRED_MODULES:
+    try:
+        found = importlib.util.find_spec(module) is not None
+    except ImportError:
+        found = False
+    if not found:
+        raise SystemExit(f"[studylibrary.spec] {module} cannot be imported from {BACKEND}, so the build would be broken")
+    hiddenimports.append(module)
 for package in PACKAGES_TO_COLLECT:
     if importlib.util.find_spec(package) is None:
         print(f"[studylibrary.spec] {package} not installed, skipping")

@@ -6,8 +6,10 @@ one copy runs at a time, and then hands control to the application entry point,
 which defaults to study.desktop:main and can be overridden with STUDY_ENTRY.
 
 ``StudyLibrary.exe --self-test <report.json>`` performs every preparation step,
-runs each bundled tool once, imports the entry module without calling it, and
-writes a JSON report; the exit code is 0 only when every check passed.
+runs each bundled tool once, imports the entry module without calling it, looks
+in the bundle for every module that the entry module lists in CHILD_MODULES as
+one its child processes start by name, and writes a JSON report; the exit code
+is 0 only when every check passed.
 
 ``StudyLibrary.exe -m <module> [args...]`` prepares the environment and runs
 the module as ``python -m`` would, without the single-instance lock, because
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import json
 import logging
 import logging.handlers
@@ -36,6 +39,7 @@ import slruntime as rt
 
 ENTRY_ENV = "STUDY_ENTRY"
 DEFAULT_ENTRY = "study.desktop:main"
+CHILD_MODULES_ATTR = "CHILD_MODULES"
 TOOL_TIMEOUT_S = 30
 log = logging.getLogger("studylibrary.launcher")
 
@@ -77,6 +81,25 @@ def load_entry(spec: str) -> Callable[[], Any]:
     if not callable(func):
         raise TypeError(f"{spec} is not callable")
     return func
+
+
+def _module_available(name: str) -> bool:
+    """Whether ``name`` can be imported, without running it. A missing parent
+    package raises rather than returning None, and counts as missing too."""
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def check_child_modules(spec: str) -> Dict[str, bool]:
+    """For each module the entry module says its children start by name (for
+    instance uvicorn's "tts.server:app"), whether this build can import it.
+    Static analysis never sees those names, so a bundle that lacks one still
+    imports its entry module cleanly and only fails once the child starts."""
+    module = importlib.import_module(spec.partition(":")[0])
+    names = getattr(module, CHILD_MODULES_ATTR, ())
+    return {name: _module_available(name) for name in names if isinstance(name, str)}
 
 
 def run_module(module: str, args: Sequence[str]) -> int:
@@ -127,6 +150,10 @@ def self_test(report_path: Path, env: MutableMapping[str, str], execute_tools: b
         except Exception as exc:
             report["entry"] = {"spec": entry_spec, "importable": False, "error": f"{type(exc).__name__}: {exc}"}
             report["errors"].append(f"entry point {entry_spec} failed to import")
+        else:
+            children = check_child_modules(entry_spec)
+            report["entry"]["child_modules"] = children
+            report["errors"].extend(f"child module {name} is not in this build" for name, ok in children.items() if not ok)
     except Exception as exc:
         report["errors"].append(f"preparation failed: {type(exc).__name__}: {exc}")
     report["ok"] = not report["errors"]

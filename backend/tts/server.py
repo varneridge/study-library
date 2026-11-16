@@ -7,7 +7,9 @@ Elsewhere hexgrad's `kokoro` KPipeline (the same engine Kokoro-TTS-Local
 wraps) runs on CUDA when available and gives word timestamps itself (misaki
 MToken.start_ts / end_ts, English only).
 
-Run:  uvicorn backend.tts.server:app --host 127.0.0.1 --port 8765
+Run from backend/:  uvicorn tts.server:app --host 127.0.0.1 --port 8765
+      (the name study.desktop and the packaged build use; "backend" is not a
+      package, so backend.tts.server works only from the repository root)
 Env:  LISTEN_TOKEN       bearer token required when set (always set it behind a tunnel)
       LISTEN_ORIGINS     comma-separated origins allowed by CORS
       LISTEN_DEVICE      "cuda" or "cpu" (default: cuda when available)

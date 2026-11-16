@@ -1020,6 +1020,11 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.52.2:
+  - Speech server packaging and import fixes:
+    - Referenced the TTS speech server as `tts.server:app` rather than `backend.tts.server:app` so it imports cleanly in both source checkouts and frozen packaged installs.
+    - Added `REQUIRED_MODULES = ["tts.server"]` to `studylibrary.spec` so PyInstaller bundles the server as a hidden import without bundling model weight caches.
+    - Extended launcher `--self-test` to verify that all child process entry points are importable before launch.
 - Improvements completed in 0.52.1:
   - Packaged Windows executable fixes:
     - Fixed NotADirectoryError (WinError 267) by launching children from the home directory instead of a nonexistent source repo checkout.
@@ -1302,6 +1307,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.51.1 | Calendar UI and UX refinements: removed redundant desktop mini-calendar, constrained Month view to fit viewport with zero vertical scroll, day inspection summary sheet on day cell click with "+ Add event" and "Day view" actions, standardised event creation with start and end times accessible across all views, collapsible desktop sidebar with remembered state, subtle weekend column shading, prominent today accent indicator, and distinct styling for deadlines vs timed events |
 | 0.52.0 | Native Windows desktop launcher and self-contained processor: eliminated WSL and Windows Task Scheduler dependencies with a native desktop launcher (`backend/study/desktop.py`) opening an Edge standalone app window, supervised hidden background processor and Kokoro ONNX speech server (`CREATE_NO_WINDOW`), single-instance Windows mutex, automated one-time PowerShell set-up script (`setup-windows.ps1`) installing winget dependencies and model weights, atomic Cloudflare Worker job lease fencing (`jobs.lease_id`, 409 lease_lost) preventing stale overwrites across concurrent or sleeping devices, hash-addressed OCR output keys, and Windows LibreOffice file URI normalization |
 | 0.52.1 | Packaged Windows executable startup fixes: fixed NotADirectoryError (WinError 267) by launching child processes from home in frozen builds, and added module execution support (-m) to the standalone launcher so background workers run alongside the single-instance locked UI |
+| 0.52.2 | Packaged speech server import fix: bundle tts.server as a required hidden import in studylibrary.spec, reference it as tts.server:app in desktop commands, and verify child worker importability during launcher self-test |
 
 ## 18. The job search
 

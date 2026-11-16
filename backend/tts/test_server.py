@@ -8,7 +8,10 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.tts.server import SAMPLE_RATE, KokoroEngine, create_app, decode_frame, encode_frame, lang_code
+try:
+    from tts.server import SAMPLE_RATE, KokoroEngine, create_app, decode_frame, encode_frame, lang_code
+except ImportError:
+    from backend.tts.server import SAMPLE_RATE, KokoroEngine, create_app, decode_frame, encode_frame, lang_code
 
 
 def fake_pipeline_factory(calls: list):
