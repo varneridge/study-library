@@ -239,6 +239,24 @@ export interface ApplicationEventRow extends SyncedRow {
   cleared_deadline: string | null;
 }
 
+// The calendar's own events. Dates are ISO (YYYY-MM-DD) and times are wall
+// clock "HH:MM", so a 10:00 lecture stays at 10:00 across the change to and
+// from British Summer Time. end_date is inclusive, and both times are null
+// exactly when the event lasts all day.
+export type EventCategory = "appointment" | "lecture" | "reminder" | "other";
+
+export interface CalendarEventRow extends SyncedRow {
+  title: string;
+  start_date: string;
+  end_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  all_day: boolean;
+  category: EventCategory;
+  location: string | null;
+  notes: string | null;
+}
+
 // BlockNote's block format, kept loose so later editor versions still load.
 export interface InlineText {
   type: "text";
@@ -274,6 +292,7 @@ export interface Tables {
   applications: ApplicationRow;
   application_events: ApplicationEventRow;
   prospects: ProspectRow;
+  calendar_events: CalendarEventRow;
 }
 
 export type TableName = keyof Tables;
@@ -294,4 +313,5 @@ export const SYNCED_TABLES: TableName[] = [
   "applications",
   "application_events",
   "prospects",
+  "calendar_events",
 ];

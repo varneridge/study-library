@@ -20,6 +20,11 @@ const DEFAULTS: Record<string, unknown> = {
   programme: "",
   stage: "applied",
   kind: "change",
+  // The calendar. title is deliberately absent: DEFAULTS applies by column
+  // name to every table, so a default title would turn a new module's or
+  // week's missing title into an empty string instead of null.
+  all_day: false,
+  category: "other",
 };
 
 const BASE = ["id", "modified_at", "deleted"] as const;
@@ -68,6 +73,13 @@ export const TABLES = {
     ["content"],
   ),
   settings: spec(["value"], ["value"]),
+  // The calendar's own events. The Google Calendar cache never reaches the
+  // server, because each device rebuilds it from the feed.
+  calendar_events: spec(
+    ["title", "start_date", "end_date", "start_time", "end_time", "all_day", "category", "location", "notes"],
+    [],
+    ["all_day"],
+  ),
 } satisfies Record<string, TableSpec>;
 
 export type TableName = keyof typeof TABLES;

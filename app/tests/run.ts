@@ -46,6 +46,8 @@ import { isAssessmentEnabled } from "../src/lib/assessmentEnabled";
 import { describeDeadline, pickNextDeadline } from "../src/lib/jobsCard";
 import { INSETS_COMPACT, INSETS_REGULAR, parseChrome, dockGeometry, editorQuery, FILE_TAB_COVER, FALLBACK_STATUS_HEIGHT } from "../src/lib/wordcraftChrome";
 import { registerListenTests } from "./test_listen";
+import { registerCalendarTests } from "./calendar";
+import { registerRoutingTests } from "./routing";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -64,6 +66,8 @@ registerProgressTests(test);
 registerSheetRouteTests(test);
 registerJobLogicTests(test);
 registerSafetyTests(test);
+registerCalendarTests(test);
+registerRoutingTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);

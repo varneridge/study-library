@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { bumpFile, completeUpload, redoFile, REDO_STEPS, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
 import { retryRecording, storeChunk, transcribeRecording } from "./recordings";
 import { servePicture, storePicture } from "./pictures";
+import { proxyIcsFeed } from "./calendarProxy";
 import { search } from "./search";
 import { maintain, purge } from "./maintenance";
 import { serveModelFile } from "./models";
@@ -105,6 +106,14 @@ app.post("/api/files/:id/identify", async (c) => {
 });
 
 app.get("/api/search", async (c) => c.json(await search(c.env, c.req.query("q") ?? "", Number(c.req.query("limit")) || 40)));
+
+// Fetches a Google Calendar secret iCal feed for the browser, which cannot read it
+// directly. The body is { url }, and calendarProxy.ts checks it before any request.
+app.post("/api/calendar/ics", async (c) => {
+  const body = await c.req.json<{ url?: unknown }>().catch(() => null);
+  if (typeof body?.url !== "string") return c.json({ error: "bad_url" }, 400);
+  return proxyIcsFeed(c.env, body.url);
+});
 
 app.post("/api/files/:id/bump", async (c) => {
   await bumpFile(c.env, c.req.param("id"));

@@ -32,6 +32,8 @@ const WordProcessor = lazy(() => import("./components/WordProcessor").then((m) =
 const openingEssay = <PageLoading label="Opening the word processor" />;
 // The job search is its own part of the app, loaded when first opened.
 const JobsPage = lazy(() => import("./components/JobsPage").then((m) => ({ default: m.JobsPage })));
+// The calendar is the third part of the app, loaded when first opened.
+const CalendarPage = lazy(() => import("./components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
 
 export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
@@ -232,7 +234,7 @@ function ModuleLinks({ route }: { route: Route }) {
   );
 }
 
-// The phone's tab bar: four places, always in reach of a thumb. It is for
+// The phone's tab bar: five places, always in reach of a thumb. It is for
 // going somewhere, never for an action, as Apple's guidelines put it. Each
 // tab stays lit for every page within its section.
 function TabBar({ route }: { route: Route }) {
@@ -240,10 +242,11 @@ function TabBar({ route }: { route: Route }) {
     document.documentElement.classList.add("with-tabs");
     return () => document.documentElement.classList.remove("with-tabs");
   }, []);
-  const section = route.view === "across" ? "across" : route.view === "search" ? "search" : route.view === "settings" ? "settings" : "home";
+  const section = route.view === "across" || route.view === "calendar" || route.view === "search" || route.view === "settings" ? route.view : "home";
   const tabs: { key: string; to: Route; label: string; icon: IconName }[] = [
     { key: "home", to: { view: "home" }, label: "Home", icon: "home" },
     { key: "across", to: { view: "across" }, label: "This week", icon: "week" },
+    { key: "calendar", to: { view: "calendar" }, label: "Calendar", icon: "calendar" },
     { key: "search", to: { view: "search" }, label: "Search", icon: "search" },
     { key: "settings", to: { view: "settings" }, label: "Settings", icon: "settings" },
   ];
@@ -260,7 +263,7 @@ function TabBar({ route }: { route: Route }) {
 }
 
 // While a field has the cursor on a touch screen, the keyboard is up, so
-// the tab bar steps aside rather than float over it. While it is up, the
+// the tab bar steps aside rather float over it. While it is up, the
 // cursor is also kept clear of the keyboard: whenever the visible area
 // shrinks or the caret moves, a caret that has slipped under the keyboard is
 // brought back into view by scrolling the nearest scrolling pane.
@@ -367,14 +370,22 @@ function useTypingClass() {
 }
 
 
-// Study Library and the job search share one top bar. The brand names the
-// side you are on and leads to its home, the switch moves between the two
-// sides, and the sync indicator, Search and Settings sit in the same place on both.
-function SideSwitch({ jobs }: { jobs: boolean }) {
+// Study Library, the calendar and the job search share one top bar. The brand
+// names the side you are on and leads to its home, the switch moves between
+// the three sides, and the sync indicator, Search and Settings sit in the same
+// place on all of them.
+type Side = "study" | "calendar" | "jobs";
+
+function sideOf(route: Route): Side {
+  return route.view === "jobs" ? "jobs" : route.view === "calendar" ? "calendar" : "study";
+}
+
+function SideSwitch({ side }: { side: Side }) {
   return (
-    <nav className="side-switch" aria-label="Study or job search">
-      <Link to={{ view: "home" }} className="side-study" currentSide={!jobs}>Study</Link>
-      <Link to={{ view: "jobs" }} className="to-jobs" currentSide={jobs}>
+    <nav className="side-switch" aria-label="Study, calendar or job search">
+      <Link to={{ view: "home" }} className="side-study" currentSide={side === "study"}>Study</Link>
+      <Link to={{ view: "calendar" }} className="to-calendar" currentSide={side === "calendar"}>Calendar</Link>
+      <Link to={{ view: "jobs" }} className="to-jobs" currentSide={side === "jobs"}>
         <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
       </Link>
     </nav>
@@ -382,13 +393,15 @@ function SideSwitch({ jobs }: { jobs: boolean }) {
 }
 
 function TopBar({ route }: { route: Route }) {
-  const jobs = route.view === "jobs";
+  const side = sideOf(route);
   return (
-    <header className={`topbar${jobs ? " jobs-bar wide" : ""}`}>
-      {jobs
+    <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : ""}`}>
+      {side === "jobs"
         ? <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
-        : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
-      {!jobs && (
+        : side === "calendar"
+          ? <Link to={{ view: "calendar" }} className="brand" current={true}>Calendar</Link>
+          : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
+      {side === "study" && (
         <div className="navs">
           <ModuleLinks route={route} />
           <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
@@ -397,7 +410,7 @@ function TopBar({ route }: { route: Route }) {
       {/* A direct child of the bar rather than one of the tools, so it stays
           in view on a phone, where the tab bar takes over the tools. */}
       <SyncStatus />
-      <SideSwitch jobs={jobs} />
+      <SideSwitch side={side} />
       <nav className="topbar-tools" aria-label="Tools">
         <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
           <span className="sr-only">Search</span>
@@ -414,10 +427,11 @@ function TopBar({ route }: { route: Route }) {
 
 // Remounting clears a page's state and error, so only a change of page does
 // it: the reading keeps its place when its page or search changes, and This
-// week and the job search keep theirs across their own query values.
+// week, the calendar and the job search keep theirs across their own query values.
 function pageKey(route: Route): string {
   switch (route.view) {
     case "across":
+    case "calendar":
     case "jobs":
       return route.view;
     case "reader":
@@ -430,7 +444,7 @@ function pageKey(route: Route): string {
   }
 }
 
-const failureLabels: Partial<Record<Route["view"], string>> = { reader: "reading", essay: "word processor", jobs: "job search" };
+const failureLabels: Partial<Record<Route["view"], string>> = { reader: "reading", essay: "word processor", jobs: "job search", calendar: "calendar" };
 
 function Page({ route }: { route: Route }) {
   switch (route.view) {
@@ -447,6 +461,7 @@ function Page({ route }: { route: Route }) {
     case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} /></Suspense>;
     case "essay": return <Suspense fallback={openingEssay}><WordProcessor id={route.id} essayId={route.essay} q={route.q} /></Suspense>;
     case "jobs": return <Suspense fallback={<PageLoading label="Opening the job search" wide />}><JobsPage /></Suspense>;
+    case "calendar": return <Suspense fallback={<PageLoading label="Opening the calendar" wide />}><CalendarPage route={route} /></Suspense>;
   }
 }
 
@@ -519,7 +534,7 @@ export function App() {
       </main>
       {!bare && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />
-      {route.view !== "essay" && route.view !== "jobs" && <DropAnywhere route={route} />}
+      {route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>
   );

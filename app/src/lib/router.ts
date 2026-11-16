@@ -2,6 +2,7 @@
 // app stays a single page that the service worker can serve offline.
 
 import { useEffect, useLayoutEffect, useState, useTransition } from "react";
+import { parseISO } from "./civilDate";
 import { hasOpenOverlay } from "./ui";
 
 export type Route =
@@ -16,6 +17,8 @@ export type Route =
   | { view: "session"; id: string; rec?: string; t?: number; turn?: number }
   | { view: "search"; q?: string }
   | { view: "settings" }
+  // The calendar: the date it is centred on, how it is shown, and the event whose sheet is open.
+  | { view: "calendar"; date?: string; mode?: "month" | "week" | "day" | "agenda"; event?: string }
   // The job search, kept apart from the study library.
   | { view: "jobs"; list?: "applications" | "shortlist"; app?: string; prospect?: string; edit?: boolean; newApp?: boolean; entry?: string; tab?: string };
 
@@ -74,6 +77,15 @@ export function parseRoute(search: string): Route {
       return { view, q: params.get("q") ?? undefined };
     case "settings":
       return { view };
+    case "calendar": {
+      const d = params.get("date");
+      const m = params.get("mode");
+      const date = d && parseISO(d) ? d : undefined;
+      const mode = m === "month" || m === "week" || m === "day" || m === "agenda" ? m : undefined;
+      const event = params.get("event") || undefined;
+      // Only what is present is set, so a parsed route equals the one that was linked.
+      return { view, ...(date ? { date } : {}), ...(mode ? { mode } : {}), ...(event ? { event } : {}) };
+    }
     case "jobs": {
       const prospect = params.get("prospect") ?? undefined;
       const list = params.get("list") === "shortlist" || prospect ? "shortlist" : undefined;
@@ -105,6 +117,11 @@ export function href(route: Route): string {
   if (route.view === "across") {
     if (route.term) params.set("term", route.term);
     if (route.number) params.set("n", String(route.number));
+  }
+  if (route.view === "calendar") {
+    if (route.date) params.set("date", route.date);
+    if (route.mode) params.set("mode", route.mode);
+    if (route.event) params.set("event", route.event);
   }
   if (route.view === "jobs") {
     if (route.list === "shortlist") params.set("list", "shortlist");

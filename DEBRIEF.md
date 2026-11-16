@@ -1020,6 +1020,15 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.51.0:
+  - Calendar function added as the third top-level function alongside Study and Job search (`0020_calendar.sql`, Dexie v10, Cloudflare Worker `/api/calendar/ics` proxy):
+    - Unified 3-side top bar (Study | Calendar | Job search) and 5-item mobile tab bar (Home | This week | Calendar | Search | Settings).
+    - Google Calendar sync via secret iCal URL with SSRF-safe Worker proxy, no-dependency RFC 5545 recurrence and time zone parser using `Intl`, and local Dexie caching for instant offline access.
+    - Aggregated deadline and event views combining Job deadlines, Shortlist checks, Essay and assessment deadlines, Google Calendar events, and personal custom events.
+    - Four views: Monday-first Month grid, 24-hour Week and Day time grids with live now-line and greedy interval packing, and chronological 60-day Agenda list.
+    - Full event creation and editing sheet with all-day toggle, date picker, start and end times, categories (appointment, lecture, reminder, other), location, and double-press delete confirmation.
+    - Standard Google Calendar keyboard shortcuts (`t` for today, `j`/`k` and arrow keys for next/prev, `m` for month, `w` for week, `d` for day, `a` for agenda, `c` for new event).
+
 - Improvements completed in 0.50.2:
   - Three-line week titles and standardized card sizing across the app: expanded `.week-card-title-link` to 3 lines (`-webkit-line-clamp: 3; line-clamp: 3;`) with a fixed height (`height: calc(3 * 1.35em); min-height: calc(3 * 1.35em); max-height: calc(3 * 1.35em);`) matching `.week-card-cover-display` so 1-line, 2-line and 3-line titles yield identical card heights across all modules and This week; consolidated `AssessmentCard` footer into `.week-card-dates` so essay cards match week card height; and locked `.week-card .title-input` in renaming mode to the same fixed 3-line height.
   - Ponytail code quality, data safety and lean fixes:
@@ -1280,6 +1289,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.50.1 | Complete removal of seminar questions from session materials and session pages; uniform fixed-ratio week card heights with 2-line clamped titles; clean 3-bar reorganise handles and within-week reading drag reordering without cross-week dock; removal of the middle grip icon on the session split divider; and matching slide-only week thumbnails, clear module headers, and even responsive columns on This week. |
 | 0.50.2 | Standardised 3-line week titles and uniform card heights across modules and assessment cards; ponytail quality review fixes across citations parsing, syllabus pinning, scroll restoration, and lazy PDF figure crop loading. |
 | 0.50.3 | Edit details card in front: portalled modal dialog with ordinary-sized thumbnail (16:9 for video, portrait for readings) beside metadata fields, preventing tiles or rows from stretching full-screen; ReorderSensor unifying pointer down activators across mouse and touch, restoring desktop dragging and fixing 3-line drag handles across weeks, sections and modules; and smart list collision detection with settling state in WeekBoard. |
+| 0.51.0 | Calendar as the third top-level function alongside Study and Job search: unified 3-way top bar switch, 5-tab mobile navigation, Google Calendar sync via secret iCal address with SSRF-safe Worker proxy and offline caching, aggregated event timelines covering job deadlines, shortlist checks, essay deadlines and personal events, responsive Month, Week, Day and Agenda views, event creation sheet, and Google Calendar keyboard shortcuts |
 
 ## 18. The job search
 

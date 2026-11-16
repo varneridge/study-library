@@ -51,6 +51,22 @@ export interface PendingUpload {
   created_at: string;
 }
 
+// One occurrence from the Google Calendar feed, already converted to this
+// device's wall clock. The cache is rebuilt from the feed on every refresh,
+// so it stays on this device and is never synced. key is the event's UID and
+// the start of the occurrence it stands for, joined by "|".
+export interface GcalEvent {
+  key: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  all_day: boolean;
+  location: string | null;
+  notes: string | null;
+}
+
 // A piece of a live recording, kept until the server confirms it.
 export interface RecordingChunk {
   id?: number;
@@ -76,6 +92,8 @@ class StudyDB extends Dexie {
   applications!: Table<Tables["applications"], string>;
   application_events!: Table<Tables["application_events"], string>;
   prospects!: Table<Tables["prospects"], string>;
+  calendar_events!: Table<Tables["calendar_events"], string>;
+  gcal_events!: Table<GcalEvent, string>;
   outbox!: Table<OutboxEntry, number>;
   failed!: Table<FailedChange, number>;
   meta!: Table<MetaEntry, string>;
@@ -129,6 +147,14 @@ class StudyDB extends Dexie {
     });
     // Graduate shortlist prospects and salary on applications, from 0.49.
     this.version(9).stores({ prospects: "id, next_check, status, application_id" }).upgrade(async (tx) => {
+      await tx.table("meta").put({ key: "cursor", value: 0 });
+    });
+    // The calendar: its own events, which sync, and the Google Calendar
+    // cache, which stays on this device.
+    this.version(10).stores({
+      calendar_events: "id, start_date, end_date",
+      gcal_events: "key, start_date",
+    }).upgrade(async (tx) => {
       await tx.table("meta").put({ key: "cursor", value: 0 });
     });
   }
