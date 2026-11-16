@@ -21,7 +21,7 @@ sys.path.insert(0, str(HERE))
 TEMPLATE = Path(os.environ.get("SL_ENV_TEMPLATE", HERE / "env.template"))
 # Packages whose data files or dynamic imports PyInstaller cannot see by static
 # analysis. Missing ones are skipped, so the list can name optional extras.
-PACKAGES_TO_COLLECT = ["study", "kokoro_onnx", "espeakng_loader", "language_tags", "phonemizer", "onnxruntime", "uvicorn"]
+PACKAGES_TO_COLLECT = ["study", "kokoro_onnx", "espeakng_loader", "language_tags", "phonemizer", "onnxruntime", "uvicorn", "numpy"]
 
 # Modules that study.desktop starts by name in a child process, which static
 # analysis cannot follow: uvicorn receives the speech server as the string
