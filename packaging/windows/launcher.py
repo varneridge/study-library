@@ -8,6 +8,11 @@ which defaults to study.desktop:main and can be overridden with STUDY_ENTRY.
 ``StudyLibrary.exe --self-test <report.json>`` performs every preparation step,
 runs each bundled tool once, imports the entry module without calling it, and
 writes a JSON report; the exit code is 0 only when every check passed.
+
+``StudyLibrary.exe -m <module> [args...]`` prepares the environment and runs
+the module as ``python -m`` would, without the single-instance lock, because
+study.desktop relaunches the frozen build this way for its supervisor and its
+children, which run alongside the copy that holds the lock.
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ import json
 import logging
 import logging.handlers
 import os
+import runpy
 import subprocess
 import sys
 import threading
@@ -71,6 +77,17 @@ def load_entry(spec: str) -> Callable[[], Any]:
     if not callable(func):
         raise TypeError(f"{spec} is not callable")
     return func
+
+
+def run_module(module: str, args: Sequence[str]) -> int:
+    """What ``python -m module args`` does, since the frozen build's
+    sys.executable is StudyLibrary.exe and there is no python.exe to run."""
+    sys.argv = [module, *args]
+    try:
+        runpy.run_module(module, run_name="__main__", alter_sys=True)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+    return 0
 
 
 def run_tool_check(path: str, args: Sequence[str]) -> Dict[str, Any]:
@@ -154,13 +171,17 @@ def _start_asset_repair(prep: Prepared) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="StudyLibrary", add_help=False)
-    parser.add_argument("--self-test", metavar="REPORT_JSON")
-    args, _unknown = parser.parse_known_args(argv)
+    argv = list(sys.argv[1:] if argv is None else argv)
     env = os.environ
     home = rt.home_dir(env)
     paths = rt.ensure_layout(home)
     rt.redirect_std_streams(paths["logs"])
+    if len(argv) >= 2 and argv[0] == "-m":
+        prepare(env)
+        return run_module(argv[1], argv[2:])
+    parser = argparse.ArgumentParser(prog="StudyLibrary", add_help=False)
+    parser.add_argument("--self-test", metavar="REPORT_JSON")
+    args, _unknown = parser.parse_known_args(argv)
     if args.self_test:
         return self_test(Path(args.self_test), env)
     _configure_logging(paths["logs"])

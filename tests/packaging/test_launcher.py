@@ -3,6 +3,8 @@ import json
 import sys
 import textwrap
 
+import pytest
+
 import launcher
 import slruntime as rt
 
@@ -69,6 +71,7 @@ def test_main_runs_entry_under_lock_and_second_instance_exits(tmp_path, monkeypa
             return 7
         """
     ))
+    monkeypatch.delenv("STUDY_DATA_DIR", raising=False)
     monkeypatch.syspath_prepend(str(pkg))
     env = _env(tmp_path, entry="fake_app:main", R2_ACCESS_KEY_ID="a", R2_SECRET_ACCESS_KEY="b")
     for k, v in env.items():
@@ -80,6 +83,39 @@ def test_main_runs_entry_under_lock_and_second_instance_exits(tmp_path, monkeypa
     import fake_app
     assert fake_app.CALLS == [0] and focused == [tmp_path / "home"]
     assert rt.FileLock(tmp_path / "home" / "instance.lock").acquire(), "lock must be released after exit"
+
+
+def test_main_runs_a_module_as_python_dash_m_does_and_ignores_the_window_lock(tmp_path, monkeypatch):
+    # study.desktop relaunches the frozen build as "StudyLibrary.exe -m study.desktop --headless"
+    # while the first copy still holds instance.lock, so module mode must not wait for that lock.
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "fake_supervisor.py").write_text(textwrap.dedent(
+        """
+        import json, os, sys
+        if __name__ == "__main__":
+            with open(os.environ["FAKE_OUT"], "w") as out:
+                json.dump({"argv": sys.argv[1:], "data": os.environ.get("STUDY_DATA_DIR")}, out)
+            sys.exit(5)
+        """
+    ))
+    monkeypatch.delenv("STUDY_DATA_DIR", raising=False)
+    monkeypatch.syspath_prepend(str(pkg))
+    monkeypatch.setattr(sys, "argv", list(sys.argv))
+    out = tmp_path / "out.json"
+    env = _env(tmp_path, R2_ACCESS_KEY_ID="a", R2_SECRET_ACCESS_KEY="b", FAKE_OUT=str(out))
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(launcher, "_start_asset_repair", lambda prep: pytest.fail("module mode must not repair assets"))
+    monkeypatch.setattr(launcher, "_focus_running_instance", lambda home: pytest.fail("module mode must not defer"))
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
+    window_lock = rt.FileLock(tmp_path / "home" / "instance.lock")
+    assert window_lock.acquire()
+    try:
+        assert launcher.main(["-m", "fake_supervisor", "--headless"]) == 5
+    finally:
+        window_lock.release()
+    assert json.loads(out.read_text()) == {"argv": ["--headless"], "data": str(tmp_path / "home" / "data")}
 
 
 def test_main_reports_startup_crash(tmp_path, monkeypatch):

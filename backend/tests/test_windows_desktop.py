@@ -303,6 +303,72 @@ def test_spawn_worker_sets_aside_a_log_over_the_limit(tmp_path, monkeypatch):
     assert (home / "logs" / "processor.log").stat().st_size == 0
 
 
+def _windows_popen(started):
+    """Popen as CreateProcess behaves on Windows, on whatever system the test
+    runs: a working folder that does not exist is refused with WinError 267
+    (NotADirectoryError) before the child starts, which is the failure the
+    packaged build met on its first launch."""
+
+    class FakePopen:
+        def __init__(self, args, **kwargs):
+            if not Path(kwargs["cwd"]).is_dir():
+                raise NotADirectoryError(20, "The directory name is invalid", str(kwargs["cwd"]))
+            started.append((list(args), kwargs))
+
+    return FakePopen
+
+
+def _packaged_home(tmp_path, monkeypatch):
+    """The per-user home as the packaged build finds it on a first launch, with
+    sys.executable set to StudyLibrary.exe. There is no repo\\backend, because
+    the package travels inside the executable, but there is a .venv left by an
+    earlier source install, so the test also shows that it is not picked up."""
+    home = tmp_path / "home"
+    scripts = home / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    scripts.mkdir(parents=True)
+    for name in ("python.exe", "pythonw.exe", "python"):
+        (scripts / name).write_text("")
+    exe = tmp_path / "StudyLibrary" / "StudyLibrary.exe"
+    exe.parent.mkdir()
+    exe.write_text("")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    return home, exe
+
+
+def test_spawn_supervisor_starts_from_the_checkout_in_a_source_install(tmp_path, monkeypatch):
+    from study import desktop
+
+    home = _home(tmp_path)
+    started = []
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setenv("STUDY_HANDOVER", "1")
+    monkeypatch.setattr(desktop.subprocess, "Popen", _windows_popen(started))
+    desktop._spawn_supervisor(home, handover=False)
+
+    [(args, kwargs)] = started
+    assert args[1:] == ["-m", "study.desktop", "--headless"]
+    assert Path(kwargs["cwd"]) == home / "repo" / "backend"
+    assert "STUDY_HANDOVER" not in kwargs["env"]
+
+
+def test_the_packaged_build_starts_its_supervisor_and_children_from_home(tmp_path, monkeypatch):
+    from study import desktop
+
+    home, exe = _packaged_home(tmp_path, monkeypatch)
+    started = []
+    monkeypatch.setattr(desktop.subprocess, "Popen", _windows_popen(started))
+    desktop._spawn_supervisor(home, handover=False)
+    desktop.spawn_worker(home, {"PATH": "x"})
+
+    assert [args for args, _ in started] == [
+        [str(exe), "-m", "study.desktop", "--headless"],
+        [str(exe), "-m", "study.processor"],
+        [str(exe), "-m", "uvicorn", "backend.tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
+    ]
+    assert [Path(kwargs["cwd"]) for _, kwargs in started] == [home, home, home]
+
+
 @pytest.fixture
 def launcher(tmp_path, monkeypatch):
     from study import desktop

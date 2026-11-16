@@ -237,15 +237,35 @@ def acquire_single_instance(name: str = MUTEX_NAME, wait_seconds: float = 0.0) -
             time.sleep(0.2)
 
 
+def _frozen() -> bool:
+    """True in the PyInstaller build, where sys.executable is StudyLibrary.exe."""
+    return bool(getattr(sys, "frozen", False))
+
+
 def _python(home: Path, windowless: bool = False) -> str:
     """The environment's Python: python.exe for children, whose hidden console
     their own children (Tesseract, ffmpeg, LibreOffice) inherit, so no window
-    appears; pythonw.exe for the supervisor itself."""
+    appears; pythonw.exe for the supervisor itself. The packaged build has no
+    separate Python, so it relaunches StudyLibrary.exe, which runs "-m module"
+    as python.exe would, and it ignores any .venv that a source install may
+    have left in the same home."""
+    if _frozen():
+        return sys.executable
     name = ("pythonw.exe" if windowless else "python.exe") if WINDOWS else "python"
     for candidate in (_scripts(Path(home)) / name, Path(sys.executable).with_name(name)):
         if candidate.is_file():
             return str(candidate)
     return sys.executable
+
+
+def _workdir(home: Path) -> Path:
+    """The folder each child starts in. A source install uses repo\\backend so
+    that "-m study..." finds the package there, whereas the packaged build has
+    no checkout at all and carries the package inside the executable, so it
+    uses home, which main has created by then. Windows refuses a folder that
+    does not exist with WinError 267 before the child runs."""
+    home = Path(home)
+    return home if _frozen() else home / "repo" / "backend"
 
 
 def _log(home: Path, name: str):
@@ -271,7 +291,7 @@ def _start(home: Path, env: Mapping[str, str], name: str) -> subprocess.Popen:
     home = Path(home)
     with _log(home, f"{name}.log") as out:
         return subprocess.Popen(
-            [_python(home), *COMMANDS[name]], cwd=home / "repo" / "backend", env=dict(env),
+            [_python(home), *COMMANDS[name]], cwd=_workdir(home), env=dict(env),
             stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP if WINDOWS else 0,
         )
@@ -322,7 +342,7 @@ def _spawn_supervisor(home: Path, handover: bool) -> None:
         env.pop("STUDY_HANDOVER", None)
     subprocess.Popen(
         [_python(home, windowless=True), "-m", "study.desktop", "--headless"],
-        cwd=Path(home) / "repo" / "backend", env=env,
+        cwd=_workdir(home), env=env,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if WINDOWS else 0,
         start_new_session=not WINDOWS,
@@ -429,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.once:
         return subprocess.call([_python(home), "-m", "study.processor", "--once"],
-                               cwd=home / "repo" / "backend", env=prepare_environment(home))
+                               cwd=_workdir(home), env=prepare_environment(home))
     if args.headless:
         try:
             return supervise(home)
