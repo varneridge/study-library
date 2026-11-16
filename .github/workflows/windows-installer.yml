@@ -1,0 +1,42 @@
+# Builds, verifies and (on version tags) publishes StudyLibrarySetup.exe.
+# Runs build.ps1 exactly as a developer would, so CI and local builds cannot drift.
+name: Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git describe needs the tags to derive the version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - uses: actions/cache@v4
+        with:
+          path: build/windows/cache
+          key: vendor-${{ hashFiles('packaging/windows/manifest.json') }}
+      - name: Build, verify and publish
+        shell: pwsh
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          $publish = $env:GITHUB_REF -like 'refs/tags/v*'
+          ./packaging/windows/build.ps1 -Verify -Publish:$publish -PythonExe (Get-Command python).Source
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StudyLibrarySetup
+          path: |
+            dist/StudyLibrarySetup.exe
+            dist/StudyLibrarySetup.exe.sha256
+          if-no-files-found: error

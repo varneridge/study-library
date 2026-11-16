@@ -1,0 +1,83 @@
+{
+  "tools": [
+    {
+      "name": "ffmpeg",
+      "kind": "zip",
+      "url": "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip",
+      "sha256": "fa7d4d7e795db0e2503f49f105f46ed5852386f0cfdd819899be3b65ebde24fc",
+      "strip_root": true,
+      "prune": ["bin/ffplay.exe", "doc", "presets"],
+      "keep": [],
+      "expect": ["bin/ffmpeg.exe", "bin/ffprobe.exe"],
+      "bin_dir": "bin",
+      "exe": "ffmpeg.exe",
+      "required": true,
+      "check_args": ["-hide_banner", "-version"],
+      "env_dirs": {},
+      "env_exe": ["FFMPEG_BINARY", "IMAGEIO_FFMPEG_EXE"],
+      "app_local_crt": []
+    },
+    {
+      "name": "tesseract",
+      "kind": "nsis",
+      "url": "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
+      "sha256": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
+      "strip_root": false,
+      "prune": ["$PLUGINSDIR", "doc", "*.html", "*.jar", "*.exe"],
+      "keep": ["tesseract.exe"],
+      "expect": ["tesseract.exe", "libtesseract-5.dll", "tessdata/eng.traineddata", "tessdata/osd.traineddata"],
+      "bin_dir": ".",
+      "exe": "tesseract.exe",
+      "required": true,
+      "check_args": ["--list-langs"],
+      "env_dirs": {"TESSDATA_PREFIX": "tessdata"},
+      "env_exe": ["TESSERACT_CMD"],
+      "app_local_crt": []
+    },
+    {
+      "name": "ghostscript",
+      "kind": "nsis",
+      "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10040/gs10040w64.exe",
+      "sha256": "7e81126cb545e62e7ce9c92b5f11390c76c6321d25b049fdaf9aa6c6fc4eac4f",
+      "strip_root": false,
+      "prune": ["$PLUGINSDIR", "doc", "examples", "vcredist_x64.exe", "uninstgs.exe.nsis", "bin/*.lib"],
+      "keep": [],
+      "expect": ["bin/gswin64c.exe", "bin/gsdll64.dll", "Resource", "lib"],
+      "bin_dir": "bin",
+      "exe": "gswin64c.exe",
+      "required": true,
+      "check_args": ["-q", "-dNODISPLAY", "-dBATCH", "-dNOPAUSE", "-dSAFER", "-c", "quit"],
+      "env_dirs": {},
+      "env_exe": ["STUDY_GHOSTSCRIPT"],
+      "app_local_crt": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
+    },
+    {
+      "name": "libreoffice",
+      "kind": "system",
+      "exe": "soffice.exe",
+      "required": false,
+      "check_args": ["--version"],
+      "search": ["%ProgramFiles%\\LibreOffice\\program", "%ProgramFiles(x86)%\\LibreOffice\\program"],
+      "env_dirs": {},
+      "env_exe": ["STUDY_SOFFICE"]
+    }
+  ],
+  "assets": [
+    {
+      "name": "kokoro-model",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+      "sha256": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+      "size": 325532387,
+      "dest": "kokoro/kokoro-v1.0.onnx",
+      "env": "KOKORO_MODEL_PATH"
+    },
+    {
+      "name": "kokoro-voices",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+      "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+      "size": 28214398,
+      "dest": "kokoro/voices-v1.0.bin",
+      "env": "KOKORO_VOICES_PATH"
+    }
+  ]
+}

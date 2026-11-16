@@ -4,3 +4,6 @@
 /Study/
 __pycache__/
 *.pyc
+build/
+dist/
+packaging/windows/vendor/
