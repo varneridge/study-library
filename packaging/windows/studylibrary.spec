@@ -21,12 +21,12 @@ sys.path.insert(0, str(HERE))
 TEMPLATE = Path(os.environ.get("SL_ENV_TEMPLATE", HERE / "env.template"))
 # Packages whose data files or dynamic imports PyInstaller cannot see by static
 # analysis. Missing ones are skipped, so the list can name optional extras.
-COLLECT = ["study", "kokoro_onnx", "espeakng_loader", "language_tags", "phonemizer", "onnxruntime", "uvicorn"]
+PACKAGES_TO_COLLECT = ["study", "kokoro_onnx", "espeakng_loader", "language_tags", "phonemizer", "onnxruntime", "uvicorn"]
 
 datas = [(str(HERE / "manifest.json"), "."), (str(TEMPLATE), ".")]
 binaries = []
 hiddenimports = ["slruntime", "slassets"]
-for package in COLLECT:
+for package in PACKAGES_TO_COLLECT:
     if importlib.util.find_spec(package) is None:
         print(f"[studylibrary.spec] {package} not installed, skipping")
         continue
