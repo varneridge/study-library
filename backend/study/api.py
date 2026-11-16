@@ -7,6 +7,7 @@ endpoints also need the processor key.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,19 @@ class ApiError(Exception):
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
+
+
+class LeaseLost(ApiError):
+    """The Worker has given this job to another machine, so nothing more may be
+    saved for it. Raised for a 409 whose body names lease_lost; other 409s, such
+    as a recording that is still live, stay a plain ApiError."""
+
+
+def _is_lease_lost(text: str) -> bool:
+    try:
+        return json.loads(text).get("error") == "lease_lost"
+    except (ValueError, AttributeError):
+        return False
 
 
 def stamp(after: str | None = None) -> str:
@@ -48,21 +62,31 @@ class Api:
         self.base = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        # The lease of the job this processor is working on. Every request
+        # carries it, so the Worker can refuse writes from a machine whose job
+        # has since been handed to another.
+        self.current_lease_id: str | None = None
         if processor_key:
             self.session.headers["X-Processor-Key"] = processor_key
         if access_client_id and access_client_secret:
             self.session.headers["CF-Access-Client-Id"] = access_client_id
             self.session.headers["CF-Access-Client-Secret"] = access_client_secret
 
+    def _lease_header(self) -> dict[str, str]:
+        return {"X-Lease-Id": self.current_lease_id} if self.current_lease_id else {}
+
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+        headers = {**self._lease_header(), **(kwargs.pop("headers", None) or {})}
         response = self.session.request(method, self.base + path, timeout=self.timeout,
-                                        allow_redirects=False, **kwargs)
+                                        allow_redirects=False, headers=headers, **kwargs)
         if response.is_redirect:
             raise ApiError(f"{method} {path} was redirected. Check the Access service token.")
         if response.status_code >= 400:
             status = response.status_code
             text = response.text[:500]
             response.close()
+            if status == 409 and _is_lease_lost(text):
+                raise LeaseLost(f"{method} {path}: this job now belongs to another machine", status)
             raise ApiError(f"{method} {path} returned {status}: {text}", status)
         return response
 
@@ -111,7 +135,15 @@ class Api:
     # Processor
 
     def claim(self) -> dict | None:
-        return self._json("POST", "/api/processor/claim")["job"]
+        """The next job, whose lease every later request carries until end_lease."""
+        self.end_lease()
+        job = self._json("POST", "/api/processor/claim")["job"]
+        if job:
+            self.current_lease_id = job.get("lease_id")
+        return job
+
+    def end_lease(self) -> None:
+        self.current_lease_id = None
 
     def complete(self, job_id: int) -> None:
         self._json("POST", f"/api/processor/jobs/{job_id}/complete")
@@ -120,15 +152,12 @@ class Api:
         return self._json("POST", f"/api/processor/jobs/{job_id}/fail", json={"error": error})["final"]
 
     def file(self, file_id: str) -> dict | None:
-        response = self.session.get(f"{self.base}/api/processor/files/{file_id}", timeout=self.timeout,
-                                    allow_redirects=False)
-        if response.is_redirect:
-            raise ApiError(f"GET file {file_id} was redirected. Check the Access service token.")
-        if response.status_code == 404:
-            return None
-        if response.status_code >= 400:
-            raise ApiError(f"GET file {file_id} returned {response.status_code}", response.status_code)
-        return response.json()["file"]
+        try:
+            return self._json("GET", f"/api/processor/files/{file_id}")["file"]
+        except ApiError as error:
+            if error.status == 404:
+                return None
+            raise
 
     def download(self, key: str, path: str) -> None:
         """Writes to a .part file beside the target and renames it into place
@@ -161,13 +190,12 @@ class Api:
 
     def read_text(self, key: str) -> str | None:
         """A small stored text, or None if there is nothing at that key."""
-        response = self.session.get(f"{self.base}/api/processor/objects/{key}", timeout=self.timeout,
-                                    allow_redirects=False)
-        if response.status_code == 404:
-            return None
-        if response.status_code >= 400 or response.is_redirect:
-            raise ApiError(f"GET {key} returned {response.status_code}", response.status_code)
-        return response.content.decode("utf-8")
+        try:
+            return self._request("GET", f"/api/processor/objects/{key}").content.decode("utf-8")
+        except ApiError as error:
+            if error.status == 404:
+                return None
+            raise
 
     def put_text(self, key: str, text: str) -> None:
         self._json("PUT", f"/api/processor/objects/{key}", data=text.encode("utf-8"),
@@ -175,9 +203,11 @@ class Api:
 
     def heartbeat(self, job_id: int) -> bool:
         """Tells the Worker a long job is still running. Uses its own
-        connection, because it is called from a second thread."""
+        connection, because it is called from a second thread. False when the
+        job is no longer this machine's."""
         response = requests.post(f"{self.base}/api/processor/jobs/{job_id}/heartbeat",
-                                 headers=dict(self.session.headers), timeout=30, allow_redirects=False)
+                                 headers={**self.session.headers, **self._lease_header()},
+                                 timeout=30, allow_redirects=False)
         return response.ok and bool(response.json().get("running"))
 
     def file_text(self, file_id: str, page_count: int, pages: list[dict],

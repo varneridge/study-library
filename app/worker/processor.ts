@@ -1,15 +1,48 @@
 // Endpoints used by the processor, which runs the OCR and conversion tools.
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { requireProcessor } from "./auth";
 import { NOW, TOUCH, type Env } from "./env";
 import { serveObject, queueRescan } from "./files";
 import { chunkPrefix, listChunks } from "./recordings";
+import { MAX_ATTEMPTS } from "./maintenance";
 import { decode } from "./schema";
-
-const MAX_ATTEMPTS = 5;
 
 export const processor = new Hono<{ Bindings: Env }>();
 processor.use("*", requireProcessor);
+
+// Each claim hands the job a fresh lease, which the processor sends back as
+// X-Lease-Id with every request while it works. If that machine sleeps past
+// the stale-job sweep, the job is queued again and another machine takes it
+// with a new lease; when the first wakes, its writes are refused with 409, so
+// it can never save over the new owner's results.
+const LEASE_HEADER = "X-Lease-Id";
+const leaseLost = (c: Context) => c.json({ error: "lease_lost" }, 409);
+
+// The job routes check the lease in the same statement that writes, so a
+// sweep or a new claim cannot slip in between a check and the write. A
+// request with no lease comes from a processor older than leases: it is
+// treated as before, because refusing it would only leave its jobs running
+// until the sweep, again and again, while its results still went through. A
+// processor that knows about leases always sends one, so this lets nothing
+// stale past.
+const LEASE_MATCHES = "(?2 IS NULL OR (lease_id = ?2 AND status = 'running'))";
+const leaseOf = (c: Context) => c.req.header(LEASE_HEADER) ?? null;
+
+// For the routes that save results about a file, a recording or an object.
+// A request without a lease, such as a rescan or the importer, is let through.
+async function requireCurrentLease(c: Context<{ Bindings: Env }>, next: Next) {
+  const lease = c.req.header(LEASE_HEADER);
+  if (lease && c.req.method !== "GET" && c.req.method !== "HEAD") {
+    const current = await c.env.DB.prepare("SELECT 1 FROM jobs WHERE lease_id = ?1 AND status = 'running'")
+      .bind(lease)
+      .first();
+    if (!current) return leaseLost(c);
+  }
+  await next();
+}
+processor.use("/files/*", requireCurrentLease);
+processor.use("/recordings/*", requireCurrentLease);
+processor.use("/objects/*", requireCurrentLease);
 
 // The same rescan, from the laptop: python -m study.processor --rescan
 processor.post("/rescan", async (c) => c.json({ queued: await queueRescan(c.env) }));
@@ -20,51 +53,61 @@ processor.post("/claim", async (c) => {
     `INSERT INTO counters (name, value) VALUES ('processor_seen', CAST(strftime('%s', 'now') AS INTEGER))
      ON CONFLICT (name) DO UPDATE SET value = excluded.value`,
   ).run();
+  // One statement, so two machines asking at once never get the same job.
   const job = await c.env.DB.prepare(
-    `UPDATE jobs SET status = 'running', attempts = attempts + 1, started_at = ${NOW}
+    `UPDATE jobs SET status = 'running', attempts = attempts + 1, started_at = ${NOW}, lease_id = ?1
       WHERE id = (
         SELECT id FROM jobs
          WHERE status = 'queued' AND run_after <= ${NOW}
          ORDER BY priority IS NULL, priority, id
          LIMIT 1)
-      RETURNING id, type, payload, attempts, priority`,
-  ).first<{ id: number; type: string; payload: string; attempts: number; priority: number | null }>();
+      RETURNING id, type, payload, attempts, priority, lease_id`,
+  ).bind(crypto.randomUUID())
+    .first<{ id: number; type: string; payload: string; attempts: number; priority: number | null; lease_id: string }>();
   if (!job) return c.json({ job: null });
   return c.json({ job: { ...job, payload: JSON.parse(job.payload || "{}") } });
 });
 
 processor.post("/jobs/:id/complete", async (c) => {
-  await c.env.DB.prepare(
-    `UPDATE jobs SET status = 'done', finished_at = ${NOW}, error = NULL WHERE id = ?1`,
-  ).bind(Number(c.req.param("id"))).run();
+  const lease = leaseOf(c);
+  const result = await c.env.DB.prepare(
+    `UPDATE jobs SET status = 'done', finished_at = ${NOW}, error = NULL, lease_id = NULL
+      WHERE id = ?1 AND ${LEASE_MATCHES}`,
+  ).bind(Number(c.req.param("id")), lease).run();
+  if (lease && (result.meta?.changes ?? 0) === 0) return leaseLost(c);
   return c.json({ ok: true });
 });
 
 // A long job reports in while it runs, so the stale-job sweep leaves it alone.
 processor.post("/jobs/:id/heartbeat", async (c) => {
-  const result = await c.env.DB.prepare(`UPDATE jobs SET started_at = ${NOW} WHERE id = ?1 AND status = 'running'`)
-    .bind(Number(c.req.param("id"))).run();
-  return c.json({ running: (result.meta?.changes ?? 0) > 0 });
+  const lease = leaseOf(c);
+  const result = await c.env.DB.prepare(
+    `UPDATE jobs SET started_at = ${NOW} WHERE id = ?1 AND status = 'running' AND ${LEASE_MATCHES}`,
+  ).bind(Number(c.req.param("id")), lease).run();
+  const running = (result.meta?.changes ?? 0) > 0;
+  if (lease && !running) return leaseLost(c);
+  return c.json({ running });
 });
 
 processor.post("/jobs/:id/fail", async (c) => {
   const id = Number(c.req.param("id"));
+  const lease = leaseOf(c);
   const { error } = await c.req.json<{ error: string }>();
   const job = await c.env.DB.prepare("SELECT attempts FROM jobs WHERE id = ?1").bind(id).first<{ attempts: number }>();
   if (!job) return c.json({ error: "no such job" }, 404);
   const final = job.attempts >= MAX_ATTEMPTS;
-  if (final) {
-    await c.env.DB.prepare(
-      `UPDATE jobs SET status = 'failed', finished_at = ${NOW}, error = ?2 WHERE id = ?1`,
-    ).bind(id, String(error).slice(0, 4000)).run();
-  } else {
-    const minutes = 2 ** job.attempts;
-    await c.env.DB.prepare(
-      `UPDATE jobs SET status = 'queued', error = ?2,
-         run_after = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?3 || ' minutes')
-       WHERE id = ?1`,
-    ).bind(id, String(error).slice(0, 4000), minutes).run();
-  }
+  const message = String(error).slice(0, 4000);
+  const result = final
+    ? await c.env.DB.prepare(
+      `UPDATE jobs SET status = 'failed', finished_at = ${NOW}, error = ?3, lease_id = NULL
+        WHERE id = ?1 AND ${LEASE_MATCHES}`,
+    ).bind(id, lease, message).run()
+    : await c.env.DB.prepare(
+      `UPDATE jobs SET status = 'queued', error = ?3, lease_id = NULL,
+         run_after = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?4 || ' minutes')
+       WHERE id = ?1 AND ${LEASE_MATCHES}`,
+    ).bind(id, lease, message, 2 ** job.attempts).run();
+  if (lease && (result.meta?.changes ?? 0) === 0) return leaseLost(c);
   return c.json({ final });
 });
 

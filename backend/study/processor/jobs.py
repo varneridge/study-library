@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from ..api import Api
@@ -350,7 +351,6 @@ def ocr(ctx: Context, job: dict) -> None:
     mode = job["payload"].get("mode") or ("redo" if job["payload"].get("redo") else "skip")
     redo = mode == "redo"
     old_key = file["r2_key"]
-    new_key = old_key.rsplit(".", 1)[0] + ".ocr.pdf"
     languages = ocr_languages()
     with tempfile.TemporaryDirectory() as tmp:
         source = os.path.join(tmp, "in.pdf")
@@ -366,10 +366,24 @@ def ocr(ctx: Context, job: dict) -> None:
                                 capture_output=True, text=True, timeout=OCR_TIMEOUT)
         if result.returncode != 0 or not os.path.exists(output):
             raise JobError(f"ocrmypdf exited with {result.returncode}: {_tail(result.stderr)}")
+        # Named by its own contents, as every stored file is, so a scan read
+        # again (on this machine or another) never overwrites bytes a device
+        # has already cached. The .ocr.pdf ending is what a rescan looks for.
+        new_key = f"files/{_sha256(output)}.ocr.pdf"
         ctx.api.put_object(output, new_key, "application/pdf")
         size = os.path.getsize(output)
 
-    ctx.api.replaced(file["id"], new_key, size, job.get("priority"))
+    try:
+        ctx.api.replaced(file["id"], new_key, size, job.get("priority"))
+    except Exception:
+        # A retry reads the scan again and gets different bytes, so a different
+        # name; without this the object just stored would be kept for ever.
+        # Only an object no file points at is removed.
+        try:
+            ctx.api.delete_unreferenced(new_key)
+        except Exception:  # noqa: BLE001
+            log.warning("could not remove %s after a failed OCR save", new_key)
+        raise
     if not ctx.keep_original_scans and old_key != new_key:
         ctx.api.delete_unreferenced(old_key)
     log.info("file %s OCR done (%s%s, %s)", file["id"], {"redo": "read again", "fresh": "rebuilt"}.get(mode, "new text"),
@@ -420,7 +434,9 @@ def convert(ctx: Context, job: dict) -> None:
         else:
             profile = os.path.join(tmp, "profile")
             result = subprocess.run(
-                ["soffice", f"-env:UserInstallation=file://{profile}", "--headless", "--norestore",
+                # A proper file URL: "file://" + a Windows path is not one, and a
+                # space in the user's folder name must be escaped.
+                ["soffice", f"-env:UserInstallation={Path(profile).as_uri()}", "--headless", "--norestore",
                  "--convert-to", "pdf", "--outdir", tmp, source],
                 capture_output=True, text=True, timeout=CONVERT_TIMEOUT,
                 env={**os.environ, "HOME": tmp},

@@ -1,13 +1,20 @@
 """Local Kokoro speech for Study Library's Listen feature.
 
-Runs hexgrad's `kokoro` KPipeline (the same engine Kokoro-TTS-Local wraps) on
-the WSL machine, on CUDA when available, and returns each utterance's audio
-together with word timestamps (misaki MToken.start_ts / end_ts, English only).
+Two engines give the same answer. On Windows, `kokoro-onnx` runs the Kokoro
+v1.0 model on ONNX Runtime's CPU, with no PyTorch; it gives no word timings,
+so each word's time is estimated from its share of its sentence's speech.
+Elsewhere hexgrad's `kokoro` KPipeline (the same engine Kokoro-TTS-Local
+wraps) runs on CUDA when available and gives word timestamps itself (misaki
+MToken.start_ts / end_ts, English only).
 
 Run:  uvicorn backend.tts.server:app --host 127.0.0.1 --port 8765
 Env:  LISTEN_TOKEN       bearer token required when set (always set it behind a tunnel)
       LISTEN_ORIGINS     comma-separated origins allowed by CORS
       LISTEN_DEVICE      "cuda" or "cpu" (default: cuda when available)
+      TTS_ENGINE         "onnx" or "torch"; by default onnx when kokoro-onnx and
+                         its model files are present, torch otherwise
+      STUDY_MODELS_DIR   folder holding kokoro/kokoro-v1.0(.int8).onnx and
+                         kokoro/voices-v1.0.bin (default: backend/tts/models)
 
 Wire format of POST /tts/v1/synthesise (application/x-kokoro-utterance):
   bytes 0..3   b"KTT1"
@@ -20,12 +27,15 @@ Wire format of POST /tts/v1/synthesise (application/x-kokoro-utterance):
 from __future__ import annotations
 
 import hmac
+import importlib.util
 import inspect
 import json
 import os
+import re
 import struct
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Iterable, Protocol
 
 import numpy as np
@@ -38,6 +48,7 @@ MAGIC = b"KTT1"
 SAMPLE_RATE = 24_000
 MAX_TEXT_CHARS = 1_000
 MODEL_VERSION = "kokoro-82m-v1.0+kpipeline"
+ONNX_MODEL_VERSION = "kokoro-82m-v1.0+onnx"
 
 # Kokoro v1.0 English voices with their published grades. British first: the
 # app's default is British English (bf_emma).
@@ -130,11 +141,120 @@ class KokoroEngine:
             return pcm, tokens
 
 
-def encode_frame(pcm: np.ndarray, tokens: list[dict], voice: str) -> bytes:
+_SENTENCE_END = re.compile(r"(?<=[.!?\u2026])\s+")
+_WORD = re.compile(r"[^\W_](?:[\w\u2019'-]*[^\W_])?")
+# How much speaking time a word gets per letter, and the pause after a mark,
+# in the same units. Rough, but it keeps the highlight on the right word.
+_LETTER_WEIGHT = 1.0
+_WORD_WEIGHT = 1.5
+_PAUSE_WEIGHT = {",": 2.0, ";": 3.0, ":": 3.0, "\u2014": 3.0, "(": 1.5, ")": 1.5}
+
+
+def estimate_tokens(text: str, audio: np.ndarray, offset: float) -> list[dict]:
+    """Word times for one sentence's audio, which kokoro-onnx does not give.
+
+    The voiced part of the audio (silence trimmed at each end) is shared out
+    among the words by length, with a pause after commas and the like."""
+    words = list(_WORD.finditer(text))
+    if not words or audio.size == 0:
+        return []
+    level = np.abs(audio)
+    voiced = np.flatnonzero(level > max(1e-4, 0.02 * float(level.max())))
+    begin = voiced[0] / SAMPLE_RATE if voiced.size else 0.0
+    end = (voiced[-1] + 1) / SAMPLE_RATE if voiced.size else audio.size / SAMPLE_RATE
+    spans: list[tuple[float, float]] = []  # (speaking weight, pause weight after)
+    for index, word in enumerate(words):
+        gap = text[word.end():words[index + 1].start()] if index + 1 < len(words) else ""
+        pause = max((_PAUSE_WEIGHT.get(ch, 0.0) for ch in gap), default=0.0)
+        spans.append((_WORD_WEIGHT + _LETTER_WEIGHT * len(word.group()), pause))
+    scale = (end - begin) / sum(speak + pause for speak, pause in spans)
+    tokens, at = [], begin
+    for word, (speak, pause) in zip(words, spans):
+        tokens.append({"text": word.group(), "start": round(offset + at, 3), "end": round(offset + at + speak * scale, 3)})
+        at += (speak + pause) * scale
+    return tokens
+
+
+def _models_dir() -> Path:
+    return Path(os.environ.get("STUDY_MODELS_DIR") or Path(__file__).resolve().parent / "models") / "kokoro"
+
+
+def _onnx_files() -> tuple[Path, Path] | None:
+    folder = _models_dir()
+    voices = folder / "voices-v1.0.bin"
+    for name in ("kokoro-v1.0.onnx", "kokoro-v1.0.int8.onnx"):
+        if (folder / name).is_file() and voices.is_file():
+            return folder / name, voices
+    return None
+
+
+@dataclass
+class OnnxEngine:
+    """kokoro-onnx on ONNX Runtime's CPU, one call at a time. Each sentence is
+    spoken on its own, so an estimated word time can only drift within it."""
+
+    kokoro_factory: Callable[[], object] | None = None
+    model_version: str = ONNX_MODEL_VERSION
+    _kokoro: object | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        self._lock = threading.Lock()
+        if self.kokoro_factory is None:
+            self.kokoro_factory = self._default_factory
+
+    @staticmethod
+    def _default_factory():
+        from kokoro_onnx import Kokoro  # imported lazily so tests never need it
+
+        files = _onnx_files()
+        if files is None:
+            raise RuntimeError(f"Kokoro model files are missing from {_models_dir()}")
+        return Kokoro(str(files[0]), str(files[1]))
+
+    def device(self) -> str:
+        return "cpu"
+
+    def synthesise(self, text: str, voice: str) -> tuple[np.ndarray, list[dict]]:
+        with self._lock:
+            if self._kokoro is None:
+                self._kokoro = self.kokoro_factory()
+            lang = "en-gb" if lang_code(voice) == "b" else "en-us"
+            chunks: list[np.ndarray] = []
+            tokens: list[dict] = []
+            offset = 0.0
+            # Speed stays 1.0, as in KokoroEngine: playback speed is the media element's job.
+            for sentence in (part.strip() for part in _SENTENCE_END.split(text)):
+                if not sentence:
+                    continue
+                audio, rate = self._kokoro.create(sentence, voice=voice, speed=1.0, lang=lang)
+                if int(rate) != SAMPLE_RATE:
+                    raise RuntimeError(f"kokoro-onnx returned {rate} Hz audio, expected {SAMPLE_RATE}")
+                audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+                tokens.extend(estimate_tokens(sentence, audio, offset))
+                chunks.append(audio)
+                offset += audio.size / SAMPLE_RATE
+            pcm = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+            return pcm, tokens
+
+
+def default_engine() -> Engine:
+    """TTS_ENGINE decides when set; otherwise ONNX wherever it can run, since it
+    needs no PyTorch, and the PyTorch pipeline everywhere else."""
+    choice = (os.environ.get("TTS_ENGINE") or "").strip().lower()
+    if choice == "onnx":
+        return OnnxEngine()
+    if choice == "torch":
+        return KokoroEngine()
+    if importlib.util.find_spec("kokoro_onnx") is not None and _onnx_files() is not None:
+        return OnnxEngine()
+    return KokoroEngine()
+
+
+def encode_frame(pcm: np.ndarray, tokens: list[dict], voice: str, model_version: str = MODEL_VERSION) -> bytes:
     clipped = np.clip(pcm, -1.0, 1.0)
     s16 = (clipped * 32767.0).round().astype("<i2")
     header = json.dumps(
-        {"sampleRate": SAMPLE_RATE, "samples": int(s16.size), "voice": voice, "modelVersion": MODEL_VERSION, "tokens": tokens},
+        {"sampleRate": SAMPLE_RATE, "samples": int(s16.size), "voice": voice, "modelVersion": model_version, "tokens": tokens},
         separators=(",", ":"),
     ).encode("utf-8")
     return MAGIC + struct.pack("<I", len(header)) + header + s16.tobytes()
@@ -167,7 +287,9 @@ DEFAULT_ORIGINS = [
 
 def create_app(engine: Engine | None = None, token: str | None = None, origins: list[str] | None = None) -> FastAPI:
     app = FastAPI(title="Study Library Listen", docs_url=None, redoc_url=None)
-    engine = engine or KokoroEngine()
+    engine = engine or default_engine()
+    # A test engine may not say which model it is; the PyTorch one never has.
+    model_version = getattr(engine, "model_version", MODEL_VERSION)
     token = token if token is not None else os.environ.get("LISTEN_TOKEN") or None
     if origins is None:
         env_origins = [o for o in os.environ.get("LISTEN_ORIGINS", "").split(",") if o]
@@ -212,7 +334,7 @@ def create_app(engine: Engine | None = None, token: str | None = None, origins: 
 
     @app.get("/tts/v1/health")
     def health() -> dict:
-        return {"ok": True, "modelVersion": MODEL_VERSION}
+        return {"ok": True, "modelVersion": model_version}
 
     @app.get("/tts/v1/voices")
     def voices(authorization: str | None = Header(default=None)) -> list[dict]:
@@ -228,7 +350,7 @@ def create_app(engine: Engine | None = None, token: str | None = None, origins: 
             pcm, tokens = engine.synthesise(req.text, req.voice)
         except Exception as exc:  # the engine's own failure, reported rather than hidden
             raise HTTPException(status_code=500, detail={"code": "synthesis_failed", "message": str(exc)[:300]}) from exc
-        return Response(content=encode_frame(pcm, tokens, req.voice), media_type="application/x-kokoro-utterance")
+        return Response(content=encode_frame(pcm, tokens, req.voice, model_version), media_type="application/x-kokoro-utterance")
 
     return app
 

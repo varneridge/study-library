@@ -1,2 +1,10 @@
 requests==2.*
 pymupdf==1.*
+ocrmypdf==16.*
+# The Listen speech server. kokoro-onnx runs Kokoro without PyTorch; the
+# PyTorch engine (kokoro, torch, misaki) stays a manual install for WSL.
+fastapi==0.*
+uvicorn==0.*
+numpy==2.*
+# Before 1.0 a minor version may change the API the server calls.
+kokoro-onnx==0.6.*

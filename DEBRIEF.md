@@ -997,7 +997,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 **Limits**
 
 - Recording is meant for the laptop. On a phone, Android may stop a web app recording when the screen locks.
-- Processing only happens while your laptop is on.
+- Processing happens on any Windows machine where Study Library is opened or running in the background, without requiring WSL or Task Scheduler. Multiple machines coordinate safely via Worker job leases.
 - The Zotero importer needs each module's items in a Zotero collection.
 - Changes from another device appear within 30 seconds, not instantly.
 - Seminar answers and session notes can't yet be exported to Word.
@@ -1020,6 +1020,11 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.52.0:
+  - Native Windows desktop launcher and self-contained processor (no WSL or Task Scheduler):
+    - Desktop launcher (`backend/study/desktop.py`) with single-instance Windows mutex, background supervisor running hidden (`CREATE_NO_WINDOW`) processor and Kokoro ONNX speech server, and Edge standalone app window (`msedge.exe --app=...`).
+    - Cloudflare Worker atomic job lease fencing (`jobs.lease_id`, `409 lease_lost`, `0021_job_lease.sql`), ensuring concurrent devices or sleeping laptops cannot duplicate work or overwrite files.
+    - Automated one-time set-up script (`backend/setup-windows.ps1`) using winget to install Tesseract, Ghostscript, FFmpeg, and LibreOffice, download language packs and Kokoro models, configure Start Menu and Startup shortcuts, and cleanly retire the WSL scheduled task.
 - Improvements completed in 0.51.0:
   - Calendar function added as the third top-level function alongside Study and Job search (`0020_calendar.sql`, Dexie v10, Cloudflare Worker `/api/calendar/ics` proxy):
     - Unified 3-side top bar (Study | Calendar | Job search) and 5-item mobile tab bar (Home | This week | Calendar | Search | Settings).
@@ -1291,6 +1296,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.50.3 | Edit details card in front: portalled modal dialog with ordinary-sized thumbnail (16:9 for video, portrait for readings) beside metadata fields, preventing tiles or rows from stretching full-screen; ReorderSensor unifying pointer down activators across mouse and touch, restoring desktop dragging and fixing 3-line drag handles across weeks, sections and modules; and smart list collision detection with settling state in WeekBoard. |
 | 0.51.0 | Calendar as the third top-level function alongside Study and Job search: unified 3-way top bar switch, 5-tab mobile navigation, Google Calendar sync via secret iCal address with SSRF-safe Worker proxy and offline caching, aggregated event timelines covering job deadlines, shortlist checks, essay deadlines and personal events, responsive Month, Week, Day and Agenda views, event creation sheet, and Google Calendar keyboard shortcuts |
 | 0.51.1 | Calendar UI and UX refinements: removed redundant desktop mini-calendar, constrained Month view to fit viewport with zero vertical scroll, day inspection summary sheet on day cell click with "+ Add event" and "Day view" actions, standardised event creation with start and end times accessible across all views, collapsible desktop sidebar with remembered state, subtle weekend column shading, prominent today accent indicator, and distinct styling for deadlines vs timed events |
+| 0.52.0 | Native Windows desktop launcher and self-contained processor: eliminated WSL and Windows Task Scheduler dependencies with a native desktop launcher (`backend/study/desktop.py`) opening an Edge standalone app window, supervised hidden background processor and Kokoro ONNX speech server (`CREATE_NO_WINDOW`), single-instance Windows mutex, automated one-time PowerShell set-up script (`setup-windows.ps1`) installing winget dependencies and model weights, atomic Cloudflare Worker job lease fencing (`jobs.lease_id`, 409 lease_lost) preventing stale overwrites across concurrent or sleeping devices, hash-addressed OCR output keys, and Windows LibreOffice file URI normalization |
 
 ## 18. The job search
 

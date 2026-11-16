@@ -1,6 +1,9 @@
 """Run the processor: python -m study.processor
 
 Pass --once to work through the queue and exit, which suits a scheduled task.
+On Windows, where a process started without a console cannot be sent a
+signal, it stops after the current job once the file named by
+PROCESSOR_STOP_FILE appears.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import time
 
 import requests
 
-from ..api import Api, ApiError, api_from_env
+from ..api import Api, ApiError, LeaseLost, api_from_env
 from .jobs import FILE_JOBS, HANDLERS, RECORDING_JOBS, Context
 from .speech import transcriber_from_env
 
@@ -60,16 +63,41 @@ class Processor:
             online=os.environ.get("IDENTIFY_OFFLINE", "false").lower() != "true",
         )
         self.stopping = False
+        self.stop_file = os.environ.get("PROCESSOR_STOP_FILE") or None
+        # Set by stop(), so an idle wait ends at once instead of sleeping on.
+        self._wake = threading.Event()
 
     def stop(self, *_args) -> None:
         log.info("stopping after the current job")
         self.stopping = True
+        self._wake.set()
+
+    def _asked_to_stop(self) -> bool:
+        if self.stop_file and os.path.exists(self.stop_file):
+            try:
+                os.remove(self.stop_file)
+            except OSError:
+                pass
+            self.stop()
+        return self.stopping
 
     def run_once(self) -> bool:
         """Run one job if one is waiting. Returns True if a job ran."""
         job = self.ctx.api.claim()
         if job is None:
             return False
+        try:
+            self._run_job(job)
+        except LeaseLost:
+            # Another machine took the job over while this one slept or lost
+            # its connection. Its results are refused, so nothing is reported.
+            log.warning("job %s (%s) now belongs to another machine; nothing more is saved for it",
+                        job["id"], job["type"])
+        finally:
+            self.ctx.api.end_lease()
+        return True
+
+    def _run_job(self, job: dict) -> None:
         handler = HANDLERS.get(job["type"])
         started = time.monotonic()
         try:
@@ -77,9 +105,14 @@ class Processor:
                 raise RuntimeError(f"no handler for job type {job['type']}")
             with Heartbeat(self.ctx.api, job["id"]):
                 handler(self.ctx, job)
+        except LeaseLost:
+            raise
         except Exception as error:  # noqa: BLE001
             log.exception("job %s (%s) failed", job["id"], job["type"])
             final = self.ctx.api.fail(job["id"], f"{type(error).__name__}: {error}")
+            # The job has stopped running, so its lease no longer admits writes:
+            # marking the file or recording failed goes without it.
+            self.ctx.api.end_lease()
             if final and job["type"] in FILE_JOBS and job["payload"].get("file_id"):
                 self.ctx.api.file_failed(job["payload"]["file_id"])
             if final and job["type"] in RECORDING_JOBS and job["payload"].get("recording_id"):
@@ -87,25 +120,29 @@ class Processor:
         else:
             self.ctx.api.complete(job["id"])
             log.info("job %s (%s) done in %.1fs", job["id"], job["type"], time.monotonic() - started)
-        return True
 
     def drain(self) -> int:
         count = 0
-        while not self.stopping and self.run_once():
+        while not self._asked_to_stop() and self.run_once():
             count += 1
         return count
 
     def run(self) -> None:
-        signal.signal(signal.SIGTERM, self.stop)
-        signal.signal(signal.SIGINT, self.stop)
+        # Signals can only be set from the main thread, and SIGBREAK is the one
+        # Windows delivers for Ctrl+Break to a console process.
+        if threading.current_thread() is threading.main_thread():
+            for name in ("SIGTERM", "SIGINT", "SIGBREAK"):
+                if hasattr(signal, name):
+                    signal.signal(getattr(signal, name), self.stop)
         log.info("processor started")
-        while not self.stopping:
+        while not self._asked_to_stop():
             try:
                 if not self.run_once():
-                    time.sleep(IDLE_SECONDS)
+                    self._wake.wait(IDLE_SECONDS)
             except (ApiError, requests.RequestException):
                 log.exception("cannot reach the Worker, retrying in 30 seconds")
-                time.sleep(30)
+                self._wake.wait(30)
+        log.info("processor stopped")
 
 
 def main() -> None:

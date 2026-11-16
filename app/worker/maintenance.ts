@@ -1,19 +1,45 @@
-import { TOUCH, type Env } from "./env";
+import { NOW, TOUCH, type Env } from "./env";
 import { TABLE_NAMES } from "./schema";
 
+// A job is tried this many times. The processor routes use it too.
+export const MAX_ATTEMPTS = 5;
 const TOMBSTONE_DAYS = 90;
 const STALE_MINUTES = 60;
 // A file no reading or recording has pointed at for this long is let go. The
 // wait covers a device that uploaded a file but has not yet sent its reading.
 const UNUSED_DAYS = 30;
 
+// A job whose processor stopped reporting: the machine slept, lost its
+// connection or crashed mid-job.
+const STALE = `status = 'running'
+        AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${STALE_MINUTES} minutes')`;
+// The claim counts each attempt, but a job that crashes its processor never
+// reports a failure, so without this it would be taken again for ever. After
+// the last attempt it fails, with its file or recording, as a reported
+// failure does, and the app offers Retry.
+const SPENT = `${STALE} AND attempts >= ${MAX_ATTEMPTS}`;
+
 // Runs every 15 minutes. Purging only happens in the 03:00 UTC run.
 export async function maintain(env: Env, at: Date): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE jobs SET status = 'queued'
-      WHERE status = 'running'
-        AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${STALE_MINUTES} minutes')`,
-  ).run();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE files SET text_status = 'failed', ${TOUCH}
+        WHERE id IN (SELECT json_extract(payload, '$.file_id') FROM jobs
+                      WHERE ${SPENT} AND type IN ('extract_text', 'ocr', 'convert'))`,
+    ),
+    env.DB.prepare(
+      `UPDATE recordings SET status = 'failed', ${TOUCH}
+        WHERE id IN (SELECT json_extract(payload, '$.recording_id') FROM jobs
+                      WHERE ${SPENT} AND type IN ('prepare_audio', 'transcribe'))`,
+    ),
+    env.DB.prepare(
+      `UPDATE jobs SET status = 'failed', finished_at = ${NOW}, lease_id = NULL,
+              error = 'The processor stopped reporting during each of ${MAX_ATTEMPTS} attempts.'
+        WHERE ${SPENT}`,
+    ),
+    // Clearing the lease is what makes the sleeping machine's later writes fail.
+    env.DB.prepare(`UPDATE jobs SET status = 'queued', lease_id = NULL WHERE ${STALE}`),
+  ]);
 
   if (at.getUTCHours() === 3 && at.getUTCMinutes() < 15) await purge(env);
 }
