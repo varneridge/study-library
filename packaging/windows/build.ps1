@@ -71,6 +71,14 @@ function Find-Executable([string[]]$Candidates, [string]$WingetId, [string]$Choc
 
 function Resolve-BasePython {
     if ($PythonExe) { return $PythonExe }
+    if (Get-Command uv.exe -ErrorAction SilentlyContinue) {
+        foreach ($minor in @("3.12", "3.11", "")) {
+            try {
+                $exe = if ($minor) { & uv.exe python find $minor 2>$null } else { & uv.exe python find 2>$null }
+                if ($LASTEXITCODE -eq 0 -and $exe -and (Test-Path $exe.Trim())) { return $exe.Trim() }
+            } catch { }
+        }
+    }
     if (Get-Command py.exe -ErrorAction SilentlyContinue) {
         foreach ($minor in @("3.12", "3.11")) {
             try {

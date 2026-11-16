@@ -618,6 +618,19 @@ def _job():
     return {"id": 5, "type": "extract_text", "payload": {"file_id": "f1"}, "lease_id": "lease-5"}
 
 
+def test_adaptive_ocr_jobs_respects_env_and_bounds(monkeypatch):
+    from study.processor.__main__ import adaptive_ocr_jobs
+
+    monkeypatch.setenv("OCR_JOBS", "4")
+    assert adaptive_ocr_jobs() == 4
+    monkeypatch.setenv("OCR_JOBS", "0")
+    assert adaptive_ocr_jobs() == 1  # max(1, ...) prevents zero jobs
+
+    monkeypatch.delenv("OCR_JOBS", raising=False)
+    jobs = adaptive_ocr_jobs()
+    assert 1 <= jobs <= 6
+
+
 def test_lease_lost_at_completion_is_logged_not_raised(monkeypatch):
     from study.api import LeaseLost
     from study.processor import jobs

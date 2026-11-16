@@ -16,6 +16,7 @@ import threading
 import time
 
 import requests
+import ctypes
 
 from ..api import Api, ApiError, LeaseLost, api_from_env
 from .jobs import FILE_JOBS, HANDLERS, RECORDING_JOBS, Context
@@ -26,6 +27,82 @@ IDLE_SECONDS = float(os.environ.get("PROCESSOR_IDLE_SECONDS", "10"))
 # A running job tells the Worker it is alive this often. The Worker puts a
 # job back in the queue after an hour without word.
 HEARTBEAT_SECONDS = float(os.environ.get("PROCESSOR_HEARTBEAT_SECONDS", "300"))
+
+
+def set_background_priority() -> None:
+    """Sets the process priority to below-normal on Windows, so background OCR
+    and audio tasks automatically yield CPU to interactive apps."""
+    if os.name == "nt":
+        try:
+            # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)
+        except Exception:
+            pass
+
+
+class _PowerStatus(ctypes.Structure):
+    _fields_ = [
+        ("ACLineStatus", ctypes.c_byte),
+        ("BatteryFlag", ctypes.c_byte),
+        ("BatteryLifePercent", ctypes.c_byte),
+        ("Reserved1", ctypes.c_byte),
+        ("BatteryLifeTime", ctypes.c_ulong),
+        ("BatteryFullLifeTime", ctypes.c_ulong),
+    ]
+
+
+class _MemoryStatus(ctypes.Structure):
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def adaptive_ocr_jobs() -> int:
+    """Scales OCR worker threads to machine specs and power state.
+    On a big desktop (e.g. 8-16 cores on AC), uses up to 6 jobs.
+    On an older laptop (<=4 cores, low RAM, or battery), uses 1-2 jobs."""
+    if "OCR_JOBS" in os.environ:
+        try:
+            return max(1, int(os.environ["OCR_JOBS"]))
+        except ValueError:
+            pass
+
+    cores = os.cpu_count() or 2
+    on_battery = False
+    ram_gb = 8.0
+
+    if os.name == "nt":
+        try:
+            ps = _PowerStatus()
+            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(ps)):
+                on_battery = ps.ACLineStatus == 0
+        except Exception:
+            pass
+
+        try:
+            ms = _MemoryStatus()
+            ms.dwLength = ctypes.sizeof(_MemoryStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+                ram_gb = ms.ullTotalPhys / (1024 ** 3)
+        except Exception:
+            pass
+
+    if on_battery or ram_gb < 4.5 or cores <= 2:
+        return 1
+    if cores <= 4 or ram_gb < 8.0:
+        return 2
+    if cores <= 8:
+        return 3
+    # Powerful workstation / high-core PC: scale up while leaving 2+ cores free
+    return min(6, max(2, cores - 2))
 
 
 class Heartbeat:
@@ -53,11 +130,12 @@ class Heartbeat:
 
 class Processor:
     def __init__(self, api: Api, transcriber=None):
+        set_background_priority()
         self.ctx = Context(
             api=api,
             keep_original_scans=os.environ.get("KEEP_ORIGINAL_SCANS", "false").lower() == "true",
             keep_original_video=os.environ.get("KEEP_ORIGINAL_VIDEO", "false").lower() == "true",
-            ocr_jobs=int(os.environ.get("OCR_JOBS", "2")),
+            ocr_jobs=adaptive_ocr_jobs(),
             transcriber=transcriber,
             make_transcriber=transcriber_from_env,
             online=os.environ.get("IDENTIFY_OFFLINE", "false").lower() != "true",
