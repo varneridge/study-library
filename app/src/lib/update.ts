@@ -22,9 +22,10 @@ export function isNewer(candidate: string, current: string): boolean {
   return i >= 0 && a[i] > b[i];
 }
 
-/** Resolves to the newer release, or to null when this version is current, and rejects when GitHub cannot answer. */
+/** Resolves to the newer release, or to null when this version is current or no releases exist yet, and rejects when GitHub cannot answer. */
 export async function availableUpdate(fetcher: typeof fetch = fetch, current: string = currentVersion): Promise<Release | null> {
   const response = await fetcher(LATEST_API, { headers: { Accept: "application/vnd.github+json" } });
+  if (response.status === 404) return null;
   if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
   const data = (await response.json()) as { tag_name?: unknown };
   const tag = data?.tag_name;

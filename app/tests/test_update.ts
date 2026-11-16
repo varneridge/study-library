@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { availableUpdate, dismiss, isDismissed, isNewer, RELEASES_PAGE, updateHref } from "../src/lib/update";
 
-function mockFetch(body: unknown, ok = true) {
-  return (async () => ({ ok, status: ok ? 200 : 403, json: async () => body })) as unknown as typeof fetch;
+function mockFetch(body: unknown, ok = true, status = ok ? 200 : 403) {
+  return (async () => ({ ok, status, json: async () => body })) as unknown as typeof fetch;
 }
 
 function mockStorage() {
@@ -29,6 +29,9 @@ export async function runUpdateTests() {
 
   const update3 = await availableUpdate(mockFetch({ tag_name: "nightly" }), "1.3.0");
   assert.equal(update3, null);
+
+  const update4 = await availableUpdate(mockFetch({}, false, 404), "1.3.0");
+  assert.equal(update4, null);
 
   await assert.rejects(async () => {
     await availableUpdate(mockFetch({}, false), "1.3.0");
