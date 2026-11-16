@@ -1,17 +1,17 @@
-// The calendar's side panel on a laptop: a button for a new event, a small
-// month to jump about by, "My calendars" to show or hide each source, the
-// Google Calendar card, and the next seven days. It holds no data of its own;
-// the page gives it what to show and takes back what was asked. On a phone the
-// calendars and the Google card alone are shown, in a sheet, as CalendarPanel.
+// The calendar's side panel on a laptop: a button for a new event, "My
+// calendars" to show or hide each source, the Google Calendar card, and the
+// next seven days. The month itself is the way to move about, so the panel
+// keeps no second calendar of its own, and the toolbar can fold it away. It
+// holds no data of its own; the page gives it what to show and takes back what
+// was asked. On a phone the calendars and the Google card alone are shown, in
+// a sheet, as CalendarPanel.
 
 import { useEffect, useId, useState } from "react";
-import { type CalEvent, CALENDAR_SOURCES, type CalendarSource, titleFor } from "../../lib/calendar";
-import { type ISODate, addDays, addMonths, formatISO, formatLong, monthGrid, parseISO, todayLocal, weekdayMon0 } from "../../lib/civilDate";
+import { type CalEvent, CALENDAR_SOURCES, type CalendarSource } from "../../lib/calendar";
+import { type ISODate, addDays, formatISO, parseISO, todayLocal, weekdayMon0 } from "../../lib/civilDate";
 import type { GcalStatus } from "../../lib/gcal";
-import { Icon } from "../icons";
 import { SOURCE_LABELS } from "./sources";
 
-const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
 const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const UPCOMING_SHOWN = 8;
 const DATE_FORMAT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
@@ -23,46 +23,6 @@ function syncedText(syncedAt: string | null, today: ISODate): string {
   const time = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
   if (formatISO(t.getFullYear(), t.getMonth() + 1, t.getDate()) === today) return `Synced at ${time}`;
   return `Synced on ${DATE_FORMAT.format(t)} at ${time}`;
-}
-
-function MiniMonth({ anchor, today, onSelectDate }: { anchor: ISODate; today: ISODate; onSelectDate: (date: ISODate) => void }) {
-  const a = parseISO(anchor) ?? parseISO(today)!;
-  const [view, setView] = useState({ year: a.year, month: a.month });
-  // It follows the main view when that moves to another month.
-  useEffect(() => setView({ year: a.year, month: a.month }), [a.year, a.month]);
-  const first = formatISO(view.year, view.month, 1);
-  const step = (delta: number) => {
-    const p = parseISO(addMonths(first, delta))!;
-    setView({ year: p.year, month: p.month });
-  };
-  return (
-    <div className="cal-mini" role="group" aria-label="Choose a date">
-      <div className="cal-mini-head">
-        <button type="button" className="icon-button small cal-mini-prev" aria-label="Previous month" onClick={() => step(-1)}>
-          <Icon name="caret" />
-        </button>
-        <span className="cal-mini-title">{titleFor("month", first)}</span>
-        <button type="button" className="icon-button small cal-mini-next" aria-label="Next month" onClick={() => step(1)}>
-          <Icon name="caret" />
-        </button>
-      </div>
-      <div className="cal-mini-grid">
-        {WEEKDAY_LETTERS.map((letter, i) => <span key={i} className="cal-mini-dow" aria-hidden="true">{letter}</span>)}
-        {monthGrid(view.year, view.month).map((cell) => (
-          <button
-            key={cell.iso}
-            type="button"
-            className={`cal-mini-day${cell.inMonth ? "" : " is-outside"}${cell.iso === today ? " is-today" : ""}${cell.iso === anchor ? " is-selected" : ""}`}
-            aria-current={cell.iso === today ? "date" : undefined}
-            aria-label={formatLong(cell.iso)}
-            onClick={() => onSelectDate(cell.iso)}
-          >
-            {cell.day}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export interface CalendarPanelProps {
@@ -141,16 +101,13 @@ function dayLabel(day: ISODate, today: ISODate): string {
 }
 
 export interface CalendarSidebarProps extends CalendarPanelProps {
-  // The date the main view is on.
-  anchor: ISODate;
-  onSelectDate: (date: ISODate) => void;
   // Events in the next seven days, in any order; the list puts them in order.
   upcomingEvents: CalEvent[];
   onOpenEvent: (event: CalEvent) => void;
   onNewEvent: () => void;
 }
 
-export function CalendarSidebar({ anchor, onSelectDate, upcomingEvents, onOpenEvent, onNewEvent, ...panel }: CalendarSidebarProps) {
+export function CalendarSidebar({ upcomingEvents, onOpenEvent, onNewEvent, ...panel }: CalendarSidebarProps) {
   const today = todayLocal();
   const last = addDays(today, 6);
   // A longer event already under way is listed on today, not on the day it began.
@@ -166,7 +123,6 @@ export function CalendarSidebar({ anchor, onSelectDate, upcomingEvents, onOpenEv
   return (
     <aside className="cal-sidebar" aria-label="Calendar tools">
       <button type="button" className="button primary cal-add" onClick={onNewEvent}>+ Add event</button>
-      <MiniMonth anchor={anchor} today={today} onSelectDate={onSelectDate} />
       <CalendarPanel {...panel} />
       <section className="cal-upcoming" aria-label="Next seven days">
         <h3 className="cal-heading">Next seven days</h3>

@@ -1,7 +1,11 @@
 // The sheet an event opens in. A new event or one of your own is a form: a
 // title, All day, when it starts and ends, a category, a place and notes. Moving
-// the start carries the end with it, so the length is kept. Delete asks twice,
-// the second press saying "Delete for good", with no dialog on top of a dialog.
+// the start carries the end with it, so the length is kept. The same form serves
+// every way in, from the month, the hours, the summary of a day and the buttons
+// alike: a new event starts at 09:00 to 10:00 unless it was started at a time,
+// and unticking All day brings the times back rather than leaving them blank.
+// Delete asks twice, the second press saying "Delete for good", with no dialog
+// on top of a dialog.
 // An event from Google Calendar is shown to read, and is changed in Google.
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -17,6 +21,7 @@ import {
   blankDraft,
   describeWhen,
   draftFromRow,
+  hhmm,
   moveStart,
   validateDraft,
 } from "../../lib/calendar";
@@ -26,6 +31,18 @@ import type { CalendarEventRow } from "../../lib/types";
 import { DatePicker } from "../DatePicker";
 import { usePhone } from "./hooks";
 import { Sheet } from "./Sheet";
+
+// Where a new event starts when nothing chose a time for it; it lasts an hour.
+export const DEFAULT_START = "09:00";
+const DEFAULT_MINUTES = 60;
+
+// A timed draft always has both times, so the pickers never open empty.
+function withTimes(d: EventDraft): EventDraft {
+  if (d.allDay || (d.startTime && d.endTime)) return d;
+  const startTime = d.startTime ?? DEFAULT_START;
+  const [h, m] = startTime.split(":").map(Number);
+  return { ...d, startTime, endTime: hhmm(Math.min(h * 60 + m + DEFAULT_MINUTES, 23 * 60 + 59)) };
+}
 
 function Reading({ event, onClose }: { event: CalEvent; onClose: () => void }) {
   return (
@@ -40,7 +57,7 @@ function Reading({ event, onClose }: { event: CalEvent; onClose: () => void }) {
 
 function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: EventSeed; onClose: () => void }) {
   const phone = usePhone();
-  const [draft, setDraft] = useState<EventDraft>(() => (row ? draftFromRow(row) : blankDraft(seed)));
+  const [draft, setDraft] = useState<EventDraft>(() => (row ? draftFromRow(row) : withTimes(blankDraft(seed))));
   const [error, setError] = useState<DraftError | "save" | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -58,6 +75,10 @@ function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: Even
 
   const change = (patch: Partial<EventDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
+    setError(null);
+  };
+  const setAllDay = (allDay: boolean) => {
+    setDraft((d) => (allDay ? { ...d, allDay } : withTimes({ ...d, allDay })));
     setError(null);
   };
   const start = (patch: { startDate?: string; startTime?: string | null }) => {
@@ -146,7 +167,7 @@ function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: Even
         </label>
 
         <label className="cal-check">
-          <input type="checkbox" checked={draft.allDay} onChange={(e) => change({ allDay: e.target.checked })} />
+          <input type="checkbox" checked={draft.allDay} onChange={(e) => setAllDay(e.target.checked)} />
           <span>All day</span>
         </label>
 

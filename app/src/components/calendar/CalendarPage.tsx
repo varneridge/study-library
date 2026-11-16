@@ -1,8 +1,10 @@
 // The calendar. It reads where it is from the route (a date, a view, an event),
 // gathers the events for the dates on screen, keeps the Google cache fresh, and
-// hands the rest to the views. On a laptop a side panel stands beside the view;
-// on a phone the toolbar, the view, a button for a new event and a sheet of
-// calendars take its place.
+// hands the rest to the views. On a laptop a side panel stands beside the view,
+// and the toolbar can fold it away to give the view the width; on a phone the
+// toolbar, the view, a button for a new event and a sheet of calendars take its
+// place. A day pressed in the month opens its summary, and every new event,
+// however it was asked for, opens the same form with its times ready.
 
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -30,8 +32,9 @@ import { typing } from "../../lib/ui";
 import { AgendaView } from "./AgendaView";
 import { CalendarPanel, CalendarSidebar, type CalendarSidebarProps } from "./CalendarSidebar";
 import { CalendarToolbar } from "./CalendarToolbar";
+import { DayDetailSheet } from "./DayDetailSheet";
 import { useClock, usePhone } from "./hooks";
-import { EventSheet } from "./EventSheet";
+import { DEFAULT_START, EventSheet } from "./EventSheet";
 import { MonthView } from "./MonthView";
 import { Sheet } from "./Sheet";
 import { TimeGrid } from "./TimeGrid";
@@ -40,6 +43,16 @@ type CalendarRoute = Extract<Route, { view: "calendar" }>;
 
 // "Show later" can add this many more pages of the agenda before the arrows are the way on.
 const MAX_LATER = 6;
+
+// Whether the side panel was last folded away is kept in this browser alone.
+const SIDEBAR_KEY = "calendar.sidebar";
+function readSidebarOpen(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== "hidden";
+  } catch {
+    return true;
+  }
+}
 
 // The side panel with the next seven days read for it, whatever dates the view shows.
 // It is a part of its own so that a phone, which has no side panel, never reads them.
@@ -76,6 +89,18 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
   // Where a new event starts, when it was asked for from a day or a time; a link to a new event starts on the date shown.
   const [seed, setSeed] = useState<EventSeed | null>(null);
   const [calendarsOpen, setCalendarsOpen] = useState(false);
+  // The day whose summary is open, from the month.
+  const [dayOpen, setDayOpen] = useState<ISODate | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+  const toggleSidebar = () => {
+    const next = !sidebarOpen;
+    setSidebarOpen(next);
+    try {
+      localStorage.setItem(SIDEBAR_KEY, next ? "shown" : "hidden");
+    } catch {
+      // Without storage the choice lasts until the page is left.
+    }
+  };
   const pageRef = useRef<HTMLElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   // Whether the open sheet was pushed on by this page, so that closing it can step back.
@@ -136,6 +161,8 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
     pushedSheet.current = true;
     void navigate({ ...route, event: "new" });
   };
+  // A new event on a day with no time chosen starts at the usual hour, wherever it was asked for.
+  const addOn = (date: ISODate) => addEvent({ date, time: DEFAULT_START });
   const closeSheet = () => {
     if (pushedSheet.current) history.back();
     else void navigate({ ...route, event: undefined }, { replace: true });
@@ -154,7 +181,7 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
         case "w": if (!phone) setMode("week"); break;
         case "d": setMode("day"); break;
         case "a": setMode("agenda"); break;
-        case "c": addEvent({ date: anchor }); break;
+        case "c": addOn(anchor); break;
         default: return;
       }
       e.preventDefault();
@@ -167,15 +194,13 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
 
   return (
     <section ref={pageRef} className={`page wide cal-page is-${mode}${phone ? " is-phone" : ""}`} aria-label="Calendar">
-      <div className="cal-layout">
-        {!phone && (
+      <div className={`cal-layout${!phone && sidebarOpen ? "" : " is-solo"}`}>
+        {!phone && sidebarOpen && (
           <SidebarWithUpcoming
             {...panel}
-            anchor={anchor}
             today={today}
-            onSelectDate={(date) => go({ date })}
             onOpenEvent={openEvent}
-            onNewEvent={() => addEvent({ date: anchor })}
+            onNewEvent={() => addOn(anchor)}
           />
         )}
         <div className="cal-main">
@@ -187,8 +212,10 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
               onPrev={() => step(-1)}
               onNext={() => step(1)}
               onModeChange={setMode}
-              onNewEvent={() => addEvent({ date: anchor })}
+              onNewEvent={() => addOn(anchor)}
               onOpenCalendars={() => setCalendarsOpen(true)}
+              sidebarOpen={sidebarOpen}
+              onToggleSidebar={toggleSidebar}
               isPhone={phone}
             />
           </div>
@@ -198,8 +225,8 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
               anchor={anchor}
               events={events}
               onOpen={openEvent}
-              onCreate={(date) => addEvent({ date, allDay: true })}
-              onSelectDay={showDay}
+              onCreate={addOn}
+              onSelectDay={setDayOpen}
               isPhone={phone}
             />
           )}
@@ -228,9 +255,23 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
       </div>
 
       {phone && (
-        <button type="button" className="cal-fab" aria-label="Add event" onClick={() => addEvent({ date: anchor })}>
+        <button type="button" className="cal-fab" aria-label="Add event" onClick={() => addOn(anchor)}>
           <span aria-hidden="true">+</span>
         </button>
+      )}
+      {/* The summary steps aside while an event from it is open, and returns when that closes. */}
+      {dayOpen && !route.event && (
+        <DayDetailSheet
+          date={dayOpen}
+          events={events}
+          onOpen={openEvent}
+          onAdd={addOn}
+          onShowDay={(date) => {
+            setDayOpen(null);
+            showDay(date);
+          }}
+          onClose={() => setDayOpen(null)}
+        />
       )}
       {route.event && <EventSheet eventKey={route.event} seed={seed ?? { date: anchor }} onClose={closeSheet} />}
       {calendarsOpen && (
