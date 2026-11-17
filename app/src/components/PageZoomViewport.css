@@ -1,14 +1,16 @@
 /*
- * The preview box is one page in size at 100% and never changes size, because
- * zoom belongs to the pages inside it: a box that grew with its pages would
- * push the rest of the layout about and show no more of the essay when zoomed
- * out. Set --page-zoom-width to the width the pages are drawn at (A4 by default).
+ * The preview box keeps the same size at every zoom, because zoom belongs to the
+ * pages inside it: a box that grew with its pages would push the rest of the
+ * layout about and show no more of the essay when zoomed out. Set
+ * --page-zoom-width to the width the pages are drawn at (A4 by default), and
+ * --page-zoom-ratio to the box's width over its height, which is one A4 page
+ * unless a page asks for a taller box to show more at once.
  */
 
 .page-zoom-viewport {
   box-sizing: border-box;
   width: min(100%, var(--page-zoom-width, 210mm));
-  aspect-ratio: 210 / 297;
+  aspect-ratio: var(--page-zoom-ratio, 210 / 297);
   margin-inline: auto;
   overflow: auto;
   overscroll-behavior: contain;

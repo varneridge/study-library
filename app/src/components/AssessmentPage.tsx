@@ -58,6 +58,9 @@ const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
 // The essay preview zooms through the same steps as the reader, up to twice its size.
 const PREVIEW_MAX_ZOOM = 2;
+// The preview opens a little below full size, so that a whole page width and more of its
+// length fit in the centre column before any zooming.
+const PREVIEW_DEFAULT_ZOOM = 0.9;
 // A reference typed into saves once the typing has paused for this long, as well as on blur.
 const REFERENCE_SAVE_DELAY = 600;
 // How long a sentence or heading reached from the side columns stays highlighted.
@@ -740,7 +743,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(PREVIEW_DEFAULT_ZOOM);
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -798,7 +801,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const saveLabel = unsavedTitle
     ? "Unsaved"
     : saveState === "saving"
-      ? "Savingâ€¦"
+      ? "Saving…"
       : saveState === "error"
         ? "Not saved"
         : "Saved";
@@ -1355,7 +1358,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                         <span className="essay-ws-doc-name">{doc.name}</span>
                       )}
                       <span className="small muted">
-                        {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                        {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploading…" : "Upload interrupted"}
                       </span>
                       <button
                         type="button"

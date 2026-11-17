@@ -145,3 +145,21 @@ html.sl-desktop.sl-bare #main {
   outline: 2px solid currentColor;
   outline-offset: -2px;
 }
+
+/* The dot on Settings in the top bar that says the processor needs connecting,
+   drawn only in the desktop window and ringed in the bar's own colour. */
+html.sl-desktop .topbar-btn {
+  position: relative;
+}
+
+.sl-connect-dot {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #e8590c;
+  box-shadow: 0 0 0 2px var(--sl-shell-bg, Canvas);
+  pointer-events: none;
+}

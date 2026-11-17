@@ -1,5 +1,5 @@
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { db } from "../lib/db";
 import { formatBytes, keepEverything, setKeepEverything } from "../lib/files";
 import { cancelAllUploads } from "../lib/uploads";
@@ -12,14 +12,11 @@ import { currentYear, defaultDates, useTermDates, type TermDates } from "../lib/
 import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
 import { ago, processorQuiet, useProcessorStatus } from "../lib/status";
 import { shortDate } from "../lib/dates";
+import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
 import { availableUpdate, currentVersion, RELEASES_PAGE, updateHref, type Release } from "../lib/update";
 import { SyncIcon, useSyncView } from "./icons";
-
-// The desktop app adds this to its WebView2 user agent, which the launcher sets
-// before the window opens, so the page knows at once that it is inside the app.
-const DESKTOP_UA_TOKEN = "SLDesktop/";
 
 const APPEARANCES: { value: Appearance; label: string }[] = [
   { value: "light", label: "Light" },
@@ -37,6 +34,57 @@ const SECTIONS = [
   { id: "section-bin", label: "Recently deleted" },
   { id: "section-danger", label: "Start again" },
 ];
+
+// Whether the background processor is connected. It needs connecting when the
+// desktop launcher said this computer lacks its credentials, or when no
+// processor has asked for work recently, and is still being checked until the
+// first status arrives.
+export type ProcessorConnection = "checking" | "connected" | "needs";
+
+export function connectionOf(status: ReturnType<typeof useProcessorStatus>, unpaired: boolean): ProcessorConnection {
+  if (unpaired) return "needs";
+  if (!status) return "checking";
+  return status.seenAt && !processorQuiet(status) ? "connected" : "needs";
+}
+
+export function useNeedsConnecting(): boolean {
+  return useSyncExternalStore(subscribeNeedsConnecting, needsConnecting, () => false);
+}
+
+const CONNECTION_LABEL: Record<ProcessorConnection, string> = {
+  checking: "Checking",
+  connected: "Connected",
+  needs: "Needs connecting",
+};
+
+const CONNECTION_COLOUR: Record<ProcessorConnection, string> = {
+  checking: "color-mix(in srgb, currentColor 35%, transparent)",
+  connected: "#2f9e44",
+  needs: "#e8590c",
+};
+
+function ConnectionBadge({ connection }: { connection: ProcessorConnection }) {
+  return (
+    <p
+      className="small"
+      role="status"
+      aria-live="polite"
+      style={{ display: "flex", alignItems: "center", gap: "0.45rem", margin: "0.25rem 0 0.5rem", fontWeight: 600 }}
+    >
+      <span
+        aria-hidden="true"
+        style={{ flex: "none", width: "0.6rem", height: "0.6rem", borderRadius: "50%", background: CONNECTION_COLOUR[connection] }}
+      />
+      {CONNECTION_LABEL[connection]}
+    </p>
+  );
+}
+
+function needsNote(unpaired: boolean, seen: boolean): string {
+  if (unpaired) return "This computer has not been connected yet, so press Connect this computer below and choose Open when Edge asks.";
+  if (seen) return "No processor has asked for work recently, so check that the desktop app is running on the computer that processes, or connect this one below.";
+  return "No computer has been connected yet, so connect one below to process scans, slides and recordings.";
+}
 
 function normalizeColours(obj: Record<string, string | undefined>): Record<string, string> {
   const clean: Record<string, string> = {};
@@ -131,7 +179,9 @@ function ConnectComputer() {
       )}
       {link && !error && (
         <div>
-          <a href={link} className="button primary">
+          {/* Pressing it hands the credentials to the launcher, so the status
+              from then on follows whether the processor asks for work. */}
+          <a href={link} className="button primary" onClick={() => setNeedsConnecting(false)}>
             Connect this computer
           </a>
           <p className="small muted" style={{ marginTop: "0.5rem" }}>
@@ -145,11 +195,14 @@ function ConnectComputer() {
 
 function ProcessorState() {
   const status = useProcessorStatus();
+  const unpaired = useNeedsConnecting();
+  const connection = connectionOf(status, unpaired);
   // The heading is drawn before the status arrives, so the sections below it do not move down.
   if (!status) {
     return (
       <>
         <h2>Background processor</h2>
+        <ConnectionBadge connection={connection} />
         <p className="small muted">Checking the processor…</p>
       </>
     );
@@ -159,6 +212,8 @@ function ProcessorState() {
   return (
     <>
       <h2>Background processor</h2>
+      <ConnectionBadge connection={connection} />
+      {connection === "needs" && <p className="small muted">{needsNote(unpaired, Boolean(status.seenAt))}</p>}
       <p className={quiet && waiting ? "problem" : undefined}>
         {status.seenAt ? `Last asked for work ${ago(status.seenAt)}.` : "Has not asked for work yet."}
         {" "}{waiting ? `${waiting} ${waiting === 1 ? "job" : "jobs"} waiting.` : "Nothing waiting."}
@@ -189,8 +244,8 @@ function ProcessorState() {
 // Inside the desktop app this would only offer what is already installed, so
 // it shows nowhere but a browser.
 function DesktopDownload() {
+  if (isDesktop()) return null;
   const agent = typeof navigator === "undefined" ? "" : navigator.userAgent;
-  if (agent.includes(DESKTOP_UA_TOKEN)) return null;
   const windows = /Windows/.test(agent);
   return (
     <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>

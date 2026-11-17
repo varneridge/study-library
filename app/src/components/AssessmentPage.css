@@ -5,10 +5,27 @@
  * toolbar, and below 900px the three panes share the space, chosen by the tabs above them.
  */
 
-.essay-ws-head {
-  margin-bottom: 0.75rem;
+/* The page starts close under the top bar, with the crumbs, the title row and the toolbar
+   packed together, so that the essay itself begins high on the screen. */
+.page.essay-page.essay-ws-page {
+  padding-top: 0.75rem;
+}
+
+.essay-ws-page > .crumbs {
+  margin: 0 0 0.25rem;
+}
+
+.section-head.essay-ws-head {
+  margin: 0 0 0.6rem;
+  padding: 0;
   gap: 0.75rem;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.essay-ws-head .essay-title-input {
+  margin: 0;
+  line-height: 1.2;
 }
 
 .essay-ws {
@@ -18,21 +35,22 @@
   align-items: start;
 }
 
+/* The side columns stick just beneath the top bar rather than sliding behind it. */
 .essay-ws-rail,
 .essay-ws-aside {
   display: grid;
   gap: 1rem;
   min-width: 0;
   position: sticky;
-  top: 1rem;
-  max-height: calc(100vh - 2rem);
+  top: calc(var(--topbar-h, 0px) + 0.75rem);
+  max-height: calc(100vh - var(--topbar-h, 0px) - 1.5rem);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .essay-ws-centre {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
@@ -305,9 +323,12 @@
   margin: 0;
 }
 
+/* The preview box is drawn about 30% taller than one A4 page, so that more of the essay
+   shows before the box needs scrolling. */
 .essay-ws-preview {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.4rem;
+  --page-zoom-ratio: 210 / 386;
 }
 
 .essay-ws-preview-bar {
@@ -382,7 +403,7 @@
 @media (max-width: 899.98px) {
   .essay-ws-tabs {
     display: flex;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   .essay-ws-drawer-toggle,

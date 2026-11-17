@@ -1,16 +1,19 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+// First among the app's own modules, so that the desktop mark is read from the
+// address before any module that loads the router has a chance to rewrite it.
+import { followShellColour, isDesktop, setNeedsConnecting } from "./lib/shell";
 import { AcrossPage } from "./components/AcrossPage";
 import { Home } from "./components/Home";
 import { ModulePage } from "./components/ModulePage";
 import { AssessmentPage } from "./components/AssessmentPage";
 import { SearchPage } from "./components/SearchPage";
 import { SessionPage } from "./components/SessionPage";
-import { Settings } from "./components/Settings";
+import { Settings, connectionOf, useNeedsConnecting } from "./components/Settings";
 import { WeekPage } from "./components/WeekPage";
 import { href, navigate, useRoute, type Route } from "./lib/router";
 import { flush, pull, startSync, stopSync, subscribeSync } from "./lib/sync";
 import type { SyncView } from "./lib/syncStatus";
-import { followShellColour, isDesktop } from "./lib/shell";
+import { useProcessorStatus } from "./lib/status";
 import { resumeUploads } from "./lib/uploads";
 import { pumpChunks, recoverRecordings } from "./lib/recorder";
 import { db } from "./lib/db";
@@ -184,6 +187,20 @@ function ExpiredBanner() {
       <span>Your Cloudflare Access session has ended. Edits are kept on this device until you sign in again.</span>
       <button className="button" onClick={() => location.reload()}>Reload</button>
     </div>
+  );
+}
+
+// In the desktop window, a small dot on Settings shows that the background
+// processor needs connecting, so the state is plain at a glance without
+// adding anything to an ordinary browser tab.
+function ConnectionDot() {
+  const status = useProcessorStatus();
+  const unpaired = useNeedsConnecting();
+  if (connectionOf(status, unpaired) !== "needs") return null;
+  return (
+    <span className="sl-connect-dot" title="The background processor needs connecting">
+      <span className="sr-only">, the background processor needs connecting</span>
+    </span>
   );
 }
 
@@ -379,6 +396,7 @@ function SideSwitch({ side }: { side: Side }) {
 
 function TopBar({ route }: { route: Route }) {
   const side = sideOf(route);
+  const desktop = isDesktop();
   return (
     <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : ""}`}>
       {side === "jobs"
@@ -404,6 +422,7 @@ function TopBar({ route }: { route: Route }) {
         <Link to={{ view: "settings" }} className="topbar-btn" current={route.view === "settings"} title="Settings">
           <span className="sr-only">Settings</span>
           <Icon name="settings" size={18} />
+          {desktop && <ConnectionDot />}
         </Link>
       </nav>
     </header>
@@ -477,6 +496,9 @@ export function App() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("connect") === "processor") {
+      // The launcher adds this for as long as this computer lacks its
+      // processor credentials, so Settings and the top bar can say so.
+      setNeedsConnecting(true);
       params.delete("connect");
       const qs = params.toString();
       const targetHash = window.location.hash || "#section-processor";

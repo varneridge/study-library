@@ -2,7 +2,9 @@
 // left and cannot be closed, anything else opens beside it, and the five most
 // recently shown stay mounted, so a reading or a long page keeps its place.
 // The rules live in lib/tabs as plain data, and this file joins them to the
-// router, the keyboard and the mouse. None of it runs outside the desktop window.
+// router, the keyboard and the mouse, keeping every link to the app inside the
+// window rather than letting Edge open a tab or window of its own. None of it
+// runs outside the desktop window.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -67,6 +69,12 @@ function writeStore(state: TabState): void {
   } catch {
     // Without storage the tabs last only until the window reloads.
   }
+}
+
+// The tab beside the one in front, wrapping round at either end, for Ctrl+Tab and Ctrl+Shift+Tab.
+function neighbour(state: TabState, step: 1 | -1): string {
+  const index = state.tabs.findIndex((tab) => tab.id === state.activeId);
+  return state.tabs[(index + step + state.tabs.length) % state.tabs.length].id;
 }
 
 export function useDesktopTabs(route: Route, enabled: boolean) {
@@ -154,13 +162,16 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
       event.preventDefault();
       commands.open(to, true);
     };
+    // Shift+click, which Edge would answer with a window of its own, and
+    // Ctrl+Shift+click open the link in a tab in front instead, so that no
+    // page of the app ever leaves this window.
     const onClick = (event: MouseEvent) => {
-      if (event.button !== 0 || !event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0 || event.altKey || event.metaKey || !(event.ctrlKey || event.shiftKey)) return;
       const to = appLink(event);
       if (!to) return;
       event.preventDefault();
       event.stopPropagation();
-      commands.open(to, true);
+      commands.open(to, event.ctrlKey && !event.shiftKey);
     };
     // Taken in the capture phase, before any page sees them, and always kept
     // from Edge, so that a held Ctrl+W never closes the window itself.
@@ -170,10 +181,12 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
       let act: (() => void) | null = null;
       if (key === "t") act = event.shiftKey ? commands.reopen : commands.openNew;
       else if (key === "w" && !event.shiftKey) act = () => void commands.close(live.current.activeId);
+      else if (key === "tab") act = () => commands.activate(neighbour(live.current, event.shiftKey ? -1 : 1));
       if (!act) return;
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat) act();
+      // Holding Ctrl+Tab keeps stepping through the tabs, whereas a held Ctrl+T or Ctrl+W acts once.
+      if (!event.repeat || key === "tab") act();
     };
     window.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("auxclick", onAuxClick, true);
