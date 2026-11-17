@@ -1160,7 +1160,7 @@ def main(argv: list[str] | None = None) -> int:
     link = window_url(url, env)
     colour = env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR
     if not open_frameless(home, desktop_url(link, frameless=True), colour):
-        open_window(desktop_url(link), colour)
+        open_window(desktop_url(link), colour) if env.get("STUDY_TITLE_BAR_COLOUR") else open_window(desktop_url(link))
     return 0
 
 
