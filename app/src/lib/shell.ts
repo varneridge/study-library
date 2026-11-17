@@ -1,14 +1,18 @@
 // Whether the app runs in its own desktop window rather than a browser tab.
-// The Windows launcher opens Edge at an address carrying ?sl=desktop, a shell
-// that sets its own user agent, such as a WebView2 one, can add SLDesktop/1 to
-// it instead, and an installed window on Windows, which reports the standalone
-// or the window controls overlay display mode, counts as well, so that a
-// window opened from its Start menu entry rather than by the launcher still
-// has its tabs. Each is known before the first render, so the app never draws
-// one layout and then swaps to another.
+// The Windows launcher opens a frameless pywebview window at an address
+// carrying ?sl=frameless, or, without pywebview, Edge at one carrying
+// ?sl=desktop, a shell that sets its own user agent, such as a WebView2 one,
+// can add SLDesktop/1 to it instead, and an installed window on Windows, which
+// reports the standalone or the window controls overlay display mode, counts
+// as well, so that a window opened from its Start menu entry rather than by
+// the launcher still has its tabs. Each is known before the first render, so
+// the app never draws one layout and then swaps to another. Only the
+// frameless window lacks a frame of its own, so only there does the tab strip
+// carry the window controls.
 
 const SHELL_PARAM = "sl";
 const SHELL_VALUE = "desktop";
+const FRAMELESS_VALUE = "frameless";
 const SESSION_KEY = "sl-shell";
 // Kept for the window's session once the launcher says this computer lacks its
 // processor credentials, until "Connect this computer" is pressed.
@@ -23,12 +27,21 @@ const LIGHT_FALLBACK = "#FCFCFB";
 export const TAB_HIDDEN_EVENT = "sl:tab-hidden";
 
 export function detectDesktop(userAgent: string, search: string, remembered: boolean, standalone = false): boolean {
+  const mark = new URLSearchParams(search).get(SHELL_PARAM);
   return (
     /\bSLDesktop\/\d/.test(userAgent) ||
-    new URLSearchParams(search).get(SHELL_PARAM) === SHELL_VALUE ||
+    mark === SHELL_VALUE ||
+    mark === FRAMELESS_VALUE ||
     remembered ||
     (standalone && /\bWindows NT\b/.test(userAgent))
   );
+}
+
+// Whether the window has no frame, so that its page has to draw the window
+// controls. A user agent cannot say so, since the launcher gives the Edge and
+// the pywebview windows the same one.
+export function detectFrameless(search: string, remembered: boolean): boolean {
+  return new URLSearchParams(search).get(SHELL_PARAM) === FRAMELESS_VALUE || remembered;
 }
 
 function displayMode(mode: string): boolean {
@@ -39,17 +52,19 @@ function displayMode(mode: string): boolean {
 // router can rewrite the address. The mark is kept for the window's session,
 // so that a reload still knows, and taken out of the address so that no link
 // or copied address carries it into an ordinary browser tab.
-function readDesktop(): boolean {
-  if (typeof window === "undefined") return false;
-  let remembered = false;
+function readShell(): { desktop: boolean; frameless: boolean } {
+  if (typeof window === "undefined") return { desktop: false, frameless: false };
+  let stored: string | null = null;
   try {
-    remembered = sessionStorage.getItem(SESSION_KEY) === SHELL_VALUE;
+    stored = sessionStorage.getItem(SESSION_KEY);
   } catch {
     // Storage may be blocked, and then the address or the user agent decides alone.
   }
   // An installed window that draws its own title bar reports the overlay mode rather than standalone.
   const standalone = displayMode("standalone") || displayMode("window-controls-overlay");
+  const remembered = stored === SHELL_VALUE || stored === FRAMELESS_VALUE;
   const desktop = detectDesktop(navigator.userAgent, location.search, remembered, standalone);
+  const frameless = desktop && detectFrameless(location.search, stored === FRAMELESS_VALUE);
   const params = new URLSearchParams(location.search);
   if (params.has(SHELL_PARAM)) {
     params.delete(SHELL_PARAM);
@@ -58,18 +73,59 @@ function readDesktop(): boolean {
   }
   if (desktop) {
     try {
-      sessionStorage.setItem(SESSION_KEY, SHELL_VALUE);
+      sessionStorage.setItem(SESSION_KEY, frameless ? FRAMELESS_VALUE : SHELL_VALUE);
     } catch {
       // Without storage a reload falls back to the browser layout until the next launch.
     }
   }
-  return desktop;
+  return { desktop, frameless };
 }
 
-const DESKTOP = readDesktop();
+const SHELL = readShell();
 
 export function isDesktop(): boolean {
-  return DESKTOP;
+  return SHELL.desktop;
+}
+
+export function isFrameless(): boolean {
+  return SHELL.frameless;
+}
+
+// What backend/study/desktop.py exposes to the frameless window as
+// window.pywebview.api. pywebview answers every call with a promise.
+export type WindowControlsApi = {
+  minimize(): Promise<void>;
+  toggle_maximize(): Promise<boolean>;
+  is_maximized(): Promise<boolean>;
+  close(): Promise<void>;
+  open_in_browser(url: string): Promise<boolean>;
+};
+
+declare global {
+  interface Window {
+    pywebview?: { api: WindowControlsApi };
+  }
+}
+
+const PYWEBVIEW_READY_EVENT = "pywebviewready";
+const PYWEBVIEW_WAIT_MS = 3000;
+
+// The window's controls once pywebview has injected them, which happens after
+// the page first loads, or null outside the frameless window or when they
+// never arrive.
+export function windowControls(): Promise<WindowControlsApi | null> {
+  const ready = () => (SHELL.frameless ? window.pywebview?.api ?? null : null);
+  if (!SHELL.frameless || ready()) return Promise.resolve(ready());
+  return new Promise((resolve) => {
+    let timer = 0;
+    const done = () => {
+      window.removeEventListener(PYWEBVIEW_READY_EVENT, done);
+      window.clearTimeout(timer);
+      resolve(ready());
+    };
+    window.addEventListener(PYWEBVIEW_READY_EVENT, done);
+    timer = window.setTimeout(done, PYWEBVIEW_WAIT_MS);
+  });
 }
 
 // Whether the launcher said, when it opened this window, that this computer

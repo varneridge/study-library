@@ -1,6 +1,9 @@
 // The desktop window's tabs, in the manner of Zotero's: Home is pinned on the
 // left and cannot be closed, anything else opens beside it, and the five most
 // recently shown stay mounted, so a reading or a long page keeps its place.
+// The strip is the window's top row, and in the frameless window it carries
+// the window controls on its right, as Windows Terminal and File Explorer do,
+// with the empty stretch between them dragging the window.
 // The rules live in lib/tabs as plain data, and this file joins them to the
 // router, the keyboard and the mouse, keeping every link to the app inside the
 // window rather than letting Edge open a tab or window of its own. None of it
@@ -10,7 +13,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
 import { confirmLeave, href, navigate, routeOf, type Route } from "../lib/router";
-import { TAB_HIDDEN_EVENT } from "../lib/shell";
+import { isFrameless, TAB_HIDDEN_EVENT, windowControls } from "../lib/shell";
 import {
   activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs,
   type Tab, type TabState,
@@ -328,7 +331,69 @@ function TabItem({ tab, onSelect, onClose, onKeyDown }: {
   );
 }
 
+// Windows' own caption glyphs are drawn ten pixels square with hairline
+// strokes, so these match them rather than borrowing the app's heavier icons.
+function Glyph({ shape }: { shape: "minimise" | "maximise" | "restore" | "close" }) {
+  const paths = {
+    minimise: "M0 5.5h10",
+    maximise: "M0.5 0.5h9v9h-9z",
+    restore: "M0.5 2.5h7v7h-7z M2.5 2.5v-2h7v7h-2",
+    close: "M0.5 0.5l9 9M9.5 0.5l-9 9",
+  };
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+      <path d={paths[shape]} fill="none" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  );
+}
+
+// Minimise, maximise and close for the frameless window. Closing asks the page
+// in front first, as closing its tab does, so that unsaved work is not lost.
+function WindowControls({ maximised, onToggle }: { maximised: boolean; onToggle: () => void }) {
+  return (
+    <div className="sl-window-controls">
+      <button type="button" className="sl-window-button" aria-label="Minimise" title="Minimise"
+        onClick={() => void windowControls().then((api) => api?.minimize())}>
+        <Glyph shape="minimise" />
+      </button>
+      <button type="button" className="sl-window-button" aria-label={maximised ? "Restore" : "Maximise"}
+        title={maximised ? "Restore" : "Maximise"} onClick={onToggle}>
+        <Glyph shape={maximised ? "restore" : "maximise"} />
+      </button>
+      <button type="button" className="sl-window-button is-close" aria-label="Close" title="Close"
+        onClick={() => void confirmLeave().then(async (leave) => leave && (await windowControls())?.close())}>
+        <Glyph shape="close" />
+      </button>
+    </div>
+  );
+}
+
+// Whether the frameless window is maximised, asked again after every resize,
+// since Win+Up, a snap or a double-click can each change it.
+function useMaximised(frameless: boolean): [boolean, () => void] {
+  const [maximised, setMaximised] = useState(false);
+  useEffect(() => {
+    if (!frameless) return;
+    let live = true;
+    const check = () => void windowControls().then((api) => api?.is_maximized()).then((now) => {
+      if (live && typeof now === "boolean") setMaximised(now);
+    });
+    check();
+    window.addEventListener("resize", check);
+    return () => {
+      live = false;
+      window.removeEventListener("resize", check);
+    };
+  }, [frameless]);
+  const toggle = () => void windowControls().then((api) => api?.toggle_maximize()).then((now) => {
+    if (typeof now === "boolean") setMaximised(now);
+  });
+  return [maximised, toggle];
+}
+
 export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: TabCommands }) {
+  const frameless = isFrameless();
+  const [maximised, toggleMaximised] = useMaximised(frameless);
   const list = useRef<HTMLDivElement>(null);
   const select = (tab: TabView) => {
     // Pressing Home while it is already in front takes it back to the home page.
@@ -357,7 +422,7 @@ export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: T
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus();
   };
   return (
-    <div className="sl-tabs">
+    <div className={`sl-tabs${frameless ? " is-frameless" : ""}`}>
       <div className="sl-tabs-list" role="tablist" aria-label="Open tabs" ref={list}>
         {tabs.map((tab, index) => (
           <TabItem
@@ -372,6 +437,10 @@ export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: T
       <button type="button" className="sl-tab-new" aria-label="New tab" title="New tab (Ctrl+T)" onClick={commands.openNew}>
         <Icon name="plus" size={16} />
       </button>
+      {/* pywebview moves the window while this is dragged, and a double-click
+          maximises it as a title bar's would. */}
+      <div className="sl-tabs-drag pywebview-drag-region" aria-hidden="true" onDoubleClick={frameless ? toggleMaximised : undefined} />
+      {frameless && <WindowControls maximised={maximised} onToggle={toggleMaximised} />}
     </div>
   );
 }

@@ -1,32 +1,27 @@
 /* The desktop window's tabs. Only html.sl-desktop carries these rules, so a
-   browser tab or the phone is never touched by them. The tabs sit beneath the
-   top bar in one sticky block, .sl-chrome, on the page's own background, set
-   from script as --sl-shell-bg, so that the window shows one surface rather
-   than a strip stacked above the header. In an installed window that uses the
-   window controls overlay they move up into the title bar instead, beside the
-   caption buttons. Every shade is mixed from the text colour, so it follows
-   light, dark and each accent. */
+   browser tab or the phone is never touched by them. The tabs are the
+   window's top row, above the top bar in one sticky block, .sl-chrome, on the
+   page's own background, set from script as --sl-shell-bg, so that the window
+   shows one surface rather than a strip stacked on the header. In the
+   frameless window the row also carries the window controls, and in an
+   installed window that uses the window controls overlay it moves up into the
+   title bar, beside the caption buttons. Every shade is mixed from the text
+   colour, so it follows light, dark and each accent. */
 
 html.sl-desktop {
   --sl-tabs-h: 2.25rem;
   --sl-shell-bg: Canvas;
 }
 
-/* The top bar and the tabs stick together so that they read as one header.
-   The block keeps the stacking order the strip had before, and the top bar's
-   menus still open over the tabs because the strip itself is not positioned. */
+/* The tabs and the top bar stick together so that they read as one header,
+   with the top bar's own hairline beneath both. The block keeps the stacking
+   order the strip had before, and the top bar's menus still open over the
+   page because the strip itself is not positioned. */
 html.sl-desktop .sl-chrome {
   position: sticky;
   top: 0;
   z-index: 40;
   background: var(--sl-shell-bg, Canvas);
-}
-
-/* One hairline beneath the whole block, which the tabs draw, rather than one
-   under each bar. */
-html.sl-desktop:not(.sl-wco) .sl-chrome > .topbar {
-  border-bottom-color: transparent;
-  box-shadow: none;
 }
 
 /* A reading or an essay fills the window beneath the tabs. The transform
@@ -54,8 +49,63 @@ html.sl-desktop.sl-bare #main {
   height: var(--sl-tabs-h);
   padding: 0 0.5rem;
   color: inherit;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
   user-select: none;
+}
+
+/* With no top bar beneath it, as above a reading, the strip draws the hairline itself. */
+html.sl-desktop.sl-bare .sl-tabs {
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* The empty stretch between the new tab button and the window controls, which
+   drags the frameless window and is simply space anywhere else. */
+.sl-tabs-drag {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 2rem;
+}
+
+/* The window controls fill the row's height and meet the window's right edge,
+   as Windows' own caption buttons do, so the strip's padding stops short of them. */
+.sl-tabs.is-frameless {
+  padding-right: 0;
+}
+
+.sl-window-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.sl-window-button {
+  display: grid;
+  place-items: center;
+  width: 2.875rem;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sl-window-button:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.sl-window-button:active {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+/* Windows' own red for close, which reads as the same button in every theme. */
+.sl-window-button.is-close:hover,
+.sl-window-button.is-close:active {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.sl-window-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
 }
 
 .sl-tabs-list {
@@ -170,7 +220,8 @@ html.sl-desktop.sl-bare #main {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sl-tab {
+  .sl-tab,
+  .sl-window-button {
     transition: none;
   }
 }

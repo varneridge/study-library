@@ -31,6 +31,12 @@ PACKAGES_TO_COLLECT = [
     "uvicorn",
     "numpy",
     "numpy._core",
+    # The frameless window: pywebview carries the WebView2 loader DLLs in
+    # webview/lib, and pythonnet and clr_loader carry the .NET runtime glue that
+    # pywebview loads by name.
+    "webview",
+    "pythonnet",
+    "clr_loader",
 ]
 
 # Modules that study.desktop starts by name in a child process, which static

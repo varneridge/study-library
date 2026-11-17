@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
 import { requireAccess } from "./auth";
 import { accessEmail, connectLink } from "./connect";
 import type { Env } from "./env";
@@ -50,6 +51,56 @@ app.post("/api/connect", async (c) => {
   }
   c.header("Cache-Control", "no-store");
   return c.json({ link });
+});
+
+// The desktop window's sign-in through the person's usual browser. Access has
+// already signed this request in, so the page hands its session token to the
+// one-shot listener the desktop app opened on 127.0.0.1, by a form post, which
+// keeps the token out of the address bar, the history and every log. Only a
+// person's session is handed over, never a service token's, and only to a
+// loopback port carrying the state the desktop app chose.
+const DESKTOP_STATE = /^[A-Za-z0-9_-]{16,128}$/;
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+function desktopAuthPage(token: string, port: number, state: string, nonce: string): string {
+  const action = `http://127.0.0.1:${port}/auth-callback`;
+  return `<!doctype html>
+<html lang="en-GB">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing in to Study Library</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;margin:3rem auto;max-width:32rem;padding:0 1rem;color:#1c1917;background:#f6f5f3}</style>
+<form id="handoff" method="post" action="${escapeHtml(action)}">
+<input type="hidden" name="cf_auth" value="${escapeHtml(token)}">
+<input type="hidden" name="state" value="${escapeHtml(state)}">
+<p>Signing the Study Library window in with this browser's session.</p>
+<noscript><p><button type="submit">Sign the window in</button></p></noscript>
+</form>
+<script nonce="${nonce}">document.getElementById("handoff").submit();</script>
+</html>`;
+}
+
+app.get("/api/desktop-auth", (c) => {
+  const jwt = c.req.header("cf-access-jwt-assertion");
+  const token = getCookie(c, "CF_Authorization") || jwt;
+  if (!token || !accessEmail(jwt)) return c.json({ error: "person_required" }, 403);
+  const portText = c.req.query("port") ?? "";
+  const port = Number(portText);
+  const state = c.req.query("state") ?? "";
+  if (!/^\d{4,5}$/.test(portText) || port < 1024 || port > 65535 || !DESKTOP_STATE.test(state)) {
+    return c.json({ error: "bad_request" }, 400);
+  }
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  c.header("Cache-Control", "no-store");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header(
+    "Content-Security-Policy",
+    `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action http://127.0.0.1:${port}; frame-ancestors 'none'; base-uri 'none'`,
+  );
+  return c.html(desktopAuthPage(token, port, state, nonce));
 });
 
 app.post("/api/sync/push", async (c) => {

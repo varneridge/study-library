@@ -2,10 +2,13 @@
 
 From the Start menu or desktop shortcut:  pythonw -m study.desktop
   starts the processor and the Listen speech server if they are not already
-  running, then opens Study Library in its own Edge window, at an address
-  marked ?sl=desktop so that the app shows its tabs and paints the window's
-  title bar in its own background, and colours the native frame to match
-  through DWM once the window appears.
+  running, then opens Study Library in a frameless WebView2 window through
+  pywebview, at an address marked ?sl=frameless so that the app draws its tabs
+  and the window controls on one row of its own. Without pywebview it opens an
+  Edge window instead, marked ?sl=desktop, whose native frame is coloured to
+  match through DWM once the window appears. When the frameless window lands
+  on the Cloudflare Access sign-in page, the person signs in through their
+  usual browser, which hands the Access cookie back to the window.
 From the Startup folder, at sign-in:      pythonw -m study.desktop --headless
   the same with no window; this process stays on as their supervisor.
 --app-only opens the window only. --once works through the queue in the
@@ -29,14 +32,19 @@ backend/setup-windows.ps1 builds all of it.
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
+import http.server
 import json
 import logging
 import logging.handlers
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -81,6 +89,23 @@ CONNECT_TIMEOUT_SECONDS = 15
 # which ignores --user-agent, and when the switch did apply it would change the
 # user agent of every Edge tab, not this window's alone.
 SHELL_HINT = "sl=desktop"
+# Marks the frameless pywebview window, whose page draws the window controls
+# itself because the window has no frame to carry them.
+FRAMELESS_HINT = "sl=frameless"
+# The smallest size at which the top bar and the tabs still fit on their rows.
+WINDOW_MIN_SIZE = (860, 600)
+WINDOW_SIZE = (1280, 840)
+# The Cloudflare Access sign-in handoff: the browser posts the cookie to this
+# path on a one-shot listener, which gives up after this long.
+ACCESS_COOKIE = "CF_Authorization"
+SIGN_IN_PATH = "/auth-callback"
+SIGN_IN_TIMEOUT_SECONDS = 5 * 60
+SIGN_IN_BODY_LIMIT = 16384
+_ACCESS_TOKEN = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+# The launcher puts the desktop user agent in the WebView2 arguments, and it is
+# read back from there because pywebview sets its own arguments on the control,
+# which may take the place of the environment's.
+_USER_AGENT_ARGUMENT = re.compile(r'--user-agent="([^"]+)"')
 # Desktop Window Manager attributes for the native frame. Windows 11 honours
 # all three, whereas Windows 10 accepts only the first and refuses the colours,
 # which is logged and otherwise ignored.
@@ -171,7 +196,7 @@ def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> di
     if (home / "tessdata").is_dir():
         env["TESSDATA_PREFIX"] = str(home / "tessdata")
     # Tools print UTF-8; without this Windows decodes their output as cp1252,
-    # which has no character for some bytes of names such as "Łódź".
+    # which has no character for some bytes of names such as "ÅÃ³dÅº".
     env["PYTHONUTF8"] = "1"
     # backend/ only, which holds both study and tts. The packaged build has no
     # repository root to import "backend" from, so putting the root here as
@@ -342,10 +367,11 @@ def window_url(url: str, env: Mapping[str, str]) -> str:
     return _with_query(url, CONNECT_HINT)
 
 
-def desktop_url(url: str) -> str:
+def desktop_url(url: str, frameless: bool = False) -> str:
     """The address for the desktop window, marked so that the app shows its
-    tabs and keeps the window's title bar the colour of its own background."""
-    return _with_query(url, SHELL_HINT)
+    tabs and keeps the window's title bar the colour of its own background,
+    and, in the frameless window, draws the window controls beside the tabs."""
+    return _with_query(url, FRAMELESS_HINT if frameless else SHELL_HINT)
 
 
 def _notify(text: str, error: bool = False) -> None:
@@ -690,6 +716,278 @@ def open_window(url: str, colour: str = TITLE_BAR_COLOUR) -> None:
         recolour_title_bar(before, colour)
 
 
+def is_access_login(url: str) -> bool:
+    """Whether the window shows Cloudflare Access's sign-in page, which lives
+    on the team domain or under /cdn-cgi/access/login on the app's own host."""
+    parts = urllib.parse.urlsplit(url or "")
+    host = (parts.hostname or "").lower()
+    return host == "cloudflareaccess.com" or host.endswith(".cloudflareaccess.com") or parts.path.startswith("/cdn-cgi/access/login")
+
+
+def sign_in_url(app_url: str, port: int, state: str) -> str | None:
+    """The address that sends the browser's Access session back to this
+    computer, or None unless the app is an https address, since the Worker
+    route only exists behind Access."""
+    parts = urllib.parse.urlsplit(app_url or "")
+    if parts.scheme != "https" or not parts.hostname:
+        return None
+    query = urllib.parse.urlencode({"port": port, "state": state})
+    return f"https://{parts.netloc.rpartition('@')[2]}/api/desktop-auth?{query}"
+
+
+def access_cookie_expiry(token: str) -> int | None:
+    """When the Access token expires, from its exp claim, so that the cookie
+    outlasts a restart of the window. None when the claim cannot be read, which
+    leaves the cookie for this session alone."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        expiry = int(claims["exp"])
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    return expiry if expiry > time.time() else None
+
+
+def listen_for_sign_in(
+    on_token: Callable[[str], None],
+    timeout: float = SIGN_IN_TIMEOUT_SECONDS,
+    on_close: Callable[[], None] | None = None,
+) -> tuple[int, str]:
+    """Starts a one-shot listener on 127.0.0.1 for the form that /api/desktop-auth
+    posts, and returns its port and the state the form must carry back. Only a
+    post with that state and a well-formed token is accepted, after which, or
+    once timeout passes, the listener closes and on_close runs. Nothing it
+    receives is logged, because the token is a live sign-in."""
+    state = secrets.token_urlsafe(24)
+    done = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format, *args):  # noqa: A002, ANN001 - the request line is not worth a log
+            pass
+
+        def _answer(self, code: int, text: str) -> None:
+            body = (f"<!doctype html><meta charset=utf-8><title>Study Library</title>"
+                    f"<p style=\"font:16px system-ui;margin:3rem\">{text}</p>").encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802 - the name http.server calls
+            self._answer(405, "This address only accepts the sign-in that Study Library sends it.")
+
+        def do_POST(self) -> None:  # noqa: N802 - the name http.server calls
+            if urllib.parse.urlsplit(self.path).path != SIGN_IN_PATH:
+                self._answer(404, "This address only accepts the sign-in that Study Library sends it.")
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if not 0 < length <= SIGN_IN_BODY_LIMIT:
+                self._answer(400, "The sign-in could not be read, so please try again from Study Library.")
+                return
+            fields = urllib.parse.parse_qs(self.rfile.read(length).decode("ascii", "replace"))
+            token, given = fields.get("cf_auth", []), fields.get("state", [])
+            if (len(token) != 1 or len(given) != 1 or not hmac.compare_digest(given[0], state)
+                    or not _ACCESS_TOKEN.fullmatch(token[0])):
+                self._answer(400, "This sign-in was not the one Study Library asked for, so it was ignored.")
+                return
+            self._answer(200, "You are signed in, so you can close this tab and go back to Study Library.")
+            done.set()
+            try:
+                on_token(token[0])
+            except Exception:  # noqa: BLE001 - the listener must still close
+                log.exception("the sign-in could not be passed to the window")
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server.timeout = 0.5
+
+    def serve() -> None:
+        deadline = time.monotonic() + timeout
+        try:
+            while not done.is_set() and time.monotonic() < deadline:
+                server.handle_request()
+        finally:
+            server.server_close()
+            if on_close:
+                on_close()
+
+    threading.Thread(target=serve, name="sign-in", daemon=True).start()
+    return server.server_address[1], state
+
+
+def set_access_cookie(window: Any, host: str, token: str) -> bool:
+    """Puts the Access cookie into the window's WebView2 cookie store for the
+    app's host, on the window's own thread, as WebView2 requires. False when
+    the control cannot be reached, which leaves the sign-in page as it was."""
+    import System  # pythonnet, which pywebview has loaded by now
+
+    form = window.native
+    control = form.browser.webview
+    expiry = access_cookie_expiry(token)
+    added: list[bool] = []
+
+    def add() -> None:
+        try:
+            manager = control.CoreWebView2.CookieManager
+            cookie = manager.CreateCookie(ACCESS_COOKIE, token, host, "/")
+            cookie.IsSecure = True
+            cookie.IsHttpOnly = True
+            if expiry:
+                try:
+                    cookie.Expires = System.DateTimeOffset.FromUnixTimeSeconds(expiry).UtcDateTime
+                except Exception:  # noqa: BLE001 - a session cookie still signs the window in
+                    log.debug("the Access cookie keeps no expiry", exc_info=True)
+            manager.AddOrUpdateCookie(cookie)
+            added.append(True)
+        except Exception:  # noqa: BLE001 - raised on the UI thread, reported below
+            log.warning("WebView2 refused the Access cookie", exc_info=True)
+
+    form.Invoke(System.Func[System.Type](add))
+    return bool(added)
+
+
+class SignInHandoff:
+    """Lets a person sign in to Cloudflare Access in their usual browser, where
+    they are usually signed in already, instead of in the window's own profile.
+    When the window lands on the sign-in page, a one-shot listener starts, the
+    browser opens /api/desktop-auth, which posts the Access cookie back to the
+    listener, and the window takes the cookie and returns to the app."""
+
+    def __init__(
+        self,
+        window: Any,
+        app_url: str,
+        listen: Callable[..., tuple[int, str]] = listen_for_sign_in,
+        open_browser: Callable[[str], bool] = webbrowser.open,
+        set_cookie: Callable[[Any, str, str], bool] = set_access_cookie,
+    ):
+        self._window = window
+        self._app_url = app_url
+        self._host = urllib.parse.urlsplit(app_url).hostname or ""
+        self._listen = listen
+        self._open = open_browser
+        self._set_cookie = set_cookie
+        # Held while a listener is open, so a reload of the sign-in page never opens a second browser tab.
+        self._busy = threading.Lock()
+
+    def on_loaded(self) -> None:
+        if is_access_login(self._window.get_current_url() or ""):
+            self.start()
+
+    def start(self) -> bool:
+        if not self._host or not self._busy.acquire(blocking=False):
+            return False
+        try:
+            port, state = self._listen(self._receive, on_close=self._busy.release)
+        except OSError as error:
+            self._busy.release()
+            log.warning("could not listen for the browser sign-in: %s", error)
+            return False
+        address = sign_in_url(self._app_url, port, state)
+        if address is None or not self._open(address):
+            log.info("the browser sign-in was not started, so the window's own sign-in page stays")
+            return False
+        log.info("opened the browser to sign in to Cloudflare Access")
+        return True
+
+    def _receive(self, token: str) -> None:
+        if self._set_cookie(self._window, self._host, token):
+            log.info("signed the window in with the browser's Access session")
+            self._window.load_url(self._app_url)
+
+
+class WindowApi:
+    """What the page reaches as window.pywebview.api, for the window controls it
+    draws beside the tabs. pywebview hides every name that starts with an
+    underscore from the page, which is where the window itself is kept."""
+
+    def __init__(self) -> None:
+        self._window: Any = None
+        self._maximised = False
+
+    def _bind(self, window: Any) -> None:
+        self._window = window
+        window.events.maximized += self._on_maximised
+        window.events.restored += self._on_restored
+
+    def _on_maximised(self) -> None:
+        self._maximised = True
+
+    def _on_restored(self) -> None:
+        self._maximised = False
+
+    def minimize(self) -> None:
+        self._window.minimize()
+
+    def toggle_maximize(self) -> bool:
+        """Maximises the window or restores it, and returns whether it is now maximised."""
+        if self._maximised:
+            self._window.restore()
+        else:
+            self._window.maximize()
+        self._maximised = not self._maximised
+        return self._maximised
+
+    def is_maximized(self) -> bool:
+        return self._maximised
+
+    def close(self) -> None:
+        self._window.destroy()
+
+    def open_in_browser(self, url: str) -> bool:
+        """Opens an http or https address in the default browser. Any other
+        scheme is refused, because the page must never start a program."""
+        if not isinstance(url, str) or urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+            return False
+        return bool(webbrowser.open(url))
+
+
+def webview_user_agent(env: Mapping[str, str]) -> str | None:
+    """The desktop user agent that the launcher prepared for WebView2, if any."""
+    match = _USER_AGENT_ARGUMENT.search(env.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", ""))
+    return match.group(1) if match else None
+
+
+def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR) -> bool:
+    """Study Library in a frameless WebView2 window, whose page draws its own
+    tabs and window controls, kept open until the person closes it. The
+    profile lives in the home folder, so the window keeps its Access sign-in,
+    offline copy and service worker from one start to the next. False, before
+    anything is shown, when this is not Windows, pywebview is missing or
+    WebView2 cannot start, so that the caller can open Edge instead."""
+    if not WINDOWS:
+        return False
+    try:
+        import webview
+    except ImportError:
+        log.info("pywebview is not installed, so Study Library opens in Edge")
+        return False
+    try:
+        colorref(colour)
+    except ValueError:
+        colour = TITLE_BAR_COLOUR
+    shown = threading.Event()
+    try:
+        api = WindowApi()
+        window = webview.create_window(
+            "Study Library", url, js_api=api, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1],
+            min_size=WINDOW_MIN_SIZE, frameless=True, easy_drag=False, background_color=colour,
+        )
+        api._bind(window)  # noqa: SLF001 - kept private so the page cannot see it
+        window.events.shown += shown.set
+        window.events.loaded += SignInHandoff(window, url).on_loaded
+        webview.start(gui="edgechromium", private_mode=False, storage_path=str(Path(home) / "webview"),
+                      user_agent=webview_user_agent(os.environ))
+    except Exception:  # noqa: BLE001 - any failure before the window shows falls back to Edge
+        log.exception("the frameless window could not run")
+        return shown.is_set()
+    return True
+
+
 def _spawn_supervisor(home: Path, handover: bool) -> None:
     env = dict(os.environ)
     if handover:
@@ -859,7 +1157,10 @@ def main(argv: list[str] | None = None) -> int:
     if not url:
         log.error("STUDY_URL is not set in %s or %s", *env_files(home))
         return 1
-    open_window(desktop_url(window_url(url, env)), env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR)
+    link = window_url(url, env)
+    colour = env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR
+    if not open_frameless(home, desktop_url(link, frameless=True), colour):
+        open_window(desktop_url(link), colour)
     return 0
 
 

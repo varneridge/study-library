@@ -579,16 +579,17 @@ export function App() {
 
   // Every child keeps its place whatever the view, so a change of page never
   // remounts the top bar, the overlays or the recorder. In the desktop window
-  // the top bar and the tabs share one sticky block, so that they read as a
-  // single header on one surface, and each tab keeps its own page, hidden
-  // rather than unmounted while another is in front, so that it comes back
-  // exactly as it was left.
+  // the tabs are the window's top row, above the top bar in one sticky block,
+  // so that they read as a single header on one surface, and in the frameless
+  // window that row also carries the window controls. Each tab keeps its own
+  // page, hidden rather than unmounted while another is in front, so that it
+  // comes back exactly as it was left.
   return (
     <>
       {!bare && <a className="skip" href="#main">Skip to content</a>}
       <div className={desktop ? "sl-chrome" : undefined}>
-        {!bare && <TopBar route={route} />}
         {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
+        {!bare && <TopBar route={route} />}
       </div>
       {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}

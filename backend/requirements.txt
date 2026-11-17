@@ -9,3 +9,6 @@ numpy==2.*
 # Before 1.0 a minor version may change the API the server calls.
 kokoro-onnx==0.6.*
 onnxruntime==1.20.1
+# The frameless desktop window on Windows. It needs the WebView2 runtime and
+# pythonnet, so WSL, which opens no window, never installs it.
+pywebview==6.*; sys_platform == "win32"
