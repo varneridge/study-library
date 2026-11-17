@@ -91,18 +91,20 @@ function ConnectComputer() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api("/api/connect", { method: "POST" });
+      const res = await fetch("/api/connect", { method: "POST", redirect: "manual", credentials: "same-origin" });
       if (res.status === 200) {
         const data = (await res.json()) as { link: string };
         setLink(data.link);
+      } else if (res.type === "opaqueredirect" || res.status === 401) {
+        setError("Your session has expired. Refresh the page to sign in again.");
       } else if (res.status === 503) {
         setError(
-          "The Worker has no processor settings yet, so run wrangler secret put PROCESSOR_ACCESS_CLIENT_ID and PROCESSOR_ACCESS_CLIENT_SECRET."
+          "The Worker has no processor settings yet, so run wrangler secret put PROCESSOR_KEY, PROCESSOR_ACCESS_CLIENT_ID and PROCESSOR_ACCESS_CLIENT_SECRET."
         );
       } else if (res.status === 403) {
         setError("Connecting a computer needs your own sign-in rather than a service token.");
       } else {
-        setError("Could not generate a connection link. Check you are online.");
+        setError(`Could not generate a connection link (HTTP ${res.status}).`);
       }
     } catch {
       setError("Could not generate a connection link. Check you are online.");
