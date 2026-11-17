@@ -3,6 +3,9 @@ import { version as currentVersion } from "../../package.json";
 
 export { currentVersion };
 export const RELEASES_PAGE = "https://github.com/varneridge/study-library/releases/latest";
+// GitHub redirects this to the newest release's installer, so a link to it starts the download at once.
+export const INSTALLER_FILE_NAME = "StudyLibrarySetup.exe";
+export const INSTALLER_DOWNLOAD_URL = `https://github.com/varneridge/study-library/releases/latest/download/${INSTALLER_FILE_NAME}`;
 const LATEST_API = "https://api.github.com/repos/varneridge/study-library/releases/latest";
 const DISMISSED_KEY = "studyLibrary.updateDismissed";
 
@@ -55,4 +58,9 @@ export function updateHref(release: Release, userAgent: string = globalThis.navi
   return /Windows/.test(userAgent)
     ? `studylibrary://update?version=${encodeURIComponent(release.version)}`
     : RELEASES_PAGE;
+}
+
+/** The Windows app handles studylibrary://open, so a page in the browser can hand its own address to the desktop window. */
+export function openInDesktopHref(path: string): string {
+  return `studylibrary://open?path=${encodeURIComponent(path)}`;
 }

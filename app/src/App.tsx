@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 // First among the app's own modules, so that the desktop mark is read from the
 // address before any module that loads the router has a chance to rewrite it.
 import { followShellColour, followWindowControls, isDesktop, setNeedsConnecting } from "./lib/shell";
@@ -11,6 +11,7 @@ import { SessionPage } from "./components/SessionPage";
 import { Settings, connectionOf, useNeedsConnecting } from "./components/Settings";
 import { WeekPage } from "./components/WeekPage";
 import { href, navigate, useRoute, type Route } from "./lib/router";
+import { INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, openInDesktopHref } from "./lib/update";
 import { flush, pull, startSync, stopSync, subscribeSync } from "./lib/sync";
 import type { SyncView } from "./lib/syncStatus";
 import { useProcessorStatus } from "./lib/status";
@@ -68,6 +69,27 @@ export function Link({ to, children, className, current, currentSide, title, lab
   );
 }
 
+// A menu in the top bar closes on Back, on Escape and on a press anywhere
+// outside it, so every menu there lets go in the same way.
+function useMenuDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement | null>) {
+  useCloseOnBack(open, close);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) close();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open, close, ref]);
+}
+
 // A compact icon in the top bar, in the manner of Word's save indicator. Its
 // symbol and words come from useSyncView, so the top bar shows exactly what
 // Settings and everywhere else show for the same state. Pressing it opens the
@@ -81,23 +103,9 @@ function SyncStatus() {
   const ref = useRef<HTMLSpanElement>(null);
   const [, tick] = useState(0);
   const uploads = useLiveQuery(() => db.uploads.toArray(), [], []);
-  useCloseOnBack(open, () => setOpen(false));
+  const close = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, close, ref);
   useEffect(() => onUploadProgress(() => tick((n) => n + 1)), []);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", key);
-    };
-  }, [open]);
 
   const failedUploads = uploads.filter((u) => u.status === "failed");
   // A failed upload is not part of the sync state, so it borrows the set's
@@ -190,6 +198,33 @@ function ExpiredBanner() {
   );
 }
 
+// In a browser, the page in view can be handed to the desktop app, or the app
+// downloaded by anyone who does not have it yet. It sits among the tools, so
+// on a phone, where the desktop app is of no use, it goes with them.
+function OpenOnDesktop({ route }: { route: Route }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useMenuDismiss(open, close, ref);
+  return (
+    <span className="menu" ref={ref}>
+      <button type="button" className="topbar-btn" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((v) => !v)}>
+        Open on desktop
+      </button>
+      {open && (
+        <div className="menu-panel" role="menu" aria-label="Open on desktop" style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+          <a role="menuitem" className="button" style={{ textDecoration: "none" }} href={openInDesktopHref(href(route))} onClick={close}>
+            Open in Study Library
+          </a>
+          <a role="menuitem" className="button" style={{ textDecoration: "none" }} href={INSTALLER_DOWNLOAD_URL} download={INSTALLER_FILE_NAME} onClick={close}>
+            Download desktop app
+          </a>
+        </div>
+      )}
+    </span>
+  );
+}
+
 // In the desktop window, a small dot on Settings shows that the background
 // processor needs connecting, so the state is plain at a glance without
 // adding anything to an ordinary browser tab.
@@ -236,7 +271,7 @@ function ModuleLinks({ route }: { route: Route }) {
   );
 }
 
-// The phone's tab bar: five places, always in reach of a thumb. It is for
+// The phone's tab bar: four places, always in reach of a thumb. It is for
 // going somewhere, never for an action, as Apple's guidelines put it. Each
 // tab stays lit for every page within its section.
 function TabBar({ route }: { route: Route }) {
@@ -244,10 +279,9 @@ function TabBar({ route }: { route: Route }) {
     document.documentElement.classList.add("with-tabs");
     return () => document.documentElement.classList.remove("with-tabs");
   }, []);
-  const section = route.view === "across" || route.view === "calendar" || route.view === "search" || route.view === "settings" ? route.view : "home";
+  const section = route.view === "calendar" || route.view === "search" || route.view === "settings" ? route.view : "home";
   const tabs: { key: string; to: Route; label: string; icon: IconName }[] = [
     { key: "home", to: { view: "home" }, label: "Home", icon: "home" },
-    { key: "across", to: { view: "across" }, label: "This week", icon: "week" },
     { key: "calendar", to: { view: "calendar" }, label: "Calendar", icon: "calendar" },
     { key: "search", to: { view: "search" }, label: "Search", icon: "search" },
     { key: "settings", to: { view: "settings" }, label: "Settings", icon: "settings" },
@@ -407,7 +441,6 @@ function TopBar({ route }: { route: Route }) {
       {side === "study" && (
         <div className="navs">
           <ModuleLinks route={route} />
-          <Link to={{ view: "across" }} className="topbar-across" current={route.view === "across"}>This week</Link>
         </div>
       )}
       {/* A direct child of the bar rather than one of the tools, so it stays
@@ -415,6 +448,7 @@ function TopBar({ route }: { route: Route }) {
       <SyncStatus />
       <SideSwitch side={side} />
       <nav className="topbar-tools" aria-label="Tools">
+        {!desktop && <OpenOnDesktop route={route} />}
         <Link to={{ view: "search" }} className="topbar-btn" current={route.view === "search"} title="Search (/)">
           <span className="sr-only">Search</span>
           <Icon name="search" size={18} />

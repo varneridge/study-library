@@ -1020,6 +1020,10 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.53.2:
+  - Web and tab polish: direct `StudyLibrarySetup.exe` download URL (`INSTALLER_DOWNLOAD_URL`), context-aware Settings (hiding "Connect this computer" when connected and hiding "Download desktop app" inside the desktop app), pinned Home tab always returning to `/` while links from Home open in fresh desktop tabs, removal of "This week" top navigation, and desktop-web "Open on desktop" top-bar dropdown (`studylibrary://open?path=...` + direct installer download).
+- Queued for next session (Windows desktop):
+  - Normal Windows frameless window behaviour in `backend/study/desktop.py` (`WM_GETMINMAXINFO` respecting taskbar `rcWork`, `WM_NCCALCSIZE`, `WM_NCHITTEST` resize/Aero Snap) and `studylibrary://open?path=...` protocol handling.
 - Improvements completed in 0.53.0:
   - Essay & Wordcraft studio: 3-column workspace (left rail for Brief, Admin Documents, Sources; centre Draft/Preview; right References + Outline), `PageZoomViewport` fixed-size preview container with inner zoom, fixed drag-and-drop into references (`drag.ts` + single `DndContext`), restored selected word count (`"X of Y words"`), fixed Wordcraft Home button overlap and safe-area padding, Ponytail editor polish, and free-text references with `"Cited where?"` context jump.
   - Desktop app, Zotero-style tabs & sync symbols: matched Edge app title bar `theme-color` to page background (removing the black top bar), added desktop installer download button in Settings, added Zotero-style multi-tab bar (`+`, `x`, middle-click, `Ctrl+T`, `Ctrl+W`, `Ctrl+Shift+T`) on desktop only, and unified all sync status indicators under `syncStatus.ts` and `SyncIcon`.
@@ -1317,6 +1321,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.52.4 | "Connect this computer" one-click pairing: Windows desktop installer ships without secrets, registering studylibrary:// protocol handler for the current user; signed-in Edge sessions generate a short-lived link from the Worker; one-click protocol launch proves service credentials against /api/ping before atomic write to %LOCALAPPDATA%\StudyLibrary\.env; desktop supervisor detects settings stamp changes and reloads background processor within five seconds; and rsync excludes build and Study directories in test runs |
 | 0.52.5 | In-app update notifications and installer updater: quiet top banner appears when GitHub releases have a newer version, offering Update now and Later (dismissed for current session); Settings displays current version and on-demand GitHub release check; studylibrary://update protocol handler downloads release StudyLibrarySetup.exe with progress notification and starts elevated installer with ShellExecute; and unit tests cover version comparison, session dismissal and routing |
 | 0.53.0 | Three-column essay studio, admin documents in assessments, fixed-box inner-zoom preview (`PageZoomViewport`), drag-and-drop into references fix, Wordcraft selection word count and Home button overlap fix, free-text references with "Cited where?", desktop Zotero-style tabs (`Ctrl+T`/`Ctrl+W`/`Ctrl+Shift+T`/middle-click), desktop title bar colour fix, desktop download button in Settings, and standardised sync symbols |
+| 0.53.2 | Context-aware Settings cleanup, direct `StudyLibrarySetup.exe` download link, pinned Home tab returning to `/` with Home items opening in fresh desktop tabs, removal of "This week" navigation, and desktop-web "Open on desktop" top-bar menu |
 
 ## 18. The job search
 

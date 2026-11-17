@@ -17,11 +17,18 @@ export type TabState = {
 };
 
 export const HOME_TAB_ID = "home";
+// The Home tab always shows the home page, so pressing it always leads back there.
+export const HOME_HREF = "/";
 export const MAX_CLOSED = 20;
 export const MAX_MOUNTED = 5;
 
+// A window opened at any other address keeps Home on the home page and shows
+// that address in a tab of its own, by the same rule as a link followed from Home.
 export function initialTabs(href: string): TabState {
-  return { tabs: [{ id: HOME_TAB_ID, href, pinned: true }], activeId: HOME_TAB_ID, recent: [HOME_TAB_ID], closed: [], next: 1 };
+  const home: TabState = {
+    tabs: [{ id: HOME_TAB_ID, href: HOME_HREF, pinned: true }], activeId: HOME_TAB_ID, recent: [HOME_TAB_ID], closed: [], next: 1,
+  };
+  return followRoute(home, href);
 }
 
 // The tab in front, which falls back to Home if the state names one that is not open.
@@ -66,10 +73,13 @@ export function reopenTab(state: TabState): TabState {
   return openTab({ ...state, closed: state.closed.slice(0, -1) }, href);
 }
 
-// A move within the tab in front, by a link, Back or a redirect, takes that tab with it.
+// A move within the tab in front, by a link, Back or a redirect, takes that
+// tab with it, except that Home stays on the home page, so a move away from it
+// opens a fresh tab in front instead.
 export function followRoute(state: TabState, href: string): TabState {
   const front = activeTab(state);
   if (front.href === href) return state;
+  if (front.id === HOME_TAB_ID) return openTab(state, href);
   return { ...state, tabs: state.tabs.map((tab) => (tab.id === front.id ? { ...tab, href } : tab)) };
 }
 
@@ -101,7 +111,7 @@ export function restoreTabs(saved: string | null, href: string): TabState {
   const activeId = typeof data.activeId === "string" && ids.has(data.activeId) ? data.activeId : HOME_TAB_ID;
   const numbers = tabs.map((tab) => Number(/^t(\d+)$/.exec(tab.id)?.[1] ?? 0));
   const state: TabState = {
-    tabs: [{ ...tabs[0], pinned: true }, ...tabs.slice(1)],
+    tabs: [{ ...tabs[0], href: HOME_HREF, pinned: true }, ...tabs.slice(1)],
     activeId,
     recent: toFront([...new Set(strings(data.recent))].filter((id) => ids.has(id)), activeId),
     closed: strings(data.closed).slice(-MAX_CLOSED),

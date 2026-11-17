@@ -15,7 +15,7 @@ import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
-import { availableUpdate, currentVersion, RELEASES_PAGE, updateHref, type Release } from "../lib/update";
+import { availableUpdate, currentVersion, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, updateHref, type Release } from "../lib/update";
 import { SyncIcon, useSyncView } from "./icons";
 
 const APPEARANCES: { value: Appearance; label: string }[] = [
@@ -197,6 +197,8 @@ function ProcessorState() {
   const status = useProcessorStatus();
   const unpaired = useNeedsConnecting();
   const connection = connectionOf(status, unpaired);
+  // A connected processor needs no link, so one is only asked for when someone chooses to reconnect.
+  const [reconnecting, setReconnecting] = useState(false);
   // The heading is drawn before the status arrives, so the sections below it do not move down.
   if (!status) {
     return (
@@ -235,7 +237,13 @@ function ProcessorState() {
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
       <DesktopDownload />
-      <ConnectComputer />
+      {connection === "connected" && !reconnecting
+        ? (
+            <p className="small muted" style={{ marginTop: "1.25rem" }}>
+              <button type="button" className="link" onClick={() => setReconnecting(true)}>Reconnect this computer</button>
+            </p>
+          )
+        : <ConnectComputer />}
       <UpdateSettings />
     </>
   );
@@ -253,12 +261,12 @@ function DesktopDownload() {
       <p className="small muted">
         The Windows desktop app opens Study Library in a window of its own and lets that computer act as the background processor.
       </p>
-      <a href={RELEASES_PAGE} className="button" target="_blank" rel="noopener noreferrer" style={{ marginTop: "0.5rem", textDecoration: "none" }}>
+      <a href={INSTALLER_DOWNLOAD_URL} download={INSTALLER_FILE_NAME} className="button" style={{ marginTop: "0.5rem", textDecoration: "none" }}>
         Download desktop app
       </a>
       {!windows && (
         <p className="small muted" style={{ marginTop: "0.5rem" }}>
-          The desktop app runs only on Windows, so from this device the download page is useful for saving the installer to a Windows computer.
+          The desktop app runs only on Windows, so the installer saved here is for copying to a Windows computer.
         </p>
       )}
     </div>

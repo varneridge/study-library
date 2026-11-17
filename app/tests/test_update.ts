@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { availableUpdate, dismiss, isDismissed, isNewer, RELEASES_PAGE, updateHref } from "../src/lib/update";
+import {
+  availableUpdate, dismiss, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, isDismissed, isNewer, openInDesktopHref,
+  RELEASES_PAGE, updateHref,
+} from "../src/lib/update";
 import type { SyncState } from "../src/lib/sync";
 import { syncStatus, syncView } from "../src/lib/syncStatus";
 import { detectDesktop } from "../src/lib/shell";
 import {
-  activate, activeTab, closeTab, followRoute, HOME_TAB_ID, initialTabs, MAX_CLOSED, MAX_MOUNTED,
+  activate, activeTab, closeTab, followRoute, HOME_HREF, HOME_TAB_ID, initialTabs, MAX_CLOSED, MAX_MOUNTED,
   mountedTabIds, openTab, reopenTab, restoreTabs,
 } from "../src/lib/tabs";
 
@@ -67,6 +70,15 @@ export async function runUpdateTests() {
     updateHref({ version: "1.4.0" }, "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)"),
     RELEASES_PAGE
   );
+  // The download link names the installer itself, so a press saves the .exe
+  // rather than opening GitHub, and the open link carries the whole address.
+  assert.equal(INSTALLER_FILE_NAME, "StudyLibrarySetup.exe");
+  assert.equal(INSTALLER_DOWNLOAD_URL, "https://github.com/varneridge/study-library/releases/latest/download/StudyLibrarySetup.exe");
+  assert.ok(INSTALLER_DOWNLOAD_URL.endsWith(`/${INSTALLER_FILE_NAME}`));
+  assert.equal(openInDesktopHref("/"), "studylibrary://open?path=%2F");
+  assert.equal(openInDesktopHref("/?v=reader&id=r1&page=3"), "studylibrary://open?path=%2F%3Fv%3Dreader%26id%3Dr1%26page%3D3");
+  const awkward = "/?v=search&q=a b#x";
+  assert.equal(new URL(openInDesktopHref(awkward)).searchParams.get("path"), awkward, "the address survives whole, query and fragment included");
   console.log("ok   in-app update logic and links");
 
   // syncStatus: every state is switched on at once, and each is then cleared
@@ -135,6 +147,21 @@ export async function runUpdateTests() {
   assert.equal(activeTab(home).pinned, true);
   assert.equal(closeTab(home, HOME_TAB_ID), home, "the Home tab cannot be closed");
   assert.equal(reopenTab(home), home, "with nothing closed there is nothing to reopen");
+
+  // Home stays on the home page, so a move away from it opens a fresh tab in
+  // front and leaves Home where it was, and a window opened elsewhere does the same.
+  assert.equal(HOME_HREF, "/");
+  assert.equal(followRoute(home, "/"), home, "Home at the home page is already where it belongs");
+  const fromHome = followRoute(home, "/?v=module&id=m1");
+  assert.equal(fromHome.tabs[0].href, HOME_HREF, "Home keeps the home page");
+  assert.equal(activeTab(fromHome).href, "/?v=module&id=m1", "the fresh tab comes to the front");
+  assert.equal(activeTab(fromHome).id, "t1");
+  assert.equal(activeTab(activate(fromHome, HOME_TAB_ID)).href, HOME_HREF, "pressing Home always shows the home page");
+  const deepStart = initialTabs("/?v=week&id=w1");
+  assert.equal(deepStart.tabs[0].href, HOME_HREF);
+  assert.equal(activeTab(deepStart).href, "/?v=week&id=w1");
+  const oldSave = JSON.stringify({ tabs: [{ id: HOME_TAB_ID, href: "/?v=settings" }, { id: "t4", href: "/?v=search" }], activeId: "t4" });
+  assert.equal(restoreTabs(oldSave, "/?v=search").tabs[0].href, HOME_HREF, "an older save that moved Home is put right");
 
   let tabs = openTab(home, "/?v=reader&id=r1");
   assert.equal(activeTab(tabs).href, "/?v=reader&id=r1");
