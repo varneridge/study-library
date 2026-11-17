@@ -1020,6 +1020,11 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed in 0.53.0:
+  - Essay & Wordcraft studio: 3-column workspace (left rail for Brief, Admin Documents, Sources; centre Draft/Preview; right References + Outline), `PageZoomViewport` fixed-size preview container with inner zoom, fixed drag-and-drop into references (`drag.ts` + single `DndContext`), restored selected word count (`"X of Y words"`), fixed Wordcraft Home button overlap and safe-area padding, Ponytail editor polish, and free-text references with `"Cited where?"` context jump.
+  - Desktop app, Zotero-style tabs & sync symbols: matched Edge app title bar `theme-color` to page background (removing the black top bar), added desktop installer download button in Settings, added Zotero-style multi-tab bar (`+`, `x`, middle-click, `Ctrl+T`, `Ctrl+W`, `Ctrl+Shift+T`) on desktop only, and unified all sync status indicators under `syncStatus.ts` and `SyncIcon`.
+  - Email 2FA authentication: replaced Cloudflare Access sign-in with Worker-native 6-digit email OTP (`0022_email_otp_auth.sql`, `authLogic.ts`, `SignIn.tsx`, Account section in `Settings.tsx`), preserving service-token auth for the headless processor.
+  - Deployment note for 0.53.0: run migration `0022_email_otp_auth.sql` on D1 and configure `AUTH_SECRET`, `AUTH_ALLOWED_EMAILS`, `MAIL_FROM`, and `RESEND_API_KEY` (or Cloudflare `send_email` binding) before removing Cloudflare Access.
 - Improvements completed in 0.52.3:
   - Added `numpy` to `PACKAGES_TO_COLLECT` in `studylibrary.spec` so all NumPy 2.x submodules and C-extensions (`numpy._core`) are bundled into the Windows executable.
 - Improvements completed in 0.52.2:
@@ -1313,6 +1318,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 | 0.52.3 | PyInstaller NumPy 2.x C-extension bundling fix: added numpy to PACKAGES_TO_COLLECT in studylibrary.spec so all submodules and C-extensions (numpy._core) are collected |
 | 0.52.4 | "Connect this computer" one-click pairing: Windows desktop installer ships without secrets, registering studylibrary:// protocol handler for the current user; signed-in Edge sessions generate a short-lived link from the Worker; one-click protocol launch proves service credentials against /api/ping before atomic write to %LOCALAPPDATA%\StudyLibrary\.env; desktop supervisor detects settings stamp changes and reloads background processor within five seconds; and rsync excludes build and Study directories in test runs |
 | 0.52.5 | In-app update notifications and installer updater: quiet top banner appears when GitHub releases have a newer version, offering Update now and Later (dismissed for current session); Settings displays current version and on-demand GitHub release check; studylibrary://update protocol handler downloads release StudyLibrarySetup.exe with progress notification and starts elevated installer with ShellExecute; and unit tests cover version comparison, session dismissal and routing |
+| 0.53.0 | Three-column essay studio, admin documents in assessments, fixed-box inner-zoom preview (`PageZoomViewport`), drag-and-drop into references fix, Wordcraft selection word count and Home button overlap fix, free-text references with "Cited where?", desktop Zotero-style tabs (`Ctrl+T`/`Ctrl+W`/`Ctrl+Shift+T`/middle-click), desktop title bar colour fix, desktop download button in Settings, standardised sync symbols, and Worker-native 6-digit email 2FA |
 
 ## 18. The job search
 
