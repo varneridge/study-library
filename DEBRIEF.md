@@ -1031,6 +1031,9 @@ The app's design system, visual rules, component patterns and checklist are defi
   - Desktop tab sizing: standardise tab widths (Chrome-style uniform width up to a fixed cap, shrinking equally only when the tab strip runs out of space rather than sizing to title length).
   - Module opening scroll: remove the automatic scroll-down behaviour when clicking into a module so it always starts at the top.
   - Notes drag handle purge: completely remove the block-dragging `#` grab handle from all notes across the app.
+  - Background processor queue & Settings: show queued/running jobs in a compact scrollable list in Settings, and remove "Reconnect this computer" completely while the computer is still connected.
+  - Dropdown menus & side flyouts: remove unnecessary divider lines in dropdown menus and open submenus out to the side (Windows-style flyout) instead of inline within the menu.
+  - Essay preview height: make the essay preview container taller so at least a full page is visible without clipping.
 - Improvements completed in 0.53.0:
   - Essay & Wordcraft studio: 3-column workspace (left rail for Brief, Admin Documents, Sources; centre Draft/Preview; right References + Outline), `PageZoomViewport` fixed-size preview container with inner zoom, fixed drag-and-drop into references (`drag.ts` + single `DndContext`), restored selected word count (`"X of Y words"`), fixed Wordcraft Home button overlap and safe-area padding, Ponytail editor polish, and free-text references with `"Cited where?"` context jump.
   - Desktop app, Zotero-style tabs & sync symbols: matched Edge app title bar `theme-color` to page background (removing the black top bar), added desktop installer download button in Settings, added Zotero-style multi-tab bar (`+`, `x`, middle-click, `Ctrl+T`, `Ctrl+W`, `Ctrl+Shift+T`) on desktop only, and unified all sync status indicators under `syncStatus.ts` and `SyncIcon`.
