@@ -88,6 +88,24 @@ export function anchorScroll(scroll: Scroll, focal: { x: number; y: number }, fr
   };
 }
 
+// Where the frame should scroll after a change of scale from a zoom control,
+// which has no pointer to anchor to, so that whatever sat at the centre of the
+// visible area is still there. Content narrower than the frame is centred
+// across it and starts at its top, so the inset that centring adds at each
+// scale is taken out before scaling and put back afterwards, and the result is
+// clamped to what the frame can actually scroll.
+export function centredScroll(scroll: Scroll, frame: Box, content: Box, from: number, to: number): Scroll {
+  if (!finitePositive(from) || !finitePositive(to)) return { left: Math.max(0, scroll.left), top: Math.max(0, scroll.top) };
+  const inset = (z: number) => Math.max(0, (frame.width - content.width * z) / 2);
+  const within = (value: number, size: number, view: number) => Math.min(Math.max(0, size - view), Math.max(0, value));
+  const x = (scroll.left + frame.width / 2 - inset(from)) / from;
+  const y = (scroll.top + frame.height / 2) / from;
+  return {
+    left: within(x * to + inset(to) - frame.width / 2, content.width * to, frame.width),
+    top: within(y * to - frame.height / 2, content.height * to, frame.height),
+  };
+}
+
 // The resolution at which a page's canvas is rasterised: the display scale
 // times the device pixel ratio, reduced where necessary so that the canvas
 // stays under MAX_CANVAS_PIXELS. The canvas is then stretched by CSS to the

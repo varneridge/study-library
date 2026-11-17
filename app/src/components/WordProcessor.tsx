@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
-import { useModuleAssessment, saveModuleAssessment, getModuleAssessment } from "../lib/assessment";
+import { useModuleAssessment, saveModuleAssessment, getModuleAssessment, wordProgress } from "../lib/assessment";
 import { toDocxBytes, fromDocxBytes, countDocxWords, type DocxDocument } from "../lib/docx";
 import { effectiveWordCount } from "../lib/essaySources";
 import { navigate } from "../lib/router";
@@ -16,6 +16,8 @@ import {
   dockGeometry,
   editorQuery,
   parseChrome,
+  parseSelectionWords,
+  selectionWordCount,
   type ChromeInfo,
   type ChromeInsets,
 } from "../lib/wordcraftChrome";
@@ -30,7 +32,6 @@ const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 const CHROME_TIMEOUT_MS = 4_000;
 
 type ChromeMode = "pending" | "embedded" | "fallback";
-
 
 export type WordProcessorStatus = "loading" | "ready" | "unsaved" | "saving" | "saved" | "error";
 
@@ -47,7 +48,8 @@ type InboundMessage =
   | { type: "wordcraft:ready" }
   | { type: "wordcraft:dirty"; dirty: boolean }
   | { type: "wordcraft:save"; payload: unknown }
-  | { type: "wordcraft:chrome"; chrome: ChromeInfo | null };
+  | { type: "wordcraft:chrome"; chrome: ChromeInfo | null }
+  | { type: "wordcraft:selection"; words: number };
 
 type EditorError = { kind: "load" | "save" | "file"; message: string };
 
@@ -68,6 +70,8 @@ function parseMessage(data: unknown): InboundMessage | null {
       };
     case "wordcraft:chrome":
       return { type: "wordcraft:chrome", chrome: parseChrome(record.chrome) };
+    case "wordcraft:selection":
+      return { type: "wordcraft:selection", words: parseSelectionWords(record.words) };
     default:
       return null;
   }
@@ -94,12 +98,6 @@ async function toBytes(payload: unknown): Promise<Uint8Array | null> {
 const looksLikeDocx = (bytes: Uint8Array): boolean =>
   bytes.byteLength > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
 
-function formatWordCount(count: number, target: number | null | undefined): string {
-  const n = count.toLocaleString("en-GB");
-  if (target) return `${n} of ${target.toLocaleString("en-GB")} words`;
-  return `${n} ${count === 1 ? "word" : "words"}`;
-}
-
 export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q?: string }) {
   const module = useLiveQuery(() => db.modules.get(id), [id]);
   const assessment = useModuleAssessment(id, module?.code, essayId);
@@ -109,16 +107,23 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
 
   // Counts come from the saved draft, so the total, the breakdown and the footnote toggle
   // always agree with one another. The toggle is applied at once and then confirmed by the store.
-  const counts = useMemo(() => countDocxWords(assessment.draft), [assessment.draft]);
+  // The draft is deferred and every figure read from it is worked out once per draft, so a long
+  // essay is recounted after the save state has painted and never again for an unrelated render.
+  const draft = useDeferredValue(assessment.draft);
+  const { withFootnotes, bodyWords } = useMemo(() => {
+    const counts = countDocxWords(draft);
+    // The footnote figure is what the switch adds or removes, so it is read from
+    // the same function as the total rather than from the raw counts.
+    return { withFootnotes: effectiveWordCount(counts, draft, true), bodyWords: effectiveWordCount(counts, draft, false) };
+  }, [draft]);
   const storedIncludeFootnotes = assessment.includeFootnotes !== false;
   const [pendingFootnotes, setPendingFootnotes] = useState<boolean | null>(null);
   const includeFootnotes = pendingFootnotes ?? storedIncludeFootnotes;
-  // The footnote figure is what the switch adds or removes, so it is read from
-  // the same function as the total rather than from the raw counts.
-  const withFootnotes = effectiveWordCount(counts, assessment.draft, true);
-  const bodyWords = effectiveWordCount(counts, assessment.draft, false);
   const footnoteWords = Math.max(0, withFootnotes - bodyWords);
   const totalWords = includeFootnotes ? withFootnotes : bodyWords;
+  // Words selected in the editor, as WordCraft reports them; 0 while the
+  // selection is collapsed or focus is anywhere outside the editor.
+  const [selectedWords, setSelectedWords] = useState(0);
   const [status, setStatus] = useState<WordProcessorStatus>("loading");
   const [error, setError] = useState<EditorError | null>(null);
   const [frameKey, setFrameKey] = useState(0);
@@ -147,6 +152,7 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   const pendingRef = useRef<SaveJob | null>(null);
   const autosaveTimerRef = useRef<number | null>(null);
   const maxWaitTimerRef = useRef<number | null>(null);
+  const retrySaveTimerRef = useRef<number | null>(null);
 
   const moduleCode = module?.code;
   const src = `${EDITOR_PATH}?${editorQuery(initialInsets)}&author=${encodeURIComponent("Student")}`;
@@ -159,7 +165,7 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
-      void document.exitFullscreen?.();
+      void document.exitFullscreen?.().catch(() => {});
     } else {
       void document.documentElement.requestFullscreen?.().catch(() => {});
     }
@@ -194,21 +200,19 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     }
   }, []);
 
-  const handleUndo = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:undo" }, window.location.origin);
-    refocusEditor();
-  }, [refocusEditor]);
-
-  const handleRedo = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:redo" }, window.location.origin);
-    refocusEditor();
-  }, [refocusEditor]);
-
-  const postChrome = useCallback((params: { tabInsetStart?: number; tabInsetEnd?: number; statusInsetStart?: number }) => {
-    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:chrome", ...params }, window.location.origin);
+  // Every command to the editor goes the same way, to its own origin only.
+  const postToEditor = useCallback((message: { type: string } & Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(message, window.location.origin);
   }, []);
 
-  const retrySaveTimerRef = useRef<number | null>(null);
+  const editorCommand = useCallback((type: "wordcraft:undo" | "wordcraft:redo") => {
+    postToEditor({ type });
+    refocusEditor();
+  }, [postToEditor, refocusEditor]);
+
+  const postChrome = useCallback((params: { tabInsetStart?: number; tabInsetEnd?: number; statusInsetStart?: number }) => {
+    postToEditor({ type: "wordcraft:chrome", ...params });
+  }, [postToEditor]);
 
   const triggerSave = useCallback(() => {
     if (savingRef.current) {
@@ -220,8 +224,8 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
       }
       return;
     }
-    iframeRef.current?.contentWindow?.postMessage({ type: "wordcraft:save" }, window.location.origin);
-  }, []);
+    postToEditor({ type: "wordcraft:save" });
+  }, [postToEditor]);
 
   const scheduleAutosave = useCallback(() => {
     if (autosaveTimerRef.current !== null) {
@@ -331,9 +335,23 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     }
   }, [id, moduleCode, essayId]);
 
+  // Unmounting alone stops the timers, because the message listener below is
+  // replaced whenever its callbacks change (the title arriving, say) and tying
+  // the timers to that cleanup would cancel a pending autosave each time.
   useEffect(() => {
     mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      for (const timer of [autosaveTimerRef, maxWaitTimerRef, retrySaveTimerRef]) {
+        if (timer.current !== null) {
+          window.clearTimeout(timer.current);
+          timer.current = null;
+        }
+      }
+    };
+  }, []);
 
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
@@ -388,27 +406,26 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
             setChromeMode("fallback");
           }
           break;
+
+        case "wordcraft:selection":
+          setSelectedWords(message.words);
+          break;
       }
     };
 
     window.addEventListener("message", handleMessage);
-    return () => {
-      mountedRef.current = false;
-      if (autosaveTimerRef.current !== null) {
-        window.clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
-      if (maxWaitTimerRef.current !== null) {
-        window.clearTimeout(maxWaitTimerRef.current);
-        maxWaitTimerRef.current = null;
-      }
-      if (retrySaveTimerRef.current !== null) {
-        window.clearTimeout(retrySaveTimerRef.current);
-        retrySaveTimerRef.current = null;
-      }
-      window.removeEventListener("message", handleMessage);
-    };
+    return () => window.removeEventListener("message", handleMessage);
   }, [openDocument, processSaves, scheduleAutosave]);
+
+  // Focus that lands anywhere on our own page has left the editor, so the
+  // status bar goes back to the whole count until WordCraft reports again.
+  useEffect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      if (event.target !== iframeRef.current) setSelectedWords(0);
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, []);
 
   useEffect(() => {
     const heartbeat = window.setInterval(() => {
@@ -424,6 +441,7 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     setStatus("loading");
     setChromeMode("pending");
     setChrome(null);
+    setSelectedWords(0);
     sentStatusInsetRef.current = null;
     const timer = window.setTimeout(() => {
       if (readyRef.current || !mountedRef.current) return;
@@ -533,7 +551,12 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     setFrameKey((k) => k + 1);
   };
 
-  const showBreakdown = !compact && includeFootnotes && footnoteWords > 0;
+  // A selection replaces the breakdown, since "body" beside "120 of 1,250"
+  // would read as a figure about the selection.
+  const showBreakdown = !compact && !selectedWords && includeFootnotes && footnoteWords > 0;
+  const countLabel = selectedWords
+    ? selectionWordCount(selectedWords, totalWords)
+    : wordProgress(totalWords, assessment.wordTarget || null).words;
   const footnoteFigure = footnoteWords.toLocaleString("en-GB");
   const footnoteHint = includeFootnotes
     ? `${footnoteFigure} footnote ${footnoteWords === 1 ? "word is" : "words are"} counted. Select to leave them out.`
@@ -597,16 +620,30 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
           role="group"
           aria-label="Status bar"
         >
-          <button type="button" className="wp-dock-button" title="Undo (Ctrl+Z)" aria-label="Undo" onClick={handleUndo}>
+          <button
+            type="button"
+            className="wp-dock-button"
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+            aria-keyshortcuts="Control+Z"
+            onClick={() => editorCommand("wordcraft:undo")}
+          >
             <Icon name="undo" size={15} />
           </button>
-          <button type="button" className="wp-dock-button" title="Redo (Ctrl+Y)" aria-label="Redo" onClick={handleRedo}>
+          <button
+            type="button"
+            className="wp-dock-button"
+            title="Redo (Ctrl+Y)"
+            aria-label="Redo"
+            aria-keyshortcuts="Control+Y"
+            onClick={() => editorCommand("wordcraft:redo")}
+          >
             <Icon name="redo" size={15} />
           </button>
 
           <span className="wp-dock-rule" aria-hidden="true" />
 
-          <span className="wp-count">{formatWordCount(totalWords, assessment.wordTarget)}</span>
+          <span className="wp-count">{countLabel}</span>
           {showBreakdown && (
             <span className="wp-count-detail">{bodyWords.toLocaleString("en-GB")} body</span>
           )}
@@ -639,7 +676,6 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
             data-status={status}
             data-compact={compact || undefined}
             role="status"
-            aria-live="polite"
             title={STATUS_LABELS[status]}
           >
             <span className="save-status-dot" aria-hidden="true" />

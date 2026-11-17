@@ -13,7 +13,7 @@ import {
 } from "./docx";
 import { commit, newId } from "./sync";
 import { chicagoNote, shortAuthor, shortTitle } from "./titles";
-import type { ItemRow } from "./types";
+import type { AttachmentRef, ItemRow } from "./types";
 import { isAssessmentEnabled } from "./assessmentEnabled";
 
 const EMPTY_REF_IDS: string[] = [];
@@ -67,6 +67,8 @@ export interface AssessmentData {
   docx?: Uint8Array | null;
   referenceItemIds: string[];
   customSources?: CustomSource[];
+  // The module's own papers for this essay, such as the brief and the rubric.
+  adminDocuments?: AttachmentRef[];
   previousDrafts: AssessmentSnapshot[];
   rev: number;
   updated_at?: string;
@@ -126,6 +128,18 @@ export function defaultAssessmentData(moduleCode?: string, essayId?: string): As
   };
 }
 
+// Whether a stored value is a whole attachment, so that a malformed entry
+// synced from another device is dropped rather than drawn as a broken file.
+function isAttachmentRef(value: unknown): value is AttachmentRef {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Partial<AttachmentRef>;
+  return typeof ref.id === "string" && Boolean(ref.id)
+    && typeof ref.name === "string"
+    && typeof ref.mime === "string"
+    && typeof ref.size === "number" && Number.isFinite(ref.size) && ref.size >= 0
+    && (ref.r2Key === undefined || typeof ref.r2Key === "string");
+}
+
 export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essayId?: string): AssessmentData {
   const fallback = defaultAssessmentData(moduleCode, essayId);
   if (!raw || typeof raw !== "object") return fallback;
@@ -139,6 +153,9 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
       }
     : fallback.draft;
 
+  // Kept only when stored, so an essay that never had any reads as before.
+  const adminDocuments = Array.isArray(obj.adminDocuments) ? obj.adminDocuments.filter(isAttachmentRef) : undefined;
+
   return {
     id: typeof obj.id === "string" && obj.id ? obj.id : (essayId ?? "default"),
     enabled: typeof obj.enabled === "boolean" ? obj.enabled : undefined,
@@ -149,6 +166,7 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
     draft,
     referenceItemIds: Array.isArray(obj.referenceItemIds) ? obj.referenceItemIds : EMPTY_REF_IDS,
     customSources: Array.isArray(obj.customSources) ? obj.customSources : [],
+    ...(adminDocuments ? { adminDocuments } : {}),
     previousDrafts: Array.isArray(obj.previousDrafts) ? obj.previousDrafts : EMPTY_DRAFTS,
     rev: typeof obj.rev === "number" ? obj.rev : 1,
     updated_at: typeof obj.updated_at === "string" ? obj.updated_at : undefined,

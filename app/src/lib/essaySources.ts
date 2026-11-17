@@ -74,3 +74,38 @@ export function numberedFootnotes(doc: DocxDocument): { id: string; number: numb
     .map((fn) => ({ id: fn.id, number: numbers.get(fn.id) ?? Number.MAX_SAFE_INTEGER, text: fn.text }))
     .sort((a, b) => a.number - b.number);
 }
+
+// A full stop, question mark or ellipsis, with any closing quotation or
+// bracket, that is followed by a capital letter (after any opening quotation
+// or bracket). Requiring the capital keeps "c. 1914" and "e.g. the" whole.
+const SENTENCE_END = /[.!?\u2026]["'\u201d\u2019)\]]*\s+(?=["'\u201c\u2018(\[]?\p{Lu})/gu;
+
+// The sentence that a citation at offset belongs to, for "Cited where?". A
+// note follows its punctuation, so the sentence that ends just before the
+// offset is the one returned, along with any clause before a mid-sentence note.
+export function sentenceBefore(text: string, offset: number = text.length): string {
+  const end = Math.min(Math.max(0, Math.trunc(offset) || 0), text.length);
+  // Trimmed first, so the sentence's own closing full stop is never a boundary.
+  const head = text.slice(0, end).replace(/\s+$/, "");
+  let start = 0;
+  for (const match of head.matchAll(SENTENCE_END)) start = (match.index ?? 0) + match[0].length;
+  return head.slice(start).replace(/\s+/g, " ").trim();
+}
+
+// Where a footnote is cited in the draft: the block that holds its marker and
+// the sentence leading up to it. The footnote is named by its id or by the
+// number Word gives it, and null means the draft does not cite it.
+export function findCitationContext(doc: DocxDocument, ref: string | number): { blockId: string; sentence: string } | null {
+  const id = typeof ref === "number"
+    ? [...computeFootnoteNumbers(doc)].find(([, number]) => number === ref)?.[0]
+    : ref;
+  if (!id) return null;
+  for (const block of doc.blocks) {
+    let text = "";
+    for (const run of block.runs ?? []) {
+      if (run.type === "footnote_ref" && run.footnoteId === id) return { blockId: block.id, sentence: sentenceBefore(text) };
+      if (run.type === "text") text += run.text ?? "";
+    }
+  }
+  return null;
+}

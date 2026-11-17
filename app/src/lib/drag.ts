@@ -41,12 +41,14 @@ export const MOUSE_DRAG_DISTANCE = 6;
 export const TOUCH_DRAG_DISTANCE = 4;
 
 // Whether the press began on a control that belongs to the row itself, as
-// opposed to something the row happens to sit inside.
+// opposed to something the row happens to sit inside. The row is never a
+// control of its own, even when it matches NO_DRAG (a row drawn as a label or
+// a button, say), since otherwise nothing could ever pick that row up.
 function startsOnControl(event: ReactPointerEvent): boolean {
   const target = event.nativeEvent.target as Element | null;
   const control = target?.closest?.(NO_DRAG);
   const row = event.currentTarget as Element | null;
-  return Boolean(control && (!row || row.contains(control)));
+  return Boolean(control && control !== row && (!row || row.contains(control)));
 }
 
 const startsOnHandle = (event: ReactPointerEvent): boolean =>
@@ -97,9 +99,11 @@ export function useDragSensors() {
 // Measuring against every droppable at once, as closestCenter alone does,
 // lets a whole list compete with its own rows. A long list's centre sits in
 // its middle, so a row dropped there landed on the list rather than on its
-// neighbours, and the drop sent it to the bottom. Here a target outside the
-// lists (a week in the move grid, say) wins whenever the pointer is over it;
-// otherwise the pointer chooses the list and the nearest row within that list
+// neighbours, and the drop sent it to the bottom. Here the innermost target
+// under the pointer wins, judged by area, so a target outside the lists (a
+// week in the move grid, say) wins when the pointer is over it alone, while a
+// list inside a larger droppable, whether another list or a card holding the
+// lists, wins over its container. Once a list wins, the nearest row within it
 // decides the place, and a list answers for itself only when it has no rows.
 // Pages with no such lists get closestCenter exactly as before.
 export const listContextId = (key: string) => `rows:${key}`;
@@ -121,16 +125,19 @@ export const listCollision: CollisionDetection = (args) => {
   const others = containers.filter((c) => listKey(c) === null && contextOf(c) === null);
 
   if (args.pointerCoordinates) {
-    if (others.length) {
-      const target = pointerWithin({ ...args, droppableContainers: others });
-      if (target.length) return target;
-    }
-    const [hit] = pointerWithin({ ...args, droppableContainers: lists });
-    const list = hit ? lists.find((c) => c.id === hit.id) : undefined;
-    const key = list ? listKey(list) : null;
-    if (list && key !== null) {
+    const area = (id: (typeof containers)[number]["id"]): number => {
+      const rect = args.droppableRects.get(id);
+      return rect ? rect.width * rect.height : Number.POSITIVE_INFINITY;
+    };
+    const hits = pointerWithin({ ...args, droppableContainers: [...others, ...lists] });
+    // A tie keeps pointerWithin's own order, which puts the nearer first.
+    const inner = hits.reduce<(typeof hits)[number] | undefined>((best, hit) => (!best || area(hit.id) < area(best.id) ? hit : best), undefined);
+    if (inner) {
+      const list = lists.find((c) => c.id === inner.id);
+      const key = list ? listKey(list) : null;
+      if (key === null) return [inner];
       const rows = rowsOf(key);
-      return rows.length ? closestCenter({ ...args, droppableContainers: rows }) : [hit];
+      return rows.length ? closestCenter({ ...args, droppableContainers: rows }) : [inner];
     }
   }
 

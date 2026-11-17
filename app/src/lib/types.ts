@@ -198,6 +198,16 @@ export type FileSlot =
   | { state: "na" }
   | { state: "saved"; key?: string; name?: string; mime?: string; bytes?: number; url?: string };
 
+// A file attached to something other than a reading, such as an essay's
+// assessment brief or marking criteria. r2Key is absent until it has uploaded.
+export interface AttachmentRef {
+  id: string;
+  name: string;
+  size: number;
+  mime: string;
+  r2Key?: string;
+}
+
 export interface ApplicationRow extends SyncedRow {
   employer: string;
   role: string;

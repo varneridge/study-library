@@ -1,10 +1,13 @@
 // Assessment & essay: a module's essay studio, laid out for an LSE history student.
-// The essay sheet preview sits front and centre in authentic page form with the title
-// editable in place at the top. Segmented controls give instant access to the plan and
-// argument, sources and citations, and snapshot history. On the module page it is a card
-// under Course materials & assessments, opened like a week.
+// The workspace has three columns so that the writing stays front and centre: the brief,
+// the essay's own papers and its sources on the left, the essay itself in the centre (the
+// page preview or the plan), and its references and outline on the right. Below 1280px
+// the right column becomes a drawer, and below 900px one pane shows at a time, chosen by
+// tabs. On the module page it is a card under Course materials & assessments, opened like
+// a week.
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { DndContext, DragOverlay, useDraggable, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
 import { navigate } from "../lib/router";
@@ -25,37 +28,42 @@ import {
 import { shortDate } from "../lib/dates";
 import { db } from "../lib/db";
 import { countDocxWords, type DocxDocument, type DocxFootnote, type DocxBlock, type DocxRun } from "../lib/docx";
+import { HANDLE_STYLE, listCollision, swallowClickAfterDrag, useDragSensors } from "../lib/drag";
 import {
   effectiveWordCount,
+  findCitationContext,
   formatCustomBibliography,
   formatCustomFootnote,
   numberedFootnotes,
   safeExternalUrl,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
-import { newId } from "../lib/sync";
-import { chicagoBibliography, fullTitle, shortTitle } from "../lib/titles";
+import { api, newId } from "../lib/sync";
+import { chicagoBibliography, fullTitle } from "../lib/titles";
 import { clampZoom, stepZoom, ZOOM_STEPS } from "../lib/zoom";
-import type { ItemRow, ModuleRow } from "../lib/types";
+import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
+import { mimeFor, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
 import { Icon, IconButton } from "./icons";
 import { Menu } from "./Menu";
+import { PageZoomViewport } from "./PageZoomViewport";
 import { Sheet } from "./Sheet";
+import "./AssessmentPage.css";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
 const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
-// The preview sheet is laid out at A4 width (210 mm at 96 dpi) and scaled from there.
-const PREVIEW_PAGE_WIDTH = 794;
 // The essay preview zooms through the same steps as the reader, up to twice its size.
 const PREVIEW_MAX_ZOOM = 2;
-const MIN_FIT_SCALE = 0.3;
-const MAX_FIT_SCALE = 2;
-
-const clampScale = (value: number) => Math.min(MAX_FIT_SCALE, Math.max(MIN_FIT_SCALE, value));
+// A reference typed into saves once the typing has paused for this long, as well as on blur.
+const REFERENCE_SAVE_DELAY = 600;
+// How long a sentence or heading reached from the side columns stays highlighted.
+const JUMP_HIGHLIGHT_MS = 3200;
+// Admin documents go up in one request, so they are held under the size that needs parts.
+const ADMIN_DOCUMENT_LIMIT = 50 * 1024 * 1024;
 
 // A stored Word file counts as present once it holds more than a bare header.
 const hasDocxBytes = (assessment: object): boolean => {
@@ -63,9 +71,44 @@ const hasDocxBytes = (assessment: object): boolean => {
   return Boolean(stored && stored.byteLength > 4);
 };
 
+const fileSize = (bytes: number): string =>
+  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 type SaveState = "saved" | "saving" | "error";
 
-type EssayTab = "draft" | "plan" | "sources" | "snapshots";
+// Which pane shows below 900px; between 900px and 1280px "aside" means the drawer is open.
+type Pane = "rail" | "centre" | "aside";
+
+type CentreView = "preview" | "plan";
+
+// A place in the draft to scroll the preview to, and the cited sentence to mark there.
+interface JumpTarget {
+  blockId: string;
+  footnoteId?: string;
+  sentence?: string;
+  token: number;
+}
+
+// A module reading chosen for the essay or a source added by hand, as the rail lists them.
+interface ResearchItem {
+  id: string;
+  title: string;
+  isModule: boolean;
+  moduleItem?: ItemRow;
+  customSource?: CustomSource;
+}
+
+// Puts an admin document into storage by the same route as a note's picture, and returns
+// its key. Files are stored by their contents, so the same brief is only ever kept once.
+async function uploadAdminDocument(file: File, mime: string): Promise<string> {
+  const sha = await sha256(file);
+  const response = await api(`/api/files/${sha}`, { method: "PUT", headers: { "content-type": mime }, body: file });
+  const { key } = (await response.json()) as { key?: unknown };
+  if (typeof key !== "string" || !key) throw new Error("The upload did not return a file.");
+  return key;
+}
 
 // The card on the module page, in the Course materials & assessments grid.
 export function AssessmentCard({
@@ -221,64 +264,43 @@ function paginateDocxBlocks(blocks: DocxBlock[], wordsPerPage = 320): PreviewPag
   return pages;
 }
 
-// Scales the page stack with a transform, which animates smoothly, and sizes a stage to the
-// scaled result because a transform does not change layout size. The measured width of the
-// viewport also gives the scale that makes a page fit it exactly.
-function PreviewZoomStage({
-  scale,
-  onFitScale,
-  children,
-}: {
-  scale: number;
-  onFitScale: (fitScale: number) => void;
-  children: React.ReactNode;
-}) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const [sheetHeight, setSheetHeight] = useState(0);
+// Where the cited sentence sits in a block's text, counted over its text runs as
+// findCitationContext counts them. The sentence comes back with its spacing collapsed,
+// so it is matched with any run of whitespace between its words, and the last match
+// before the note wins because that is the one the note follows.
+function sentenceRange(block: DocxBlock, footnoteId: string, sentence: string): [number, number] | null {
+  let text = "";
+  for (const run of block.runs) {
+    if (run.type === "footnote_ref" && run.footnoteId === footnoteId) break;
+    if (run.type === "text") text += run.text ?? "";
+  }
+  const words = sentence.split(" ").filter(Boolean);
+  if (!words.length) return null;
+  let found: [number, number] | null = null;
+  for (const match of text.matchAll(new RegExp(words.map(escapeRegExp).join("\\s+"), "g"))) {
+    const start = match.index ?? 0;
+    found = [start, start + match[0].length];
+  }
+  return found;
+}
 
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    const sheet = sheetRef.current;
-    if (!viewport || !sheet) return;
-    const measure = () => {
-      const styles = window.getComputedStyle(viewport);
-      const gutter = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
-      const available = viewport.clientWidth - gutter;
-      if (available > 0) onFitScale(Math.round(clampScale(available / PREVIEW_PAGE_WIDTH) * 1000) / 1000);
-      setSheetHeight(sheet.offsetHeight);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
-      return () => window.removeEventListener("resize", measure);
-    }
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-    observer.observe(sheet);
-    return () => observer.disconnect();
-  }, [onFitScale]);
-
+// A run's text with the part that falls inside the range marked, since a sentence can
+// begin and end part way through differently formatted runs.
+function markRange(text: string, start: number, [from, to]: [number, number]): ReactNode {
+  const a = Math.max(from - start, 0);
+  const b = Math.min(to - start, text.length);
+  if (a >= b) return text;
   return (
-    <div className="essay-zoom-viewport" ref={viewportRef}>
-      <div
-        className="essay-zoom-stage"
-        style={{ width: PREVIEW_PAGE_WIDTH * scale, height: sheetHeight ? sheetHeight * scale : undefined }}
-      >
-        <div className="essay-zoom-sheet" ref={sheetRef} style={{ transform: `scale(${scale})` }}>
-          {children}
-        </div>
-      </div>
-    </div>
+    <>
+      {text.slice(0, a)}
+      <mark className="essay-sheet-cited">{text.slice(a, b)}</mark>
+      {text.slice(b)}
+    </>
   );
 }
 
 // Authentic paper sheet rendering the essay page by page in Times New Roman with genuine margins.
-function EssayDocumentSheet({
-  doc,
-}: {
-  doc: DocxDocument;
-}) {
+function EssayDocumentSheet({ doc, jump }: { doc: DocxDocument; jump?: JumpTarget | null }) {
   const orderedFootnotes = useMemo(() => numberedFootnotes(doc), [doc]);
   const fnMap = useMemo(() => {
     const map = new Map<string, { number: number; text: string }>();
@@ -294,11 +316,18 @@ function EssayDocumentSheet({
   const renderBlock = (block: DocxBlock) => {
     if (block.type === "page_break") return null;
 
+    const target = jump && jump.blockId === block.id ? jump : null;
+    const range = target?.footnoteId && target.sentence ? sentenceRange(block, target.footnoteId, target.sentence) : null;
+    // A block reached from the outline, or whose sentence could not be found, is marked whole.
+    const jumped = target && !range ? " is-jumped" : "";
+    let offset = 0;
+
     const runs = block.runs.map((run: DocxRun, i: number) => {
       if (run.type === "footnote_ref" && run.footnoteId) {
         const fn = fnMap.get(run.footnoteId);
+        const cited = target?.footnoteId === run.footnoteId;
         return (
-          <sup key={i} className="essay-sheet-fn-ref" title={fn?.text || "Footnote"}>
+          <sup key={i} className={`essay-sheet-fn-ref${cited ? " is-cited" : ""}`} title={fn?.text || "Footnote"}>
             [{fn?.number ?? "?"}]
           </sup>
         );
@@ -311,24 +340,28 @@ function EssayDocumentSheet({
       ]
         .filter(Boolean)
         .join(" ");
+      const text = run.text ?? "";
+      const start = offset;
+      if (run.type === "text") offset += text.length;
 
       return (
         <span key={i} className={cls || undefined}>
-          {run.text ?? ""}
+          {range && run.type === "text" ? markRange(text, start, range) : text}
         </span>
       );
     });
 
-    if (block.type === "heading1") return <h2 key={block.id} className="essay-sheet-h1">{runs}</h2>;
-    if (block.type === "heading2") return <h3 key={block.id} className="essay-sheet-h2">{runs}</h3>;
-    if (block.type === "heading3") return <h4 key={block.id} className="essay-sheet-h3">{runs}</h4>;
-    if (block.type === "blockquote") return <blockquote key={block.id} className="essay-sheet-quote">{runs}</blockquote>;
-    if (block.type === "bullet") return <ul key={block.id} className="essay-sheet-list"><li className="essay-sheet-bullet">{runs}</li></ul>;
-    if (block.type === "ordered") return <ol key={block.id} className="essay-sheet-list"><li className="essay-sheet-ordered">{runs}</li></ol>;
+    if (block.type === "heading1") return <h2 key={block.id} data-block-id={block.id} className={`essay-sheet-h1${jumped}`}>{runs}</h2>;
+    if (block.type === "heading2") return <h3 key={block.id} data-block-id={block.id} className={`essay-sheet-h2${jumped}`}>{runs}</h3>;
+    if (block.type === "heading3") return <h4 key={block.id} data-block-id={block.id} className={`essay-sheet-h3${jumped}`}>{runs}</h4>;
+    if (block.type === "blockquote") return <blockquote key={block.id} data-block-id={block.id} className={`essay-sheet-quote${jumped}`}>{runs}</blockquote>;
+    if (block.type === "bullet") return <ul key={block.id} data-block-id={block.id} className={`essay-sheet-list${jumped}`}><li className="essay-sheet-bullet">{runs}</li></ul>;
+    if (block.type === "ordered") return <ol key={block.id} data-block-id={block.id} className={`essay-sheet-list${jumped}`}><li className="essay-sheet-ordered">{runs}</li></ol>;
     return (
       <p
         key={block.id}
-        className="essay-sheet-p"
+        data-block-id={block.id}
+        className={`essay-sheet-p${jumped}`}
         style={block.align ? { textAlign: block.align === "both" ? "justify" : block.align } : undefined}
       >
         {runs}
@@ -384,6 +417,290 @@ function EssayDocumentSheet({
   );
 }
 
+// The sliding segmented control the essay page has always used, shared by the centre's
+// view switch and the pane tabs on a small screen. The indicator is measured again
+// whenever the track changes size, which also covers a track that has just been shown.
+function SegmentedTabs<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string; id: string; controls: string }[];
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 });
+
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const measure = () => {
+      const active = track.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]');
+      if (active) setIndicator({ left: active.offsetLeft, width: active.offsetWidth });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(track);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return (
+    <div className={`essay-tabs-track${className ? ` ${className}` : ""}`} ref={trackRef} role="tablist" aria-label={label}>
+      <div
+        className="essay-tab-indicator"
+        style={{ transform: `translateX(${indicator.left}px)`, width: `${indicator.width}px` }}
+        aria-hidden="true"
+      />
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="tab"
+          id={option.id}
+          aria-selected={value === option.value}
+          aria-controls={option.controls}
+          className="essay-tab-btn"
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// A region a source can be dropped on. Each column registers as a list, so that
+// listCollision finds whichever column is under the pointer and only a drop that
+// lands on the references list cites anything.
+function DropZone({ list, id, className, children }: { list: string; id?: string; className: string; children: ReactNode }) {
+  const { setNodeRef, isOver, active } = useDroppable({ id: `list:${list}`, data: { list } });
+  return (
+    <div ref={setNodeRef} id={id} className={`${className}${active && isOver ? " is-over" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
+// A source in the rail. A mouse picks it up from anywhere outside its controls and a finger
+// from its "#" handle, by the rules in drag.ts, and the "+ Cite" button is the way to cite
+// it from the keyboard.
+function SourceRow({
+  item,
+  cited,
+  onCite,
+  onRemove,
+}: {
+  item: ResearchItem;
+  cited: boolean;
+  onCite: () => void;
+  onRemove: () => void;
+}) {
+  const { listeners, setNodeRef, isDragging } = useDraggable({ id: `source:${item.id}`, data: { sourceId: item.id } });
+  const url = item.customSource ? safeExternalUrl(item.customSource.url) : null;
+
+  return (
+    <li ref={setNodeRef} className={`essay-ws-source${isDragging ? " is-dragging" : ""}`} {...listeners}>
+      <button
+        type="button"
+        className="essay-ws-handle"
+        data-drag-handle="true"
+        style={HANDLE_STYLE}
+        title="Drag into References"
+        aria-label={`Drag ${item.title} into References`}
+        onTouchStart={(event) => event.stopPropagation()}
+      >
+        #
+      </button>
+      <div className="essay-ws-source-body">
+        {item.moduleItem ? (
+          <Link to={{ view: "reader", id: item.id }} title={item.title}>
+            {item.title}
+          </Link>
+        ) : item.customSource ? (
+          <span className="essay-ws-source-title">{formatCustomBibliography(item.customSource)}</span>
+        ) : null}
+        <span className="essay-ws-source-meta">
+          <span className="badge small">{item.isModule ? "Module" : "External"}</span>
+          {cited && <span className="badge small essay-ws-cited">Cited</span>}
+          {url && (
+            <a href={url} target="_blank" rel="noreferrer" className="small muted">
+              Link &rarr;
+            </a>
+          )}
+        </span>
+      </div>
+      {!cited && (
+        <button type="button" className="button quiet small" onClick={onCite}>
+          + Cite
+        </button>
+      )}
+      <Menu
+        label={`Actions for ${item.title}`}
+        items={[
+          ...(!cited ? [{ label: "Add footnote citing it", onSelect: onCite }] : []),
+          item.isModule
+            ? { label: "Remove from essay", onSelect: onRemove }
+            : { label: "Remove source", danger: true, onSelect: onRemove },
+        ]}
+      />
+    </li>
+  );
+}
+
+// One reference, edited directly as free text. It saves when the typing pauses and on blur,
+// Escape puts back what it said when focus arrived (saving that again if a pause had already
+// saved the edit), and an emptied reference returns to its saved text rather than vanishing.
+function ReferenceRow({
+  number,
+  footnoteId,
+  text,
+  doc,
+  readingId,
+  onCommit,
+  onJump,
+}: {
+  number: number;
+  footnoteId: string;
+  text: string;
+  doc: DocxDocument;
+  readingId?: string;
+  onCommit: (footnoteId: string, text: string) => void;
+  onJump: (target: { blockId: string; footnoteId: string; sentence: string }) => void;
+}) {
+  const [value, setValue] = useState(text);
+  const [showContext, setShowContext] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  // Refs as well as state, because blur and the timer must see the newest text, not the
+  // text of the render that created them.
+  const valueRef = useRef(text);
+  const savedRef = useRef(text);
+  const baselineRef = useRef(text);
+  const focusedRef = useRef(false);
+  const timerRef = useRef<number | undefined>(undefined);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+
+  const update = (next: string) => {
+    valueRef.current = next;
+    setValue(next);
+  };
+
+  const commit = () => {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = undefined;
+    const next = valueRef.current.trim();
+    if (!next || next === savedRef.current.trim()) return;
+    savedRef.current = next;
+    commitRef.current(footnoteId, next);
+  };
+
+  // A change from elsewhere, such as the word processor on another device, shows here
+  // unless this reference is being typed into.
+  useEffect(() => {
+    savedRef.current = text;
+    if (!focusedRef.current) update(text);
+  }, [text]);
+
+  // A pending save is kept rather than lost when the row goes, as it does on a tab change.
+  useEffect(() => () => {
+    if (timerRef.current !== undefined) commit();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Grows the box to its text. A hidden pane measures nothing, so it is left alone until shown.
+  useLayoutEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    area.style.height = "auto";
+    if (area.scrollHeight) area.style.height = `${area.scrollHeight}px`;
+  }, [value]);
+
+  const context = useMemo(
+    () => (showContext ? findCitationContext(doc, footnoteId) : null),
+    [showContext, doc, footnoteId],
+  );
+
+  return (
+    <li className="essay-ws-ref">
+      <span className="essay-ref-badge">[{number}]</span>
+      <div className="essay-ws-ref-body">
+        <textarea
+          ref={areaRef}
+          className="essay-ws-ref-text"
+          rows={1}
+          value={value}
+          spellCheck
+          aria-label={`Footnote ${number}`}
+          onFocus={() => {
+            focusedRef.current = true;
+            baselineRef.current = valueRef.current;
+          }}
+          onChange={(event) => {
+            update(event.target.value);
+            window.clearTimeout(timerRef.current);
+            timerRef.current = window.setTimeout(commit, REFERENCE_SAVE_DELAY);
+          }}
+          onBlur={() => {
+            focusedRef.current = false;
+            if (!valueRef.current.trim()) update(savedRef.current);
+            commit();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              update(baselineRef.current);
+              event.currentTarget.blur();
+            } else if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <div className="essay-ws-ref-tools">
+          <button
+            type="button"
+            className="button quiet small"
+            aria-expanded={showContext}
+            onClick={() => setShowContext((current) => !current)}
+          >
+            Cited where?
+          </button>
+          {readingId && (
+            <Link to={{ view: "reader", id: readingId }} className="small muted">
+              Open reading &rarr;
+            </Link>
+          )}
+        </div>
+        {showContext && (
+          <div className="essay-ws-ref-context" role="status">
+            {context ? (
+              <button
+                type="button"
+                className="essay-ws-ref-sentence"
+                title="Show this sentence in the preview"
+                onClick={() => onJump({ blockId: context.blockId, footnoteId, sentence: context.sentence })}
+              >
+                {context.sentence ? `\u201c${context.sentence}\u201d` : "The note opens its paragraph."}
+              </button>
+            ) : (
+              <p className="small muted">Not cited in the essay yet.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }) {
   const module = useSuspendingLiveQuery(async () => {
     const found = await db.modules.get(id);
@@ -417,35 +734,19 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     }
   };
 
-  const [activeTab, setActiveTab] = useState<EssayTab>("draft");
+  const [pane, setPane] = useState<Pane>("centre");
+  const [centreView, setCentreView] = useState<CentreView>("preview");
   const [question, setQuestion] = useState(assessment.title);
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  const tabListRef = useRef<HTMLDivElement>(null);
-  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
   const [zoom, setZoom] = useState(1);
-  const [fitWidth, setFitWidth] = useState(true);
-  const [fitScale, setFitScale] = useState(1);
   const cancelTarget = useRef(false);
-  const [editingFnId, setEditingFnId] = useState<string | null>(null);
-  const [editingFnText, setEditingFnText] = useState("");
-
-  useEffect(() => {
-    const updateIndicator = () => {
-      if (!tabListRef.current) return;
-      const activeBtn = tabListRef.current.querySelector<HTMLButtonElement>(`[role="tab"][aria-selected="true"]`);
-      if (activeBtn) {
-        setIndicatorStyle({
-          left: activeBtn.offsetLeft,
-          width: activeBtn.offsetWidth,
-        });
-      }
-    };
-    updateIndicator();
-    window.addEventListener("resize", updateIndicator);
-    return () => window.removeEventListener("resize", updateIndicator);
-  }, [activeTab]);
+  const [jump, setJump] = useState<JumpTarget | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [uploadingIds, setUploadingIds] = useState<string[]>([]);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const sensors = useDragSensors();
 
   useEffect(() => {
     if (!typingQuestion.current) setQuestion(assessment.title);
@@ -454,6 +755,22 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   useEffect(() => {
     if (!typingTarget.current) setTarget(assessment.wordTarget ? String(assessment.wordTarget) : "");
   }, [assessment.wordTarget]);
+
+  // Scrolls the preview to the place chosen in a side column once it has rendered, and lets
+  // the highlight go after a moment so the page reads normally again.
+  useEffect(() => {
+    if (!jump) return;
+    const frame = window.requestAnimationFrame(() => {
+      previewRef.current
+        ?.querySelector(`[data-block-id="${CSS.escape(jump.blockId)}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    const clear = window.setTimeout(() => setJump(null), JUMP_HIGHLIGHT_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(clear);
+    };
+  }, [jump]);
 
   const [choosing, setChoosing] = useState(false);
   const [editingTarget, setEditingTarget] = useState(false);
@@ -466,37 +783,33 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [newSourceNotes, setNewSourceNotes] = useState("");
 
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [snapshotName, setSnapshotName] = useState("");
   const [savingSnapshot, setSavingSnapshot] = useState(false);
   const importer = useRef<HTMLInputElement>(null);
+  const adminInput = useRef<HTMLInputElement>(null);
 
   const counts = useMemo(() => countDocxWords(assessment.draft), [assessment.draft]);
   const includeFootnotes = assessment.includeFootnotes !== false;
   const effectiveWords = effectiveWordCount(counts, assessment.draft, includeFootnotes);
   const due = assessment.dueDate ? countdown(assessment.dueDate) : null;
   const hasContent = hasDocxBytes(assessment) || counts.body + counts.quotes + counts.footnotes > 0;
-  const scale = fitWidth ? fitScale : zoom;
   const unsavedTitle = question.trim() !== (assessment.title ?? "").trim();
   const saveLabel = unsavedTitle
     ? "Unsaved"
     : saveState === "saving"
-      ? "Saving…"
+      ? "Savingâ€¦"
       : saveState === "error"
         ? "Not saved"
         : "Saved";
   const saveStatus = unsavedTitle ? "unsaved" : saveState;
+  const adminDocuments = assessment.adminDocuments ?? [];
 
   const zoomBy = (direction: 1 | -1) => {
-    const next = Math.min(PREVIEW_MAX_ZOOM, clampZoom(stepZoom(scale, direction)));
+    const next = Math.min(PREVIEW_MAX_ZOOM, clampZoom(stepZoom(zoom, direction)));
     // At either end there is no further step, so nothing changes.
-    if (direction > 0 ? next <= scale + 0.001 : next >= scale - 0.001) return;
+    if (direction > 0 ? next <= zoom + 0.001 : next >= zoom - 0.001) return;
     setZoom(next);
-    setFitWidth(false);
-  };
-
-  const resetZoom = () => {
-    setZoom(1);
-    setFitWidth(false);
   };
 
   const commitTarget = () => {
@@ -560,13 +873,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const orderedFootnotes = useMemo(() => numberedFootnotes(assessment.draft), [assessment.draft]);
 
   const allResearchItems = useMemo(() => {
-    const list: Array<{
-      id: string;
-      title: string;
-      isModule: boolean;
-      moduleItem?: ItemRow;
-      customSource?: CustomSource;
-    }> = [];
+    const list: ResearchItem[] = [];
     chosenModuleItems.forEach((item) => {
       list.push({ id: item.id, title: fullTitle(item), isModule: true, moduleItem: item });
     });
@@ -592,27 +899,28 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return set;
   }, [orderedFootnotes, assessment.draft.footnotes, allResearchItems]);
 
-  const fromResearchNotCited = useMemo(() => {
-    return allResearchItems.filter((ri) => !citedIds.has(ri.id));
-  }, [allResearchItems, citedIds]);
+  // The draft's headings, for the outline in the right column.
+  const outline = useMemo(
+    () =>
+      assessment.draft.blocks
+        .filter((block) => block.type.startsWith("heading"))
+        .map((block) => ({
+          id: block.id,
+          level: block.type === "heading1" ? 1 : block.type === "heading2" ? 2 : 3,
+          text: block.runs.map((run) => (run.type === "text" ? run.text ?? "" : "")).join("").trim(),
+        }))
+        .filter((heading) => heading.text),
+    [assessment.draft.blocks],
+  );
 
   const handleSaveFootnote = (fnId: string, newText: string) => {
-    const trimmed = newText.trim();
-    if (!trimmed) {
-      setEditingFnId(null);
-      return;
-    }
     void save((prev) => ({
       ...prev,
       draft: {
         ...prev.draft,
-        footnotes: prev.draft.footnotes.map((f) =>
-          f.id === fnId ? { ...f, text: trimmed } : f
-        ),
+        footnotes: prev.draft.footnotes.map((f) => (f.id === fnId ? { ...f, text: newText } : f)),
       },
     }));
-    setEditingFnId(null);
-    showToast("Citation updated.");
   };
 
   const toggleModuleSource = async (itemId: string) => {
@@ -686,9 +994,26 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     }
   };
 
-  const addModuleFootnote = async (item: ItemRow) => {
+  // Cites a source with a footnote at the end of the draft, for the "+ Cite" button and for a
+  // drop on the references. The draft is checked again inside the save, so two quick drops of
+  // the same source still leave a single footnote.
+  const citeInDraft = async (item: ResearchItem) => {
+    const already = "That source is already cited in the references.";
+    if (citedIds.has(item.id)) {
+      showToast(already);
+      return;
+    }
+    const text = item.moduleItem
+      ? formatChicagoFootnote(item.moduleItem)
+      : item.customSource
+        ? formatCustomFootnote(item.customSource)
+        : null;
+    if (!text) return;
     const footnoteId = `fn-${newId()}`;
+    let added = false;
     await save((prev) => {
+      if (prev.draft.footnotes.some((f) => f.citationItemId === item.id)) return prev;
+      added = true;
       const blocks = [...prev.draft.blocks];
       const last = blocks.length - 1;
       if (last >= 0) {
@@ -697,41 +1022,74 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
         };
       }
-      const note: DocxFootnote = {
-        id: footnoteId,
-        text: formatChicagoFootnote(item),
-        citationItemId: item.id,
-      };
+      const note: DocxFootnote = { id: footnoteId, text, citationItemId: item.id };
       return {
         ...prev,
         draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
       };
     });
-    showToast("Footnote added at the end of the draft.");
+    showToast(added ? "Footnote added at the end of the draft." : already);
   };
 
-  const addCustomFootnote = async (source: CustomSource) => {
-    const footnoteId = `fn-${newId()}`;
-    await save((prev) => {
-      const blocks = [...prev.draft.blocks];
-      const last = blocks.length - 1;
-      if (last >= 0) {
-        blocks[last] = {
-          ...blocks[last],
-          runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
-        };
+  const removeSource = (item: ResearchItem) => {
+    if (item.isModule) void toggleModuleSource(item.id);
+    else void handleDeleteCustomSource(item.id);
+  };
+
+  // An admin document is listed straight away and gains its storage key once uploaded, which
+  // is how the attachment type marks one still on its way. Rows without a key that this page
+  // is not uploading were cut short, for instance by a reload, and can only be removed.
+  const addAdminDocuments = async (files: File[]) => {
+    if (!files.length) return;
+    if (!navigator.onLine) {
+      showToast("Connect to the internet to add a document.");
+      return;
+    }
+    for (const file of files) {
+      if (file.size > ADMIN_DOCUMENT_LIMIT) {
+        showToast(`${file.name} is over 50 MB.`);
+        continue;
       }
-      const note: DocxFootnote = {
-        id: footnoteId,
-        text: formatCustomFootnote(source),
-        citationItemId: source.id,
+      const ref: AttachmentRef = {
+        id: newId(),
+        name: file.name,
+        size: file.size,
+        mime: mimeFor(file) ?? (file.type || "application/octet-stream"),
       };
-      return {
-        ...prev,
-        draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
-      };
+      setUploadingIds((ids) => [...ids, ref.id]);
+      await save((prev) => ({ ...prev, adminDocuments: [...(prev.adminDocuments ?? []), ref] }));
+      try {
+        const r2Key = await uploadAdminDocument(file, ref.mime);
+        await save((prev) => ({
+          ...prev,
+          adminDocuments: (prev.adminDocuments ?? []).map((d) => (d.id === ref.id ? { ...d, r2Key } : d)),
+        }));
+      } catch (err) {
+        console.error("Uploading the document failed", err);
+        await save((prev) => ({
+          ...prev,
+          adminDocuments: (prev.adminDocuments ?? []).filter((d) => d.id !== ref.id),
+        }));
+        showToast(`Could not upload ${file.name}.`);
+      } finally {
+        setUploadingIds((ids) => ids.filter((x) => x !== ref.id));
+      }
+    }
+  };
+
+  const removeAdminDocument = async (doc: AttachmentRef) => {
+    const ok = await confirmAction({
+      title: `Remove "${doc.name}"?`,
+      body: "The document will no longer be listed with this essay.",
+      confirm: "Remove document",
+      danger: true,
     });
-    showToast("Footnote added at the end of the draft.");
+    if (!ok) return;
+    await save((prev) => ({
+      ...prev,
+      adminDocuments: (prev.adminDocuments ?? []).filter((d) => d.id !== doc.id),
+    }));
+    showToast("Document removed.");
   };
 
   const saveSnapshot = async () => {
@@ -759,6 +1117,34 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     navigate({ view: "module", id: module.id });
   };
 
+  // Shows a place in the draft from either side column, bringing the preview forward first
+  // and closing the drawer or pane that covered it on a smaller screen.
+  const jumpTo = (next: Omit<JumpTarget, "token">) => {
+    setCentreView("preview");
+    setPane("centre");
+    setJump({ ...next, token: Date.now() });
+  };
+
+  const sourceIdOf = (data: unknown): string | null => {
+    const id = (data as { sourceId?: unknown } | undefined)?.sourceId;
+    return typeof id === "string" ? id : null;
+  };
+
+  const handleDragStart = (event: DragStartEvent) => setDragId(sourceIdOf(event.active.data.current));
+
+  // A source is copied, never moved: it stays in the rail and the references gain a footnote.
+  const handleDragEnd = (event: DragEndEvent) => {
+    setDragId(null);
+    swallowClickAfterDrag();
+    const list = (event.over?.data.current as { list?: unknown } | undefined)?.list;
+    const id = sourceIdOf(event.active.data.current);
+    if (list !== "references" || !id) return;
+    const item = allResearchItems.find((r) => r.id === id);
+    if (item) void citeInDraft(item);
+  };
+
+  const draggedItem = dragId ? allResearchItems.find((r) => r.id === dragId) ?? null : null;
+
   const wordProcessorRoute = {
     view: "essay" as const,
     id: module.id,
@@ -766,7 +1152,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   };
 
   return (
-    <div className="page wide essay-page">
+    <div className="page wide essay-page essay-ws-page">
       <div className="crumbs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> Essay
@@ -783,7 +1169,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         />
       </div>
 
-      <div className="section-head essay-head" style={{ marginBottom: "0.5rem" }}>
+      <div className="section-head essay-head essay-ws-head">
         <input
           className="title-input essay-title-input"
           type="text"
@@ -812,520 +1198,451 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           <span className="save-status-dot" aria-hidden="true" />
           {saveLabel}
         </span>
-      </div>
-
-      {/* Stats bar */}
-      <div className="essay-stats-bar">
-        <div className="row" style={{ gap: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
-          <div>
-            <strong>{effectiveWords.toLocaleString("en-GB")}</strong>{" "}
-            <span className="muted">{effectiveWords === 1 ? "word" : "words"}</span>{" "}
-            <span className="essay-inline-target">
-              {editingTarget ? (
-                <>
-                  <span className="muted">of </span>
-                  <input
-                    type="number"
-                    autoFocus
-                    inputMode="numeric"
-                    min={0}
-                    step={100}
-                    value={target}
-                    placeholder="2500"
-                    aria-label="Word target"
-                    title="Word target"
-                    style={{ width: `${Math.max(target.length, 4) + 1}ch` }}
-                    onFocus={() => {
-                      typingTarget.current = true;
-                    }}
-                    onChange={(e) => setTarget(e.target.value)}
-                    onBlur={() => {
-                      setEditingTarget(false);
-                      commitTarget();
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        setEditingTarget(false);
-                        commitTarget();
-                      }
-                      if (e.key === "Escape") {
-                        cancelTarget.current = true;
-                        setEditingTarget(false);
-                        commitTarget();
-                      }
-                    }}
-                  />
-                  <span className="muted"> target</span>
-                </>
-              ) : assessment.wordTarget ? (
-                <>
-                  <span className="muted">of </span>
-                  <button
-                    type="button"
-                    className="essay-target-btn"
-                    onClick={() => {
-                      setTarget(String(assessment.wordTarget));
-                      setEditingTarget(true);
-                    }}
-                    title="Click to edit target word count"
-                  >
-                    {assessment.wordTarget.toLocaleString("en-GB")}
-                  </button>
-                  <span className="muted"> target</span>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="essay-target-btn muted"
-                  onClick={() => {
-                    setTarget("");
-                    setEditingTarget(true);
-                  }}
-                  title="Click to set target word count"
-                >
-                  Set target
-                </button>
-              )}
-            </span>
-          </div>
-          <label className="essay-footnote-toggle">
-            <input
-              type="checkbox"
-              checked={includeFootnotes}
-              onChange={(e) => void save({ includeFootnotes: e.target.checked })}
-            />
-            <span>Include footnotes in word count</span>
-          </label>
-        </div>
-        <div className="row" style={{ gap: "1rem", alignItems: "center" }}>
-          <DatePicker
-            value={assessment.dueDate ?? null}
-            onChange={(d) => void save({ dueDate: d })}
-            label="Assessment due date"
-            title={`Due date for ${assessment.title || "the essay"}`}
-            placeholder="Set due date"
-            clearable
-            className={`essay-due-chip${due && (due.state === "soon" || due.state === "today") ? " is-soon" : ""}`}
-          />
-          {due && assessment.dueDate ? <span className="muted small essay-due-words">{due.words}</span> : null}
-        </div>
-      </div>
-
-      {/* Sliding segmented control tabs */}
-      <div className="essay-tabs-track" ref={tabListRef} role="tablist" aria-label="Essay sections">
-        <div
-          className="essay-tab-indicator"
-          style={{
-            transform: `translateX(${indicatorStyle.left}px)`,
-            width: `${indicatorStyle.width}px`,
-          }}
-          aria-hidden="true"
-        />
-        <button
-          type="button"
-          role="tab"
-          id="tab-draft"
-          aria-selected={activeTab === "draft"}
-          aria-controls="panel-draft"
-          className="essay-tab-btn"
-          onClick={() => setActiveTab("draft")}
-        >
-          Draft & preview
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-plan"
-          aria-selected={activeTab === "plan"}
-          aria-controls="panel-plan"
-          className="essay-tab-btn"
-          onClick={() => setActiveTab("plan")}
-        >
-          Plan & argument
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-sources"
-          aria-selected={activeTab === "sources"}
-          aria-controls="panel-sources"
-          className="essay-tab-btn"
-          onClick={() => setActiveTab("sources")}
-        >
-          References {orderedFootnotes.length + fromResearchNotCited.length > 0 ? `(${orderedFootnotes.length + fromResearchNotCited.length})` : ""}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-snapshots"
-          aria-selected={activeTab === "snapshots"}
-          aria-controls="panel-snapshots"
-          className="essay-tab-btn"
-          onClick={() => setActiveTab("snapshots")}
-        >
-          Snapshots {assessment.previousDrafts.length > 0 ? `(${assessment.previousDrafts.length})` : ""}
+        <button type="button" className="button small" onClick={() => setSnapshotsOpen(true)}>
+          Snapshots{assessment.previousDrafts.length > 0 ? ` (${assessment.previousDrafts.length})` : ""}
         </button>
       </div>
 
-      {/* TAB 1: Draft & Page-Form Preview */}
-      {activeTab === "draft" && (
-        <div id="panel-draft" role="tabpanel" aria-labelledby="tab-draft">
-          <div className="essay-preview-toolbar">
-            <Link to={wordProcessorRoute} className="button primary essay-open-button">
-              <Icon name="notes" size={16} />
-              <span>Open in word processor</span>
-            </Link>
-            <span className="small muted essay-preview-breakdown">
-              Body {counts.body.toLocaleString("en-GB")}, block quotations {counts.quotes.toLocaleString("en-GB")}, footnotes {counts.footnotes.toLocaleString("en-GB")}.
-            </span>
-            <div className="essay-zoom-controls" role="group" aria-label="Zoom">
-              <IconButton icon="zoomOut" label="Zoom out" disabled={scale <= ZOOM_STEPS[0] + 0.001} onClick={() => zoomBy(-1)} />
-              <button
-                type="button"
-                className="essay-zoom-percent"
-                title="Reset zoom to 100%"
-                aria-label={`Zoom ${Math.round(scale * 100)} per cent. Reset to 100 per cent`}
-                onClick={resetZoom}
-              >
-                {Math.round(scale * 100)}%
-              </button>
-              <IconButton
-                icon="zoomIn"
-                label="Zoom in"
-                disabled={scale >= PREVIEW_MAX_ZOOM - 0.001}
-                onClick={() => zoomBy(1)}
-              />
-              <IconButton
-                icon="fitWidth"
-                label="Fit to width"
-                pressed={fitWidth}
-                className="essay-zoom-fit"
-                onClick={() => setFitWidth((current) => !current)}
-              />
-            </div>
-            <div className="row essay-preview-actions">
-              <button
-                type="button"
-                className="button small"
-                onClick={() => {
-                  downloadDocxFile(assessment.draft, assessment.title);
-                  showToast("Word document downloaded.");
-                }}
-              >
-                Export .docx
-              </button>
-              <button type="button" className="button quiet small" onClick={() => void handleImportClick()}>
-                {hasContent ? "Replace Word document" : "Import Word document"}
-              </button>
-            </div>
-          </div>
+      <SegmentedTabs
+        className="essay-ws-tabs"
+        label="Essay workspace"
+        value={pane}
+        onChange={setPane}
+        options={[
+          { value: "rail", label: "Brief & sources", id: "essay-pane-tab-rail", controls: "essay-pane-rail" },
+          { value: "centre", label: "Essay", id: "essay-pane-tab-centre", controls: "essay-pane-centre" },
+          {
+            value: "aside",
+            label: `References${orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}`,
+            id: "essay-pane-tab-aside",
+            controls: "essay-pane-aside",
+          },
+        ]}
+      />
 
-          <PreviewZoomStage scale={scale} onFitScale={setFitScale}>
-            <EssayDocumentSheet doc={assessment.draft} />
-          </PreviewZoomStage>
-        </div>
-      )}
-
-      {/* TAB 2: Plan & Argument */}
-      {activeTab === "plan" && (
-        <div id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" className="essay-plan">
-          <div className="section-head" style={{ marginBottom: "0.5rem" }}>
-            <h2 style={{ margin: 0 }}>Plan & argument</h2>
-            <span className="spacer" />
-          </div>
-          <p className="small muted essay-hint">
-            Structure your thesis and argument. Use headings for sections, bullet points for evidence, and @ to cite readings directly.
-          </p>
-          <Suspense fallback={<NotesLoading />}>
-            <NoteEditor
-              target={{ week_id: assessmentNotesKey(module.id, essayId) }}
-              label="Plan and argument"
-              placeholder="Your central thesis statement in a sentence, followed by section headings and arguments..."
-            />
-          </Suspense>
-        </div>
-      )}
-
-      {/* TAB 3: References */}
-      {activeTab === "sources" && (
-        <div id="panel-sources" role="tabpanel" aria-labelledby="tab-sources">
-          <div className="section-head" style={{ marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
-            <div>
-              <h2 style={{ margin: 0 }}>References</h2>
-              <p className="small muted" style={{ margin: "0.25rem 0 0" }}>
-                Sources currently cited in the document and discovered materials from research.
-              </p>
-            </div>
-            <span className="spacer" />
-            <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
-              <button type="button" className="button small" onClick={() => setChoosing(true)}>
-                Choose module readings
-              </button>
-              <button type="button" className="button small" onClick={() => setAddingCustom(true)}>
-                Add external source
-              </button>
-              {(orderedFootnotes.length > 0 || hasSources) && (
-                <button type="button" className="button primary small" onClick={() => void copyBibliography()}>
-                  Copy Chicago bibliography
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="essay-sources-grid" style={{ display: "grid", gap: "1.5rem", marginTop: "1.25rem" }}>
-            {/* Section 1: Currently in document */}
-            <section className="essay-panel">
-              <div className="essay-panel-head">
-                <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
-                  Currently in the document ({orderedFootnotes.length})
-                </h3>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={listCollision}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setDragId(null)}
+      >
+        <div className="essay-ws" data-pane={pane}>
+          {/* Left rail: the brief, the essay's own papers and its sources */}
+          <DropZone list="sources" id="essay-pane-rail" className="essay-ws-rail">
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-brief-head">
+              <h2 id="essay-brief-head" className="essay-ws-card-title">Brief</h2>
+              <div className="essay-ws-brief-count">
+                <strong>{effectiveWords.toLocaleString("en-GB")}</strong>{" "}
+                <span className="muted">{effectiveWords === 1 ? "word" : "words"}</span>{" "}
+                <span className="essay-inline-target">
+                  {editingTarget ? (
+                    <>
+                      <span className="muted">of </span>
+                      <input
+                        type="number"
+                        autoFocus
+                        inputMode="numeric"
+                        min={0}
+                        step={100}
+                        value={target}
+                        placeholder="2500"
+                        aria-label="Word target"
+                        title="Word target"
+                        style={{ width: `${Math.max(target.length, 4) + 1}ch` }}
+                        onFocus={() => {
+                          typingTarget.current = true;
+                        }}
+                        onChange={(e) => setTarget(e.target.value)}
+                        onBlur={() => {
+                          setEditingTarget(false);
+                          commitTarget();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            setEditingTarget(false);
+                            commitTarget();
+                          }
+                          if (e.key === "Escape") {
+                            cancelTarget.current = true;
+                            setEditingTarget(false);
+                            commitTarget();
+                          }
+                        }}
+                      />
+                      <span className="muted"> target</span>
+                    </>
+                  ) : assessment.wordTarget ? (
+                    <>
+                      <span className="muted">of </span>
+                      <button
+                        type="button"
+                        className="essay-target-btn"
+                        onClick={() => {
+                          setTarget(String(assessment.wordTarget));
+                          setEditingTarget(true);
+                        }}
+                        title="Click to edit target word count"
+                      >
+                        {assessment.wordTarget.toLocaleString("en-GB")}
+                      </button>
+                      <span className="muted"> target</span>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="essay-target-btn muted"
+                      onClick={() => {
+                        setTarget("");
+                        setEditingTarget(true);
+                      }}
+                      title="Click to set target word count"
+                    >
+                      Set target
+                    </button>
+                  )}
+                </span>
               </div>
-              {orderedFootnotes.length === 0 ? (
-                <p className="small muted">No citations or footnotes in the draft yet.</p>
-              ) : (
-                <div className="essay-in-doc-citations">
-                  {orderedFootnotes.map((fn) => {
-                    const isEditing = editingFnId === fn.id;
-                    const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
-                    const linkedItem = rawFn?.citationItemId
-                      ? allResearchItems.find((r) => r.id === rawFn.citationItemId)
-                      : null;
-
-                    return (
-                      <div key={fn.id} className="essay-ref-item">
-                        <span className="essay-ref-badge">[{fn.number}]</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {isEditing ? (
-                            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
-                              <input
-                                className="essay-ref-edit-input"
-                                type="text"
-                                value={editingFnText}
-                                autoFocus
-                                onChange={(e) => setEditingFnText(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleSaveFootnote(fn.id, editingFnText);
-                                  if (e.key === "Escape") setEditingFnId(null);
-                                }}
-                              />
-                              <button
-                                type="button"
-                                className="button small primary"
-                                onClick={() => handleSaveFootnote(fn.id, editingFnText)}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                className="button small quiet"
-                                onClick={() => setEditingFnId(null)}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="essay-ref-text">
-                              <span>{fn.text}</span>
-                              {linkedItem?.moduleItem && (
-                                <span style={{ display: "inline-block", marginLeft: "0.5rem" }}>
-                                  <Link
-                                    to={{ view: "reader", id: linkedItem.id }}
-                                    className="small muted"
-                                  >
-                                    Open reading &rarr;
-                                  </Link>
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {!isEditing && (
-                          <button
-                            type="button"
-                            className="button quiet small"
-                            onClick={() => {
-                              setEditingFnId(fn.id);
-                              setEditingFnText(fn.text);
-                            }}
-                          >
-                            Edit
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <p className="small muted essay-ws-breakdown">
+                Body {counts.body.toLocaleString("en-GB")}, block quotations {counts.quotes.toLocaleString("en-GB")}, footnotes {counts.footnotes.toLocaleString("en-GB")}.
+              </p>
+              <label className="essay-footnote-toggle">
+                <input
+                  type="checkbox"
+                  checked={includeFootnotes}
+                  onChange={(e) => void save({ includeFootnotes: e.target.checked })}
+                />
+                <span>Include footnotes in word count</span>
+              </label>
+              <div className="essay-ws-brief-row">
+                <DatePicker
+                  value={assessment.dueDate ?? null}
+                  onChange={(d) => void save({ dueDate: d })}
+                  label="Assessment due date"
+                  title={`Due date for ${assessment.title || "the essay"}`}
+                  placeholder="Set due date"
+                  clearable
+                  className={`essay-due-chip${due && (due.state === "soon" || due.state === "today") ? " is-soon" : ""}`}
+                />
+                {due && assessment.dueDate ? <span className="muted small essay-due-words">{due.words}</span> : null}
+              </div>
             </section>
 
-            {/* Section 2: From research (not in document) */}
-            <section className="essay-panel">
-              <div className="essay-panel-head">
-                <h3 style={{ margin: 0, fontSize: "var(--fs-md)", fontFamily: "var(--sans)" }}>
-                  From research (not in document) ({fromResearchNotCited.length})
-                </h3>
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-admin-head">
+              <div className="essay-ws-card-head">
+                <h2 id="essay-admin-head" className="essay-ws-card-title">Admin documents</h2>
+                <button type="button" className="button quiet small" onClick={() => adminInput.current?.click()}>
+                  Add
+                </button>
               </div>
-              {fromResearchNotCited.length === 0 ? (
-                <p className="small muted">
-                  {allResearchItems.length === 0
-                    ? "No research materials added yet. Choose readings from this module or add external sources."
-                    : "All research materials are currently cited in your document."}
-                </p>
+              {adminDocuments.length === 0 ? (
+                <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
               ) : (
-                <ul className="essay-source-list">
-                  {fromResearchNotCited.map((item) => (
-                    <li key={item.id}>
-                      {item.isModule && item.moduleItem ? (
-                        <>
-                          <Link to={{ view: "reader", id: item.id }} title={item.title}>
-                            {item.title}
-                          </Link>
-                          <span className="badge small" style={{ marginLeft: "0.5rem" }}>Module</span>
-                          <button
-                            type="button"
-                            className="button quiet small"
-                            onClick={() => void addModuleFootnote(item.moduleItem!)}
-                          >
-                            + Cite in draft
-                          </button>
-                          <Menu
-                            label={`Actions for ${shortTitle(item.moduleItem)}`}
-                            items={[
-                              { label: "Add footnote citing it", onSelect: () => void addModuleFootnote(item.moduleItem!) },
-                              { label: "Remove from essay", onSelect: () => void toggleModuleSource(item.id) },
-                            ]}
-                          />
-                        </>
+                <ul className="essay-ws-docs">
+                  {adminDocuments.map((doc) => (
+                    <li key={doc.id}>
+                      {doc.r2Key ? (
+                        <a
+                          className="essay-ws-doc-name"
+                          href={`/api/objects/${doc.r2Key}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Open ${doc.name}`}
+                        >
+                          {doc.name}
+                        </a>
                       ) : (
-                        <>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <span style={{ fontFamily: "var(--serif)" }}>{formatCustomBibliography(item.customSource!)}</span>
-                            {safeExternalUrl(item.customSource?.url) && (
-                              <a
-                                href={safeExternalUrl(item.customSource?.url)!}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="small muted"
-                                style={{ display: "inline-block", marginLeft: "0.5rem" }}
-                              >
-                                Link &rarr;
-                              </a>
-                            )}
-                          </div>
-                          <span className="badge small" style={{ marginLeft: "0.5rem" }}>External</span>
-                          <button
-                            type="button"
-                            className="button quiet small"
-                            onClick={() => void addCustomFootnote(item.customSource!)}
-                          >
-                            + Cite in draft
-                          </button>
-                          <Menu
-                            label={`Actions for ${item.customSource?.title}`}
-                            items={[
-                              { label: "Add footnote citing it", onSelect: () => void addCustomFootnote(item.customSource!) },
-                              { label: "Remove source", danger: true, onSelect: () => void handleDeleteCustomSource(item.id) },
-                            ]}
-                          />
-                        </>
+                        <span className="essay-ws-doc-name">{doc.name}</span>
                       )}
+                      <span className="small muted">
+                        {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                      </span>
+                      <button
+                        type="button"
+                        className="button quiet small"
+                        aria-label={`Remove ${doc.name}`}
+                        onClick={() => void removeAdminDocument(doc)}
+                      >
+                        Remove
+                      </button>
                     </li>
                   ))}
                 </ul>
               )}
             </section>
-          </div>
-        </div>
-      )}
 
-      {/* TAB 4: Snapshots */}
-      {activeTab === "snapshots" && (
-        <div id="panel-snapshots" role="tabpanel" aria-labelledby="tab-snapshots">
-          <section className="essay-panel">
-            <h2 style={{ fontSize: "var(--fs-lg)", margin: "0 0 0.5rem" }}>Revision snapshots</h2>
-            <p className="small muted essay-hint">
-              Save named snapshots before major revisions to preserve your work and compare changes.
-            </p>
-            <div className="essay-snapshot-form">
-              <input
-                type="text"
-                aria-label="Snapshot name"
-                placeholder="First full draft, pre-supervision feedback..."
-                value={snapshotName}
-                enterKeyHint="done"
-                onChange={(e) => setSnapshotName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void saveSnapshot();
-                }}
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-sources-head">
+              <div className="essay-ws-card-head">
+                <h2 id="essay-sources-head" className="essay-ws-card-title">Sources</h2>
+                <button type="button" className="button quiet small" onClick={() => setChoosing(true)}>
+                  Readings
+                </button>
+                <button type="button" className="button quiet small" onClick={() => setAddingCustom(true)}>
+                  Add
+                </button>
+              </div>
+              {allResearchItems.length === 0 ? (
+                <p className="small muted">Choose readings from this module or add external sources.</p>
+              ) : (
+                <>
+                  <p className="small muted">Drag a source into References to cite it, or use + Cite.</p>
+                  <ul className="essay-ws-sources">
+                    {allResearchItems.map((item) => (
+                      <SourceRow
+                        key={item.id}
+                        item={item}
+                        cited={citedIds.has(item.id)}
+                        onCite={() => void citeInDraft(item)}
+                        onRemove={() => removeSource(item)}
+                      />
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
+          </DropZone>
+
+          {/* Centre: the essay itself */}
+          <DropZone list="draft" id="essay-pane-centre" className="essay-ws-centre">
+            <div className="essay-ws-toolbar">
+              <SegmentedTabs
+                label="Essay view"
+                value={centreView}
+                onChange={setCentreView}
+                options={[
+                  { value: "preview", label: "Preview", id: "essay-view-preview", controls: "essay-centre-preview" },
+                  { value: "plan", label: "Plan & argument", id: "essay-view-plan", controls: "essay-centre-plan" },
+                ]}
               />
+              <span className="spacer" />
+              <Link to={wordProcessorRoute} className="button primary essay-open-button">
+                <Icon name="notes" size={16} />
+                <span>Open in word processor</span>
+              </Link>
               <button
                 type="button"
-                className="button primary"
-                disabled={savingSnapshot}
-                onClick={() => void saveSnapshot()}
+                className="button small essay-ws-drawer-toggle"
+                aria-expanded={pane === "aside"}
+                aria-controls="essay-pane-aside"
+                onClick={() => setPane((current) => (current === "aside" ? "centre" : "aside"))}
               >
-                {savingSnapshot ? "Saving..." : "Save snapshot"}
+                References{orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}
               </button>
             </div>
 
-            {assessment.previousDrafts.length > 0 ? (
-              <ul className="essay-snapshot-list" style={{ marginTop: "1rem" }}>
-                {assessment.previousDrafts.map((snap) => (
-                  <li key={snap.id}>
-                    <span className="name">
-                      <strong>{snap.name}</strong>
-                      <span className="when">
-                        {snap.word_count.toLocaleString("en-GB")} {snap.word_count === 1 ? "word" : "words"},{" "}
-                        {shortDate(new Date(snap.created_at))},{" "}
-                        {new Date(snap.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </span>
-                    <Menu
-                      label={`Actions for ${snap.name}`}
-                      items={[
-                        {
-                          label: "Restore snapshot",
-                          onSelect: async () => {
-                            const ok = await confirmAction({
-                              title: `Restore "${snap.name}"?`,
-                              body: "This replaces the current draft. Save a snapshot first if you wish to keep current changes.",
-                              confirm: "Restore snapshot",
-                            });
-                            if (!ok) return;
-                            await restoreDraftSnapshot(module.id, snap.id, module.code, essayId);
-                            showToast(`"${snap.name}" restored.`);
-                          },
-                        },
-                        {
-                          label: "Download .docx",
-                          onSelect: () => downloadDocxFile(snap.doc, snap.name),
-                        },
-                        {
-                          label: "Delete snapshot",
-                          danger: true,
-                          onSelect: async () => {
-                            const ok = await confirmAction({
-                              title: `Delete "${snap.name}"?`,
-                              body: "The snapshot cannot be retrieved once deleted. The current draft is not affected.",
-                              confirm: "Delete snapshot",
-                              danger: true,
-                            });
-                            if (!ok) return;
-                            await deleteDraftSnapshot(module.id, snap.id, module.code, essayId);
-                            showToast("Snapshot deleted.");
-                          },
-                        },
-                      ]}
-                    />
-                  </li>
-                ))}
-              </ul>
+            {centreView === "preview" ? (
+              <div
+                id="essay-centre-preview"
+                role="tabpanel"
+                aria-labelledby="essay-view-preview"
+                className="essay-ws-preview"
+                ref={previewRef}
+              >
+                <div className="essay-ws-preview-bar">
+                  <div className="essay-zoom-controls" role="group" aria-label="Zoom">
+                    <IconButton icon="zoomOut" label="Zoom out" disabled={zoom <= ZOOM_STEPS[0] + 0.001} onClick={() => zoomBy(-1)} />
+                    <button
+                      type="button"
+                      className="essay-zoom-percent"
+                      title="Reset zoom to 100%"
+                      aria-label={`Zoom ${Math.round(zoom * 100)} per cent. Reset to 100 per cent`}
+                      onClick={() => setZoom(1)}
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <IconButton icon="zoomIn" label="Zoom in" disabled={zoom >= PREVIEW_MAX_ZOOM - 0.001} onClick={() => zoomBy(1)} />
+                  </div>
+                  <div className="row essay-preview-actions">
+                    <button
+                      type="button"
+                      className="button small"
+                      onClick={() => {
+                        downloadDocxFile(assessment.draft, assessment.title);
+                        showToast("Word document downloaded.");
+                      }}
+                    >
+                      Export .docx
+                    </button>
+                    <button type="button" className="button quiet small" onClick={() => void handleImportClick()}>
+                      {hasContent ? "Replace Word document" : "Import Word document"}
+                    </button>
+                  </div>
+                </div>
+                <PageZoomViewport zoom={zoom} label="Essay preview">
+                  <EssayDocumentSheet doc={assessment.draft} jump={jump} />
+                </PageZoomViewport>
+              </div>
             ) : (
-              <p className="small muted" style={{ marginTop: "1rem" }}>No snapshots saved yet.</p>
+              <div id="essay-centre-plan" role="tabpanel" aria-labelledby="essay-view-plan" className="essay-plan">
+                <p className="small muted essay-hint">
+                  Structure your thesis and argument. Use headings for sections, bullet points for evidence, and @ to cite readings directly.
+                </p>
+                <Suspense fallback={<NotesLoading />}>
+                  <NoteEditor
+                    target={{ week_id: assessmentNotesKey(module.id, essayId) }}
+                    label="Plan and argument"
+                    placeholder="Your central thesis statement in a sentence, followed by section headings and arguments..."
+                  />
+                </Suspense>
+              </div>
             )}
-          </section>
+          </DropZone>
+
+          {/* Right column: references and outline, a drawer below 1280px */}
+          <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and outline">
+            <DropZone list="references" className="essay-panel essay-ws-card essay-ws-refs">
+              <div className="essay-ws-card-head">
+                <h2 className="essay-ws-card-title">References ({orderedFootnotes.length})</h2>
+                {(orderedFootnotes.length > 0 || hasSources) && (
+                  <button type="button" className="button quiet small" onClick={() => void copyBibliography()}>
+                    Copy bibliography
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button quiet small essay-ws-drawer-close"
+                  aria-label="Close references"
+                  onClick={() => setPane("centre")}
+                >
+                  Close
+                </button>
+              </div>
+              {orderedFootnotes.length === 0 ? (
+                <p className="small muted essay-ws-drop-hint">Drag a source here to cite it at the end of the draft.</p>
+              ) : (
+                <ol className="essay-ws-ref-list">
+                  {orderedFootnotes.map((fn) => {
+                    const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
+                    const linked = rawFn?.citationItemId
+                      ? allResearchItems.find((r) => r.id === rawFn.citationItemId)
+                      : undefined;
+                    return (
+                      <ReferenceRow
+                        key={fn.id}
+                        number={fn.number}
+                        footnoteId={fn.id}
+                        text={fn.text}
+                        doc={assessment.draft}
+                        readingId={linked?.moduleItem ? linked.id : undefined}
+                        onCommit={handleSaveFootnote}
+                        onJump={jumpTo}
+                      />
+                    );
+                  })}
+                </ol>
+              )}
+            </DropZone>
+
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-outline-head">
+              <h2 id="essay-outline-head" className="essay-ws-card-title">Outline</h2>
+              {outline.length === 0 ? (
+                <p className="small muted">Headings in the draft appear here, so that you can move between its sections.</p>
+              ) : (
+                <ul className="essay-ws-outline">
+                  {outline.map((heading) => (
+                    <li key={heading.id}>
+                      <button type="button" data-level={heading.level} onClick={() => jumpTo({ blockId: heading.id })}>
+                        {heading.text}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </aside>
         </div>
-      )}
+
+        <DragOverlay dropAnimation={null}>
+          {draggedItem ? <div className="essay-ws-drag-chip">{draggedItem.title}</div> : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Revision snapshots */}
+      <Sheet
+        open={snapshotsOpen}
+        onClose={() => setSnapshotsOpen(false)}
+        title="Revision snapshots"
+        subtitle="Save named snapshots before major revisions to preserve your work and compare changes."
+        footer={<button type="button" className="button primary" onClick={() => setSnapshotsOpen(false)}>Done</button>}
+      >
+        <div className="essay-snapshot-form">
+          <input
+            type="text"
+            aria-label="Snapshot name"
+            placeholder="First full draft, pre-supervision feedback..."
+            value={snapshotName}
+            enterKeyHint="done"
+            onChange={(e) => setSnapshotName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveSnapshot();
+            }}
+          />
+          <button
+            type="button"
+            className="button primary"
+            disabled={savingSnapshot}
+            onClick={() => void saveSnapshot()}
+          >
+            {savingSnapshot ? "Saving..." : "Save snapshot"}
+          </button>
+        </div>
+
+        {assessment.previousDrafts.length > 0 ? (
+          <ul className="essay-snapshot-list" style={{ marginTop: "1rem" }}>
+            {assessment.previousDrafts.map((snap) => (
+              <li key={snap.id}>
+                <span className="name">
+                  <strong>{snap.name}</strong>
+                  <span className="when">
+                    {snap.word_count.toLocaleString("en-GB")} {snap.word_count === 1 ? "word" : "words"},{" "}
+                    {shortDate(new Date(snap.created_at))},{" "}
+                    {new Date(snap.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </span>
+                <Menu
+                  label={`Actions for ${snap.name}`}
+                  items={[
+                    {
+                      label: "Restore snapshot",
+                      onSelect: async () => {
+                        const ok = await confirmAction({
+                          title: `Restore "${snap.name}"?`,
+                          body: "This replaces the current draft. Save a snapshot first if you wish to keep current changes.",
+                          confirm: "Restore snapshot",
+                        });
+                        if (!ok) return;
+                        await restoreDraftSnapshot(module.id, snap.id, module.code, essayId);
+                        showToast(`"${snap.name}" restored.`);
+                      },
+                    },
+                    {
+                      label: "Download .docx",
+                      onSelect: () => downloadDocxFile(snap.doc, snap.name),
+                    },
+                    {
+                      label: "Delete snapshot",
+                      danger: true,
+                      onSelect: async () => {
+                        const ok = await confirmAction({
+                          title: `Delete "${snap.name}"?`,
+                          body: "The snapshot cannot be retrieved once deleted. The current draft is not affected.",
+                          confirm: "Delete snapshot",
+                          danger: true,
+                        });
+                        if (!ok) return;
+                        await deleteDraftSnapshot(module.id, snap.id, module.code, essayId);
+                        showToast("Snapshot deleted.");
+                      },
+                    },
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="small muted" style={{ marginTop: "1rem" }}>No snapshots saved yet.</p>
+        )}
+      </Sheet>
 
       {/* Module reading selection sheet */}
       <Sheet
@@ -1469,6 +1786,19 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           } catch (err) {
             showToast(err instanceof Error ? err.message : "Could not import that Word document.");
           }
+        }}
+      />
+
+      <input
+        ref={adminInput}
+        type="file"
+        hidden
+        multiple
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.rtf,.odt"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          void addAdminDocuments(files);
         }}
       />
     </div>

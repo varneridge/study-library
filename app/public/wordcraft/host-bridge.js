@@ -1,13 +1,15 @@
 // Lets the parent app drive undo, redo and save in the embedded word processor,
 // keeps only the core writing tabs, stops WordCraft's File features from
-// running, and reports WordCraft's embedded chrome (the room it keeps for the
+// running, reports WordCraft's embedded chrome (the room it keeps for the
 // parent's own controls, and its colours) so the parent can draw its controls
-// in that room.
+// in that room, and reports how many words are selected so that the parent's
+// status bar can read "X of Y words".
 //
 // Messages, all same-origin and only to or from the parent window:
 //   parent -> here  wordcraft:undo | wordcraft:redo | wordcraft:save
 //   parent -> here  wordcraft:chrome { tabInsetStart?, tabInsetEnd?, statusInsetStart? }
 //   here -> parent  wordcraft:chrome { chrome: <ui.hostChrome result> | null }
+//   here -> parent  wordcraft:selection { words: <whole number, 0 when collapsed> }
 // A null chrome means the build has no embedded chrome (an older WordCraft),
 // so the canvas keeps its title bar lifted out of view (index.html) and the
 // File guard below stays on.
@@ -260,6 +262,68 @@
     }, 300);
   });
 
+  // ---- Selection ----------------------------------------------------------
+  //
+  // WordCraft draws its text on a canvas, so the page's own selection never
+  // moves and selectionchange would tell the parent nothing. The selection is
+  // asked for instead after each input that can change it (a release of the
+  // pointer, a key, a touch), a moment later so that the app has applied the
+  // input first, and the parent hears only when the count changes, because a
+  // collapsed selection after every keystroke would otherwise flood it.
+  //
+  // SELECTION_COMMAND must match WordCraft's command API. Its result may be a
+  // number of words, { words }, or { text }, which is counted here; anything
+  // else, or a failure from a build without the command, counts as nothing
+  // selected, so an older build simply never shows a selection count.
+  var SELECTION_COMMAND = "edit.selection";
+  var SELECTION_DELAY_MS = 120;
+  var lastWords = 0;
+  var selectionTimer = null;
+
+  function wholeCount(n) {
+    return typeof n === "number" && isFinite(n) && n > 0 && Math.floor(n) === n ? n : 0;
+  }
+
+  function selectionWords(result) {
+    if (typeof result === "number") return wholeCount(result);
+    if (!result || typeof result !== "object") return 0;
+    if (typeof result.words === "number") return wholeCount(result.words);
+    if (typeof result.text !== "string") return 0;
+    var text = result.text.trim();
+    return text ? text.split(/\s+/).length : 0;
+  }
+
+  function reportSelection(words) {
+    if (words === lastWords) return;
+    lastWords = words;
+    toParent({ type: "wordcraft:selection", words: words });
+  }
+
+  function readSelection() {
+    selectionTimer = null;
+    var wc = api();
+    if (!wc) return;
+    try {
+      wc.execute(SELECTION_COMMAND, {}).then(
+        function (result) { reportSelection(selectionWords(result)); },
+        function () { reportSelection(0); }
+      );
+    } catch (e) {
+      reportSelection(0);
+    }
+  }
+
+  function scheduleSelection() {
+    if (selectionTimer !== null) clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(readSelection, SELECTION_DELAY_MS);
+  }
+
+  if (hosted) {
+    ["pointerup", "mouseup", "touchend", "keyup"].forEach(function (type) {
+      window.addEventListener(type, scheduleSelection, { capture: true, passive: true });
+    });
+  }
+
   // ---- Commands from the parent -------------------------------------------
 
   function dispatchKey(key, ctrl, shift) {
@@ -276,10 +340,13 @@
     target.dispatchEvent(evt);
   }
 
+  // Undo and redo from the parent's buttons can change the selection without
+  // any input reaching the page, so the selection is read again after each.
   function run(command, key) {
     var wc = api();
     if (wc) wc.execute(command).catch(function () { dispatchKey(key, true, false); });
     else dispatchKey(key, true, false);
+    scheduleSelection();
   }
 
   function finite(v) {

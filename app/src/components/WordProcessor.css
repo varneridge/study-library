@@ -15,14 +15,22 @@
  * styles.css gives it, for a page that has not loaded the tokens yet.
  */
 
+/* The safe-area padding keeps the tab strip, and with it WordCraft's Home
+   tab, out from under a notch or status bar when the page is drawn edge to
+   edge (full screen, or an installed app), since env() reads 0 inside the
+   iframe and only this page can make room. The padding takes the colour of
+   the bar it sits beside. */
 .word-processor {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
   width: 100%;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
   overflow: hidden;
-  background: var(--wc-status-bg);
+  background: linear-gradient(var(--wc-strip-bg) 50%, var(--wc-status-bg) 50%);
 }
 
 .wp-stage {
@@ -53,15 +61,28 @@
 
 /* ---- Back, in the File tab's place ---------------------------------------- */
 
-/* System type, like the ribbon labels beside it, so Back reads as a tab. */
+/* System type, like the ribbon labels beside it, so Back reads as a tab. The
+   dock clips what it holds, so a label wider than the room WordCraft keeps can
+   never spill on to its Home tab. */
 .wp-dock--back {
   top: var(--wc-strip-top);
   left: 0;
   width: var(--wc-back-w);
   height: var(--wc-strip-h);
   padding: 0 2px 0 4px;
+  overflow: hidden;
   background: var(--wc-strip-bg);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* One reset for every control on the docks, which differ only in size and shape. */
+.wp-back,
+.wp-dock-button,
+.wp-switch {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
 .wp-back {
@@ -71,13 +92,9 @@
   height: calc(var(--wc-strip-h) - 6px);
   max-width: 100%;
   padding: 0 8px 0 6px;
-  border: 0;
   border-radius: 4px;
-  background: transparent;
   color: var(--wc-text);
-  font: inherit;
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .wp-back[data-icon-only] {
@@ -138,11 +155,8 @@
   width: 26px;
   height: calc(var(--wc-status-h) - 4px);
   padding: 0;
-  border: 0;
   border-radius: 4px;
-  background: transparent;
   color: var(--wc-text);
-  cursor: pointer;
 }
 
 .wp-dock-rule {
@@ -179,12 +193,8 @@
   height: calc(var(--wc-status-h) - 6px);
   margin-left: 8px;
   padding: 0 7px 0 5px;
-  border: 0;
   border-radius: 999px;
-  background: transparent;
   color: var(--wc-text-dim);
-  font: inherit;
-  cursor: pointer;
 }
 
 .wp-switch[aria-checked="true"] {

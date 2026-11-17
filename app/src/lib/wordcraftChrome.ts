@@ -33,8 +33,13 @@ export const STATUS_MARGIN_START = 12;
 export const FILE_TAB_COVER = { width: 68, height: 30 } as const;
 export const FALLBACK_STATUS_HEIGHT = 26;
 
-/** Below this width the Back dock shows its arrow alone, because the label would be clipped. */
-export const BACK_LABEL_MIN_WIDTH = 56;
+/**
+ * Below this width the Back dock shows its arrow alone. The labelled button
+ * needs 6px of dock padding, 14px of its own, the 15px arrow, a 5px gap and
+ * about 28px for "Back", so a threshold any lower let the label run on to
+ * WordCraft's Home tab; the regular room (8 + 60) still fits it exactly.
+ */
+export const BACK_LABEL_MIN_WIDTH = 68;
 
 /** What host-bridge.js reports from WordCraft's `ui.hostChrome` command. */
 export interface ChromeInfo {
@@ -112,4 +117,24 @@ export function editorQuery(insets: ChromeInsets): string {
     `&tabInset=${insets.tabStart},${insets.tabEnd}&statusInset=${insets.status}` +
     `&fileGuard=${FILE_TAB_COVER.width},${FILE_TAB_COVER.height}`
   );
+}
+
+/**
+ * The words WordCraft reports as selected in host-bridge.js's
+ * `wordcraft:selection` message. Anything but a positive whole number reads as
+ * no selection, so a malformed report can only hide the figure, never show a
+ * wrong one.
+ */
+export function parseSelectionWords(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+/**
+ * The status bar's figure while text is selected, as Word shows it ("120 of
+ * 1,250 words"). The total is read from the saved draft, which trails typing
+ * by the autosave delay, so it is never shown below the selection itself.
+ */
+export function selectionWordCount(selected: number, total: number): string {
+  const whole = Math.max(selected, total);
+  return `${selected.toLocaleString("en-GB")} of ${whole.toLocaleString("en-GB")} ${whole === 1 ? "word" : "words"}`;
 }
