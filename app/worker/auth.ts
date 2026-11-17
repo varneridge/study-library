@@ -1,4 +1,5 @@
 import { EmailMessage } from "cloudflare:email";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Hono, type Context, type MiddlewareHandler, type Next } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import type { Env } from "./env";
@@ -22,6 +23,27 @@ const HOUR_MS = 3_600_000;
 // Signing in needs no session, and signing out must work with a stale one.
 const PUBLIC_PATHS = new Set(["/api/auth/request", "/api/auth/verify", "/api/auth/logout"]);
 const DEV_SECRET = "study-library-local-development-only";
+
+let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let jwksDomain = "";
+
+async function verifyAccessJwt(request: Request, env: Env): Promise<Auth | null> {
+  const domain = env.ACCESS_TEAM_DOMAIN;
+  const audience = env.ACCESS_AUD;
+  const token = request.headers.get("cf-access-jwt-assertion");
+  if (!domain || !audience || !token) return null;
+  if (!jwks || jwksDomain !== domain) {
+    jwks = createRemoteJWKSet(new URL(`https://${domain}/cdn-cgi/access/certs`));
+    jwksDomain = domain;
+  }
+  try {
+    const { payload } = await jwtVerify(token, jwks, { issuer: `https://${domain}`, audience });
+    const email = typeof payload.email === "string" ? normaliseEmail(payload.email) ?? payload.email : "access-user";
+    return { kind: "person", email, tokenHash: "" };
+  } catch {
+    return null;
+  }
+}
 
 function devMode(env: Env, request: Request): boolean {
   return env.AUTH_DEV_MODE === "true" && isLocalHost(new URL(request.url).hostname);
@@ -53,6 +75,9 @@ export async function authenticate(request: Request, env: Env): Promise<Auth | n
     && timingSafeEqual(id, env.PROCESSOR_ACCESS_CLIENT_ID) && timingSafeEqual(secret, env.PROCESSOR_ACCESS_CLIENT_SECRET)) {
     return { kind: "processor" };
   }
+
+  const accessAuth = await verifyAccessJwt(request, env);
+  if (accessAuth) return accessAuth;
 
   const token = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
   if (token) {

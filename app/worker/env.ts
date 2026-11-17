@@ -2,6 +2,9 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  // Cloudflare Access JWT verification (used alongside email OTP when Access is in front).
+  ACCESS_TEAM_DOMAIN?: string;
+  ACCESS_AUD?: string;
   // Local development and tests only.
   ALLOW_UNAUTHENTICATED?: string;
   DEV_RESET?: string;
