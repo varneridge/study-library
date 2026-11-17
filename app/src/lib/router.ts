@@ -104,6 +104,11 @@ export function parseRoute(search: string): Route {
   }
 }
 
+// The route an address inside the app leads to, such as one kept by a desktop tab.
+export function routeOf(url: string): Route {
+  return parseRoute(new URL(url, "http://localhost").search);
+}
+
 export function href(route: Route): string {
   const params = new URLSearchParams();
   if (route.view !== "home") params.set("v", route.view);
@@ -168,6 +173,12 @@ export function setNavigationGuard(guard: NavigationGuard | null): () => void {
   };
 }
 
+// Whether the page in front may be left, as its guard decides. A desktop tab
+// asks this before it closes, and then moves with the guard switched off.
+export async function confirmLeave(): Promise<boolean> {
+  return activeGuard ? Boolean(await activeGuard()) : true;
+}
+
 if (typeof window !== "undefined") {
   currentAppliedUrl = window.location.href;
   // The browser would otherwise restore the scroll before popstate fires, moving
@@ -189,7 +200,7 @@ if (typeof window !== "undefined") {
         popstateGuarding = false;
       }
     }
-    const prev = parseRoute(new URL(currentAppliedUrl, "http://localhost").search);
+    const prev = routeOf(currentAppliedUrl);
     positions.set(currentAppliedUrl, window.scrollY);
     currentAppliedUrl = window.location.href;
     scrollOnCommit = positions.get(currentAppliedUrl) ?? 0;
@@ -200,14 +211,17 @@ if (typeof window !== "undefined") {
 }
 
 // Accepts the older boolean form, navigate(route, true) for a replace, as
-// well as an options object that can also ask for the morph transition.
+// well as an options object that can also ask for the morph transition, or
+// with guard: false skip the guard, as a switch between desktop tabs does
+// because the page it leaves stays mounted behind its tab.
 export async function navigate(
   route: Route,
-  opts: boolean | { replace?: boolean; morph?: boolean } = false,
+  opts: boolean | { replace?: boolean; morph?: boolean; guard?: boolean } = false,
 ): Promise<void> {
   const isReplace = typeof opts === "boolean" ? opts : Boolean(opts.replace);
   const morph = typeof opts === "boolean" ? false : Boolean(opts.morph);
-  if (activeGuard) {
+  const guarded = typeof opts === "boolean" ? true : opts.guard !== false;
+  if (guarded && activeGuard) {
     const allow = await activeGuard();
     if (!allow) return;
   }
@@ -215,7 +229,7 @@ export async function navigate(
   const isOverlay = Boolean(typeof history !== "undefined" && history.state?.overlay);
   // The route being left is read before the URL changes, so a switch of tab or
   // week within one page can keep its scroll position instead of jumping to the top.
-  const prev = parseRoute(new URL(currentAppliedUrl, "http://localhost").search);
+  const prev = routeOf(currentAppliedUrl);
   const samePage = prev.view === route.view && (!("id" in prev) || !("id" in route) || prev.id === route.id);
   positions.set(currentAppliedUrl, window.scrollY);
   if (isReplace || isOverlay) history.replaceState(null, "", url);

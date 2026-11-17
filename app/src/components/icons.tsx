@@ -1,6 +1,13 @@
 // One line-icon set, drawn on a 20 by 20 grid with a 1.5 stroke, so every
 // toolbar button reads at the same weight.
 
+import { useEffect, useState } from "react";
+import { currentSyncState, subscribeSync, type SyncState } from "../lib/sync";
+import { syncView, type SyncView } from "../lib/syncStatus";
+
+// The outline every cloud-shaped sync symbol shares, so they read as one family.
+const cloud = <path d="M5.5 14.5h9a3 3 0 0 0 .4-5.97A4.5 4.5 0 0 0 6.2 7.2 3.5 3.5 0 0 0 5.5 14.5Z" />;
+
 const paths: Record<string, React.ReactNode> = {
   back: <path d="M12.5 4.5 7 10l5.5 5.5" />,
   // For the phone's tab bar.
@@ -49,24 +56,39 @@ const paths: Record<string, React.ReactNode> = {
   viewLarge: <><rect x="3.25" y="3.25" width="13.5" height="9.75" /><path d="M3.25 16.25h8.5" /></>,
   clock: <><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.25l3 1.75" /></>,
   external: <><path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5" /><path d="M8.5 5H4.25v10.75H15V11.5" /></>,
-  // The top bar's sync indicator: a loop that spins while changes or files
-  // are on their way, a cloud with a tick once they are saved, and a hazard
-  // sign when something needs your attention.
+  // The sync symbols, one for each status in lib/syncStatus: a loop that
+  // spins while changes or files are on their way, and a cloud otherwise,
+  // with a tick once everything is saved, an arrow while changes wait to be
+  // sent, two bars while sync is paused and a stroke through it when offline.
+  // The hazard sign is kept for anything that needs your attention.
   syncSpin: <><path d="M16.5 10a6.5 6.5 0 0 1-11.1 4.6M3.5 10a6.5 6.5 0 0 1 11.1-4.6" /><path d="M14.5 2.75v2.75h-2.75M5.5 17.25v-2.75h2.75" /></>,
-  syncDone: <><path d="M5.5 14.5h9a3 3 0 0 0 .4-5.97A4.5 4.5 0 0 0 6.2 7.2 3.5 3.5 0 0 0 5.5 14.5Z" /><path d="m8 11.25 1.5 1.5 3-3" /></>,
+  syncDone: <>{cloud}<path d="m8 11.25 1.5 1.5 3-3" /></>,
+  syncPending: <>{cloud}<path d="M10 13V9M8.25 10.75 10 9l1.75 1.75" /></>,
+  syncPaused: <>{cloud}<path d="M8.75 9.25v3.5M11.25 9.25v3.5" /></>,
+  syncOffline: <>{cloud}<path d="m3.5 3.5 13 13" /></>,
   warning: <><path d="M10 3.25 17.25 16H2.75L10 3.25Z" /><path d="M10 8.25v3.75" /><circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none" /></>,
 };
 
 
 export type IconName = keyof typeof paths;
 
-export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+// With spin, the drawing turns about its centre, unless the person has asked
+// for less motion. SVG's own animation keeps this free of any stylesheet.
+export function Icon({ name, size = 20, spin = false }: { name: IconName; size?: number; spin?: boolean }) {
+  const still = spin && typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   return (
     <svg
       className="icon" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true" focusable="false"
       fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="square" strokeLinejoin="miter"
     >
-      {paths[name]}
+      {spin && !still ? (
+        <g>
+          {paths[name]}
+          <animateTransform attributeName="transform" type="rotate" from="0 10 10" to="360 10 10" dur="1.2s" repeatCount="indefinite" />
+        </g>
+      ) : (
+        paths[name]
+      )}
     </svg>
   );
 }
@@ -91,5 +113,37 @@ export function IconButton({
     >
       <Icon name={icon} />
     </button>
+  );
+}
+
+// The sync status as it stands, redrawn whenever it changes.
+export function useSyncView(): SyncView {
+  const [state, setState] = useState<SyncState>(currentSyncState);
+  useEffect(() => {
+    const stop = subscribeSync(setState);
+    return () => {
+      stop();
+    };
+  }, []);
+  return syncView(state);
+}
+
+// The sync symbol on its own carries its words as its name and tooltip, so a
+// top bar can show just the symbol. With showLabel the words sit beside it
+// instead, and the symbol is left out of what a screen reader announces.
+export function SyncIcon({ view, size = 20, showLabel = false }: { view: SyncView; size?: number; showLabel?: boolean }) {
+  const icon = <Icon name={view.icon} size={size} spin={view.spinning} />;
+  if (showLabel) {
+    return (
+      <span className={`sync-status is-${view.status}`} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+        {icon}
+        <span>{view.label}</span>
+      </span>
+    );
+  }
+  return (
+    <span className={`sync-status is-${view.status}`} role="img" aria-label={view.label} title={view.label}>
+      {icon}
+    </span>
   );
 }

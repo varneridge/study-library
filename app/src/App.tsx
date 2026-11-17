@@ -8,7 +8,9 @@ import { SessionPage } from "./components/SessionPage";
 import { Settings } from "./components/Settings";
 import { WeekPage } from "./components/WeekPage";
 import { href, navigate, useRoute, type Route } from "./lib/router";
-import { flush, pull, startSync, stopSync, subscribeSync, type SyncState } from "./lib/sync";
+import { flush, pull, startSync, stopSync, subscribeSync } from "./lib/sync";
+import type { SyncView } from "./lib/syncStatus";
+import { followShellColour, isDesktop } from "./lib/shell";
 import { resumeUploads } from "./lib/uploads";
 import { pumpChunks, recoverRecordings } from "./lib/recorder";
 import { db } from "./lib/db";
@@ -18,7 +20,8 @@ import { Overlays } from "./components/Overlays";
 import { DropAnywhere } from "./components/DropAnywhere";
 import { RecorderPill } from "./components/RecorderPill";
 import { PageLoading } from "./components/ErrorBoundary";
-import { Icon, type IconName } from "./components/icons";
+import { Icon, SyncIcon, useSyncView, type IconName } from "./components/icons";
+import { DesktopTabBar, useDesktopTabs } from "./components/TabBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { retryUpload, onUploadProgress, uploadProgress } from "./lib/uploads";
 import { useAppearanceSync, useAccentSync } from "./lib/appearance";
@@ -62,14 +65,13 @@ export function Link({ to, children, className, current, currentSide, title, lab
   );
 }
 
-// A compact icon in the top bar, in the manner of Word's save indicator: a
-// cloud with a tick once everything is saved, a spinning loop while changes
-// or files are on their way, and a warning sign when something needs your
-// attention. Pressing it opens the details, with the upload list beneath them.
-// The live region inside keeps announcing changes, so a screen reader hears
-// them without opening anything.
+// A compact icon in the top bar, in the manner of Word's save indicator. Its
+// symbol and words come from useSyncView, so the top bar shows exactly what
+// Settings and everywhere else show for the same state. Pressing it opens the
+// details, with the upload list beneath them, and the live region inside
+// announces problems and going offline without anything being opened.
 function SyncStatus() {
-  const [state, setState] = useState<SyncState | null>(null);
+  const view = useSyncView();
   const [open, setOpen] = useState(false);
   const [justSynced, setJustSynced] = useState(false);
   const wasBusy = useRef(false);
@@ -77,7 +79,6 @@ function SyncStatus() {
   const [, tick] = useState(0);
   const uploads = useLiveQuery(() => db.uploads.toArray(), [], []);
   useCloseOnBack(open, () => setOpen(false));
-  useEffect(() => subscribeSync(setState), []);
   useEffect(() => onUploadProgress(() => tick((n) => n + 1)), []);
   useEffect(() => {
     if (!open) return;
@@ -96,78 +97,61 @@ function SyncStatus() {
   }, [open]);
 
   const failedUploads = uploads.filter((u) => u.status === "failed");
-  const activeUploads = uploads.filter((u) => u.status !== "failed");
-  const hasProblem = Boolean((state && !state.online) || state?.expired || state?.error || failedUploads.length > 0);
-  const busy = Boolean(state?.busy || activeUploads.length > 0);
+  // A failed upload is not part of the sync state, so it borrows the set's
+  // warning symbol rather than drawing a symbol of its own.
+  const shown: SyncView = failedUploads.length > 0 && !view.problem
+    ? {
+        ...view, icon: "warning", spinning: false, problem: true,
+        label: failedUploads.length === 1
+          ? "1 upload could not finish, so open this to retry it."
+          : `${failedUploads.length} uploads could not finish, so open this to retry them.`,
+      }
+    : view;
+  const busy = !shown.problem && (shown.status === "syncing" || shown.status === "pending");
 
   // The tick shows for a moment after work finishes, so a save is confirmed
   // rather than passing unseen, and is withdrawn at once if a problem appears.
   useEffect(() => {
-    if (busy || hasProblem) setJustSynced(false);
+    if (busy || shown.problem) setJustSynced(false);
     else if (wasBusy.current) setJustSynced(true);
     wasBusy.current = busy;
-  }, [busy, hasProblem]);
+  }, [busy, shown.problem]);
   useEffect(() => {
     if (!justSynced) return;
     const timer = window.setTimeout(() => setJustSynced(false), 1800);
     return () => window.clearTimeout(timer);
   }, [justSynced]);
 
-  let short: string;
-  let liveText: string;
-  if (state && !state.online) {
-    short = "Offline";
-    liveText = uploads.length ? `Offline, ${uploads.length} to upload` : "Offline";
-  } else if (state?.expired) {
-    short = liveText = "Session expired";
-  } else if (state?.error) {
-    short = liveText = "Sync problem";
-  } else if (activeUploads.length > 0) {
-    short = "Uploading";
-    liveText = `Uploading ${activeUploads.length}`;
-  } else if (failedUploads.length > 0) {
-    short = "Upload failed";
-    liveText = failedUploads.length === 1 ? "1 upload failed" : `${failedUploads.length} uploads failed`;
-  } else {
-    // Routine background syncs are shown by the icon but not announced, so a
-    // screen reader is not interrupted every time the app checks for changes.
-    short = busy ? "Syncing" : "Saved";
-    liveText = "";
-  }
-  const label = `Sync status: ${short}`;
+  // Routine syncs change the symbol but are not announced, so a screen reader
+  // is not interrupted every time the app checks for changes.
+  const announcement = shown.problem || shown.status === "offline" ? shown.label : "";
 
-  let message: React.ReactNode;
-  if (state && !state.online) message = "Offline. Changes are saved on this device and will sync when you reconnect.";
-  else if (state?.expired) message = "Session expired. Reload to sign in again.";
-  else if (state?.error) {
-    message = (
-      <>
-        {state.error}{" "}
-        <button type="button" className="button small" onClick={() => void flush().then(() => pull()).catch(() => undefined)}>Try again</button>
-      </>
-    );
-  }
-  else if (activeUploads.length > 0) message = "Uploading files...";
-  else if (failedUploads.length > 0) message = "Some uploads could not finish.";
-  else if (busy) message = "Syncing your changes...";
-  else message = "Saved and up to date.";
-
+  // The symbol spins by itself, so the button carries no busy class that
+  // would spin it a second time.
   return (
     <span className="sync menu" ref={ref}>
       <button
         type="button"
-        className={`topbar-btn sync-indicator${hasProblem ? " problem" : busy ? " busy" : justSynced ? " done" : ""}`}
-        aria-label={label}
-        title={label}
+        className={`topbar-btn sync-indicator${shown.problem ? " problem" : justSynced ? " done" : ""}`}
+        aria-label={shown.label}
+        title={shown.label}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <Icon name={hasProblem ? "warning" : busy ? "syncSpin" : "syncDone"} size={18} />
-        <span className="sr-only" aria-live="polite">{liveText}</span>
+        <SyncIcon view={shown} size={18} />
+        <span className="sr-only" aria-live="polite">{announcement}</span>
       </button>
       {open && (
         <div className="menu-panel sync-panel" role="dialog" aria-label="Sync status">
-          <p className="sync-message" style={{ margin: 0 }}>{message}</p>
+          <p className="sync-message" style={{ margin: 0 }}>
+            {shown.label}
+            {shown.status === "error" && (
+              <>
+                {" "}
+                <button type="button" className="button small" onClick={() => void flush().then(() => pull()).catch(() => undefined)}>Try again</button>
+              </>
+            )}
+          </p>
           {uploads.length > 0 && (
             <>
               {uploads.map((u) => {
@@ -466,8 +450,25 @@ function Page({ route }: { route: Route }) {
   }
 }
 
+// One page with its loading and error boundaries. The Suspense boundary stays
+// mounted, so a page change waits on the old page rather than a blank one.
+function PageSlot({ route }: { route: Route }) {
+  return (
+    <Suspense fallback={<PageLoading label="Opening the page" wide />}>
+      <ErrorBoundary key={pageKey(route)} label={failureLabels[route.view]}>
+        <Page route={route} />
+      </ErrorBoundary>
+    </Suspense>
+  );
+}
+
 export function App() {
-  const route = useRoute();
+  const current = useRoute();
+  const desktop = isDesktop();
+  const tabs = useDesktopTabs(current, desktop);
+  // The page in front: the active tab's in the desktop window, and otherwise the router's own.
+  const route = desktop ? tabs.activeRoute : current;
+  const bare = route.view === "reader" || route.view === "essay";
   useTypingClass();
   useAppearanceSync();
   useAccentSync();
@@ -484,6 +485,22 @@ export function App() {
       navigate({ view: "settings" });
     }
   }, []);
+
+  // The desktop window paints its title bar and tab strip in the page's own
+  // background, and lets a reading or an essay fill the space beneath the strip.
+  useEffect(() => {
+    if (!desktop) return;
+    const root = document.documentElement;
+    root.classList.add("sl-desktop");
+    const stop = followShellColour();
+    return () => {
+      stop();
+      root.classList.remove("sl-desktop", "sl-bare");
+    };
+  }, [desktop]);
+  useEffect(() => {
+    if (desktop) document.documentElement.classList.toggle("sl-bare", bare);
+  }, [desktop, bare]);
 
   useEffect(() => {
     // "/" goes to search from anywhere outside a text field.
@@ -517,35 +534,41 @@ export function App() {
     };
   }, []);
 
-  // Keep --topbar-h in sync with the top bar's actual height (including when wrapped).
+  // Keep --topbar-h in sync with the top bar's actual height (including when
+  // wrapped), counting the desktop tab strip above it, since both stay in view.
   useLayoutEffect(() => {
     const bar = document.querySelector<HTMLElement>(".topbar");
     if (!bar) return;
+    const strip = document.querySelector<HTMLElement>(".sl-tabs");
     const update = () => {
-      document.documentElement.style.setProperty("--topbar-h", `${bar.offsetHeight}px`);
+      document.documentElement.style.setProperty("--topbar-h", `${bar.offsetHeight + (strip?.offsetHeight ?? 0)}px`);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(bar);
+    if (strip) ro.observe(strip);
     return () => ro.disconnect();
   }, [route.view]);
 
-  const bare = route.view === "reader" || route.view === "essay";
   // Every child keeps its place whatever the view, so a change of page never
-  // remounts the top bar, the overlays or the recorder.
+  // remounts the top bar, the overlays or the recorder. In the desktop window
+  // each tab keeps its own page, hidden rather than unmounted while another
+  // is in front, so that it comes back exactly as it was left.
   return (
     <>
       {!bare && <a className="skip" href="#main">Skip to content</a>}
+      {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
       {!bare && <TopBar route={route} />}
       {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}
       <main id="main" tabIndex={bare ? undefined : -1}>
-        {/* This boundary stays mounted, so a page change waits on the old page rather than a blank one. */}
-        <Suspense fallback={<PageLoading label="Opening the page" wide />}>
-          <ErrorBoundary key={pageKey(route)} label={failureLabels[route.view]}>
-            <Page route={route} />
-          </ErrorBoundary>
-        </Suspense>
+        {desktop
+          ? tabs.panes.map((pane) => (
+              <div key={pane.id} ref={tabs.paneRef(pane.id)} className="sl-pane" style={pane.active ? undefined : { display: "none" }}>
+                <PageSlot route={pane.route} />
+              </div>
+            ))
+          : <PageSlot route={route} />}
       </main>
       {!bare && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />

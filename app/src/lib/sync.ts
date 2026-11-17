@@ -4,6 +4,7 @@
 // transaction. The outbox is pushed to the Worker, which keeps the newest
 // version of each row. Pulling asks for every row written since a cursor.
 
+import { liveQuery } from "dexie";
 import { db, getMeta, setMeta } from "./db";
 import { SYNCED_TABLES, type TableName, type Tables } from "./types";
 
@@ -117,11 +118,26 @@ export async function remove(table: TableName, id: string): Promise<void> {
 }
 
 // State shown in the interface
+//
+// busy means a push is under way and pulling means a pull is, while pending
+// counts the edits and uploads on this device that have not reached the
+// server yet. syncStatus in ./syncStatus turns these into the one symbol shown.
 
-export type SyncState = { online: boolean; busy: boolean; error: string | null; expired: boolean };
+export type SyncState = {
+  online: boolean;
+  busy: boolean;
+  pulling: boolean;
+  paused: boolean;
+  pending: number;
+  error: string | null;
+  expired: boolean;
+};
 let state: SyncState = {
   online: typeof navigator === "undefined" ? true : navigator.onLine,
   busy: false,
+  pulling: false,
+  paused: false,
+  pending: 0,
   error: null,
   expired: false,
 };
@@ -136,6 +152,12 @@ export function subscribeSync(listener: (s: SyncState) => void): () => void {
   listeners.add(listener);
   listener(state);
   return () => listeners.delete(listener);
+}
+
+// The state as it stands now, so a component can draw the right symbol on its
+// first render rather than waiting for its subscription.
+export function currentSyncState(): SyncState {
+  return state;
 }
 
 export function isSyncExpired(): boolean {
@@ -289,6 +311,7 @@ export async function pull(options: { join?: boolean } = {}): Promise<boolean> {
     return currentPull;
   }
   pulling = true;
+  setState({ pulling: true });
   currentPull = (async () => {
     let ok = false;
     try {
@@ -312,6 +335,7 @@ export async function pull(options: { join?: boolean } = {}): Promise<boolean> {
     } finally {
       pulling = false;
       currentPull = null;
+      setState({ pulling: false });
       if (pullAgain && !paused) {
         pullAgain = false;
         schedulePull();
@@ -325,6 +349,7 @@ export async function pull(options: { join?: boolean } = {}): Promise<boolean> {
 // Lifecycle
 
 let poll: ReturnType<typeof setInterval> | null = null;
+let pendingWatch: { unsubscribe(): void } | null = null;
 
 function onOnline() {
   setState({ online: true });
@@ -340,6 +365,16 @@ function onVisible() {
   }
 }
 
+// Counts what is still waiting to reach the server. Uploads are queued by
+// ./uploads rather than here, so the count follows both tables directly.
+function watchPending() {
+  pendingWatch?.unsubscribe();
+  pendingWatch = liveQuery(async () => (await db.outbox.count()) + (await db.uploads.count())).subscribe({
+    next: (pending) => setState({ pending }),
+    error: () => undefined,
+  });
+}
+
 export function startSync(): void {
   if (paused) return;
   stopSync();
@@ -353,6 +388,7 @@ export function startSync(): void {
         void pull();
       }
     }, POLL_MS);
+    watchPending();
   }
   // Once the first pull is in, older data is tidied a single time: slides
   // are named, and weeks are cleared of the empty sessions made for them.
@@ -377,12 +413,15 @@ export function stopSync(): void {
   flushTimer = null;
   if (pullTimer) clearTimeout(pullTimer);
   pullTimer = null;
+  pendingWatch?.unsubscribe();
+  pendingWatch = null;
   flushAgain = false;
   pullAgain = false;
 }
 
 export async function pauseSync(): Promise<void> {
   paused = true;
+  setState({ paused: true });
   stopSync();
   const start = Date.now();
   try {
@@ -394,6 +433,7 @@ export async function pauseSync(): Promise<void> {
     }
   } catch (error) {
     paused = false;
+    setState({ paused: false });
     startSync();
     throw error;
   }
@@ -401,6 +441,7 @@ export async function pauseSync(): Promise<void> {
 
 export function resumeSync(): void {
   paused = false;
+  setState({ paused: false });
   startSync();
 }
 

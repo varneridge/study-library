@@ -14,7 +14,12 @@ import { ago, processorQuiet, useProcessorStatus } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { DatePicker } from "./DatePicker";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
-import { availableUpdate, currentVersion, updateHref, type Release } from "../lib/update";
+import { availableUpdate, currentVersion, RELEASES_PAGE, updateHref, type Release } from "../lib/update";
+import { SyncIcon, useSyncView } from "./icons";
+
+// The desktop app adds this to its WebView2 user agent, which the launcher sets
+// before the window opens, so the page knows at once that it is inside the app.
+const DESKTOP_UA_TOKEN = "SLDesktop/";
 
 const APPEARANCES: { value: Appearance; label: string }[] = [
   { value: "light", label: "Light" },
@@ -172,9 +177,44 @@ function ProcessorState() {
         <button className="button" onClick={() => void cropCovers()}>Redraw reading covers</button>
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
+      <DesktopDownload />
       <ConnectComputer />
       <UpdateSettings />
     </>
+  );
+}
+
+// Inside the desktop app this would only offer what is already installed, so
+// it shows nowhere but a browser.
+function DesktopDownload() {
+  const agent = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  if (agent.includes(DESKTOP_UA_TOKEN)) return null;
+  const windows = /Windows/.test(agent);
+  return (
+    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
+      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Desktop app</h3>
+      <p className="small muted">
+        The Windows desktop app opens Study Library in a window of its own and lets that computer act as the background processor.
+      </p>
+      <a href={RELEASES_PAGE} className="button" target="_blank" rel="noopener noreferrer" style={{ marginTop: "0.5rem", textDecoration: "none" }}>
+        Download desktop app
+      </a>
+      {!windows && (
+        <p className="small muted" style={{ marginTop: "0.5rem" }}>
+          The desktop app runs only on Windows, so from this device the download page is useful for saving the installer to a Windows computer.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Where sync stands on this device, in the same symbol and words as the top bar.
+function SyncLine() {
+  const view = useSyncView();
+  return (
+    <p className={view.problem ? "small problem" : "small muted"} style={{ marginTop: "0.5rem" }}>
+      <SyncIcon view={view} size={16} showLabel />
+    </p>
   );
 }
 
@@ -588,6 +628,7 @@ export function Settings() {
 
           <section id="section-device" className="settings-section settings-card">
             <h2>On this device</h2>
+            <SyncLine />
             <label className="choices" style={{ marginTop: "0.75rem" }}>
               <input
                 type="checkbox"

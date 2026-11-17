@@ -1,10 +1,18 @@
 """Windows entry point for Study Library.
 
 PyInstaller compiles this file into StudyLibrary.exe. It prepares the runtime
-environment (bundled tools, per-user .env, model paths), makes sure that only
-one copy runs at a time, registers the studylibrary:// link handler for the
-current user, and then hands control to the application entry point, which
-defaults to study.desktop:main and can be overridden with STUDY_ENTRY.
+environment (bundled tools, per-user .env, model paths, WebView2 settings),
+makes sure that only one copy runs at a time, registers the studylibrary://
+link handler for the current user, and then hands control to the application
+entry point, which defaults to study.desktop:main and can be overridden with
+STUDY_ENTRY.
+
+The window itself is created by the entry module, so the launcher shapes it
+from outside: WebView2 reads its background colour and extra browser arguments
+from the environment, which is how the page is painted in the app's own colour
+before it loads and how "SLDesktop/1" reaches the user agent, and a background
+thread recolours the native title bar of every window this process shows, so
+that no dark strip sits above a light page.
 
 ``StudyLibrary.exe --self-test <report.json>`` performs every preparation step,
 runs each bundled tool once, imports the entry module without calling it, looks
@@ -32,6 +40,7 @@ import runpy
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,6 +56,24 @@ TOOL_TIMEOUT_S = 30
 # These must stay identical to desktop.CONNECT_KEYS and desktop.CONNECT_SCHEME.
 CONNECT_KEYS = ("PROCESSOR_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET")
 PROTOCOL = "studylibrary"
+# The web app looks for this in navigator.userAgent to know it is inside the desktop app.
+DESKTOP_UA_TOKEN = "SLDesktop/1"
+WEBVIEW_ARGS_ENV = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
+WEBVIEW_BACKGROUND_ENV = "WEBVIEW2_DEFAULT_BACKGROUND_COLOR"
+# The Evergreen WebView2 Runtime's client id, under which EdgeUpdate records its version.
+WEBVIEW_CLIENT = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+# The page background and text in each theme, which must stay identical to --bg
+# and --ink in app/src/styles.css so that the title bar reads as part of the page.
+CAPTION_LIGHT = "#f6f5f3"
+CAPTION_DARK = "#1c1917"
+CAPTION_TEXT_LIGHT = "#1c1917"
+CAPTION_TEXT_DARK = "#f6f5f3"
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
+GW_OWNER = 4
+# A process that shows no window within this time is a headless child, so it stops looking.
+CAPTION_WATCH_S = 120
 log = logging.getLogger("studylibrary.launcher")
 
 
@@ -76,8 +103,169 @@ def prepare(env: MutableMapping[str, str]) -> Prepared:
     tools = rt.apply_environment(specs, rt.vendor_dir(env), home, env)
     assets = slassets.asset_specs(manifest)
     slassets.export_asset_env(assets, paths["models"], env)
+    prepare_webview(env)
     required = rt.required_keys(template.read_text(encoding="utf-8-sig")) if template.is_file() else []
     return Prepared(home, paths, specs, tools, assets, env_file, seeded, rt.missing_keys(required, env))
+
+
+def caption_colour(dark: bool) -> str:
+    return CAPTION_DARK if dark else CAPTION_LIGHT
+
+
+def colorref(colour: str) -> int:
+    """A #rrggbb colour as the 0x00bbggrr COLORREF that DWM expects."""
+    value = colour.lstrip("#")
+    red, green, blue = (int(value[i : i + 2], 16) for i in (0, 2, 4))
+    return red | (green << 8) | (blue << 16)
+
+
+def background_argb(colour: str) -> str:
+    """WebView2 reads its default background as ARGB hex, and a value shorter
+    than eight digits counts as transparent, so the opaque alpha is spelt out."""
+    return "FF" + colour.lstrip("#").upper()
+
+
+def desktop_user_agent(runtime_version: str) -> Optional[str]:
+    """The user agent that this WebView2 runtime sends by default, in the reduced
+    form Chromium uses where only the major version is real, with the desktop
+    token appended. Chromium can only replace a user agent rather than extend it,
+    so the default has to be rebuilt from the runtime's version."""
+    major = runtime_version.split(".", 1)[0]
+    if not major.isdigit() or major == "0":
+        return None
+    version = f"{major}.0.0.0"
+    return (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/{version} Safari/537.36 Edg/{version} {DESKTOP_UA_TOKEN}"
+    )
+
+
+def with_user_agent(arguments: str, agent: str) -> str:
+    """Adds the user agent to any browser arguments already set, leaving a user
+    agent that someone chose deliberately in place, so that a relaunched child
+    never adds a second one."""
+    if "--user-agent" in arguments:
+        return arguments
+    return f'{arguments} --user-agent="{agent}"'.strip()
+
+
+def _webview_version() -> Optional[str]:
+    """The installed WebView2 runtime's version, from wherever EdgeUpdate
+    recorded it for a machine-wide or a per-user installation."""
+    import winreg
+
+    key_path = rf"Microsoft\EdgeUpdate\Clients\{WEBVIEW_CLIENT}"
+    places = (
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{key_path}"),
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{key_path}"),
+        (winreg.HKEY_CURRENT_USER, rf"Software\{key_path}"),
+    )
+    for root, path in places:
+        try:
+            with winreg.OpenKey(root, path) as key:
+                value, _kind = winreg.QueryValueEx(key, "pv")
+        except OSError:
+            continue
+        if isinstance(value, str) and value and value != "0.0.0.0":
+            return value
+    return None
+
+
+def windows_dark_mode() -> bool:
+    """Whether Windows is set to dark mode for apps, which the title bar follows
+    until the page can tell the shell which of its own themes is showing."""
+    if os.name != "nt":
+        return False
+    import winreg
+
+    try:
+        path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+            value, _kind = winreg.QueryValueEx(key, "AppsUseLightTheme")
+    except OSError:
+        return False
+    return value == 0
+
+
+def prepare_webview(env: MutableMapping[str, str]) -> None:
+    """Sets what every WebView2 started by this process or its children reads
+    from the environment. Calling it again is harmless, since a child inherits
+    the values its parent set and keeps them."""
+    if os.name != "nt":
+        return
+    env.setdefault(WEBVIEW_BACKGROUND_ENV, background_argb(caption_colour(windows_dark_mode())))
+    version = _webview_version()
+    agent = desktop_user_agent(version) if version else None
+    if agent:
+        env[WEBVIEW_ARGS_ENV] = with_user_agent(env.get(WEBVIEW_ARGS_ENV, ""), agent)
+    else:
+        log.warning("the WebView2 runtime version could not be read, so %s is not in the user agent", DESKTOP_UA_TOKEN)
+
+
+def apply_caption(hwnd: int, dark: bool) -> bool:
+    """Colours one window's title bar to match the page. Windows 10 has no
+    caption colour, so there only the dark mode flag takes effect."""
+    import ctypes
+    from ctypes import wintypes
+
+    dwm = ctypes.windll.dwmapi
+
+    def set_attribute(attribute: int, value: int) -> bool:
+        data = wintypes.DWORD(value)
+        return dwm.DwmSetWindowAttribute(wintypes.HWND(hwnd), attribute, ctypes.byref(data), ctypes.sizeof(data)) == 0
+
+    set_attribute(DWMWA_USE_IMMERSIVE_DARK_MODE, int(dark))
+    coloured = set_attribute(DWMWA_CAPTION_COLOR, colorref(caption_colour(dark)))
+    set_attribute(DWMWA_TEXT_COLOR, colorref(CAPTION_TEXT_DARK if dark else CAPTION_TEXT_LIGHT))
+    return coloured
+
+
+def _own_windows() -> List[int]:
+    """The visible top-level windows that belong to this process."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.GetWindow.restype = wintypes.HWND
+    pid = os.getpid()
+    found: List[int] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd: Optional[int], _param: int) -> bool:
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if hwnd and owner.value == pid and user32.IsWindowVisible(hwnd) and not user32.GetWindow(hwnd, GW_OWNER):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(visit, 0)
+    return found
+
+
+def _start_caption_watch() -> None:
+    """Recolours each window's title bar as it appears, and again whenever
+    Windows switches between light and dark mode."""
+    if os.name != "nt":
+        return
+
+    def work() -> None:
+        styled: Dict[int, bool] = {}
+        started = time.monotonic()
+        try:
+            while styled or time.monotonic() - started < CAPTION_WATCH_S:
+                dark = windows_dark_mode()
+                present = _own_windows()
+                for hwnd in present:
+                    if styled.get(hwnd) != dark:
+                        apply_caption(hwnd, dark)
+                        styled[hwnd] = dark
+                styled = {hwnd: styled[hwnd] for hwnd in present}
+                time.sleep(1.0 if styled else 0.25)
+        except Exception:
+            log.warning("the title bar could not be recoloured", exc_info=True)
+
+    # Daemon is safe: a title bar left uncoloured costs nothing when the app exits.
+    threading.Thread(target=work, name="caption-colour", daemon=True).start()
 
 
 def protocol_command(exe: str) -> str:
@@ -162,6 +350,7 @@ def self_test(report_path: Path, env: MutableMapping[str, str], execute_tools: b
     try:
         prep = prepare(env)
         report.update(home=str(prep.home), env_file=str(prep.env_file), missing_keys=prep.missing_keys)
+        report["webview"] = {"arguments": env.get(WEBVIEW_ARGS_ENV, ""), "background": env.get(WEBVIEW_BACKGROUND_ENV, "")}
         report["tools"] = {}
         for spec in prep.specs:
             status = prep.tools[spec.name]
@@ -248,6 +437,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     rt.redirect_std_streams(paths["logs"])
     if len(argv) >= 2 and argv[0] == "-m":
         prepare(env)
+        _start_caption_watch()
         return run_module(argv[1], argv[2:])
     parser = argparse.ArgumentParser(prog="StudyLibrary", add_help=False)
     parser.add_argument("--self-test", metavar="REPORT_JSON")
@@ -263,6 +453,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rt.clear_instance_info(home)  # anything written from now on belongs to this process
         prep = prepare(env)
         log.info("tools: %s", {n: (s.source, s.path) for n, s in prep.tools.items()})
+        _start_caption_watch()
         _register_link_handler()
         manual = manual_keys(prep.missing_keys)
         if manual:

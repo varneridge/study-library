@@ -2,7 +2,9 @@
 
 From the Start menu or desktop shortcut:  pythonw -m study.desktop
   starts the processor and the Listen speech server if they are not already
-  running, then opens Study Library in its own Edge window.
+  running, then opens Study Library in its own Edge window, at an address
+  marked ?sl=desktop so that the app shows its tabs and paints the window's
+  title bar in its own background.
 From the Startup folder, at sign-in:      pythonw -m study.desktop --headless
   the same with no window; this process stays on as their supervisor.
 --app-only opens the window only. --once works through the queue in the
@@ -72,6 +74,12 @@ CONNECT_KEYS = ("PROCESSOR_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET
 CONNECT_HINT = "connect=processor"
 CONNECT_VERSION = "1"
 CONNECT_TIMEOUT_SECONDS = 15
+# Marks the address the desktop window opens, so that the app knows before its
+# first render that it has a window of its own. A user agent cannot carry the
+# mark here: Edge hands a second launch's switches to the Edge already running,
+# which ignores --user-agent, and when the switch did apply it would change the
+# user agent of every Edge tab, not this window's alone.
+SHELL_HINT = "sl=desktop"
 
 
 def default_home() -> Path:
@@ -303,13 +311,24 @@ def connect(home: Path, link: str, ping: Callable[[str, Mapping[str, str]], Any]
     return path
 
 
+def _with_query(url: str, part: str) -> str:
+    """The address with part added to its query, ahead of any fragment."""
+    base, hash_, fragment = url.partition("#")
+    return f"{base}{'&' if '?' in base else '?'}{part}{hash_}{fragment}"
+
+
 def window_url(url: str, env: Mapping[str, str]) -> str:
     """The address to open, with the hint that makes the app offer to connect
     this computer for as long as any of the three settings is missing."""
     if all(env.get(key) for key in CONNECT_KEYS):
         return url
-    base, hash_, fragment = url.partition("#")
-    return f"{base}{'&' if '?' in base else '?'}{CONNECT_HINT}{hash_}{fragment}"
+    return _with_query(url, CONNECT_HINT)
+
+
+def desktop_url(url: str) -> str:
+    """The address for the desktop window, marked so that the app shows its
+    tabs and keeps the window's title bar the colour of its own background."""
+    return _with_query(url, SHELL_HINT)
 
 
 def _notify(text: str, error: bool = False) -> None:
@@ -533,7 +552,9 @@ def _edge() -> str | None:
 def open_window(url: str) -> None:
     """Study Library in its own Edge window, in the Edge profile that already
     holds its Access sign-in, offline copy and service worker. Without Edge,
-    the default browser."""
+    the default browser. Edge draws this window's title bar itself, in the
+    page's theme colour rather than through DWM, so DWMWA_CAPTION_COLOR has
+    nothing to recolour, and the app sets that theme colour instead."""
     edge = _edge() if WINDOWS else None
     if edge:
         subprocess.Popen([edge, f"--app={url}"], creationflags=DETACHED_PROCESS)
@@ -710,7 +731,7 @@ def main(argv: list[str] | None = None) -> int:
     if not url:
         log.error("STUDY_URL is not set in %s or %s", *env_files(home))
         return 1
-    open_window(window_url(url, env))
+    open_window(desktop_url(window_url(url, env)))
     return 0
 
 
