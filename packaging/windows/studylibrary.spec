@@ -61,8 +61,11 @@ for module in REQUIRED_MODULES:
     if not found:
         raise SystemExit(f"[studylibrary.spec] {module} cannot be imported from {BACKEND}, so the build would be broken")
     hiddenimports.append(module)
+FRAMELESS_PACKAGES = {"webview", "pythonnet", "clr_loader"}
 for package in PACKAGES_TO_COLLECT:
     if importlib.util.find_spec(package) is None:
+        if sys.platform == "win32" and package in FRAMELESS_PACKAGES:
+            raise SystemExit(f"[studylibrary.spec] {package} is required for the frameless Windows app")
         print(f"[studylibrary.spec] {package} not installed, skipping")
         continue
     d, b, h = collect_all(package)

@@ -114,7 +114,10 @@ const PYWEBVIEW_WAIT_MS = 3000;
 // the page first loads, or null outside the frameless window or when they
 // never arrive.
 export function windowControls(): Promise<WindowControlsApi | null> {
-  const ready = () => (SHELL.frameless ? window.pywebview?.api ?? null : null);
+  const ready = () => {
+    const api = SHELL.frameless ? window.pywebview?.api : undefined;
+    return api && typeof api.minimize === "function" ? api : null;
+  };
   if (!SHELL.frameless || ready()) return Promise.resolve(ready());
   return new Promise((resolve) => {
     let timer = 0;

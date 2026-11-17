@@ -925,12 +925,13 @@ class WindowApi:
 
     def toggle_maximize(self) -> bool:
         """Maximises the window or restores it, and returns whether it is now maximised."""
-        if self._maximised:
-            self._window.restore()
-        else:
+        target = not self._maximised
+        self._maximised = target
+        if target:
             self._window.maximize()
-        self._maximised = not self._maximised
-        return self._maximised
+        else:
+            self._window.restore()
+        return target
 
     def is_maximized(self) -> bool:
         return self._maximised
@@ -980,12 +981,13 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR) -> bool
         api._bind(window)  # noqa: SLF001 - kept private so the page cannot see it
         window.events.shown += shown.set
         window.events.loaded += SignInHandoff(window, url).on_loaded
+        log.info("opening the frameless window through pywebview %s", getattr(webview, "__version__", "unknown"))
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(Path(home) / "webview"),
                       user_agent=webview_user_agent(os.environ))
     except Exception:  # noqa: BLE001 - any failure before the window shows falls back to Edge
         log.exception("the frameless window could not run")
         return shown.is_set()
-    return True
+    return shown.is_set()
 
 
 def _spawn_supervisor(home: Path, handover: bool) -> None:
