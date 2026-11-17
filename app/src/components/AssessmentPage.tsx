@@ -7,7 +7,7 @@
 // materials & assessments, opened like a week.
 
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DndContext, DragOverlay, useDraggable, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
 import { navigate } from "../lib/router";
@@ -29,7 +29,7 @@ import {
 import { shortDate } from "../lib/dates";
 import { db } from "../lib/db";
 import { countDocxWords, type DocxDocument, type DocxFootnote, type DocxBlock, type DocxRun } from "../lib/docx";
-import { HANDLE_STYLE, listCollision, swallowClickAfterDrag, useDragSensors } from "../lib/drag";
+import { listCollision, swallowClickAfterDrag, useDragSensors } from "../lib/drag";
 import {
   effectiveWordCount,
   findCitationContext,
@@ -55,7 +55,6 @@ import { Menu } from "./Menu";
 import { PageZoomViewport } from "./PageZoomViewport";
 import { Sheet } from "./Sheet";
 import "./AssessmentPage.css";
-import "./EssayWorkspace.css";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
@@ -85,9 +84,6 @@ const hasDocxBytes = (assessment: object): boolean => {
   const stored = (assessment as { docx?: { byteLength: number } | null }).docx;
   return Boolean(stored && stored.byteLength > 4);
 };
-
-const fileSize = (bytes: number): string =>
-  bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -534,7 +530,7 @@ function EssayDocumentSheet({ doc, jump }: { doc: DocxDocument; jump?: JumpTarge
         <article className="essay-preview-page">
           <div className="essay-sheet-empty">
             <p><strong>Nothing written yet.</strong></p>
-            <p className="small muted">Use Open in word processor to start writing, or import a Word document.</p>
+            <p className="small muted">Use Edit in Word to start writing, or import a Word document.</p>
           </div>
         </article>
       </div>
@@ -649,72 +645,6 @@ function DropZone({ list, id, className, children }: { list: string; id?: string
   );
 }
 
-// A source in the rail. A mouse picks it up from anywhere outside its controls and a finger
-// from its "#" handle, by the rules in drag.ts, and the "+ Cite" button is the way to cite
-// it from the keyboard.
-function SourceRow({
-  item,
-  cited,
-  onCite,
-  onRemove,
-}: {
-  item: ResearchItem;
-  cited: boolean;
-  onCite: () => void;
-  onRemove: () => void;
-}) {
-  const { listeners, setNodeRef, isDragging } = useDraggable({ id: `source:${item.id}`, data: { sourceId: item.id } });
-  const url = item.customSource ? safeExternalUrl(item.customSource.url) : null;
-
-  return (
-    <li ref={setNodeRef} className={`essay-ws-source${isDragging ? " is-dragging" : ""}`} {...listeners}>
-      <button
-        type="button"
-        className="essay-ws-handle"
-        data-drag-handle="true"
-        style={HANDLE_STYLE}
-        title="Drag into References"
-        aria-label={`Drag ${item.title} into References`}
-        onTouchStart={(event) => event.stopPropagation()}
-      >
-        #
-      </button>
-      <div className="essay-ws-source-body">
-        {item.moduleItem ? (
-          <Link to={{ view: "reader", id: item.id }} title={item.title}>
-            {item.title}
-          </Link>
-        ) : item.customSource ? (
-          <span className="essay-ws-source-title">{formatCustomBibliography(item.customSource)}</span>
-        ) : null}
-        <span className="essay-ws-source-meta">
-          <span className="badge small">{item.isModule ? "Module" : "External"}</span>
-          {cited && <span className="badge small essay-ws-cited">Cited</span>}
-          {url && (
-            <a href={url} target="_blank" rel="noreferrer" className="small muted">
-              Link &rarr;
-            </a>
-          )}
-        </span>
-      </div>
-      {!cited && (
-        <button type="button" className="button quiet small" onClick={onCite}>
-          + Cite
-        </button>
-      )}
-      <Menu
-        label={`Actions for ${item.title}`}
-        items={[
-          ...(!cited ? [{ label: "Add footnote citing it", onSelect: onCite }] : []),
-          item.isModule
-            ? { label: "Remove from essay", onSelect: onRemove }
-            : { label: "Remove source", danger: true, onSelect: onRemove },
-        ]}
-      />
-    </li>
-  );
-}
-
 // One reference, edited directly as free text. It saves when the typing pauses and on blur,
 // Escape puts back what it said when focus arrived (saving that again if a pause had already
 // saved the edit), and an emptied reference returns to its saved text rather than vanishing.
@@ -738,7 +668,6 @@ function ReferenceRow({
   onDelete: (footnoteId: string) => void;
 }) {
   const [value, setValue] = useState(text);
-  const [showContext, setShowContext] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // Refs as well as state, because blur and the timer must see the newest text, not the
   // text of the render that created them.
@@ -784,10 +713,16 @@ function ReferenceRow({
     if (area.scrollHeight) area.style.height = `${area.scrollHeight}px`;
   }, [value]);
 
-  const context = useMemo(
-    () => (showContext ? findCitationContext(doc, footnoteId) : null),
-    [showContext, doc, footnoteId],
-  );
+  // The menu shows where a reference is cited by bringing the preview to its sentence, which
+  // keeps the row to its number and text alone instead of opening a panel beneath it.
+  const showCitation = () => {
+    const context = findCitationContext(doc, footnoteId);
+    if (!context) {
+      showToast("This reference is not cited in the essay yet, so there is no place in the draft to show.");
+      return;
+    }
+    onJump({ blockId: context.blockId, footnoteId, sentence: context.sentence });
+  };
 
   return (
     <li className="essay-ws-ref">
@@ -826,48 +761,20 @@ function ReferenceRow({
             }
           }}
         />
-        <div className="essay-ws-ref-tools">
-          <button
-            type="button"
-            className="button quiet small"
-            aria-expanded={showContext}
-            onClick={() => setShowContext((current) => !current)}
-          >
-            Cited where?
-          </button>
-          {readingId && (
-            <Link to={{ view: "reader", id: readingId }} className="small muted">
-              Open reading &rarr;
-            </Link>
-          )}
-          {/* A reference is deleted from the main screen as well, together with its marker in the text. */}
-          <button
-            type="button"
-            className="button quiet small essay-ws-ref-delete"
-            aria-label={`Delete footnote ${number}`}
-            title="Delete this reference and its marker in the text"
-            onClick={() => onDelete(footnoteId)}
-          >
-            Delete
-          </button>
-        </div>
-        {showContext && (
-          <div className="essay-ws-ref-context" role="status">
-            {context ? (
-              <button
-                type="button"
-                className="essay-ws-ref-sentence"
-                title="Show this sentence in the preview"
-                onClick={() => onJump({ blockId: context.blockId, footnoteId, sentence: context.sentence })}
-              >
-                {context.sentence ? `\u201c${context.sentence}\u201d` : "The note opens its paragraph."}
-              </button>
-            ) : (
-              <p className="small muted">Not cited in the essay yet.</p>
-            )}
-          </div>
-        )}
       </div>
+      {/* Every action of a reference lives in one quiet menu, which comes forward when the row
+          is pointed at or holds focus, so that a long list of notes stays as calm as the
+          sources beside it and never widens the column. */}
+      <span className="essay-ws-ref-tools">
+        <Menu
+          label={`Actions for footnote ${number}`}
+          items={[
+            { label: "Show where it is cited", onSelect: showCitation },
+            ...(readingId ? [{ label: "Open reading", onSelect: () => navigate({ view: "reader", id: readingId }) }] : []),
+            { label: "Delete reference", danger: true, onSelect: () => onDelete(footnoteId) },
+          ]}
+        />
+      </span>
     </li>
   );
 }
@@ -1037,16 +944,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     if (centreView !== "preview") setFullscreen(false);
   }, [centreView]);
 
-  const [choosing, setChoosing] = useState(false);
   const [editingTarget, setEditingTarget] = useState(false);
-  const [addingCustom, setAddingCustom] = useState(false);
-  const [newSourceKind, setNewSourceKind] = useState<"primary" | "secondary">("secondary");
-  const [newSourceAuthor, setNewSourceAuthor] = useState("");
-  const [newSourceTitle, setNewSourceTitle] = useState("");
-  const [newSourceYear, setNewSourceYear] = useState("");
-  const [newSourcePublisher, setNewSourcePublisher] = useState("");
-  const [newSourceUrl, setNewSourceUrl] = useState("");
-  const [newSourceNotes, setNewSourceNotes] = useState("");
 
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [snapshotName, setSnapshotName] = useState("");
@@ -1099,15 +997,19 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     importer.current?.click();
   };
 
-  // Fit sizes the page to the width the preview has, measured from a page already drawn so
-  // that the Word sheet and a stored PDF both fit, with A4 as the guess before either shows.
+  // Fit sizes the page to the fixed frame rather than to the preview around it, because the
+  // frame keeps one size whatever the zoom and its client width already leaves out the scroll
+  // bar, so that a fitted page never runs under it. A page already drawn is measured so that
+  // the Word sheet and a stored PDF both fit, with A4 as the guess before either shows, and
+  // the preview still opens at 90% so that a whole page width sits on the desk before any fit.
   const fitPreview = () => {
     const host = previewRef.current;
     if (!host) return;
-    const page = host.querySelector<HTMLElement>(".essay-pdf-page, .essay-preview-page");
+    const frame = host.querySelector<HTMLElement>(".page-zoom-viewport") ?? host;
+    const page = frame.querySelector<HTMLElement>(".essay-pdf-page, .essay-preview-page");
     const shown = page?.getBoundingClientRect().width ?? 0;
     const pageWidth = shown > 0 ? shown / zoom : A4_PAGE_WIDTH_PX;
-    const room = host.clientWidth - FIT_GUTTER_PX;
+    const room = frame.clientWidth - FIT_GUTTER_PX;
     if (room > 0) setZoom(clampZoom(room / pageWidth));
   };
 
@@ -1201,10 +1103,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return list;
   }, [chosenModuleItems, customSources]);
 
-  // The Readings card lists the module's readings, since sources added by hand or uploaded
-  // are listed and cited in the Sources card instead.
-  const moduleReadingItems = allResearchItems.filter((item) => item.isModule);
-
   const citedIds = useMemo(() => {
     const set = new Set<string>();
     orderedFootnotes.forEach((fn) => {
@@ -1260,52 +1158,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       },
     }));
     showToast("Reference deleted.");
-  };
-
-  const toggleModuleSource = async (itemId: string) => {
-    await save((prev) => ({
-      ...prev,
-      referenceItemIds: prev.referenceItemIds.includes(itemId)
-        ? prev.referenceItemIds.filter((x) => x !== itemId)
-        : [...prev.referenceItemIds, itemId],
-    }));
-  };
-
-  const handleCreateCustomSource = async () => {
-    if (!newSourceTitle.trim()) {
-      showToast("Please enter a title for the source.");
-      return;
-    }
-    const source: CustomSource = {
-      id: newId(),
-      author: newSourceAuthor.trim() || undefined,
-      title: newSourceTitle.trim(),
-      year: newSourceYear.trim() || undefined,
-      kind: newSourceKind,
-      publisher: newSourcePublisher.trim() || undefined,
-      url: newSourceUrl.trim() || undefined,
-      notes: newSourceNotes.trim() || undefined,
-    };
-    await save((prev) => ({
-      ...prev,
-      customSources: [...(prev.customSources ?? []), source],
-    }));
-    setNewSourceAuthor("");
-    setNewSourceTitle("");
-    setNewSourceYear("");
-    setNewSourcePublisher("");
-    setNewSourceUrl("");
-    setNewSourceNotes("");
-    setAddingCustom(false);
-    showToast("External source added.");
-  };
-
-  const handleDeleteCustomSource = async (sourceId: string) => {
-    await save((prev) => ({
-      ...prev,
-      customSources: (prev.customSources ?? []).filter((s) => s.id !== sourceId),
-    }));
-    showToast("Source removed.");
   };
 
   const copyBibliography = async () => {
@@ -1368,11 +1220,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       };
     });
     showToast(added ? "Footnote added at the end of the draft." : already);
-  };
-
-  const removeSource = (item: ResearchItem) => {
-    if (item.isModule) void toggleModuleSource(item.id);
-    else void handleDeleteCustomSource(item.id);
   };
 
   // An admin document is listed straight away and gains its storage key once uploaded, which
@@ -1556,8 +1403,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             border: "none",
             background: "transparent",
             padding: 0,
-            width: "100%",
-            maxWidth: "42rem",
             color: "var(--ink)",
           }}
         />
@@ -1567,7 +1412,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             label="Essay actions"
             items={[
               { label: `Back to ${module.code || "the module"}`, onSelect: () => navigate({ view: "module", id: module.id }) },
-              { label: "Open word processor", onSelect: () => navigate(wordProcessorRoute) },
+              { label: "Edit in Word", onSelect: () => navigate(wordProcessorRoute) },
               { label: "Delete essay", danger: true, onSelect: () => void handleDeleteAssessment() },
             ]}
           />
@@ -1732,17 +1577,22 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                         ) : (
                           <span className="essay-ws-doc-name">{doc.name}</span>
                         )}
-                        <span className="small muted">
-                          {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                        {/* A stored document shows no size, since its name alone identifies it, and a
+                            line appears beneath it only while its upload is unfinished. */}
+                        {!doc.r2Key && (
+                          <span className="small muted">
+                            {uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                          </span>
+                        )}
+                        <span className="essay-ws-doc-menu" style={{ gridArea: "remove" }}>
+                          <Menu
+                            label={`Actions for ${doc.name}`}
+                            items={[
+                              ...(doc.r2Key ? [{ label: "Open", onSelect: () => openAdminDocument(doc) }] : []),
+                              { label: "Remove", danger: true, onSelect: () => void removeAdminDocument(doc) },
+                            ]}
+                          />
                         </span>
-                        <button
-                          type="button"
-                          className="button quiet small"
-                          aria-label={`Remove ${doc.name}`}
-                          onClick={() => void removeAdminDocument(doc)}
-                        >
-                          Remove
-                        </button>
                       </li>
                     ))}
                   </ul>
@@ -1750,33 +1600,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               </div>
             </section>
 
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-readings-head">
-              <div className="essay-ws-card-head">
-                <h2 id="essay-readings-head" className="essay-ws-card-title">Readings</h2>
-                <button type="button" className="button quiet small" onClick={() => setChoosing(true)}>
-                  Choose
-                </button>
-              </div>
-              {moduleReadingItems.length === 0 ? (
-                <p className="small muted">Choose readings from this module, so that they can be dragged into References and cited.</p>
-              ) : (
-                <>
-                  <p className="small muted">Drag a reading into References to cite it, or use + Cite.</p>
-                  <ul className="essay-ws-sources">
-                    {moduleReadingItems.map((item) => (
-                      <SourceRow
-                        key={item.id}
-                        item={item}
-                        cited={citedIds.has(item.id)}
-                        onCite={() => void citeInDraft(item)}
-                        onRemove={() => removeSource(item)}
-                      />
-                    ))}
-                  </ul>
-                </>
-              )}
-            </section>
-
+            {/* The Sources card is the single place to add, cite and check anything the essay can
+                cite, since its own Add control already offers an upload, the course reading
+                picker and a source typed by hand, and its rows still drag into References. */}
             <EssaySourcesPanel
               moduleId={module.id}
               moduleCode={module.code}
@@ -1784,9 +1610,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               uploadFile={uploadSourceFile}
               onOpenPassage={openPassage}
             />
-            <button type="button" className="button quiet small essay-ws-add-source" onClick={() => setAddingCustom(true)}>
-              Add a source by hand
-            </button>
           </DropZone>
 
           {/* Centre: the essay itself */}
@@ -1801,10 +1624,16 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   { value: "plan", label: "Plan & argument", id: "essay-view-plan", controls: "essay-centre-plan" },
                 ]}
               />
-              <span className="spacer" />
-              <Link to={wordProcessorRoute} className="button primary essay-open-button">
+              {/* Preview, Plan and Edit in Word stay adjacent children of the toolbar, so that the
+                  stylesheet draws them as one pill centred over the column, with the References
+                  toggle of the medium layout kept apart at the far end. */}
+              <Link
+                to={wordProcessorRoute}
+                className="button primary essay-open-button"
+                title="Open the draft in the word processor"
+              >
                 <Icon name="notes" size={16} />
-                <span>Open in word processor</span>
+                <span>Edit in Word</span>
               </Link>
               <button
                 type="button"
@@ -1919,7 +1748,12 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 <ul className="essay-ws-outline essay-ws-contents">
                   {contents.map((entry) => (
                     <li key={entry.key}>
-                      <button type="button" data-level={entry.level} onClick={() => jumpTo({ blockId: entry.blockId })}>
+                      <button
+                        type="button"
+                        data-level={entry.level}
+                        title={entry.text}
+                        onClick={() => jumpTo({ blockId: entry.blockId })}
+                      >
                         {entry.text}
                       </button>
                     </li>
@@ -2023,133 +1857,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         ) : (
           <p className="small muted" style={{ marginTop: "1rem" }}>No snapshots saved yet.</p>
         )}
-      </Sheet>
-
-      {/* Module reading selection sheet */}
-      <Sheet
-        open={choosing}
-        onClose={() => setChoosing(false)}
-        title="Choose module readings"
-        subtitle={`Readings assigned in ${module.code}`}
-        className="essay-sources-sheet"
-        footer={<button type="button" className="button primary" onClick={() => setChoosing(false)}>Done</button>}
-      >
-        {readings.length === 0 ? (
-          <p className="small muted">No readings in this module yet. Add them to its weeks first.</p>
-        ) : (
-          (["primary", "secondary"] as const).map((group) => {
-            const rows = readings.filter((i) => (group === "primary" ? i.kind === "primary" : i.kind !== "primary"));
-            if (!rows.length) return null;
-            return (
-              <div key={group} className="essay-source-group" style={{ marginBottom: "1rem" }}>
-                <h3 style={{ fontSize: "var(--fs-sm)", color: "var(--muted)", textTransform: "uppercase" }}>
-                  {group === "primary" ? "Primary sources" : "Secondary reading"}
-                </h3>
-                <ul className="citation-list">
-                  {rows.map((item) => (
-                    <li key={item.id}>
-                      <label className="check-row">
-                        <input
-                          type="checkbox"
-                          checked={assessment.referenceItemIds.includes(item.id)}
-                          onChange={() => void toggleModuleSource(item.id)}
-                        />
-                        <span>{fullTitle(item)}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })
-        )}
-      </Sheet>
-
-      {/* Add external source sheet */}
-      <Sheet
-        open={addingCustom}
-        onClose={() => setAddingCustom(false)}
-        title="Add external source"
-        subtitle="Archival documents, journal articles, books, or web resources"
-        footer={
-          <div className="row" style={{ gap: "0.5rem", justifyContent: "flex-end" }}>
-            <button type="button" className="button quiet" onClick={() => setAddingCustom(false)}>
-              Cancel
-            </button>
-            <button type="button" className="button primary" onClick={() => void handleCreateCustomSource()}>
-              Add source
-            </button>
-          </div>
-        }
-      >
-        <div style={{ display: "grid", gap: "0.9rem" }}>
-          <label className="field">
-            <span>Source type</span>
-            <select
-              value={newSourceKind}
-              onChange={(e) => setNewSourceKind(e.target.value as "primary" | "secondary")}
-            >
-              <option value="secondary">Secondary reading (Book, journal article, chapter)</option>
-              <option value="primary">Primary source (Archive, treaty, pamphlet, speech, paper)</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Title (required)</span>
-            <input
-              type="text"
-              placeholder="The title of the book, paper, or article"
-              value={newSourceTitle}
-              onChange={(e) => setNewSourceTitle(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>Author(s) / Creator</span>
-            <input
-              type="text"
-              placeholder="e.g. Hobsbawm, Eric or Foreign Office"
-              value={newSourceAuthor}
-              onChange={(e) => setNewSourceAuthor(e.target.value)}
-            />
-          </label>
-          <div className="row" style={{ gap: "0.75rem" }}>
-            <label className="field" style={{ flex: 1 }}>
-              <span>Publication year / Date</span>
-              <input
-                type="text"
-                placeholder="e.g. 1962 or 14 July 1789"
-                value={newSourceYear}
-                onChange={(e) => setNewSourceYear(e.target.value)}
-              />
-            </label>
-            <label className="field" style={{ flex: 2 }}>
-              <span>Publisher / Archive reference</span>
-              <input
-                type="text"
-                placeholder="e.g. Weidenfeld & Nicolson or TNA FO 371/..."
-                value={newSourcePublisher}
-                onChange={(e) => setNewSourcePublisher(e.target.value)}
-              />
-            </label>
-          </div>
-          <label className="field">
-            <span>URL / Archive locator</span>
-            <input
-              type="url"
-              placeholder="https://..."
-              value={newSourceUrl}
-              onChange={(e) => setNewSourceUrl(e.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>Research notes / Call number</span>
-            <input
-              type="text"
-              placeholder="Shelfmark, call number, or key themes"
-              value={newSourceNotes}
-              onChange={(e) => setNewSourceNotes(e.target.value)}
-            />
-          </label>
-        </div>
       </Sheet>
 
       <input
