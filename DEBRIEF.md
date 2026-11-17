@@ -1022,7 +1022,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 - Improvements completed in 0.53.2:
   - Web and tab polish: direct `StudyLibrarySetup.exe` download URL (`INSTALLER_DOWNLOAD_URL`), context-aware Settings (hiding "Connect this computer" when connected and hiding "Download desktop app" inside the desktop app), pinned Home tab always returning to `/` while links from Home open in fresh desktop tabs, removal of "This week" top navigation, and desktop-web "Open on desktop" top-bar dropdown (`studylibrary://open?path=...` + direct installer download).
-- Queued for next session (Windows desktop):
+- Queued for next session (when Claude limits reset):
+  - Top bar & "Open on desktop" styling (`app/src/App.tsx`, `app/src/styles.css`): fix the broken top bar layout introduced in `0.53.2`, and style the "Open on desktop" trigger as a solid accent-coloured button (icon + label + downward chevron, matching the Word/Office Share button style) whose dropdown offers "Open in desktop" and "Download desktop app".
   - Normal Windows frameless window behaviour in `backend/study/desktop.py` (`WM_GETMINMAXINFO` respecting taskbar `rcWork`, `WM_NCCALCSIZE`, `WM_NCHITTEST` resize/Aero Snap) and `studylibrary://open?path=...` protocol handling.
 - Improvements completed in 0.53.0:
   - Essay & Wordcraft studio: 3-column workspace (left rail for Brief, Admin Documents, Sources; centre Draft/Preview; right References + Outline), `PageZoomViewport` fixed-size preview container with inner zoom, fixed drag-and-drop into references (`drag.ts` + single `DndContext`), restored selected word count (`"X of Y words"`), fixed Wordcraft Home button overlap and safe-area padding, Ponytail editor polish, and free-text references with `"Cited where?"` context jump.
