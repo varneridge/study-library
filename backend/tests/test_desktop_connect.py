@@ -223,7 +223,7 @@ def test_main_opens_the_window_with_the_hint(home, monkeypatch):
     opened = []
     monkeypatch.setattr(desktop, "open_window", opened.append)
     assert desktop.main(["--app-only"]) == 0
-    assert opened == ["https://study.example.org?connect=processor"]
+    assert opened == ["https://study.example.org?connect=processor&sl=desktop"]
 
 
 # 6. The --connect mode end to end, as the protocol handler runs it.
