@@ -2,9 +2,10 @@
 // The Windows launcher opens Edge at an address carrying ?sl=desktop, a shell
 // that sets its own user agent, such as a WebView2 one, can add SLDesktop/1 to
 // it instead, and an installed window on Windows, which reports the standalone
-// display mode, counts as well, so that a window opened from its Start menu
-// entry rather than by the launcher still has its tabs. Each is known before
-// the first render, so the app never draws one layout and then swaps to another.
+// or the window controls overlay display mode, counts as well, so that a
+// window opened from its Start menu entry rather than by the launcher still
+// has its tabs. Each is known before the first render, so the app never draws
+// one layout and then swaps to another.
 
 const SHELL_PARAM = "sl";
 const SHELL_VALUE = "desktop";
@@ -30,6 +31,10 @@ export function detectDesktop(userAgent: string, search: string, remembered: boo
   );
 }
 
+function displayMode(mode: string): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(`(display-mode: ${mode})`).matches;
+}
+
 // Read once, as the module loads, which App arranges to happen before the
 // router can rewrite the address. The mark is kept for the window's session,
 // so that a reload still knows, and taken out of the address so that no link
@@ -42,7 +47,8 @@ function readDesktop(): boolean {
   } catch {
     // Storage may be blocked, and then the address or the user agent decides alone.
   }
-  const standalone = typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches;
+  // An installed window that draws its own title bar reports the overlay mode rather than standalone.
+  const standalone = displayMode("standalone") || displayMode("window-controls-overlay");
   const desktop = detectDesktop(navigator.userAgent, location.search, remembered, standalone);
   const params = new URLSearchParams(location.search);
   if (params.has(SHELL_PARAM)) {
@@ -117,10 +123,10 @@ function pageBackground(): string {
 }
 
 // Edge draws the desktop window's title bar itself, in the page's theme
-// colour, so DWM's caption colour never reaches it. This keeps a single
+// colour, so DWM's caption colour rarely reaches it. This keeps a single
 // theme-color equal to the page's own background, puts it back if other code
-// adds or changes one, and gives the tab strip the same colour, following
-// every change of appearance.
+// adds or changes one, and gives the tabs the same colour, following every
+// change of appearance.
 export function followShellColour(): () => void {
   const root = document.documentElement;
   const dark = window.matchMedia("(prefers-color-scheme: dark)");
@@ -159,5 +165,27 @@ export function followShellColour(): () => void {
     document.removeEventListener("transitionend", settled);
     meta.remove();
     root.style.removeProperty("--sl-shell-bg");
+  };
+}
+
+// An installed window whose manifest asks for the window controls overlay
+// gives the page its title bar, keeping only the caption buttons, and the
+// person can turn that off and on again from the window's own menu. The
+// sl-wco class on the root follows whether the overlay is in force, so that
+// the tabs can move up into the title bar while it is and back beneath the
+// header when it is not. An Edge --app window has no overlay, so there the
+// class never appears.
+type ControlsOverlay = EventTarget & { readonly visible: boolean };
+
+export function followWindowControls(): () => void {
+  const overlay = (navigator as unknown as { windowControlsOverlay?: ControlsOverlay }).windowControlsOverlay;
+  if (!overlay) return () => undefined;
+  const root = document.documentElement;
+  const update = () => root.classList.toggle("sl-wco", overlay.visible);
+  update();
+  overlay.addEventListener("geometrychange", update);
+  return () => {
+    overlay.removeEventListener("geometrychange", update);
+    root.classList.remove("sl-wco");
   };
 }

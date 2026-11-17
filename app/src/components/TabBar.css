@@ -1,19 +1,35 @@
-/* The desktop window's tab strip. Only html.sl-desktop carries these rules,
-   so a browser tab or the phone is never touched by them. The strip takes the
-   page's background, set from script as --sl-shell-bg, and every shade within
-   it is mixed from the text colour, so it follows light, dark and each accent. */
+/* The desktop window's tabs. Only html.sl-desktop carries these rules, so a
+   browser tab or the phone is never touched by them. The tabs sit beneath the
+   top bar in one sticky block, .sl-chrome, on the page's own background, set
+   from script as --sl-shell-bg, so that the window shows one surface rather
+   than a strip stacked above the header. In an installed window that uses the
+   window controls overlay they move up into the title bar instead, beside the
+   caption buttons. Every shade is mixed from the text colour, so it follows
+   light, dark and each accent. */
 
 html.sl-desktop {
   --sl-tabs-h: 2.25rem;
   --sl-shell-bg: Canvas;
 }
 
-/* The top bar sticks just beneath the strip rather than behind it. */
-html.sl-desktop .topbar {
-  top: var(--sl-tabs-h);
+/* The top bar and the tabs stick together so that they read as one header.
+   The block keeps the stacking order the strip had before, and the top bar's
+   menus still open over the tabs because the strip itself is not positioned. */
+html.sl-desktop .sl-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--sl-shell-bg, Canvas);
 }
 
-/* A reading or an essay fills the window beneath the strip. The transform
+/* One hairline beneath the whole block, which the tabs draw, rather than one
+   under each bar. */
+html.sl-desktop:not(.sl-wco) .sl-chrome > .topbar {
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+
+/* A reading or an essay fills the window beneath the tabs. The transform
    makes main the frame for the page's own fixed layers, so a full-screen
    reader starts below the tabs instead of covering them. */
 html.sl-desktop.sl-bare #main {
@@ -32,33 +48,38 @@ html.sl-desktop.sl-bare #main {
 }
 
 .sl-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 40;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 0.25rem;
   height: var(--sl-tabs-h);
-  background: var(--sl-shell-bg, Canvas);
+  padding: 0 0.5rem;
   color: inherit;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
   user-select: none;
 }
 
 .sl-tabs-list {
   display: flex;
+  align-items: center;
+  gap: 0.25rem;
   flex: 0 1 auto;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
+/* Each tab is a pill on the paper rather than a cell of a grey strip, so the
+   one in front is lifted onto the surface colour and the rest stay quiet. */
 .sl-tab {
-  position: relative;
   display: flex;
   align-items: center;
   flex: 0 1 12rem;
   min-width: 6rem;
-  border-right: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .sl-tab.is-pinned {
@@ -71,17 +92,11 @@ html.sl-desktop.sl-bare #main {
 }
 
 .sl-tab.is-active {
-  background: color-mix(in srgb, currentColor 11%, transparent);
-}
-
-.sl-tab.is-active::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  background: currentColor;
+  background: var(--surface, color-mix(in srgb, currentColor 5%, var(--sl-shell-bg, Canvas)));
+  color: inherit;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 12%, transparent),
+    0 1px 2px color-mix(in srgb, currentColor 8%, transparent);
 }
 
 .sl-tab-title {
@@ -93,6 +108,7 @@ html.sl-desktop.sl-bare #main {
   height: 100%;
   padding: 0 0.25rem 0 0.75rem;
   border: 0;
+  border-radius: inherit;
   background: none;
   color: inherit;
   font: inherit;
@@ -102,7 +118,7 @@ html.sl-desktop.sl-bare #main {
 }
 
 .sl-tab.is-pinned .sl-tab-title {
-  padding: 0 0.75rem;
+  padding: 0 0.6rem;
 }
 
 .sl-tab-label {
@@ -117,21 +133,28 @@ html.sl-desktop.sl-bare #main {
   place-items: center;
   flex: 0 0 auto;
   border: 0;
-  border-radius: 0.25rem;
   background: none;
   color: inherit;
   opacity: 0.65;
 }
 
 .sl-tab-close {
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-right: 0.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.3rem;
+  border-radius: 0.35rem;
+}
+
+/* The cross appears on the tab in front and under the pointer, as in Notion
+   and Zotero, so that a row of tabs reads as titles rather than as buttons. */
+.sl-tab:not(.is-active):not(:hover) .sl-tab-close {
+  opacity: 0;
 }
 
 .sl-tab-new {
-  width: var(--sl-tabs-h);
-  height: var(--sl-tabs-h);
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
 }
 
 .sl-tab-close:hover,
@@ -144,6 +167,42 @@ html.sl-desktop.sl-bare #main {
 .sl-tab-new:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-tab {
+    transition: none;
+  }
+}
+
+/* An installed window with the window controls overlay hands the page its
+   title bar, so the tabs move up into it and the header follows beneath. The
+   empty part of the row drags the window, whereas the tabs and the new tab
+   button stay clickable. */
+html.sl-desktop.sl-wco {
+  --sl-tabs-h: env(titlebar-area-height, 2.25rem);
+}
+
+html.sl-desktop.sl-wco .sl-chrome {
+  top: var(--sl-tabs-h);
+  margin-top: var(--sl-tabs-h);
+}
+
+html.sl-desktop.sl-wco .sl-tabs {
+  position: fixed;
+  top: env(titlebar-area-y, 0);
+  left: env(titlebar-area-x, 0);
+  width: env(titlebar-area-width, 100%);
+  background: var(--sl-shell-bg, Canvas);
+  border-bottom: 0;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+html.sl-desktop.sl-wco .sl-tabs-list,
+html.sl-desktop.sl-wco .sl-tab-new {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 /* The dot on Settings in the top bar that says the processor needs connecting,

@@ -3,6 +3,7 @@
   "short_name": "Library",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
   "background_color": "#FCFCFB",
   "theme_color": "#FCFCFB",
   "icons": [

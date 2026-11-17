@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 // First among the app's own modules, so that the desktop mark is read from the
 // address before any module that loads the router has a chance to rewrite it.
-import { followShellColour, isDesktop, setNeedsConnecting } from "./lib/shell";
+import { followShellColour, followWindowControls, isDesktop, setNeedsConnecting } from "./lib/shell";
 import { AcrossPage } from "./components/AcrossPage";
 import { Home } from "./components/Home";
 import { ModulePage } from "./components/ModulePage";
@@ -508,15 +508,19 @@ export function App() {
     }
   }, []);
 
-  // The desktop window paints its title bar and tab strip in the page's own
-  // background, and lets a reading or an essay fill the space beneath the strip.
+  // The desktop window paints its title bar and tabs in the page's own
+  // background, moves the tabs into the title bar while an installed window's
+  // controls overlay is in force, and lets a reading or an essay fill the
+  // space beneath the tabs.
   useEffect(() => {
     if (!desktop) return;
     const root = document.documentElement;
     root.classList.add("sl-desktop");
-    const stop = followShellColour();
+    const stopColour = followShellColour();
+    const stopControls = followWindowControls();
     return () => {
-      stop();
+      stopColour();
+      stopControls();
       root.classList.remove("sl-desktop", "sl-bare");
     };
   }, [desktop]);
@@ -557,7 +561,8 @@ export function App() {
   }, []);
 
   // Keep --topbar-h in sync with the top bar's actual height (including when
-  // wrapped), counting the desktop tab strip above it, since both stay in view.
+  // wrapped), counting the desktop tabs as well, since both stay in view
+  // whether the tabs sit beneath the bar or up in the title bar.
   useLayoutEffect(() => {
     const bar = document.querySelector<HTMLElement>(".topbar");
     if (!bar) return;
@@ -574,13 +579,17 @@ export function App() {
 
   // Every child keeps its place whatever the view, so a change of page never
   // remounts the top bar, the overlays or the recorder. In the desktop window
-  // each tab keeps its own page, hidden rather than unmounted while another
-  // is in front, so that it comes back exactly as it was left.
+  // the top bar and the tabs share one sticky block, so that they read as a
+  // single header on one surface, and each tab keeps its own page, hidden
+  // rather than unmounted while another is in front, so that it comes back
+  // exactly as it was left.
   return (
     <>
       {!bare && <a className="skip" href="#main">Skip to content</a>}
-      {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
-      {!bare && <TopBar route={route} />}
+      <div className={desktop ? "sl-chrome" : undefined}>
+        {!bare && <TopBar route={route} />}
+        {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
+      </div>
       {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}
       <main id="main" tabIndex={bare ? undefined : -1}>

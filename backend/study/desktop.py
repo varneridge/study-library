@@ -4,7 +4,8 @@ From the Start menu or desktop shortcut:  pythonw -m study.desktop
   starts the processor and the Listen speech server if they are not already
   running, then opens Study Library in its own Edge window, at an address
   marked ?sl=desktop so that the app shows its tabs and paints the window's
-  title bar in its own background.
+  title bar in its own background, and colours the native frame to match
+  through DWM once the window appears.
 From the Startup folder, at sign-in:      pythonw -m study.desktop --headless
   the same with no window; this process stays on as their supervisor.
 --app-only opens the window only. --once works through the queue in the
@@ -80,6 +81,22 @@ CONNECT_TIMEOUT_SECONDS = 15
 # which ignores --user-agent, and when the switch did apply it would change the
 # user agent of every Edge tab, not this window's alone.
 SHELL_HINT = "sl=desktop"
+# Desktop Window Manager attributes for the native frame. Windows 11 honours
+# all three, whereas Windows 10 accepts only the first and refuses the colours,
+# which is logged and otherwise ignored.
+DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+DWMWA_BORDER_COLOR = 34
+DWMWA_CAPTION_COLOR = 35
+# The warm paper of the app's light page. STUDY_TITLE_BAR_COLOUR in either
+# .env file replaces it, for an appearance whose background differs.
+TITLE_BAR_COLOUR = "#FAF8F5"
+# How long the launcher looks for the new window before giving up, which
+# delays nothing the person sees, because the launcher has no window of its own.
+TITLE_BAR_WAIT_SECONDS = 10.0
+# Chromium sets the frame's dark mode itself once the page first paints, so
+# the attributes are set a second time after this pause.
+TITLE_BAR_REPAINT_SECONDS = 1.5
+EDGE_WINDOW_CLASS = "Chrome_WidgetWin_1"
 
 
 def default_home() -> Path:
@@ -549,17 +566,128 @@ def _edge() -> str | None:
     return None
 
 
-def open_window(url: str) -> None:
+def colorref(colour: str) -> int:
+    """A "#RRGGBB" colour as the 0x00BBGGRR COLORREF that DWM reads, so that
+    red sits in the lowest byte rather than the highest."""
+    value = colour.strip().lstrip("#")
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+        raise ValueError(f"{colour!r} is not a #RRGGBB colour")
+    red, green, blue = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return red | green << 8 | blue << 16
+
+
+def app_window(before: Mapping[int, tuple[str, str]], now: Mapping[int, tuple[str, str]]) -> int | None:
+    """The Edge app window that has appeared since before, given each visible
+    top-level window's class and title. An ordinary Edge window is passed
+    over, because its title ends in "Microsoft Edge" whereas an --app
+    window's is the page's alone, and one with no title yet is waited for."""
+    for handle, (cls, title) in now.items():
+        if handle in before or cls != EDGE_WINDOW_CLASS or not title.strip():
+            continue
+        if title.rstrip().endswith("Microsoft Edge"):
+            continue
+        return handle
+    return None
+
+
+def _visible_windows() -> dict[int, tuple[str, str]]:
+    """Every visible top-level window, by handle, with its class and title."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [enum_proc, wintypes.LPARAM]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    found: dict[int, tuple[str, str]] = {}
+
+    def visit(handle, _lparam):  # noqa: ANN001
+        if handle and user32.IsWindowVisible(handle):
+            cls = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(handle, cls, len(cls))
+            size = user32.GetWindowTextLengthW(handle) + 1
+            title = ctypes.create_unicode_buffer(size)
+            user32.GetWindowTextW(handle, title, size)
+            found[int(handle)] = (cls.value, title.value)
+        return True
+
+    user32.EnumWindows(enum_proc(visit), 0)
+    return found
+
+
+def _paint_frame(handle: int, colour: str) -> None:
+    """Asks DWM for light caption buttons and for the caption and border in
+    colour. An attribute this version of Windows does not know is refused,
+    which is logged and otherwise left alone."""
+    import ctypes
+    from ctypes import wintypes
+
+    dwmapi = ctypes.windll.dwmapi
+    dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, wintypes.LPCVOID, wintypes.DWORD]
+    dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+    paper = wintypes.DWORD(colorref(colour))
+    attributes = ((DWMWA_USE_IMMERSIVE_DARK_MODE, wintypes.BOOL(0)), (DWMWA_BORDER_COLOR, paper),
+                  (DWMWA_CAPTION_COLOR, paper))
+    for attribute, value in attributes:
+        result = dwmapi.DwmSetWindowAttribute(handle, attribute, ctypes.byref(value), ctypes.sizeof(value))
+        if result:
+            log.debug("DWM refused attribute %s with %#x", attribute, result & 0xFFFFFFFF)
+
+
+def recolour_title_bar(
+    before: Mapping[int, tuple[str, str]],
+    colour: str = TITLE_BAR_COLOUR,
+    wait_seconds: float = TITLE_BAR_WAIT_SECONDS,
+    windows: Callable[[], Mapping[int, tuple[str, str]]] = _visible_windows,
+    paint: Callable[[int, str], None] = _paint_frame,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Waits for the window Edge has just opened and colours its frame, twice,
+    because Chromium resets the frame's dark mode when the page first paints.
+    False when the window never appears or Windows refuses, which leaves the
+    window exactly as Edge drew it."""
+    deadline = time.monotonic() + wait_seconds
+    try:
+        colorref(colour)
+        while True:
+            handle = app_window(before, windows())
+            if handle is not None:
+                paint(handle, colour)
+                sleep(TITLE_BAR_REPAINT_SECONDS)
+                paint(handle, colour)
+                return True
+            if time.monotonic() >= deadline:
+                log.info("the Study Library window did not appear, so its title bar keeps Edge's colours")
+                return False
+            sleep(0.2)
+    except (OSError, AttributeError, ValueError) as error:
+        log.warning("could not colour the title bar: %s", error)
+        return False
+
+
+def open_window(url: str, colour: str = TITLE_BAR_COLOUR) -> None:
     """Study Library in its own Edge window, in the Edge profile that already
-    holds its Access sign-in, offline copy and service worker. Without Edge,
-    the default browser. Edge draws this window's title bar itself, in the
-    page's theme colour rather than through DWM, so DWMWA_CAPTION_COLOR has
-    nothing to recolour, and the app sets that theme colour instead."""
+    holds its Access sign-in, offline copy and service worker, or in the
+    default browser when there is no Edge. Edge paints most of the frame
+    itself from the page's theme colour, which the app keeps equal to its own
+    background, but DWM still decides the caption buttons' scheme and the
+    border, and the caption too wherever Edge leaves it to DWM, so once the
+    new window appears those are set to the paper colour as well."""
     edge = _edge() if WINDOWS else None
-    if edge:
-        subprocess.Popen([edge, f"--app={url}"], creationflags=DETACHED_PROCESS)
-    else:
+    if not edge:
         webbrowser.open(url)
+        return
+    try:
+        before: Mapping[int, tuple[str, str]] | None = _visible_windows()
+    except (OSError, AttributeError) as error:
+        log.warning("could not list the open windows, so the title bar keeps Edge's colours: %s", error)
+        before = None
+    subprocess.Popen([edge, f"--app={url}"], creationflags=DETACHED_PROCESS)
+    if before is not None:
+        recolour_title_bar(before, colour)
 
 
 def _spawn_supervisor(home: Path, handover: bool) -> None:
@@ -731,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
     if not url:
         log.error("STUDY_URL is not set in %s or %s", *env_files(home))
         return 1
-    open_window(desktop_url(window_url(url, env)))
+    open_window(desktop_url(window_url(url, env)), env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR)
     return 0
 
 
