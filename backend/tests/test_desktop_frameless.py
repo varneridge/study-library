@@ -204,7 +204,7 @@ def test_main_falls_back_to_edge_without_the_frameless_window(monkeypatch, tmp_p
     (tmp_path / ".env").write_text("STUDY_URL=https://s.example/\n")
     opened: list[str] = []
     monkeypatch.setattr(desktop, "open_frameless", lambda home, url, colour: opened.append(url) and False)
-    monkeypatch.setattr(desktop, "open_window", lambda url, colour: opened.append(url))
+    monkeypatch.setattr(desktop, "open_window", lambda url, colour=None: opened.append(url))
     assert desktop.main(["--app-only"]) == 0
     assert opened == ["https://s.example/?connect=processor&sl=frameless", "https://s.example/?connect=processor&sl=desktop"]
 
