@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
 import { formatBytes, keepEverything, setKeepEverything } from "../lib/files";
 import { cancelAllUploads } from "../lib/uploads";
-import { clearLocalData, describeFailedChange, isSyncExpired, pull, flush, pauseSync, resumeSync, api, fetchAccount, signOut, signOutOtherDevices } from "../lib/sync";
+import { clearLocalData, describeFailedChange, isSyncExpired, pull, flush, pauseSync, resumeSync, api } from "../lib/sync";
 import { activeSession } from "../lib/recorder";
 import { loadBin } from "../lib/edits";
 import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
@@ -32,7 +32,6 @@ const SECTIONS = [
   { id: "section-appearance", label: "Appearance" },
   { id: "section-term-dates", label: "Term dates" },
   { id: "section-shortcuts", label: "Shortcuts" },
-  { id: "section-account", label: "Account" },
   { id: "section-processor", label: "Background processor" },
   { id: "section-device", label: "On this device" },
   { id: "section-bin", label: "Recently deleted" },
@@ -181,85 +180,6 @@ function ProcessorState() {
       <DesktopDownload />
       <ConnectComputer />
       <UpdateSettings />
-    </>
-  );
-}
-
-// Who is signed in here, and the two ways out. Signing out keeps every reading,
-// note and unsent edit on this device, so it only stops syncing until the next code.
-function Account() {
-  const [account, setAccount] = useState<{ email: string | null } | "loading" | "unreachable">("loading");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    fetchAccount()
-      .then((email) => live && setAccount({ email }))
-      .catch(() => live && setAccount("unreachable"));
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  async function leave() {
-    const ok = await confirmAction({
-      title: "Sign out of this device?",
-      body: "Your readings, notes and any unsent edits stay on this device, and unsent edits are sent once you sign in again with a new code.",
-      confirm: "Sign out",
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      await signOut();
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not sign out.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function leaveOthers() {
-    const ok = await confirmAction({
-      title: "Sign out every other device?",
-      body: "Every other browser and the desktop app will need a new code before they sync again. The background processor carries on, because it signs in with its own key.",
-      confirm: "Sign out other devices",
-      danger: true,
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const removed = await signOutOtherDevices();
-      showToast(removed ? `${removed} other ${removed === 1 ? "device was" : "devices were"} signed out.` : "No other device was signed in.");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not sign out the other devices.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <h2>Account</h2>
-      <p className="small muted">
-        {account === "loading"
-          ? "Checking who is signed in…"
-          : account === "unreachable"
-            ? "The server could not be reached, so who is signed in cannot be shown just now."
-            : account.email
-              ? `Signed in as ${account.email}, with a code sent by email.`
-              : "This device is not using an email sign-in, as happens in local tests."}
-      </p>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-        <button type="button" className="button" disabled={busy} onClick={() => void leave()}>Sign out of this device</button>
-        <button
-          type="button"
-          className="button"
-          disabled={busy || typeof account !== "object" || !account.email}
-          onClick={() => void leaveOthers()}
-        >
-          Sign out every other device
-        </button>
-      </div>
     </>
   );
 }
@@ -700,10 +620,6 @@ export function Settings() {
             <div>
               <button type="button" className="button" onClick={openShortcuts}>Show keyboard shortcuts</button>
             </div>
-          </section>
-
-          <section id="section-account" className="settings-section settings-card">
-            <Account />
           </section>
 
           <section id="section-processor" className="settings-section settings-card">
