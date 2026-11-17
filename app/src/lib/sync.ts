@@ -40,13 +40,16 @@ function stamp(): string {
 
 export class SessionExpired extends Error {}
 
-// Cloudflare Access answers an expired session with a redirect to its
-// sign-in page. Fetch cannot follow that, so treat it as a sign-in prompt.
+// The Worker answers a missing or ended session with 401, which shows the
+// sign-in screen. A redirect is treated the same way, since that is how
+// Cloudflare Access answers if it is still in front of the site. A 503 is an
+// outage rather than a signed-out device, so it is reported as an error and
+// everything stays as it is.
 export async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(path, { ...init, redirect: "manual", credentials: "same-origin" });
   if (response.type === "opaqueredirect" || response.status === 401) {
     setState({ expired: true });
-    throw new SessionExpired("Cloudflare Access session ended");
+    throw new SessionExpired("Signed out");
   }
   if (!response.ok) {
     const text = await response.text();
@@ -443,6 +446,84 @@ export function resumeSync(): void {
   paused = false;
   setState({ paused: false });
   startSync();
+}
+
+// Signing in
+//
+// A code is emailed and typed in, and the Worker answers with an HttpOnly
+// session cookie this code never sees. Signing out ends only the session:
+// everything saved on the device, unsent edits included, stays, and is sent
+// once someone signs in again.
+
+const AUTH_ERRORS: Record<string, string> = {
+  bad_email: "That does not look like an email address, so check it and try again.",
+  invalid_code: "That code is not right. Check the newest email, as only its code works.",
+  code_expired: "That code has expired or been replaced, so ask for a new one.",
+  too_many_attempts: "That code has been tried too many times, so ask for a new one.",
+  auth_not_configured: "Email sign-in is not set up on the server yet, so no code can be sent.",
+  auth_unavailable: "The server could not check sign-ins just now, so try again in a moment.",
+};
+
+async function authRequest(path: string, body?: unknown): Promise<Response> {
+  if (!navigator.onLine) throw new Error("You are offline, so connect to the internet to sign in or out.");
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("The server could not be reached, so check you are online and try again.");
+  }
+  if (response.ok) return response;
+  const { error } = (await response.json().catch(() => ({}))) as { error?: string };
+  throw new Error(AUTH_ERRORS[error ?? ""] ?? `The server answered ${response.status}, so try again in a moment.`);
+}
+
+// The address last used to sign in on this device, to fill the form next time.
+export async function lastSignInEmail(): Promise<string> {
+  return (await getMeta<string>("auth-email")) ?? "";
+}
+
+// Always answered the same way whether or not the address may sign in, so the
+// caller learns nothing about the allowlist. devCode comes only from a local
+// Worker in dev mode that has no way to send email.
+export async function requestSignInCode(email: string): Promise<{ devCode: string | null }> {
+  const response = await authRequest("/api/auth/request", { email });
+  const { dev_code } = (await response.json().catch(() => ({}))) as { dev_code?: string };
+  return { devCode: dev_code ?? null };
+}
+
+export async function verifySignInCode(email: string, code: string): Promise<void> {
+  const response = await authRequest("/api/auth/verify", { email, code });
+  const { email: signedIn } = (await response.json()) as { email: string };
+  await setMeta("auth-email", signedIn);
+  setState({ expired: false, error: null });
+  // Whatever waited while signed out goes now.
+  scheduleFlush(0);
+  schedulePull(0);
+}
+
+export async function signOut(): Promise<void> {
+  await authRequest("/api/auth/logout");
+  setState({ expired: true });
+}
+
+// Ends every session for this address but this one. The processor signs in
+// with its own token, so it carries on.
+export async function signOutOtherDevices(): Promise<number> {
+  const response = await authRequest("/api/auth/logout-others");
+  const { removed } = (await response.json()) as { removed: number };
+  return removed;
+}
+
+// The address signed in on this device, or null for the processor's token or local tests.
+export async function fetchAccount(): Promise<string | null> {
+  const response = await api("/api/auth/session");
+  const { email } = (await response.json()) as { email: string | null };
+  return email;
 }
 
 export async function clearLocalData(): Promise<void> {

@@ -49,6 +49,7 @@ import { registerListenTests } from "./test_listen";
 import { registerCalendarTests } from "./calendar";
 import { registerRoutingTests } from "./routing";
 import { runUpdateTests } from "./test_update";
+import { registerAuthTests, runAuthHashTests } from "./test_auth";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -69,6 +70,7 @@ registerJobLogicTests(test);
 registerSafetyTests(test);
 registerCalendarTests(test);
 registerRoutingTests(test);
+registerAuthTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);
@@ -1671,6 +1673,7 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
 registerNotesAndReadingsTests(test);
 registerListenTests(test);
 await runUpdateTests();
+failed += await runAuthHashTests();
 
 if (failed) {
 

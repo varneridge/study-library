@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { requireAccess } from "./auth";
-import { accessEmail, connectLink } from "./connect";
+import { authRoutes, requireAuth, type AppEnv } from "./auth";
+import { connectLink } from "./connect";
 import type { Env } from "./env";
 import { bumpFile, completeUpload, redoFile, REDO_STEPS, retryFile, serveObject, startUpload, storeUpload, uploadPart, queueRescan, queueThumbs } from "./files";
 import { retryRecording, storeChunk, transcribeRecording } from "./recordings";
@@ -13,11 +13,15 @@ import { processor } from "./processor";
 import { TABLE_NAMES } from "./schema";
 import { pull, push, type Change } from "./sync";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppEnv>();
 
 app.onError((error, c) => c.json({ error: error.message }, 500));
 
-app.use("/api/*", requireAccess);
+// Every API route needs a session or the processor's service token, except
+// the sign-in routes themselves (auth.ts lists them).
+app.use("/api/*", requireAuth);
+
+app.route("/api/auth", authRoutes);
 
 app.get("/api/ping", (c) => c.json({ ok: true }));
 
@@ -35,9 +39,9 @@ app.get("/api/status", async (c) => {
 });
 
 app.post("/api/connect", async (c) => {
-  const jwt = c.req.header("cf-access-jwt-assertion");
-  const email = accessEmail(jwt);
-  if (!email && (c.env.ALLOW_UNAUTHENTICATED !== "true" || c.req.header("cf-access-client-id") || jwt)) {
+  // The link holds the processor's own credentials, so the processor may not ask for it.
+  const auth = c.get("auth");
+  if (auth.kind !== "person" && auth.kind !== "dev") {
     return c.json({ error: "person_required" }, 403);
   }
   const link = connectLink({

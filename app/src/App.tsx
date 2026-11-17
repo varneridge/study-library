@@ -8,7 +8,7 @@ import { SessionPage } from "./components/SessionPage";
 import { Settings } from "./components/Settings";
 import { WeekPage } from "./components/WeekPage";
 import { href, navigate, useRoute, type Route } from "./lib/router";
-import { flush, pull, startSync, stopSync, subscribeSync } from "./lib/sync";
+import { flush, isSyncExpired, pull, startSync, stopSync, subscribeSync } from "./lib/sync";
 import type { SyncView } from "./lib/syncStatus";
 import { followShellColour, isDesktop } from "./lib/shell";
 import { resumeUploads } from "./lib/uploads";
@@ -27,6 +27,7 @@ import { retryUpload, onUploadProgress, uploadProgress } from "./lib/uploads";
 import { useAppearanceSync, useAccentSync } from "./lib/appearance";
 import { useLiveQuery } from "dexie-react-hooks";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { SignIn } from "./components/SignIn";
 
 // The reader carries pdf.js, the largest part of the app, so it loads when a
 // reading is first opened rather than with the home page.
@@ -175,16 +176,12 @@ function SyncStatus() {
   );
 }
 
-function ExpiredBanner() {
-  const [expired, setExpired] = useState(false);
-  useEffect(() => subscribeSync((s) => setExpired(s.expired)), []);
-  if (!expired) return null;
-  return (
-    <div className="banner" role="status">
-      <span>Your Cloudflare Access session has ended. Edits are kept on this device until you sign in again.</span>
-      <button className="button" onClick={() => location.reload()}>Reload</button>
-    </div>
-  );
+// Whether the server has said this device has no session. Being offline or a
+// server outage never sets it, so the app stays usable from local data then.
+function useSignedOut(): boolean {
+  const [signedOut, setSignedOut] = useState(isSyncExpired);
+  useEffect(() => subscribeSync((s) => setSignedOut(s.expired)), []);
+  return signedOut;
 }
 
 // The modules, always one click away.
@@ -469,6 +466,7 @@ export function App() {
   // The page in front: the active tab's in the desktop window, and otherwise the router's own.
   const route = desktop ? tabs.activeRoute : current;
   const bare = route.view === "reader" || route.view === "essay";
+  const signedOut = useSignedOut();
   useTypingClass();
   useAppearanceSync();
   useAccentSync();
@@ -548,20 +546,22 @@ export function App() {
     ro.observe(bar);
     if (strip) ro.observe(strip);
     return () => ro.disconnect();
-  }, [route.view]);
+    // The bar is drawn again after signing in, so its height is measured again then.
+  }, [route.view, signedOut]);
 
   // Every child keeps its place whatever the view, so a change of page never
   // remounts the top bar, the overlays or the recorder. In the desktop window
   // each tab keeps its own page, hidden rather than unmounted while another
-  // is in front, so that it comes back exactly as it was left.
+  // is in front, so that it comes back exactly as it was left. Signing in
+  // hides the pages in the same way, so nothing open is lost while it shows.
   return (
     <>
-      {!bare && <a className="skip" href="#main">Skip to content</a>}
+      {!bare && !signedOut && <a className="skip" href="#main">Skip to content</a>}
       {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
-      {!bare && <TopBar route={route} />}
+      {!bare && !signedOut && <TopBar route={route} />}
       {!bare && <UpdateBanner />}
-      {!bare && <ExpiredBanner />}
-      <main id="main" tabIndex={bare ? undefined : -1}>
+      {signedOut && <SignIn />}
+      <main id="main" tabIndex={bare ? undefined : -1} hidden={signedOut} style={signedOut ? { display: "none" } : undefined}>
         {desktop
           ? tabs.panes.map((pane) => (
               <div key={pane.id} ref={tabs.paneRef(pane.id)} className="sl-pane" style={pane.active ? undefined : { display: "none" }}>
@@ -570,9 +570,9 @@ export function App() {
             ))
           : <PageSlot route={route} />}
       </main>
-      {!bare && route.view !== "jobs" && <TabBar route={route} />}
+      {!bare && !signedOut && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />
-      {route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && <DropAnywhere route={route} />}
+      {!signedOut && route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>
   );
