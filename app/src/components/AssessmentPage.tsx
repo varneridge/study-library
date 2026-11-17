@@ -1,10 +1,10 @@
-// Assessment & essay: a module's essay studio, laid out for an LSE history student.
-// The workspace has three columns so that the writing stays front and centre: the brief,
-// the essay's own papers and its sources on the left, the essay itself in the centre (the
-// page preview or the plan), and its references and outline on the right. Below 1280px
-// the right column becomes a drawer, and below 900px one pane shows at a time, chosen by
-// tabs. On the module page it is a card under Course materials & assessments, opened like
-// a week.
+﻿// Assessment & essay: a module's essay studio, laid out for an LSE history student.
+// The workspace has three columns so that the writing stays front and centre: the brief
+// with its admin documents, the module readings and the essay's sources on the left, the
+// essay itself in the centre (the page preview or the plan), and its references and
+// contents on the right. Below 1280px the right column becomes a drawer, and below 900px
+// one pane shows at a time, chosen by tabs. On the module page it is a card under Course
+// materials & assessments, opened like a week.
 
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
@@ -24,6 +24,7 @@ import {
   saveModuleAssessment,
   useModuleAssessment,
   type CustomSource,
+  type EssaySource,
 } from "../lib/assessment";
 import { shortDate } from "../lib/dates";
 import { db } from "../lib/db";
@@ -36,37 +37,48 @@ import {
   formatCustomFootnote,
   numberedFootnotes,
   safeExternalUrl,
+  sourceLinkLocator,
+  type SourceLink,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
 import { api, newId } from "../lib/sync";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
-import { clampZoom, stepZoom, ZOOM_STEPS } from "../lib/zoom";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
 import { mimeFor, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
-import { Icon, IconButton } from "./icons";
+import { clampZoom, EssayPdfPreview, EssayPreviewCorner } from "./EssayPreviewCorner";
+import { EssaySourcesPanel, type EssaySourceUpload } from "./EssaySourcesPanel";
+import { Icon } from "./icons";
 import { Menu } from "./Menu";
 import { PageZoomViewport } from "./PageZoomViewport";
 import { Sheet } from "./Sheet";
 import "./AssessmentPage.css";
+import "./EssayWorkspace.css";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
 const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
-// The essay preview zooms through the same steps as the reader, up to twice its size.
-const PREVIEW_MAX_ZOOM = 2;
 // The preview opens a little below full size, so that a whole page width and more of its
 // length fit in the centre column before any zooming.
 const PREVIEW_DEFAULT_ZOOM = 0.9;
+// An A4 page is 210mm wide, which is 794 CSS pixels, and Fit falls back on that width when
+// no page has been drawn yet that it could measure.
+const A4_PAGE_WIDTH_PX = 794;
+// Fit leaves this much room beside the page, so that its shadow and the scroll bar never crowd it.
+const FIT_GUTTER_PX = 48;
 // A reference typed into saves once the typing has paused for this long, as well as on blur.
 const REFERENCE_SAVE_DELAY = 600;
 // How long a sentence or heading reached from the side columns stays highlighted.
 const JUMP_HIGHLIGHT_MS = 3200;
-// Admin documents go up in one request, so they are held under the size that needs parts.
+// Admin documents and uploaded sources go up in one request, so they are held under the
+// size that would need the upload to be sent in parts.
 const ADMIN_DOCUMENT_LIMIT = 50 * 1024 * 1024;
+// Blocks that are neither headings nor prose, which the contents never names as an
+// introduction or a conclusion because an essay does not open or close on them.
+const NON_PROSE_BLOCKS: readonly string[] = ["blockquote", "bullet", "ordered", "page_break"];
 
 // A stored Word file counts as present once it holds more than a bare header.
 const hasDocxBytes = (assessment: object): boolean => {
@@ -78,6 +90,149 @@ const fileSize = (bytes: number): string =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+
+// Reads one field from a stored record whose shape varies by kind, such as the file key an
+// uploaded source carries and a source added by hand lacks, without widening its type.
+const storedField = (value: object, key: string): unknown => (value as { [name: string]: unknown })[key];
+
+const textField = (value: object, key: string): string | undefined => {
+  const field = storedField(value, key);
+  return typeof field === "string" && field ? field : undefined;
+};
+
+// A PDF kept with the essay is read from its stored bytes, so that the preview can draw its
+// true pages, and anything else leaves the preview showing the Word sheet instead.
+const pdfBytesOf = (stored: unknown): Uint8Array | null => {
+  if (stored instanceof Uint8Array) return stored.byteLength ? stored : null;
+  if (stored instanceof ArrayBuffer) return stored.byteLength ? new Uint8Array(stored) : null;
+  return null;
+};
+
+const safeFileName = (name: string): string => name.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Essay";
+
+function downloadBytes(bytes: Uint8Array, name: string, type: string) {
+  // The Blob is given a copy, so that the stored bytes are never detached or shared with it.
+  const url = URL.createObjectURL(new Blob([bytes.slice()], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Prints the drawn pages from a hidden frame that holds only them and the app's styles, so
+// that neither the zoom nor the workspace around the preview ever reaches the PDF.
+function printEssayPages(pages: HTMLElement, title: string): boolean {
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(frame);
+  const view = frame.contentWindow;
+  const sheet = frame.contentDocument;
+  if (!view || !sheet) {
+    frame.remove();
+    return false;
+  }
+  const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+    .map((node) => node.outerHTML)
+    .join("");
+  sheet.open();
+  sheet.write(
+    `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>${styles}` +
+      `<style>@page { size: A4; margin: 0; }</style></head><body class="essay-print-body">${pages.outerHTML}</body></html>`,
+  );
+  sheet.close();
+  let printed = false;
+  const print = () => {
+    if (printed) return;
+    printed = true;
+    view.addEventListener("afterprint", () => frame.remove(), { once: true });
+    view.focus();
+    view.print();
+    // Safari returns from print() at once, so the frame is cleared away only well afterwards.
+    window.setTimeout(() => frame.remove(), 60000);
+  };
+  view.addEventListener("load", print, { once: true });
+  // A written frame may already have fired its load event, so a short wait covers that case.
+  window.setTimeout(print, 1500);
+  return true;
+}
+
+// A file opened inside the essay, together with the page a reference cites when it cites one.
+interface ViewedDocument {
+  title: string;
+  url: string;
+  mime?: string;
+  name?: string;
+  page?: number;
+  locator?: string;
+}
+
+const isPdfDocument = (file: ViewedDocument): boolean =>
+  file.mime === "application/pdf" || /\.pdf$/i.test(file.name ?? file.url);
+
+// One line of the contents, where data-level 0 marks the parts every essay has (its title,
+// introduction, body headings and conclusion) and 1 and 2 mark the subheadings below them.
+interface ContentsEntry {
+  key: string;
+  blockId: string;
+  level: 0 | 1 | 2;
+  text: string;
+}
+
+const blockText = (block: DocxBlock): string =>
+  block.runs.map((run) => (run.type === "text" ? run.text ?? "" : "")).join("").trim();
+
+const headingDepth = (block: DocxBlock): number => (block.type === "heading1" ? 1 : block.type === "heading2" ? 2 : 3);
+
+// Builds the contents from the draft. The first paragraph before any heading stands for the
+// introduction and the last paragraph after every heading for the conclusion, unless the
+// writer has already given either a heading of its own, and headings are levelled from the
+// shallowest one used, so that the body's headings always sit at level 0 beside the title.
+function essayContents(blocks: DocxBlock[], title: string): ContentsEntry[] {
+  const written = blocks
+    .map((block, index) => ({ block, index, text: blockText(block) }))
+    .filter((entry) => entry.text);
+  if (!written.length) return [];
+
+  const heading = written.filter((entry) => entry.block.type.startsWith("heading"));
+  const prose = written.filter(
+    (entry) => !entry.block.type.startsWith("heading") && !NON_PROSE_BLOCKS.includes(entry.block.type),
+  );
+  const essayTitle = title.trim();
+  const body = heading.filter((entry) => entry.text.toLowerCase() !== essayTitle.toLowerCase());
+  const top = body.length ? Math.min(...body.map((entry) => headingDepth(entry.block))) : 1;
+  const firstHeading = body.length ? body[0].index : Number.POSITIVE_INFINITY;
+  const lastHeading = body.length ? body[body.length - 1].index : Number.NEGATIVE_INFINITY;
+
+  const lines: (ContentsEntry & { index: number })[] = [];
+  if (essayTitle) lines.push({ key: "title", blockId: written[0].block.id, level: 0, text: essayTitle, index: -1 });
+
+  const intro = body.some((entry) => /^introduction\b/i.test(entry.text))
+    ? undefined
+    : prose.find((entry) => entry.index < firstHeading);
+  if (intro) lines.push({ key: "introduction", blockId: intro.block.id, level: 0, text: "Introduction", index: intro.index });
+
+  for (const entry of body) {
+    const depth = headingDepth(entry.block) - top;
+    const level = depth <= 0 ? 0 : depth === 1 ? 1 : 2;
+    lines.push({ key: entry.block.id, blockId: entry.block.id, level, text: entry.text, index: entry.index });
+  }
+
+  const closing = body.some((entry) => /^conclusions?\b/i.test(entry.text)) ? undefined : prose[prose.length - 1];
+  if (closing && closing.index > lastHeading && closing.block.id !== intro?.block.id) {
+    lines.push({ key: "conclusion", blockId: closing.block.id, level: 0, text: "Conclusion", index: closing.index });
+  }
+
+  return lines
+    .sort((a, b) => a.index - b.index)
+    .map(({ key, blockId, level, text }) => ({ key, blockId, level, text }));
+}
 
 type SaveState = "saved" | "saving" | "error";
 
@@ -103,9 +258,10 @@ interface ResearchItem {
   customSource?: CustomSource;
 }
 
-// Puts an admin document into storage by the same route as a note's picture, and returns
-// its key. Files are stored by their contents, so the same brief is only ever kept once.
-async function uploadAdminDocument(file: File, mime: string): Promise<string> {
+// Puts an admin document or an uploaded source into storage by the same route as a note's
+// picture, and returns its key. Files are stored by their contents, so the same paper is
+// only ever kept once however many essays use it.
+async function uploadEssayFile(file: File, mime: string): Promise<string> {
   const sha = await sha256(file);
   const response = await api(`/api/files/${sha}`, { method: "PUT", headers: { "content-type": mime }, body: file });
   const { key } = (await response.json()) as { key?: unknown };
@@ -570,6 +726,7 @@ function ReferenceRow({
   readingId,
   onCommit,
   onJump,
+  onDelete,
 }: {
   number: number;
   footnoteId: string;
@@ -578,6 +735,7 @@ function ReferenceRow({
   readingId?: string;
   onCommit: (footnoteId: string, text: string) => void;
   onJump: (target: { blockId: string; footnoteId: string; sentence: string }) => void;
+  onDelete: (footnoteId: string) => void;
 }) {
   const [value, setValue] = useState(text);
   const [showContext, setShowContext] = useState(false);
@@ -682,6 +840,16 @@ function ReferenceRow({
               Open reading &rarr;
             </Link>
           )}
+          {/* A reference is deleted from the main screen as well, together with its marker in the text. */}
+          <button
+            type="button"
+            className="button quiet small essay-ws-ref-delete"
+            aria-label={`Delete footnote ${number}`}
+            title="Delete this reference and its marker in the text"
+            onClick={() => onDelete(footnoteId)}
+          >
+            Delete
+          </button>
         </div>
         {showContext && (
           <div className="essay-ws-ref-context" role="status">
@@ -701,6 +869,74 @@ function ReferenceRow({
         )}
       </div>
     </li>
+  );
+}
+
+// An admin document or an uploaded source, opened inside the essay just as a reading opens
+// in the reader, so that the brief or a cited page can be checked without leaving the draft.
+function DocumentViewer({ file, onClose }: { file: ViewedDocument | null; onClose: () => void }) {
+  return (
+    <Sheet
+      open={file !== null}
+      onClose={onClose}
+      title={file?.title ?? "Document"}
+      subtitle={file?.locator ? `Cited at ${file.locator}` : "Opened from this essay"}
+      className="essay-doc-viewer"
+      footer={
+        <div className="row" style={{ gap: "0.5rem", justifyContent: "flex-end" }}>
+          {file && (
+            <a className="button quiet" href={file.url} target="_blank" rel="noreferrer">
+              Open in a new tab
+            </a>
+          )}
+          <button type="button" className="button primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      }
+    >
+      {file && <ViewerPages key={`${file.url}#${file.page ?? 0}`} file={file} />}
+    </Sheet>
+  );
+}
+
+function ViewerPages({ file }: { file: ViewedDocument }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+  const pdf = isPdfDocument(file) && !failed;
+
+  // The cited page is drawn a moment after the sheet opens, so it is watched for and brought
+  // into view as soon as it appears rather than guessed at with a fixed delay.
+  useEffect(() => {
+    const host = hostRef.current;
+    const page = file.page;
+    if (!host || !pdf || !page || page < 2) return;
+    const reveal = () => {
+      const canvas = host.querySelector<HTMLElement>(`.essay-pdf-page[aria-label^="Page ${page} of "]`);
+      canvas?.scrollIntoView({ block: "start" });
+      return Boolean(canvas);
+    };
+    if (reveal()) return;
+    const observer = new MutationObserver(() => {
+      if (reveal()) observer.disconnect();
+    });
+    observer.observe(host, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [file.page, pdf]);
+
+  return (
+    <div ref={hostRef} className="essay-doc-viewer-body">
+      {pdf ? (
+        <EssayPdfPreview pdfUrl={file.url} onError={() => setFailed(true)}>
+          <p className="small muted">Opening {file.title}, which may take a moment for a long file.</p>
+        </EssayPdfPreview>
+      ) : (
+        <p className="small muted">
+          {failed ? "This PDF could not be drawn here" : "Only PDFs can be shown inside the essay"}, so use Open in a
+          new tab to read it in the browser instead.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -748,6 +984,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [uploadingIds, setUploadingIds] = useState<string[]>([]);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [viewing, setViewing] = useState<ViewedDocument | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const sensors = useDragSensors();
 
@@ -775,6 +1013,30 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     };
   }, [jump]);
 
+  // The state follows the browser, so that leaving full screen with Escape or a gesture
+  // leaves the corner's button showing the right way round.
+  useEffect(() => {
+    const sync = () =>
+      setFullscreen(Boolean(document.fullscreenElement) && document.fullscreenElement === previewRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  // The overlay that stands in for full screen closes with Escape, as the browser's own does.
+  useEffect(() => {
+    if (!fullscreen || document.fullscreenElement) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [fullscreen]);
+
+  // The overlay also closes on its own when the preview gives way to the plan.
+  useEffect(() => {
+    if (centreView !== "preview") setFullscreen(false);
+  }, [centreView]);
+
   const [choosing, setChoosing] = useState(false);
   const [editingTarget, setEditingTarget] = useState(false);
   const [addingCustom, setAddingCustom] = useState(false);
@@ -801,19 +1063,15 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const saveLabel = unsavedTitle
     ? "Unsaved"
     : saveState === "saving"
-      ? "Saving…"
+      ? "Savingâ€¦"
       : saveState === "error"
         ? "Not saved"
         : "Saved";
   const saveStatus = unsavedTitle ? "unsaved" : saveState;
   const adminDocuments = assessment.adminDocuments ?? [];
-
-  const zoomBy = (direction: 1 | -1) => {
-    const next = Math.min(PREVIEW_MAX_ZOOM, clampZoom(stepZoom(zoom, direction)));
-    // At either end there is no further step, so nothing changes.
-    if (direction > 0 ? next <= zoom + 0.001 : next >= zoom - 0.001) return;
-    setZoom(next);
-  };
+  // Read by reference, so that the preview parses the PDF again only when the stored bytes change.
+  const pdfField = storedField(assessment, "pdf");
+  const storedPdf = useMemo(() => pdfBytesOf(pdfField), [pdfField]);
 
   const commitTarget = () => {
     typingTarget.current = false;
@@ -839,6 +1097,63 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       if (!ok) return;
     }
     importer.current?.click();
+  };
+
+  // Fit sizes the page to the width the preview has, measured from a page already drawn so
+  // that the Word sheet and a stored PDF both fit, with A4 as the guess before either shows.
+  const fitPreview = () => {
+    const host = previewRef.current;
+    if (!host) return;
+    const page = host.querySelector<HTMLElement>(".essay-pdf-page, .essay-preview-page");
+    const shown = page?.getBoundingClientRect().width ?? 0;
+    const pageWidth = shown > 0 ? shown / zoom : A4_PAGE_WIDTH_PX;
+    const room = host.clientWidth - FIT_GUTTER_PX;
+    if (room > 0) setZoom(clampZoom(room / pageWidth));
+  };
+
+  const leaveFullscreen = async () => {
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+    setFullscreen(false);
+  };
+
+  // The browser's own full screen is used where it exists, and a fixed overlay stands in
+  // where it does not or is refused, as on an iPhone, so that the button always works.
+  const toggleFullscreen = () => {
+    if (fullscreen) {
+      void leaveFullscreen();
+      return;
+    }
+    const host = previewRef.current;
+    if (host && typeof host.requestFullscreen === "function") {
+      host.requestFullscreen().catch(() => setFullscreen(true));
+    } else {
+      setFullscreen(true);
+    }
+  };
+
+  const exportDocx = () => {
+    downloadDocxFile(assessment.draft, assessment.title);
+    showToast("Word document downloaded.");
+  };
+
+  // A stored PDF downloads as it is, and otherwise the drawn pages go to the print window,
+  // whose Save as PDF option gives the same pages that the preview shows.
+  const exportPdf = () => {
+    const name = safeFileName(assessment.title || `${module.code} essay`);
+    if (storedPdf) {
+      downloadBytes(storedPdf, `${name}.pdf`, "application/pdf");
+      showToast("PDF downloaded.");
+      return;
+    }
+    const sheet = previewRef.current?.querySelector<HTMLElement>(".essay-sheet-container");
+    if (sheet && printEssayPages(sheet, name)) showToast("Choose Save as PDF in the print window to keep a copy.");
+    else showToast("The pages could not be prepared for a PDF, so try again once the preview has drawn.");
+  };
+
+  // A confirmation cannot show over the browser's full screen, so the preview leaves it first.
+  const replaceDocument = async () => {
+    await leaveFullscreen();
+    await handleImportClick();
   };
 
   // Module readings
@@ -886,6 +1201,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return list;
   }, [chosenModuleItems, customSources]);
 
+  // The Readings card lists the module's readings, since sources added by hand or uploaded
+  // are listed and cited in the Sources card instead.
+  const moduleReadingItems = allResearchItems.filter((item) => item.isModule);
+
   const citedIds = useMemo(() => {
     const set = new Set<string>();
     orderedFootnotes.forEach((fn) => {
@@ -902,18 +1221,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return set;
   }, [orderedFootnotes, assessment.draft.footnotes, allResearchItems]);
 
-  // The draft's headings, for the outline in the right column.
-  const outline = useMemo(
-    () =>
-      assessment.draft.blocks
-        .filter((block) => block.type.startsWith("heading"))
-        .map((block) => ({
-          id: block.id,
-          level: block.type === "heading1" ? 1 : block.type === "heading2" ? 2 : 3,
-          text: block.runs.map((run) => (run.type === "text" ? run.text ?? "" : "")).join("").trim(),
-        }))
-        .filter((heading) => heading.text),
-    [assessment.draft.blocks],
+  // The draft's title, introduction, headings and conclusion, for the contents in the right column.
+  const contents = useMemo(
+    () => essayContents(assessment.draft.blocks, assessment.title ?? ""),
+    [assessment.draft.blocks, assessment.title],
   );
 
   const handleSaveFootnote = (fnId: string, newText: string) => {
@@ -924,6 +1235,31 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         footnotes: prev.draft.footnotes.map((f) => (f.id === fnId ? { ...f, text: newText } : f)),
       },
     }));
+  };
+
+  // Deleting a reference removes its footnote and every marker that points at it, so that the
+  // draft never keeps a number in the text with nothing below it.
+  const handleDeleteFootnote = async (fnId: string) => {
+    const ok = await confirmAction({
+      title: "Delete this reference?",
+      body: "The footnote is removed from the draft together with its marker in the text. Save a snapshot first if you may want it back.",
+      confirm: "Delete reference",
+      danger: true,
+    });
+    if (!ok) return;
+    await save((prev) => ({
+      ...prev,
+      draft: {
+        ...prev.draft,
+        blocks: prev.draft.blocks.map((block) =>
+          block.runs.some((run) => run.type === "footnote_ref" && run.footnoteId === fnId)
+            ? { ...block, runs: block.runs.filter((run) => !(run.type === "footnote_ref" && run.footnoteId === fnId)) }
+            : block,
+        ),
+        footnotes: prev.draft.footnotes.filter((f) => f.id !== fnId),
+      },
+    }));
+    showToast("Reference deleted.");
   };
 
   const toggleModuleSource = async (itemId: string) => {
@@ -1062,7 +1398,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       setUploadingIds((ids) => [...ids, ref.id]);
       await save((prev) => ({ ...prev, adminDocuments: [...(prev.adminDocuments ?? []), ref] }));
       try {
-        const r2Key = await uploadAdminDocument(file, ref.mime);
+        const r2Key = await uploadEssayFile(file, ref.mime);
         await save((prev) => ({
           ...prev,
           adminDocuments: (prev.adminDocuments ?? []).map((d) => (d.id === ref.id ? { ...d, r2Key } : d)),
@@ -1093,6 +1429,51 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       adminDocuments: (prev.adminDocuments ?? []).filter((d) => d.id !== doc.id),
     }));
     showToast("Document removed.");
+  };
+
+  // An admin document opens in the document viewer, as a reading opens in the reader, once
+  // its upload has finished and it has a stored file to show.
+  const openAdminDocument = (doc: AttachmentRef) => {
+    if (!doc.r2Key) return;
+    setViewing({ title: doc.name, url: `/api/objects/${doc.r2Key}`, mime: doc.mime, name: doc.name });
+  };
+
+  // Sources uploaded in the Sources card go up by the same route as admin documents, and the
+  // card keeps the returned key on the paper, so that its references can open the file later.
+  const uploadSourceFile = async (file: File): Promise<EssaySourceUpload> => {
+    if (!navigator.onLine) throw new Error("Connect to the internet to upload a source.");
+    if (file.size > ADMIN_DOCUMENT_LIMIT) throw new Error(`${file.name} is over 50 MB, so it cannot be uploaded in one go.`);
+    const r2Key = await uploadEssayFile(file, mimeFor(file) ?? (file.type || "application/octet-stream"));
+    return { r2Key };
+  };
+
+  // A reference opens its source at the page it cites: a stored file opens in the document
+  // viewer, and a source added by hand with a link opens that link in a new tab.
+  const openPassage = (link: SourceLink, source: EssaySource) => {
+    const locator = link.wholeDocument ? undefined : sourceLinkLocator(link) ?? undefined;
+    const r2Key = textField(source, "r2Key");
+    if (r2Key) {
+      const page = link.wholeDocument ? Number.NaN : Number.parseInt(String(link.page ?? ""), 10);
+      setViewing({
+        title: source.title,
+        url: `/api/objects/${r2Key}`,
+        mime: textField(source, "mime"),
+        name: textField(source, "name"),
+        page: Number.isFinite(page) ? page : undefined,
+        locator,
+      });
+      return;
+    }
+    const url = safeExternalUrl(textField(source, "url"));
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    showToast(
+      locator
+        ? `This source has no file or link to open, so check ${locator} in your own copy.`
+        : "This source has no file or link to open, so check it in your own copy.",
+    );
   };
 
   const saveSnapshot = async () => {
@@ -1156,22 +1537,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
   return (
     <div className="page wide essay-page essay-ws-page">
-      <div className="crumbs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> Essay
-        </div>
-        <Menu
-          label="Essay actions"
-          items={[
-            {
-              label: "Delete essay",
-              danger: true,
-              onSelect: () => void handleDeleteAssessment(),
-            },
-          ]}
-        />
-      </div>
-
       <div className="section-head essay-head essay-ws-head">
         <input
           className="title-input essay-title-input"
@@ -1196,6 +1561,17 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             color: "var(--ink)",
           }}
         />
+        {/* The breadcrumb row is gone, so the way back to the module lives in this menu beside the title. */}
+        <span className="essay-ws-head-menu">
+          <Menu
+            label="Essay actions"
+            items={[
+              { label: `Back to ${module.code || "the module"}`, onSelect: () => navigate({ view: "module", id: module.id }) },
+              { label: "Open word processor", onSelect: () => navigate(wordProcessorRoute) },
+              { label: "Delete essay", danger: true, onSelect: () => void handleDeleteAssessment() },
+            ]}
+          />
+        </span>
         <span className="spacer" />
         <span className="save-status" data-status={saveStatus} role="status" aria-live="polite">
           <span className="save-status-dot" aria-hidden="true" />
@@ -1329,68 +1705,65 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 />
                 {due && assessment.dueDate ? <span className="muted small essay-due-words">{due.words}</span> : null}
               </div>
-            </section>
 
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-admin-head">
-              <div className="essay-ws-card-head">
-                <h2 id="essay-admin-head" className="essay-ws-card-title">Admin documents</h2>
-                <button type="button" className="button quiet small" onClick={() => adminInput.current?.click()}>
-                  Add
-                </button>
-              </div>
-              {adminDocuments.length === 0 ? (
-                <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
-              ) : (
-                <ul className="essay-ws-docs">
-                  {adminDocuments.map((doc) => (
-                    <li key={doc.id}>
-                      {doc.r2Key ? (
-                        <a
-                          className="essay-ws-doc-name"
-                          href={`/api/objects/${doc.r2Key}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={`Open ${doc.name}`}
+              {/* Admin documents belong to the brief, so they are folded into its card. */}
+              <div className="essay-ws-brief-docs">
+                <div className="essay-ws-card-head">
+                  <h3 id="essay-admin-head" className="essay-ws-brief-subhead">Admin documents</h3>
+                  <button type="button" className="button quiet small" onClick={() => adminInput.current?.click()}>
+                    Add
+                  </button>
+                </div>
+                {adminDocuments.length === 0 ? (
+                  <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
+                ) : (
+                  <ul className="essay-ws-docs" aria-labelledby="essay-admin-head">
+                    {adminDocuments.map((doc) => (
+                      <li key={doc.id}>
+                        {doc.r2Key ? (
+                          <button
+                            type="button"
+                            className="essay-ws-doc-name"
+                            title={`Open ${doc.name}`}
+                            onClick={() => openAdminDocument(doc)}
+                          >
+                            {doc.name}
+                          </button>
+                        ) : (
+                          <span className="essay-ws-doc-name">{doc.name}</span>
+                        )}
+                        <span className="small muted">
+                          {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                        </span>
+                        <button
+                          type="button"
+                          className="button quiet small"
+                          aria-label={`Remove ${doc.name}`}
+                          onClick={() => void removeAdminDocument(doc)}
                         >
-                          {doc.name}
-                        </a>
-                      ) : (
-                        <span className="essay-ws-doc-name">{doc.name}</span>
-                      )}
-                      <span className="small muted">
-                        {doc.r2Key ? fileSize(doc.size) : uploadingIds.includes(doc.id) ? "Uploading…" : "Upload interrupted"}
-                      </span>
-                      <button
-                        type="button"
-                        className="button quiet small"
-                        aria-label={`Remove ${doc.name}`}
-                        onClick={() => void removeAdminDocument(doc)}
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </section>
 
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-sources-head">
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-readings-head">
               <div className="essay-ws-card-head">
-                <h2 id="essay-sources-head" className="essay-ws-card-title">Sources</h2>
+                <h2 id="essay-readings-head" className="essay-ws-card-title">Readings</h2>
                 <button type="button" className="button quiet small" onClick={() => setChoosing(true)}>
-                  Readings
-                </button>
-                <button type="button" className="button quiet small" onClick={() => setAddingCustom(true)}>
-                  Add
+                  Choose
                 </button>
               </div>
-              {allResearchItems.length === 0 ? (
-                <p className="small muted">Choose readings from this module or add external sources.</p>
+              {moduleReadingItems.length === 0 ? (
+                <p className="small muted">Choose readings from this module, so that they can be dragged into References and cited.</p>
               ) : (
                 <>
-                  <p className="small muted">Drag a source into References to cite it, or use + Cite.</p>
+                  <p className="small muted">Drag a reading into References to cite it, or use + Cite.</p>
                   <ul className="essay-ws-sources">
-                    {allResearchItems.map((item) => (
+                    {moduleReadingItems.map((item) => (
                       <SourceRow
                         key={item.id}
                         item={item}
@@ -1403,6 +1776,17 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 </>
               )}
             </section>
+
+            <EssaySourcesPanel
+              moduleId={module.id}
+              moduleCode={module.code}
+              essayId={essayId}
+              uploadFile={uploadSourceFile}
+              onOpenPassage={openPassage}
+            />
+            <button type="button" className="button quiet small essay-ws-add-source" onClick={() => setAddingCustom(true)}>
+              Add a source by hand
+            </button>
           </DropZone>
 
           {/* Centre: the essay itself */}
@@ -1438,42 +1822,30 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 id="essay-centre-preview"
                 role="tabpanel"
                 aria-labelledby="essay-view-preview"
-                className="essay-ws-preview"
+                className={`essay-ws-preview${fullscreen ? " is-fullscreen" : ""}`}
                 ref={previewRef}
               >
-                <div className="essay-ws-preview-bar">
-                  <div className="essay-zoom-controls" role="group" aria-label="Zoom">
-                    <IconButton icon="zoomOut" label="Zoom out" disabled={zoom <= ZOOM_STEPS[0] + 0.001} onClick={() => zoomBy(-1)} />
-                    <button
-                      type="button"
-                      className="essay-zoom-percent"
-                      title="Reset zoom to 100%"
-                      aria-label={`Zoom ${Math.round(zoom * 100)} per cent. Reset to 100 per cent`}
-                      onClick={() => setZoom(1)}
-                    >
-                      {Math.round(zoom * 100)}%
-                    </button>
-                    <IconButton icon="zoomIn" label="Zoom in" disabled={zoom >= PREVIEW_MAX_ZOOM - 0.001} onClick={() => zoomBy(1)} />
-                  </div>
-                  <div className="row essay-preview-actions">
-                    <button
-                      type="button"
-                      className="button small"
-                      onClick={() => {
-                        downloadDocxFile(assessment.draft, assessment.title);
-                        showToast("Word document downloaded.");
-                      }}
-                    >
-                      Export .docx
-                    </button>
-                    <button type="button" className="button quiet small" onClick={() => void handleImportClick()}>
-                      {hasContent ? "Replace Word document" : "Import Word document"}
-                    </button>
-                  </div>
-                </div>
-                <PageZoomViewport zoom={zoom} label="Essay preview">
-                  <EssayDocumentSheet doc={assessment.draft} jump={jump} />
-                </PageZoomViewport>
+                <EssayPreviewCorner
+                  zoom={zoom}
+                  onZoomChange={setZoom}
+                  onFit={fitPreview}
+                  fullscreen={fullscreen}
+                  onToggleFullscreen={toggleFullscreen}
+                  onExportDocx={exportDocx}
+                  onExportPdf={exportPdf}
+                  onReplace={() => void replaceDocument()}
+                  disabled={!hasContent && !storedPdf}
+                />
+                {/* A stored PDF is drawn page for page, and without one the Word sheet shows as before. */}
+                <EssayPdfPreview
+                  pdfBytes={storedPdf}
+                  zoom={zoom}
+                  onError={(err) => console.error("Drawing the essay PDF failed", err)}
+                >
+                  <PageZoomViewport zoom={zoom} label="Essay preview">
+                    <EssayDocumentSheet doc={assessment.draft} jump={jump} />
+                  </PageZoomViewport>
+                </EssayPdfPreview>
               </div>
             ) : (
               <div id="essay-centre-plan" role="tabpanel" aria-labelledby="essay-view-plan" className="essay-plan">
@@ -1491,8 +1863,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             )}
           </DropZone>
 
-          {/* Right column: references and outline, a drawer below 1280px */}
-          <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and outline">
+          {/* Right column: references and contents, a drawer below 1280px */}
+          <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and contents">
             <DropZone list="references" className="essay-panel essay-ws-card essay-ws-refs">
               <div className="essay-ws-card-head">
                 <h2 className="essay-ws-card-title">References ({orderedFootnotes.length})</h2>
@@ -1529,6 +1901,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                         readingId={linked?.moduleItem ? linked.id : undefined}
                         onCommit={handleSaveFootnote}
                         onJump={jumpTo}
+                        onDelete={(fnId) => void handleDeleteFootnote(fnId)}
                       />
                     );
                   })}
@@ -1536,16 +1909,18 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               )}
             </DropZone>
 
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-outline-head">
-              <h2 id="essay-outline-head" className="essay-ws-card-title">Outline</h2>
-              {outline.length === 0 ? (
-                <p className="small muted">Headings in the draft appear here, so that you can move between its sections.</p>
+            <section className="essay-panel essay-ws-card" aria-labelledby="essay-contents-head">
+              <h2 id="essay-contents-head" className="essay-ws-card-title">Contents</h2>
+              {contents.length === 0 ? (
+                <p className="small muted">
+                  The title, introduction, headings and conclusion of the draft appear here, so that you can move between its parts.
+                </p>
               ) : (
-                <ul className="essay-ws-outline">
-                  {outline.map((heading) => (
-                    <li key={heading.id}>
-                      <button type="button" data-level={heading.level} onClick={() => jumpTo({ blockId: heading.id })}>
-                        {heading.text}
+                <ul className="essay-ws-outline essay-ws-contents">
+                  {contents.map((entry) => (
+                    <li key={entry.key}>
+                      <button type="button" data-level={entry.level} onClick={() => jumpTo({ blockId: entry.blockId })}>
+                        {entry.text}
                       </button>
                     </li>
                   ))}
@@ -1559,6 +1934,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           {draggedItem ? <div className="essay-ws-drag-chip">{draggedItem.title}</div> : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Admin documents and uploaded sources, opened inside the essay */}
+      <DocumentViewer file={viewing} onClose={() => setViewing(null)} />
 
       {/* Revision snapshots */}
       <Sheet
