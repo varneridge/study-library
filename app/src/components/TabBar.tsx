@@ -78,10 +78,14 @@ function writeStore(state: TabState): void {
   }
 }
 
-// The tab beside the one in front, wrapping round at either end, for Ctrl+Tab and Ctrl+Shift+Tab.
+// The non-pinned tab beside the one in front, skipping Home so Ctrl+Tab and
+// Ctrl+Shift+Tab cycle only through open pages; Home is still reached by click.
 function neighbour(state: TabState, step: 1 | -1): string {
-  const index = state.tabs.findIndex((tab) => tab.id === state.activeId);
-  return state.tabs[(index + step + state.tabs.length) % state.tabs.length].id;
+  const pool = state.tabs.filter((tab) => !tab.pinned);
+  if (!pool.length) return state.activeId;
+  const index = pool.findIndex((tab) => tab.id === state.activeId);
+  if (index === -1) return pool[step > 0 ? 0 : pool.length - 1].id;
+  return pool[(index + step + pool.length) % pool.length].id;
 }
 
 export function useDesktopTabs(route: Route, enabled: boolean) {
