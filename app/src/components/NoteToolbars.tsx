@@ -1,12 +1,12 @@
 // The floating toolbar that appears over selected text, shaped like Word's
-// mini toolbar, and the block handle beside each paragraph, with BlockNote's
-// "+" button taken away so the handle only drags. Works with BlockNote 0.44
-// to 0.57: every API used here has the same shape in both.
+// mini toolbar. Notes have no block handle beside each paragraph, because
+// lines are arranged by typing rather than by dragging. Works with BlockNote
+// 0.44 to 0.57: every API used here has the same shape in both.
 
 import {
-  BasicTextStyleButton, BlockTypeSelect, blockTypeSelectItems, ColorStyleButton, CreateLinkButton, DragHandleButton,
-  FormattingToolbar, SideMenu, useBlockNoteEditor, useComponentsContext, useSelectedBlocks,
-  type BlockTypeSelectItem, type SideMenuProps,
+  BasicTextStyleButton, BlockTypeSelect, blockTypeSelectItems, ColorStyleButton, CreateLinkButton,
+  FormattingToolbar, useBlockNoteEditor, useComponentsContext, useSelectedBlocks,
+  type BlockTypeSelectItem,
 } from "@blocknote/react";
 import { useMemo } from "react";
 import { typeSelectItems, type NoteVariant } from "../lib/noteRules";
@@ -106,12 +106,19 @@ export function NotesFormattingToolbar({ variant }: { variant: NoteVariant }) {
   );
 }
 
-// The block handle without BlockNote's "+" button: drag to move a paragraph,
-// click for its menu. New lines come from Enter, or "/" for a block type.
-export function DragOnlySideMenu(props: SideMenuProps) {
-  return (
-    <SideMenu {...props}>
-      <DragHandleButton {...props} />
-    </SideMenu>
-  );
+// BlockNote mounts whatever component it is given as the toolbar, so a new
+// function on every render of the editor remounted the toolbar each time,
+// which replayed its entrance animation and made it flash while selecting.
+// One component per variant, made once, keeps it mounted.
+const toolbars = new Map<NoteVariant, () => React.ReactElement>();
+
+export function formattingToolbarFor(variant: NoteVariant): () => React.ReactElement {
+  let toolbar = toolbars.get(variant);
+  if (!toolbar) {
+    toolbar = function VariantFormattingToolbar() {
+      return <NotesFormattingToolbar variant={variant} />;
+    };
+    toolbars.set(variant, toolbar);
+  }
+  return toolbar;
 }

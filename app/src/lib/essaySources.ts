@@ -109,3 +109,282 @@ export function findCitationContext(doc: DocxDocument, ref: string | number): { 
   }
   return null;
 }
+
+// The three groups an essay's sources fall into. Course readings and reading found
+// outside the course are both secondary, but are kept apart so that the essay's
+// own research can be seen at a glance against what the module set.
+export type EssaySourceCategory = "primary" | "secondary_course" | "secondary_outside";
+
+export const ESSAY_SOURCE_CATEGORIES: readonly EssaySourceCategory[] = ["primary", "secondary_course", "secondary_outside"];
+
+export const ESSAY_SOURCE_CATEGORY_LABEL: Record<EssaySourceCategory, string> = {
+  primary: "Primary",
+  secondary_course: "Secondary (course)",
+  secondary_outside: "Secondary (outside)",
+};
+
+export function isEssaySourceCategory(value: unknown): value is EssaySourceCategory {
+  return value === "primary" || value === "secondary_course" || value === "secondary_outside";
+}
+
+// Reads a stored kind as one of the three groups. The older plain "secondary" kind
+// predates the split and only ever meant course reading, so it becomes
+// "secondary_course"; anything unrecognised takes the fallback instead.
+export function normaliseSourceCategory(
+  raw: unknown,
+  fallback: EssaySourceCategory = "secondary_course",
+): EssaySourceCategory {
+  if (isEssaySourceCategory(raw)) return raw;
+  if (raw === "secondary") return "secondary_course";
+  return fallback;
+}
+
+export interface SourceGroup<T> {
+  category: EssaySourceCategory;
+  label: string;
+  sources: T[];
+}
+
+function defaultCategoryOf(source: { kind?: unknown }): EssaySourceCategory {
+  return normaliseSourceCategory(source.kind);
+}
+
+// Sorts sources into Primary, Secondary (course) and Secondary (outside), always
+// in that order and always with all three groups, so a list does not jump about as
+// a group empties. Each group keeps the order the sources were given in.
+export function groupSourcesByCategory<T extends { kind?: unknown }>(
+  sources: readonly T[],
+  categoryOf: (source: T) => EssaySourceCategory = defaultCategoryOf,
+): SourceGroup<T>[] {
+  const buckets = new Map<EssaySourceCategory, T[]>(ESSAY_SOURCE_CATEGORIES.map((c) => [c, []]));
+  for (const source of sources) buckets.get(categoryOf(source))?.push(source);
+  return ESSAY_SOURCE_CATEGORIES.map((category) => ({
+    category,
+    label: ESSAY_SOURCE_CATEGORY_LABEL[category],
+    sources: buckets.get(category) ?? [],
+  }));
+}
+
+// The fields a search looks through, loose enough for custom sources, uploaded
+// papers and reading list items alike.
+export interface SearchableSourceFields {
+  title?: string | null;
+  name?: string | null;
+  author?: string | null;
+  year?: string | number | null;
+  publisher?: string | null;
+  notes?: string | null;
+  kind?: unknown;
+}
+
+export interface SourceFilter {
+  query?: string | null;
+  category?: EssaySourceCategory | "all" | null;
+}
+
+// Lower case with accents removed, so that "Bronte" finds "Bront\u00eb".
+function foldForSearch(value: string): string {
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+export function sourceSearchText(source: SearchableSourceFields): string {
+  return foldForSearch(
+    [source.title, source.name, source.author, source.year, source.publisher, source.notes]
+      .map((part) => (part === null || part === undefined ? "" : String(part).trim()))
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+// Keeps the sources in the chosen group whose text holds every word of the query,
+// in any order, which narrows a list of twenty or thirty sources without needing
+// the exact title. An empty query and no group returns every source, in order.
+export function filterSources<T extends SearchableSourceFields>(
+  sources: readonly T[],
+  filter: SourceFilter = {},
+  categoryOf: (source: T) => EssaySourceCategory = defaultCategoryOf,
+): T[] {
+  const words = foldForSearch(filter.query ?? "").split(/\s+/).filter(Boolean);
+  const category = filter.category && filter.category !== "all" ? filter.category : null;
+  return sources.filter((source) => {
+    if (category && categoryOf(source) !== category) return false;
+    if (!words.length) return true;
+    const text = sourceSearchText(source);
+    return words.every((word) => text.includes(word));
+  });
+}
+
+// A reference from the essay to a source. It points at a passage by default, by
+// page, passage, highlight or quotation, and only covers the whole work when
+// wholeDocument is set. The label and footnote text are the writer's own wording,
+// held beside the link so that renaming them never loses the source or passage.
+export interface SourceLink {
+  id: string;
+  sourceId: string;
+  page?: string;
+  passage?: string;
+  highlightId?: string;
+  quote?: string;
+  wholeDocument?: boolean;
+  footnoteId?: string;
+  label?: string;
+  footnoteText?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const LINK_TEXT_FIELDS = ["page", "passage", "highlightId", "quote", "footnoteId", "label", "footnoteText", "created_at", "updated_at"] as const;
+
+function cleanText(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+// Reads a stored link, so that a malformed one synced from another device is
+// dropped rather than shown as a reference to nothing. A page stored as a number
+// is kept as text, and wholeDocument is only kept when it is actually true.
+export function normaliseSourceLink(raw: unknown): SourceLink | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const id = cleanText(obj.id);
+  const sourceId = cleanText(obj.sourceId);
+  if (!id || !sourceId) return null;
+  const link: SourceLink = { id, sourceId };
+  for (const field of LINK_TEXT_FIELDS) {
+    const value = cleanText(obj[field]);
+    if (value !== undefined) link[field] = value;
+  }
+  if (obj.wholeDocument === true) link.wholeDocument = true;
+  return link;
+}
+
+// Reads a stored list of links, keeping the first of any that share an id.
+export function normaliseSourceLinks(raw: unknown): SourceLink[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const links: SourceLink[] = [];
+  for (const entry of raw) {
+    const link = normaliseSourceLink(entry);
+    if (!link || seen.has(link.id)) continue;
+    seen.add(link.id);
+    links.push(link);
+  }
+  return links;
+}
+
+export type SourceLinkInput = Omit<SourceLink, "created_at" | "updated_at">;
+
+// Makes a new link stamped with the time, throwing when it lacks an id or a source
+// because a reference to nothing would only fail later, somewhere harder to trace.
+export function createSourceLink(input: SourceLinkInput, now: string = new Date().toISOString()): SourceLink {
+  const link = normaliseSourceLink({ ...input, created_at: now, updated_at: now });
+  if (!link) throw new Error("A source link needs an id and a source id.");
+  return link;
+}
+
+// The locator a footnote cites, such as "p. 12" or "pp. 12-14". A page already
+// written with its own "p." is left alone, a passage stands in when there is no
+// page, and a link to the whole work has no locator at all.
+export function sourceLinkLocator(link: Pick<SourceLink, "page" | "passage" | "wholeDocument">): string | null {
+  if (link.wholeDocument) return null;
+  const page = link.page?.trim();
+  if (page) {
+    if (/^pp?\.?\s/i.test(page)) return page;
+    return /[-,\u2013]/.test(page) ? `pp. ${page}` : `p. ${page}`;
+  }
+  return link.passage?.trim() || null;
+}
+
+export interface ResolvedSourceLink<T> {
+  link: SourceLink;
+  source: T | null;
+  missing: boolean;
+  locator: string | null;
+  label: string;
+  footnoteText: string;
+}
+
+// The source a link points to, with the label and footnote text to show. The
+// writer's own wording wins; otherwise both are drawn from the source and its
+// locator. A link whose source has been deleted is still returned, marked missing,
+// so that the reference can be shown and repaired rather than silently vanish.
+export function resolveSourceLink<T extends { id: string } & ExternalSourceFields>(
+  link: SourceLink,
+  sources: readonly T[],
+  formatNote: (source: T, locator: string | null) => string = formatCustomFootnote,
+): ResolvedSourceLink<T> {
+  const source = sources.find((s) => s.id === link.sourceId) ?? null;
+  const locator = sourceLinkLocator(link);
+  const title = source?.title.trim() || "Missing source";
+  const defaultLabel = locator ? `${title}, ${locator}` : title;
+  return {
+    link,
+    source,
+    missing: source === null,
+    locator,
+    label: link.label?.trim() || defaultLabel,
+    footnoteText: link.footnoteText?.trim() || (source ? formatNote(source, locator) : ""),
+  };
+}
+
+// The parts of a link that can change after it is made. Its id and source are left
+// out on purpose, so that no edit can detach a link from what it cites. An empty
+// string or null clears a field, which returns a label or footnote to its default.
+export type SourceLinkPatch = {
+  [K in Exclude<keyof SourceLink, "id" | "sourceId" | "created_at" | "updated_at">]?: SourceLink[K] | null;
+};
+
+// Applies a patch to one link and returns a new list. Turning wholeDocument on
+// keeps the page and passage, so turning it off again restores them. The same list
+// comes back when no link has that id, so a caller can tell nothing changed.
+export function updateSourceLink(
+  links: SourceLink[],
+  id: string,
+  patch: SourceLinkPatch,
+  now: string = new Date().toISOString(),
+): SourceLink[] {
+  const index = links.findIndex((link) => link.id === id);
+  if (index < 0) return links;
+  const next: Record<string, unknown> = { ...links[index] };
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === "id" || key === "sourceId" || key === "created_at" || key === "updated_at" || value === undefined) continue;
+    if (value === null || value === false || (typeof value === "string" && !value.trim())) delete next[key];
+    else next[key] = value;
+  }
+  next.updated_at = now;
+  const updated = normaliseSourceLink(next);
+  if (!updated) return links;
+  const copy = links.slice();
+  copy[index] = updated;
+  return copy;
+}
+
+// Renames a link's label, and optionally its footnote text, without touching the
+// source or passage it points at.
+export function renameSourceLink(
+  links: SourceLink[],
+  id: string,
+  label: string | null,
+  footnoteText?: string | null,
+  now?: string,
+): SourceLink[] {
+  const patch: SourceLinkPatch = footnoteText === undefined ? { label } : { label, footnoteText };
+  return updateSourceLink(links, id, patch, now);
+}
+
+// Each of these returns the same list when nothing matches, for the same reason.
+export function removeSourceLink(links: SourceLink[], id: string): SourceLink[] {
+  const next = links.filter((link) => link.id !== id);
+  return next.length === links.length ? links : next;
+}
+
+export function removeLinksForSource(links: SourceLink[], sourceId: string): SourceLink[] {
+  const next = links.filter((link) => link.sourceId !== sourceId);
+  return next.length === links.length ? links : next;
+}
+
+export function linksForSource(links: readonly SourceLink[], sourceId: string): SourceLink[] {
+  return links.filter((link) => link.sourceId === sourceId);
+}

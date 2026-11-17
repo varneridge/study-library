@@ -1,4 +1,4 @@
-/* Word-style floating toolbar, calm document typography and smooth handles */
+/* Word-style floating toolbar and calm document typography. Notes have no block handle, so no side menu styles remain. */
 
 .note-editor .bn-toolbar.bn-formatting-toolbar {
   display: flex;
@@ -105,24 +105,6 @@
 .note-editor .bn-toggle-button[aria-expanded="false"] + .bn-toggle-slot,
 .note-editor .bn-toggle-wrapper[data-show-children="false"] {
   color: var(--muted);
-}
-
-.note-editor .bn-side-menu {
-  transition: opacity var(--dur-2) var(--ease-settle);
-}
-
-.note-editor .bn-side-menu [data-test="dragHandleAdd"] {
-  display: none !important;
-}
-
-.note-editor .bn-side-menu [data-test="dragHandle"] {
-  cursor: grab;
-  color: var(--faint);
-  border-radius: var(--r-xs);
-}
-
-.note-editor .bn-side-menu [data-test="dragHandle"]:active {
-  cursor: grabbing;
 }
 
 .note-editor .prosemirror-dropcursor-block {

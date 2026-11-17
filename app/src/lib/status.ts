@@ -5,11 +5,32 @@
 import { useEffect, useState } from "react";
 import { api } from "./sync";
 
+// One job the processor has waiting, running or failed, as Settings lists it.
+export interface StatusJob {
+  id: number;
+  kind: string;
+  status: "queued" | "running" | "failed";
+  targetId: string | null;
+  label: string | null;
+  attempts: number;
+  error: string | null;
+}
+
 export interface ProcessorStatus {
   seenAt: Date | null;
   queued: number;
   running: number;
   failed: number;
+  jobs: StatusJob[];
+}
+
+interface StatusBody {
+  processor_seen: number | null;
+  queued: number;
+  running: number;
+  failed: number;
+  // Absent from a Worker deployed before the list, which then reads as empty.
+  jobs?: { id: number; kind: string; status: StatusJob["status"]; target_id: string | null; label: string | null; attempts: number; error: string | null }[];
 }
 
 // The processor asks every ten seconds when idle, and reports in every five
@@ -24,10 +45,14 @@ let timer: ReturnType<typeof setInterval> | null = null;
 async function check(): Promise<void> {
   if (!navigator.onLine || document.visibilityState !== "visible") return;
   try {
-    const body = (await (await api("/api/status")).json()) as { processor_seen: number | null; queued: number; running: number; failed: number };
+    const body = (await (await api("/api/status")).json()) as StatusBody;
     latest = {
       seenAt: body.processor_seen ? new Date(body.processor_seen * 1000) : null,
       queued: body.queued, running: body.running, failed: body.failed,
+      jobs: (body.jobs ?? []).map((job) => ({
+        id: job.id, kind: job.kind, status: job.status, targetId: job.target_id,
+        label: job.label, attempts: job.attempts, error: job.error,
+      })),
     };
     listeners.forEach((listener) => listener(latest));
   } catch {

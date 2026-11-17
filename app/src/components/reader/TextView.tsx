@@ -7,8 +7,18 @@ import { mergeRects } from "./pages";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
-import { caretAt, fingerDown, SETTLE_NOW, settleDelay, whenLifted } from "../../lib/selection";
+import { caretAt, pressing, pressInside, SETTLE_NOW, settleDelay, whenReleased } from "../../lib/selection";
+import { selectionKey, usableRect } from "../../lib/highlightSelect";
 import { paragraphStartFor } from "../../lib/listen/script";
+
+// The selection bar the reader shows over a selection.
+const SELECTION_BAR = "[data-selection-bar]";
+
+// The last line box of a range, which is where the selection ends on screen.
+function lastLineRect(range: Range): DOMRect | undefined {
+  if (typeof range.getClientRects !== "function") return undefined;
+  return Array.from(range.getClientRects()).reverse().find((r) => usableRect(r));
+}
 
 export interface TextSelection { page: number; rects: number[][]; text: string; x: number; y: number }
 
@@ -471,34 +481,69 @@ export function TextView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Selecting text offers the highlight colours, as on the pages.
+  // Selecting text offers the highlight colours, as on the pages. The handler
+  // is read through a ref, so a new onSelect from each render of the reader
+  // (which happens on every scroll) does not tear the listeners down and
+  // throw away a selection that was about to settle.
+  const onSelectLatest = useRef(onSelect);
+  onSelectLatest.current = onSelect;
+  // The key of the selection last reported, "" for none, or null when it is
+  // not known, as after a press that may have dismissed the bar elsewhere.
+  const reported = useRef<string | null>("");
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const check = () => {
-      // A selection is not finished while a finger is still on the screen.
-      if (fingerDown()) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const report = (s: TextSelection | null) => {
+      const key = s ? selectionKey(s) : "";
+      if (key === reported.current) return;
+      reported.current = key;
+      onSelectLatest.current(s);
+    };
+    const check = (forced = false) => {
+      // A selection is not finished while a finger or button is still down.
+      if (pressing()) return;
+      // A press on the selection bar is the reader reaching for a button, and
+      // any change it makes to the selection is the bar's own doing, so it
+      // neither hides the bar nor moves it.
+      if (!forced && pressInside(SELECTION_BAR)) return;
       const sel = document.getSelection();
-      if (!sel || sel.isCollapsed || !sel.rangeCount || !root.current?.contains(sel.anchorNode)) return onSelect(null);
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !root.current?.contains(sel.anchorNode)) return report(null);
       const range = sel.getRangeAt(0);
       const a = offsetAt(range.startContainer, range.startOffset);
       const b = offsetAt(range.endContainer, range.endOffset);
-      if (!a) return onSelect(null);
+      if (!a) return report(null);
       const page = pageById.get(a.page);
-      if (!page) return onSelect(null);
+      if (!page) return report(null);
       // A highlight belongs to one page: a selection over a page turn stops there.
       const end = b && b.page === a.page ? b.at : page.text.length;
       const rects = rectsFor(page, a.at, end);
-      if (!rects.length) return onSelect(null);
-      const box = range.getBoundingClientRect();
-      onSelect({ page: a.page, rects: mergeRects(rects), text: sel.toString().replace(/\s+/g, " ").trim(), x: box.right, y: box.bottom });
+      if (!rects.length) return report(null);
+      // Text that is not laid out yet has no box on screen. Waiting for the
+      // next change keeps the bar where it is rather than sending it to a corner.
+      const whole = range.getBoundingClientRect();
+      const box = usableRect(whole) ? whole : lastLineRect(range);
+      if (!box) return;
+      report({ page: a.page, rects: mergeRects(rects), text: sel.toString().replace(/\s+/g, " ").trim(), x: box.right, y: box.bottom });
     };
-    const onChange = () => { clearTimeout(timer); timer = setTimeout(check, settleDelay()); };
-    const off = whenLifted(() => { clearTimeout(timer); timer = setTimeout(check, 150); });
-    const now = () => { clearTimeout(timer); check(); };
+    const later = (ms: number) => { clearTimeout(timer); timer = setTimeout(check, ms); };
+    const onChange = () => later(settleDelay());
+    const off = whenReleased(() => later(150));
+    const now = () => { clearTimeout(timer); check(true); };
+    // A press anywhere but the bar may dismiss it, so the next selection is
+    // reported even when it matches the last one.
+    const forget = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest(SELECTION_BAR))) reported.current = null;
+    };
     document.addEventListener("selectionchange", onChange);
     document.addEventListener(SETTLE_NOW, now);
-    return () => { clearTimeout(timer); off(); document.removeEventListener("selectionchange", onChange); document.removeEventListener(SETTLE_NOW, now); };
-  }, [onSelect, pageById]);
+    document.addEventListener("pointerdown", forget, true);
+    return () => {
+      clearTimeout(timer);
+      off();
+      document.removeEventListener("selectionchange", onChange);
+      document.removeEventListener(SETTLE_NOW, now);
+      document.removeEventListener("pointerdown", forget, true);
+    };
+  }, [pageById]);
 
   // The current match in Find is brought into view.
   useEffect(() => {

@@ -2,7 +2,7 @@ import { db } from "../lib/db";
 import { deleteSessionAsking } from "../lib/edits";
 import { addSlides, SLIDES_ACCEPT } from "../lib/importing";
 import { byPosition } from "../lib/keys";
-import { byWeek, SESSION_KINDS, titleAfter } from "../lib/modules";
+import { byWeek, SESSION_KINDS } from "../lib/modules";
 import { update } from "../lib/sync";
 import type { SessionRow, WeekRow } from "../lib/types";
 import { NotesLoading } from "./ErrorBoundary";
@@ -167,12 +167,10 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
 
   return (
     <div className="page wide session-page">
-      <div className="crumbs week-crumbs">
-        <div className="crumbs-path">
-          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span>{" "}
-          <Link to={{ view: "week", id: week.id }}>{weekCode(week)}{titleAfter(week)}</Link>
-          <WeekWhen week={week} />
-        </div>
+      {/* The tab and Back already say where the session sits, so the line above
+          the title keeps only when its week runs and the sessions either side. */}
+      <div className="week-crumbs page-topline">
+        <WeekWhen week={week} />
         {(nav.previous || nav.next) && (
           <nav className="week-nav week-nav-top" aria-label="Other sessions">
             {nav.previous ? (
@@ -207,26 +205,30 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
         )}
       </div>
       <div className="section-head" style={{ alignItems: "center", flexWrap: "wrap" }}>
-        {renaming ? (
-          <TitleEdit
-            value={session.title ?? ""}
-            label="Session name"
-            placeholder={sessionLabel(session.kind)}
-            onSave={(next) => saveName(next)}
-            onCancel={() => setRenaming(false)}
-          />
-        ) : (
-          <h1
-            className="editable"
-            tabIndex={0}
-            title="Click to rename this session"
-            onClick={() => setRenaming(true)}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRenaming(true); } }}
-          >
-            {label}
-          </h1>
-        )}
-        <span className="spacer" />
+        {/* The session's own actions sit beside its title, which they act upon,
+            and recording and adding stay at the far end. */}
+        <div className="page-title-group">
+          {renaming ? (
+            <TitleEdit
+              value={session.title ?? ""}
+              label="Session name"
+              placeholder={sessionLabel(session.kind)}
+              onSave={(next) => saveName(next)}
+              onCancel={() => setRenaming(false)}
+            />
+          ) : (
+            <h1
+              className="editable"
+              tabIndex={0}
+              title="Click to rename this session"
+              onClick={() => setRenaming(true)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRenaming(true); } }}
+            >
+              {label}
+            </h1>
+          )}
+          <Menu label={`More actions for this ${label.toLowerCase()}`} items={sessionMenu} />
+        </div>
         {recorder.recording ? (
           <>
             <span className={`rec-dot${recorder.paused ? " paused" : ""}`} aria-hidden="true" />
@@ -255,7 +257,6 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
             { label: "Add a Moodle transcript", onSelect: () => transcriptPicker.current?.click() },
           ]}
         />
-        <Menu label={`More actions for this ${label.toLowerCase()}`} items={sessionMenu} />
         <input
           ref={slidesPicker} type="file" multiple hidden accept={SLIDES_ACCEPT}
           onChange={async (e) => {

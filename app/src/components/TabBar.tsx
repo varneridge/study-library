@@ -1,4 +1,4 @@
-// The desktop window's tabs, in the manner of Zotero's: Home is pinned on the
+﻿// The desktop window's tabs, in the manner of Zotero's: Home is pinned on the
 // left and cannot be closed, anything else opens beside it, and the five most
 // recently shown stay mounted, so a reading or a long page keeps its place.
 // The strip is the window's top row, and in the frameless window it carries
@@ -6,18 +6,22 @@
 // with the empty stretch between them dragging the window.
 // The rules live in lib/tabs as plain data, and this file joins them to the
 // router, the keyboard and the mouse, keeping every link to the app inside the
-// window rather than letting Edge open a tab or window of its own. None of it
-// runs outside the desktop window.
+// window rather than letting Edge open a tab or window of its own. Back and
+// Forward sit at the left of the strip, as Edge puts them beside its address
+// bar, because the frameless window has no browser toolbar to carry them. None
+// of it runs outside the desktop window.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
+import { sessionLabel, weekCode } from "../lib/modules";
 import { confirmLeave, href, navigate, routeOf, type Route } from "../lib/router";
 import { isFrameless, TAB_HIDDEN_EVENT, windowControls } from "../lib/shell";
 import {
-  activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs,
+  activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs, tabLabel,
   type Tab, type TabState,
 } from "../lib/tabs";
+import type { SessionRow, WeekRow } from "../lib/types";
 import { Icon } from "./icons";
 import "./TabBar.css";
 
@@ -250,7 +254,8 @@ function field(row: unknown, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-async function lookUp(table: string, id: string): Promise<unknown> {
+async function lookUp(table: string, id: string | null): Promise<unknown> {
+  if (!id) return undefined;
   try {
     return await db.table(table).get(id);
   } catch {
@@ -258,14 +263,39 @@ async function lookUp(table: string, id: string): Promise<unknown> {
   }
 }
 
+// The short name the week's own page uses for it, such as "Week 3" or a
+// section's name, so that a tab and the page it shows agree.
+function placeOf(week: unknown): string | null {
+  if (!week || typeof week !== "object") return null;
+  try {
+    return weekCode(week as WeekRow) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function codeOf(week: unknown): Promise<string | null> {
+  return field(await lookUp("modules", field(week, "module_id")), "code");
+}
+
 async function nameFor(route: Route): Promise<string | null> {
   switch (route.view) {
     case "reader":
       return field(await lookUp("items", route.id), "title");
-    case "week":
-      return field(await lookUp("weeks", route.id), "title");
-    case "session":
-      return field(await lookUp("sessions", route.id), "title");
+    case "week": {
+      const week = await lookUp("weeks", route.id);
+      return tabLabel(await codeOf(week), placeOf(week)) ?? field(week, "title");
+    }
+    case "session": {
+      // A session is named within its week, as "HY335 (Week 3 Seminar)", so
+      // that it never reads the same as the tab of the week it belongs to.
+      const session = await lookUp("sessions", route.id);
+      const week = await lookUp("weeks", field(session, "week_id"));
+      const kind = field(session, "kind");
+      const name = field(session, "title") ?? (kind ? sessionLabel(kind as SessionRow["kind"]) : null);
+      const place = [placeOf(week), name].filter(Boolean).join(" ");
+      return tabLabel(await codeOf(week), place);
+    }
     case "module":
     case "assessment":
     case "essay": {
@@ -347,6 +377,63 @@ function Glyph({ shape }: { shape: "minimise" | "maximise" | "restore" | "close"
   );
 }
 
+// Edge's own arrows are a shaft with an open head, drawn at a hairline weight
+// to sit with the caption glyphs rather than with the page's heavier icons.
+function Arrow({ direction }: { direction: "back" | "forward" }) {
+  const path = direction === "back" ? "M13 8H3.5M7.5 3.5L3 8l4.5 4.5" : "M3 8h9.5M8.5 3.5L13 8l-4.5 4.5";
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+type NavigationLike = {
+  canGoBack: boolean;
+  canGoForward: boolean;
+  addEventListener(type: "currententrychange", listener: () => void): void;
+  removeEventListener(type: "currententrychange", listener: () => void): void;
+};
+
+// Whether there is anywhere to step back or forward to. Edge's Navigation API
+// says so and announces every change of entry, so the arrows grey out as the
+// browser's do; anywhere without it the arrows simply stay available, because
+// a step past either end of the history does nothing harmful.
+function useHistorySteps(): { back: boolean; forward: boolean } {
+  const navigation = (window as unknown as { navigation?: NavigationLike }).navigation;
+  const [steps, setSteps] = useState(() => ({
+    back: navigation ? navigation.canGoBack : true,
+    forward: navigation ? navigation.canGoForward : true,
+  }));
+  useEffect(() => {
+    if (!navigation) return;
+    const update = () => setSteps({ back: navigation.canGoBack, forward: navigation.canGoForward });
+    update();
+    navigation.addEventListener("currententrychange", update);
+    return () => navigation.removeEventListener("currententrychange", update);
+  }, [navigation]);
+  return steps;
+}
+
+// Back and Forward walk the window's own history, so the router's guard, its
+// remembered scroll positions and the tab in front all follow exactly as they
+// do for Alt+Left and Alt+Right.
+function HistoryButtons() {
+  const steps = useHistorySteps();
+  return (
+    <div className="sl-history" role="group" aria-label="History">
+      <button type="button" className="sl-history-button" aria-label="Back" title="Back (Alt+Left arrow)"
+        disabled={!steps.back} onClick={() => window.history.back()}>
+        <Arrow direction="back" />
+      </button>
+      <button type="button" className="sl-history-button" aria-label="Forward" title="Forward (Alt+Right arrow)"
+        disabled={!steps.forward} onClick={() => window.history.forward()}>
+        <Arrow direction="forward" />
+      </button>
+    </div>
+  );
+}
+
 // Minimise, maximise and close for the frameless window. Closing asks the page
 // in front first, as closing its tab does, so that unsaved work is not lost.
 function WindowControls({ maximised, onToggle }: { maximised: boolean; onToggle: () => void }) {
@@ -423,6 +510,7 @@ export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: T
   };
   return (
     <div className={`sl-tabs${frameless ? " is-frameless" : ""}`}>
+      <HistoryButtons />
       <div className="sl-tabs-list" role="tablist" aria-label="Open tabs" ref={list}>
         {tabs.map((tab, index) => (
           <TabItem

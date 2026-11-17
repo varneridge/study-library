@@ -22,17 +22,69 @@ app.use("/api/*", requireAccess);
 
 app.get("/api/ping", (c) => c.json({ ok: true }));
 
-// When the processor last asked for work, and how much is waiting for it.
+// The jobs Settings lists, at most this many: running first, then queued in
+// turn, then the latest failures. SELECT * keeps the status answering whichever
+// optional columns this database has, since one unknown column would fail the
+// whole batch, and a payload is a small JSON object, so thirty stay cheap to read.
+const STATUS_JOB_LIMIT = 30;
+
+interface StatusJob {
+  id: number;
+  kind: string;
+  status: string;
+  target_id: string | null;
+  label: string | null;
+  attempts: number;
+  error: string | null;
+}
+
+function statusJob(row: Record<string, unknown>): StatusJob {
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = typeof row.payload === "string" ? JSON.parse(row.payload) : null;
+    if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+  } catch {
+    // A payload that is not JSON still lists its job, only without a target.
+  }
+  const targetKey = Object.keys(payload).find(
+    (key) => key.endsWith("_id") && (typeof payload[key] === "string" || typeof payload[key] === "number"),
+  );
+  const label = [payload.label, payload.title, payload.name].find((v): v is string => typeof v === "string" && v.length > 0);
+  return {
+    id: Number(row.id ?? row.job_rowid),
+    kind: typeof row.type === "string" && row.type ? row.type : "job",
+    status: String(row.status),
+    target_id: targetKey ? String(payload[targetKey]) : null,
+    label: label ? label.slice(0, 120) : null,
+    attempts: Number(row.attempts) || 0,
+    error: typeof row.error === "string" && row.error ? row.error.slice(0, 300) : null,
+  };
+}
+
+// When the processor last asked for work, how much is waiting for it, and the
+// jobs themselves. Clients from before the list simply ignore the extra field.
 app.get("/api/status", async (c) => {
-  const [seen, jobs] = await c.env.DB.batch([
+  const [seen, jobs, list] = await c.env.DB.batch([
     c.env.DB.prepare("SELECT value FROM counters WHERE name = 'processor_seen'"),
     c.env.DB.prepare(
       `SELECT SUM(status = 'queued') AS queued, SUM(status = 'running') AS running, SUM(status = 'failed') AS failed FROM jobs`,
     ),
+    c.env.DB.prepare(
+      `SELECT rowid AS job_rowid, * FROM jobs WHERE status IN ('running', 'queued', 'failed')
+       ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                CASE WHEN status = 'failed' THEN -rowid ELSE rowid END
+       LIMIT ?1`,
+    ).bind(STATUS_JOB_LIMIT),
   ]);
   const row = (jobs.results?.[0] ?? {}) as { queued?: number | null; running?: number | null; failed?: number | null };
   const value = (seen.results?.[0] as { value?: number } | undefined)?.value ?? null;
-  return c.json({ processor_seen: value, queued: row.queued ?? 0, running: row.running ?? 0, failed: row.failed ?? 0 });
+  return c.json({
+    processor_seen: value,
+    queued: row.queued ?? 0,
+    running: row.running ?? 0,
+    failed: row.failed ?? 0,
+    jobs: ((list.results ?? []) as Record<string, unknown>[]).map(statusJob),
+  });
 });
 
 app.post("/api/connect", async (c) => {

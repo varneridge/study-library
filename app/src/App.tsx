@@ -198,25 +198,46 @@ function ExpiredBanner() {
   );
 }
 
+// The screen drawn as a line glyph, at the weight of the bar's other icons,
+// so that the button reads as handing the page to a computer.
+function DesktopGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.5 3h11a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM6 14h4M8 11.5V14"
+        fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // In a browser, the page in view can be handed to the desktop app, or the app
-// downloaded by anyone who does not have it yet. It sits among the tools, so
-// on a phone, where the desktop app is of no use, it goes with them.
+// downloaded by anyone who does not have it yet. It is the one filled button
+// in the bar, as Word's Share is, because it is the only thing there that
+// takes you somewhere outside the app. It sits among the tools, so on a
+// phone, where the desktop app is of no use, it goes with them.
 function OpenOnDesktop({ route }: { route: Route }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useMenuDismiss(open, close, ref);
   return (
-    <span className="menu" ref={ref}>
-      <button type="button" className="topbar-btn" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((v) => !v)}>
-        Open on desktop
+    <span className="menu open-desktop" ref={ref}>
+      <button
+        type="button"
+        className="topbar-btn open-desktop-btn"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <DesktopGlyph />
+        <span>Open on desktop</span>
+        <span className="open-desktop-chevron" aria-hidden="true"><Icon name="down" size={14} /></span>
       </button>
       {open && (
-        <div className="menu-panel" role="menu" aria-label="Open on desktop" style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-          <a role="menuitem" className="button" style={{ textDecoration: "none" }} href={openInDesktopHref(href(route))} onClick={close}>
-            Open in Study Library
+        <div className="menu-panel open-desktop-panel" role="menu" aria-label="Open on desktop">
+          <a role="menuitem" className="menu-link" href={openInDesktopHref(href(route))} onClick={close}>
+            Open in desktop
           </a>
-          <a role="menuitem" className="button" style={{ textDecoration: "none" }} href={INSTALLER_DOWNLOAD_URL} download={INSTALLER_FILE_NAME} onClick={close}>
+          <a role="menuitem" className="menu-link" href={INSTALLER_DOWNLOAD_URL} download={INSTALLER_FILE_NAME} onClick={close}>
             Download desktop app
           </a>
         </div>
@@ -308,7 +329,7 @@ const SCROLL_PANES = ".scroller, .pane-body, .session-notes, .sheet-dialog";
 
 function useTypingClass() {
   useEffect(() => {
-    const editable = (el: EventTarget | null) => {
+    const editable = (el: EventTarget | null): el is HTMLElement => {
       if (!(el instanceof HTMLElement)) return false;
       if (el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return true;
       return el.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "file", "range"].includes((el as HTMLInputElement).type);
@@ -339,37 +360,53 @@ function useTypingClass() {
         if (performance.now() < settleUntil) return;
         const active = document.activeElement;
         if (!editable(active)) return;
+        const coarse = window.matchMedia("(pointer: coarse)").matches;
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-        // A caret inside the field is used when it has a real box; an input's
-        // caret, or a collapsed range on an empty line, reports none, so the
-        // field's own box stands in for it.
         let rect: DOMRect | null = range && active!.contains(range.startContainer) ? range.getBoundingClientRect() : null;
-        if (!rect || (rect.width === 0 && rect.height === 0)) rect = active!.getBoundingClientRect();
-        const overflow = rect.bottom - (viewport.offsetTop + viewport.height - KEYBOARD_CLEARANCE);
-        if (overflow <= 0) return;
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+          if (active!.isContentEditable && range && active!.contains(range.startContainer)) {
+            const lineEl = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+            rect = lineEl ? lineEl.getBoundingClientRect() : null;
+          } else {
+            rect = active!.getBoundingClientRect();
+          }
+        }
+        if (!rect || (rect.width === 0 && rect.height === 0)) return;
+        const topLimit = viewport.offsetTop;
+        const bottomLimit = viewport.offsetTop + viewport.height - (coarse ? KEYBOARD_CLEARANCE : 0);
+        const delta = rect.bottom > bottomLimit ? rect.bottom - bottomLimit : rect.top < topLimit ? rect.top - topLimit : 0;
+        if (delta === 0) return;
         const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
         const pane = scrollParent(range && active!.contains(range.startContainer) ? range.startContainer : active);
-        const paneHasRoom = pane !== null && pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1;
-        if (paneHasRoom) pane.scrollBy({ top: overflow, behavior });
-        else window.scrollBy({ top: overflow, behavior });
+        const paneHasRoom = pane !== null && (delta > 0 ? pane.scrollTop + pane.clientHeight < pane.scrollHeight - 1 : pane.scrollTop > 0);
+        if (paneHasRoom) pane.scrollBy({ top: delta, behavior });
+        else window.scrollBy({ top: delta, behavior });
         settleUntil = performance.now() + 350;
       });
     };
-    const onSelection = () => ensureVisible();
+    const onSelection = () => {
+      if (window.matchMedia("(pointer: coarse)").matches) ensureVisible();
+    };
 
-    // The viewport and selection are only watched while typing, so ordinary
-    // reading and scrolling pay nothing for this.
+    // On touch devices, watch viewport resize/scroll and selection moves for the
+    // on-screen keyboard; on desktop, only pan on actual typing (input) and only
+    // by the minimum needed if the caret goes off-screen.
     let watching = false;
     const watch = (yes: boolean) => {
       if (yes === watching) return;
       watching = yes;
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
       if (yes) {
         viewport?.addEventListener("resize", ensureVisible);
-        viewport?.addEventListener("scroll", ensureVisible);
-        document.addEventListener("selectionchange", onSelection);
+        document.addEventListener("input", ensureVisible, true);
+        if (coarse) {
+          viewport?.addEventListener("scroll", ensureVisible);
+          document.addEventListener("selectionchange", onSelection);
+        }
       } else {
         viewport?.removeEventListener("resize", ensureVisible);
+        document.removeEventListener("input", ensureVisible, true);
         viewport?.removeEventListener("scroll", ensureVisible);
         document.removeEventListener("selectionchange", onSelection);
         cancelAnimationFrame(frame);
@@ -389,7 +426,7 @@ function useTypingClass() {
       if (!editable(e.target)) return;
       root.classList.add("typing");
       watch(true);
-      ensureVisible();
+      if (window.matchMedia("(pointer: coarse)").matches) ensureVisible();
       clearInterval(timer);
       timer = setInterval(() => { check(); if (!root.classList.contains("typing")) clearInterval(timer); }, 500);
     };
@@ -444,7 +481,9 @@ function TopBar({ route }: { route: Route }) {
         </div>
       )}
       {/* A direct child of the bar rather than one of the tools, so it stays
-          in view on a phone, where the tab bar takes over the tools. */}
+          in view on a phone, where the tab bar takes over the tools. On a wider
+          screen TabBar.css orders the switch, the sync indicator and the tools
+          into one group on the right, leaving the phone's own order alone. */}
       <SyncStatus />
       <SideSwitch side={side} />
       <nav className="topbar-tools" aria-label="Tools">

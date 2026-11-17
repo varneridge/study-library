@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { usableRect } from "../../lib/highlightSelect";
 
 export interface SelectionBarColour {
   value: string;
@@ -74,6 +75,16 @@ const BAR_STYLE: CSSProperties = {
   color: "var(--text, CanvasText)",
   boxShadow: "0 4px 16px rgb(0 0 0 / 0.2)",
   font: "inherit",
+  // A narrow screen wraps the buttons rather than pushing the bar off its edge.
+  flexWrap: "wrap",
+  maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
+  boxSizing: "border-box",
+  // The bar's own labels must never become the selection, by a double click
+  // or a long press, or the selection it acts on would be lost.
+  userSelect: "none",
+  WebkitUserSelect: "none",
+  WebkitTouchCallout: "none",
+  touchAction: "manipulation",
 };
 
 const BUTTON_STYLE: CSSProperties = {
@@ -102,28 +113,83 @@ function dot(colour: string, size: string): CSSProperties {
   };
 }
 
+// The last line box of the live selection, which follows the text as it
+// scrolls, where the anchor passed in is fixed at the moment of selecting.
+function liveSelectionEdges(): Edges | null {
+  const sel = typeof document !== "undefined" ? document.getSelection() : null;
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (typeof range.getClientRects !== "function") return null;
+  const tail = Array.from(range.getClientRects()).reverse().find((r) => usableRect(r));
+  return tail ? { left: tail.left, top: tail.top, right: tail.right, bottom: tail.bottom } : null;
+}
+
+// Whether a press landed on an element's own scroll bar, which scrolls the
+// text rather than leaving the selection.
+function onScrollBar(e: PointerEvent, el: Element): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const box = el.getBoundingClientRect();
+  const pastRight = el.scrollHeight > el.clientHeight && e.clientX >= box.left + el.clientLeft + el.clientWidth;
+  const pastBottom = el.scrollWidth > el.clientWidth && e.clientY >= box.top + el.clientTop + el.clientHeight;
+  return pastRight || pastBottom;
+}
+
 export function SelectionBar({ anchor, colours, current, onHighlight, onComment, onCopy, onDismiss }: SelectionBarProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  // While the selection is scrolled out of sight the bar is hidden, rather
+  // than left clamped to the edge of the screen pointing at nothing.
+  const [offscreen, setOffscreen] = useState(false);
+  // The last usable edges to place against. A missing rectangle, all zeros,
+  // never replaces them, so the bar cannot jump to the corner of the screen.
+  const edges = useRef<Edges | null>(null);
+
+  const place = useCallback(() => {
+    const el = ref.current;
+    const at = edges.current;
+    if (!el || !at) return;
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    const next = placeSelectionBar(at, { width: el.offsetWidth, height: el.offsetHeight }, viewport, coarse);
+    setOffscreen(at.bottom < 0 || at.top > viewport.height);
+    // An unchanged place keeps the same state, so nothing re-renders.
+    setPosition((was) => (was && Math.abs(was.left - next.left) < 0.5 && Math.abs(was.top - next.top) < 0.5 ? was : next));
+  }, []);
 
   // Placement needs the bar's own size, so it is measured before paint and the
   // bar stays hidden until then to avoid a flash at the wrong place.
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-    setPosition(
-      placeSelectionBar(
-        { left: anchor.left, top: anchor.top, right: anchor.right, bottom: anchor.bottom },
-        { width: el.offsetWidth, height: el.offsetHeight },
-        { width: window.innerWidth, height: window.innerHeight },
-        coarse,
-      ),
-    );
-  }, [anchor.left, anchor.top, anchor.right, anchor.bottom, colours.length]);
+    const at = { left: anchor.left, top: anchor.top, right: anchor.right, bottom: anchor.bottom };
+    if (usableRect(at)) edges.current = at;
+    place();
+  }, [anchor.left, anchor.top, anchor.right, anchor.bottom, colours.length, current, place]);
+
+  // Scrolling or resizing moves the selection, so the bar follows it, once a
+  // frame at most, instead of staying where the selection used to be.
+  useEffect(() => {
+    let frame = 0;
+    const follow = () => {
+      frame = 0;
+      const live = liveSelectionEdges();
+      if (live) edges.current = live;
+      place();
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(follow);
+    };
+    const options = { capture: true, passive: true } as const;
+    window.addEventListener("scroll", schedule, options);
+    window.addEventListener("resize", schedule, options);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule, options);
+      window.removeEventListener("resize", schedule, options);
+    };
+  }, [place]);
 
   // A press anywhere outside the bar dismisses it, except on the text layer,
-  // where it starts a new selection that the reader will handle itself.
+  // where it starts a new selection that the reader will handle itself, and
+  // on a scroll bar, which only moves the text the selection is in.
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
   useEffect(() => {
@@ -132,6 +198,7 @@ export function SelectionBar({ anchor, colours, current, onHighlight, onComment,
       if (!(target instanceof Element)) return;
       if (ref.current?.contains(target)) return;
       if (target.closest(".textLayer")) return;
+      if (onScrollBar(e, target)) return;
       dismissRef.current();
     };
     document.addEventListener("pointerdown", onDown, true);
@@ -145,7 +212,7 @@ export function SelectionBar({ anchor, colours, current, onHighlight, onComment,
       className="selection-bar"
       role="toolbar"
       aria-label="Highlight selection"
-      style={{ ...BAR_STYLE, left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? "visible" : "hidden" }}
+      style={{ ...BAR_STYLE, left: position?.left ?? 0, top: position?.top ?? 0, visibility: position && !offscreen ? "visible" : "hidden" }}
       // Keeping the mouse press from moving focus is what preserves the
       // selection while the reader reaches for a button.
       onMouseDown={(e) => e.preventDefault()}

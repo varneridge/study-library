@@ -8,7 +8,7 @@ import { filterSuggestionItems } from "@blocknote/core/extensions";
 import { en } from "@blocknote/core/locales";
 import {
   createReactBlockSpec, FormattingToolbarController, getDefaultReactSlashMenuItems,
-  SideMenuController, SuggestionMenuController, useCreateBlockNote,
+  SuggestionMenuController, useCreateBlockNote,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { db } from "../lib/db";
@@ -33,7 +33,7 @@ import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetK
 import { href, navigate } from "../lib/router";
 import { fullTitle, shortTitle } from "../lib/titles";
 import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib/types";
-import { DragOnlySideMenu, NotesFormattingToolbar } from "./NoteToolbars";
+import { formattingToolbarFor } from "./NoteToolbars";
 
 // Inside a reading's own notes, a quotation's page link moves the reader to
 // the passage instead of opening the reading again.
@@ -660,8 +660,8 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
         formattingToolbar={false}
         sideMenu={false}
       >
-        <FormattingToolbarController formattingToolbar={() => <NotesFormattingToolbar variant={variant} />} />
-        <SideMenuController sideMenu={DragOnlySideMenu} />
+        {/* No side menu is mounted, so no note has a block handle to drag. */}
+        <FormattingToolbarController formattingToolbar={formattingToolbarFor(variant)} />
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) =>

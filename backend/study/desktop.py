@@ -16,7 +16,9 @@ foreground and exits, for a terminal.
 --connect LINK is what the studylibrary:// link handler runs for "Connect this
 computer": it checks the three credentials in the link against STUDY_URL and
 only then saves them to the .env in the home folder, which the supervisor
-notices and restarts its children for.
+notices and restarts its children for. A studylibrary://open?path=... link,
+given there or on its own, opens the app at that path instead, or hands the
+path to the window that is already open, which comes to the front and goes there.
 
 Everything lives under %LOCALAPPDATA%\\StudyLibrary, or $STUDY_HOME:
   repo\\               a git checkout that follows origin/production
@@ -41,6 +43,8 @@ import logging.handlers
 import os
 import re
 import secrets
+import socket
+import socketserver
 import subprocess
 import sys
 import tempfile
@@ -122,6 +126,49 @@ TITLE_BAR_WAIT_SECONDS = 10.0
 # the attributes are set a second time after this pause.
 TITLE_BAR_REPAINT_SECONDS = 1.5
 EDGE_WINDOW_CLASS = "Chrome_WidgetWin_1"
+# Win32 styles, messages and hit-test codes for the frameless window, which
+# keeps the styles of a framed one so that Aero Snap, resizing, the system
+# menu and the taskbar all treat it as a normal window.
+GWL_STYLE = -16
+GWLP_WNDPROC = -4
+WS_THICKFRAME = 0x00040000
+WS_MINIMIZEBOX = 0x00020000
+WS_MAXIMIZEBOX = 0x00010000
+WS_SYSMENU = 0x00080000
+NATIVE_FRAME_STYLES = WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU
+WM_GETMINMAXINFO = 0x0024
+WM_STYLECHANGING = 0x007C
+WM_NCDESTROY = 0x0082
+WM_NCCALCSIZE = 0x0083
+WM_NCHITTEST = 0x0084
+MONITOR_DEFAULTTONEAREST = 0x00000002
+SWP_FRAME_ONLY = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020  # NOSIZE, NOMOVE, NOZORDER, NOACTIVATE, FRAMECHANGED
+SW_RESTORE = 9
+SM_CXSIZEFRAME = 32
+SM_CXPADDEDBORDER = 92
+HTNOWHERE = 0
+HTCLIENT = 1
+HTLEFT = 10
+HTRIGHT = 11
+HTTOP = 12
+HTTOPLEFT = 13
+HTTOPRIGHT = 14
+HTBOTTOM = 15
+HTBOTTOMLEFT = 16
+HTBOTTOMRIGHT = 17
+# The window procedure of each frameless window, kept here because Windows
+# holds only its address, and a callback that Python collects would crash it.
+_FRAME_HOOKS: dict[int, Any] = {}
+# One frameless window per Windows user listens for the open links that later
+# launches hand it, at the port and secret it writes to this file in the home folder.
+WINDOW_MUTEX_NAME = "Local\\StudyLibraryWindowMutex"
+WINDOW_FILE = "window.json"
+LINK_TIMEOUT_SECONDS = 5
+LINK_MESSAGE_LIMIT = 8192
+OPEN_PATH_LIMIT = 2048
+# Characters that keep their meaning in an app path, so that its query and
+# fragment survive, whereas everything else, "%" included, is percent-encoded.
+_OPEN_PATH_SAFE = "/?#&=:@!$'()*+,;~"
 
 
 def default_home() -> Path:
@@ -196,7 +243,7 @@ def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> di
     if (home / "tessdata").is_dir():
         env["TESSDATA_PREFIX"] = str(home / "tessdata")
     # Tools print UTF-8; without this Windows decodes their output as cp1252,
-    # which has no character for some bytes of names such as "ÅÃ³dÅº".
+    # which has no character for some bytes of names such as "Łódź".
     env["PYTHONUTF8"] = "1"
     # backend/ only, which holds both study and tts. The packaged build has no
     # repository root to import "backend" from, so putting the root here as
@@ -267,6 +314,36 @@ def parse_connect_link(link: str) -> dict[str, str]:
     return {key: found[key] for key in CONNECT_KEYS}
 
 
+def safe_app_path(path: str) -> str:
+    """The path as an address within the app, percent-encoded so that it can
+    follow STUDY_URL's host as it is, or "/" for anything that could leave the
+    app or confuse its router: no leading "/", a "//" or "\\" that a browser
+    reads as another host, a ".." segment, a control character, or more than
+    OPEN_PATH_LIMIT characters."""
+    if (not isinstance(path, str) or not path.startswith("/") or path.startswith("//") or "\\" in path
+            or len(path) > OPEN_PATH_LIMIT or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path)
+            or ".." in urllib.parse.urlsplit(path).path.split("/")):
+        return "/"
+    return urllib.parse.quote(path, safe=_OPEN_PATH_SAFE)
+
+
+_APP_LINK = re.compile(rf"{CONNECT_SCHEME}:(?://)?([^?#]*)(.*)", re.IGNORECASE | re.DOTALL)
+
+
+def parse_open_link(link: str) -> str | None:
+    """The app path that a studylibrary://open?path=... link asks for, or None
+    when the link is not an open link at all, so that the caller can treat it
+    as a connect link instead. A missing, repeated or unsafe path opens the
+    app's home page, "/", rather than refusing the link."""
+    match = _APP_LINK.fullmatch(link.strip())
+    if not match or match.group(1).strip("/") != "open":
+        return None
+    rest = match.group(2)
+    paths = [value for key, value in urllib.parse.parse_qsl(rest[1:] if rest.startswith("?") else "",
+                                                            keep_blank_values=True) if key == "path"]
+    return safe_app_path(paths[0]) if len(paths) == 1 else "/"
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Cloudflare Access answers an unknown token with a redirect to its login
     page, and following it would carry the headers somewhere else."""
@@ -324,7 +401,7 @@ def merge_env_text(text: str, values: Mapping[str, str]) -> str:
 
 
 def _write_atomic(path: Path, text: str) -> None:
-    handle, name = tempfile.mkstemp(dir=path.parent, prefix=".env.", suffix=".tmp")
+    handle, name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as out:
             out.write(text)
@@ -372,6 +449,20 @@ def desktop_url(url: str, frameless: bool = False) -> str:
     tabs and keeps the window's title bar the colour of its own background,
     and, in the frameless window, draws the window controls beside the tabs."""
     return _with_query(url, FRAMELESS_HINT if frameless else SHELL_HINT)
+
+
+def open_url(url: str, path: str) -> str:
+    """STUDY_URL with its path replaced by an app path from safe_app_path, or
+    STUDY_URL itself for the home page, so that a plain launch opens exactly
+    the address it always has."""
+    return url if path == "/" else urllib.parse.urljoin(url, path)
+
+
+def app_address(url: str, path: str, env: Mapping[str, str], frameless: bool) -> str:
+    """The address a desktop window opens for an app path, carrying the
+    connect hint while this computer is not connected and the mark for the
+    kind of window, ahead of any fragment the path has."""
+    return desktop_url(window_url(open_url(url, path), env), frameless=frameless)
 
 
 def _notify(text: str, error: bool = False) -> None:
@@ -947,19 +1038,282 @@ class WindowApi:
         return bool(webbrowser.open(url))
 
 
+def point_from_lparam(lparam: int) -> tuple[int, int]:
+    """The screen point in a mouse message's lParam, read as GET_X_LPARAM and
+    GET_Y_LPARAM read it, so that a monitor to the left of or above the
+    primary one gives negative coordinates rather than large positive ones."""
+    x, y = lparam & 0xFFFF, (lparam >> 16) & 0xFFFF
+    return x - 0x10000 if x & 0x8000 else x, y - 0x10000 if y & 0x8000 else y
+
+
+def inset_rect(rect: tuple[int, int, int, int], border: int) -> tuple[int, int, int, int]:
+    left, top, right, bottom = rect
+    return left + border, top + border, right - border, bottom - border
+
+
+def maximised_bounds(work: tuple[int, int, int, int], monitor: tuple[int, int, int, int],
+                     border: int) -> tuple[int, int, int, int]:
+    """MINMAXINFO's ptMaxPosition and ptMaxSize, as (x, y, width, height)
+    relative to the monitor, for a window whose maximised page fills the
+    monitor's work area exactly. The window reaches past the work area by the
+    resize border on every side, as a framed window does, because
+    WM_NCCALCSIZE takes that border back off a maximised window, so the page
+    never covers the taskbar and loses no pixels at the screen's edges."""
+    left, top, right, bottom = work
+    return (left - monitor[0] - border, top - monitor[1] - border,
+            right - left + 2 * border, bottom - top + 2 * border)
+
+
+def hit_test(x: int, y: int, rect: tuple[int, int, int, int], border: int, zoomed: bool) -> int:
+    """The WM_NCHITTEST answer for a screen point: an edge or corner within
+    the resize border of a window that is not maximised, since a maximised
+    window cannot be resized from its edges, and otherwise HTCLIENT, so that
+    the page receives the mouse as it always has."""
+    left, top, right, bottom = rect
+    if not (left <= x < right and top <= y < bottom):
+        return HTNOWHERE
+    if zoomed:
+        return HTCLIENT
+    column = 0 if x < left + border else 2 if x >= right - border else 1
+    row = 0 if y < top + border else 2 if y >= bottom - border else 1
+    return ((HTTOPLEFT, HTTOP, HTTOPRIGHT), (HTLEFT, HTCLIENT, HTRIGHT),
+            (HTBOTTOMLEFT, HTBOTTOM, HTBOTTOMRIGHT))[row][column]
+
+
+def install_native_frame(hwnd: int) -> bool:
+    """Gives the frameless window back the styles of a framed one and
+    subclasses its window procedure so that the whole window stays the page's
+    client area, the edges and corners resize it, and maximising fills the
+    monitor's work area alone. Runs on the window's own thread. False, leaving
+    the window exactly as pywebview made it, when Windows refuses the subclass."""
+    import ctypes
+    from ctypes import wintypes
+
+    class MINMAXINFO(ctypes.Structure):
+        _fields_ = [("ptReserved", wintypes.POINT), ("ptMaxSize", wintypes.POINT), ("ptMaxPosition", wintypes.POINT),
+                    ("ptMinTrackSize", wintypes.POINT), ("ptMaxTrackSize", wintypes.POINT)]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD)]
+
+    class NCCALCSIZE_PARAMS(ctypes.Structure):  # noqa: N801 - the Win32 name
+        _fields_ = [("rgrc", wintypes.RECT * 3), ("lppos", ctypes.c_void_p)]
+
+    class STYLESTRUCT(ctypes.Structure):
+        _fields_ = [("styleOld", wintypes.DWORD), ("styleNew", wintypes.DWORD)]
+
+    # A private copy of user32, so that the prototypes set here never change
+    # how pywebview's own calls into the same functions are converted.
+    user32 = ctypes.WinDLL("user32")
+    long_ptr = ctypes.c_ssize_t
+    get_long = getattr(user32, "GetWindowLongPtrW", None) or user32.GetWindowLongW
+    set_long = getattr(user32, "SetWindowLongPtrW", None) or user32.SetWindowLongW
+    get_long.argtypes, get_long.restype = [wintypes.HWND, ctypes.c_int], long_ptr
+    set_long.argtypes, set_long.restype = [wintypes.HWND, ctypes.c_int, long_ptr], long_ptr
+    user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.CallWindowProcW.restype = wintypes.LPARAM
+    user32.IsZoomed.argtypes = [wintypes.HWND]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.MonitorFromWindow.argtypes, user32.MonitorFromWindow.restype = [wintypes.HWND, wintypes.DWORD], wintypes.HMONITOR
+    user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                    ctypes.c_int, wintypes.UINT]
+
+    def border(handle: int) -> int:
+        """The width of a framed window's resize border at this window's DPI."""
+        try:
+            dpi = user32.GetDpiForWindow(handle)
+            return user32.GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + user32.GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
+        except AttributeError:  # Windows 10 before 1607
+            return user32.GetSystemMetrics(SM_CXSIZEFRAME) + user32.GetSystemMetrics(SM_CXPADDEDBORDER)
+
+    def as_tuple(rect: wintypes.RECT) -> tuple[int, int, int, int]:
+        return rect.left, rect.top, rect.right, rect.bottom
+
+    failed: list[bool] = []
+
+    def procedure(handle, message, wparam, lparam):  # noqa: ANN001, ANN202 - called by Windows
+        try:
+            if message == WM_NCCALCSIZE and wparam:
+                if user32.IsZoomed(handle):
+                    params = NCCALCSIZE_PARAMS.from_address(lparam)
+                    params.rgrc[0] = wintypes.RECT(*inset_rect(as_tuple(params.rgrc[0]), border(handle)))
+                return 0
+            if message == WM_NCHITTEST:
+                rect = wintypes.RECT()
+                if user32.GetWindowRect(handle, ctypes.byref(rect)):
+                    zone = hit_test(*point_from_lparam(lparam), as_tuple(rect), border(handle), bool(user32.IsZoomed(handle)))
+                    if zone not in (HTCLIENT, HTNOWHERE):
+                        return zone
+            elif message == WM_GETMINMAXINFO:
+                # WinForms fills in the minimum size first; only the maximised bounds change.
+                user32.CallWindowProcW(previous, handle, message, wparam, lparam)
+                monitor = user32.MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST)
+                info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+                if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                    x, y, width, height = maximised_bounds(as_tuple(info.rcWork), as_tuple(info.rcMonitor), border(handle))
+                    limits = MINMAXINFO.from_address(lparam)
+                    limits.ptMaxPosition = wintypes.POINT(x, y)
+                    limits.ptMaxSize = wintypes.POINT(width, height)
+                return 0
+            elif message == WM_STYLECHANGING and wparam & 0xFFFFFFFF == GWL_STYLE & 0xFFFFFFFF:
+                # WinForms rebuilds a borderless form's styles whenever it updates them, so they are kept here.
+                result = user32.CallWindowProcW(previous, handle, message, wparam, lparam)
+                STYLESTRUCT.from_address(lparam).styleNew |= NATIVE_FRAME_STYLES
+                return result
+            elif message == WM_NCDESTROY:
+                # The callback stays in _FRAME_HOOKS, because Windows is still running it.
+                set_long(handle, GWLP_WNDPROC, previous)
+        except Exception:  # noqa: BLE001 - an error must never stop the window's messages
+            if not failed:
+                failed.append(True)
+                log.exception("the native frame could not handle message %#x", message)
+        return user32.CallWindowProcW(previous, handle, message, wparam, lparam)
+
+    callback = ctypes.WINFUNCTYPE(wintypes.LPARAM, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)(procedure)
+    _FRAME_HOOKS[hwnd] = callback
+    previous = set_long(hwnd, GWLP_WNDPROC, ctypes.cast(callback, ctypes.c_void_p).value)
+    if not previous:
+        _FRAME_HOOKS.pop(hwnd, None)
+        return False
+    set_long(hwnd, GWL_STYLE, get_long(hwnd, GWL_STYLE) | NATIVE_FRAME_STYLES)
+    user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAME_ONLY)
+    return True
+
+
+def adopt_native_frame(window: Any) -> int | None:
+    """Installs the native frame on the pywebview window's form, on the form's
+    own thread, and returns its window handle for bringing it to the front
+    later. None when the form cannot be reached, which leaves the window as
+    pywebview made it."""
+    found: list[int] = []
+    try:
+        import System  # pythonnet, which pywebview has loaded by now
+
+        form = window.native
+
+        def install() -> None:
+            found.append(int(form.Handle.ToInt64()))
+            try:
+                if not install_native_frame(found[0]):
+                    log.warning("Windows refused the native frame, so the window keeps pywebview's frameless one")
+            except Exception:  # noqa: BLE001 - raised on the UI thread, reported here
+                log.warning("could not give the window a native frame", exc_info=True)
+
+        form.Invoke(System.Func[System.Type](install))
+    except Exception:  # noqa: BLE001 - the window still works without it
+        log.warning("could not reach the window to give it a native frame", exc_info=True)
+    return found[0] if found else None
+
+
+def focus_window(hwnd: int | None) -> None:
+    """Brings the window to the front, restoring it first if it is minimised.
+    Windows allows this because the launch that forwarded the link, which the
+    person has just started, handed its right to the foreground to this process."""
+    if not WINDOWS or not hwnd:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32")
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    user32.SetForegroundWindow(hwnd)
+
+
+def _window_file(home: Path) -> Path:
+    return Path(home) / WINDOW_FILE
+
+
+def listen_for_links(home: Path, on_path: Callable[[str], None]) -> Callable[[], None]:
+    """Listens on 127.0.0.1 for the app paths that later launches forward, and
+    writes the port and a fresh secret to window.json in the home folder,
+    which only this Windows user can read. A message without that secret is
+    ignored, and every path is checked again before on_path sees it. Returns
+    the function that stops listening and removes the file."""
+    secret = secrets.token_urlsafe(24)
+
+    class Handler(socketserver.StreamRequestHandler):
+        timeout = LINK_TIMEOUT_SECONDS
+
+        def handle(self) -> None:
+            try:
+                message = json.loads(self.rfile.readline(LINK_MESSAGE_LIMIT))
+            except (OSError, ValueError):
+                return
+            given = message.get("secret") if isinstance(message, dict) else None
+            if not isinstance(given, str) or not hmac.compare_digest(given.encode("utf-8"), secret.encode("ascii")):
+                return
+            path = message.get("path")
+            try:
+                self.wfile.write(b"ok\n")
+                self.wfile.flush()
+            except OSError:
+                pass
+            try:
+                on_path(safe_app_path(path) if isinstance(path, str) else "/")
+            except Exception:  # noqa: BLE001 - the listener must keep listening
+                log.exception("the window could not go to a forwarded link")
+
+    server = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+    try:
+        _write_atomic(_window_file(home), json.dumps({"port": server.server_address[1], "secret": secret,
+                                                       "pid": os.getpid()}))
+    except BaseException:
+        server.server_close()
+        raise
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, name="links", daemon=True).start()
+
+    def stop() -> None:
+        server.shutdown()
+        server.server_close()
+        _window_file(home).unlink(missing_ok=True)
+
+    return stop
+
+
+def forward_to_window(home: Path, path: str) -> bool:
+    """Hands an app path to the window that is already open, which comes to
+    the front and goes there. False when no window answers, so that the
+    caller opens one of its own instead."""
+    try:
+        found = json.loads(_window_file(home).read_text(encoding="utf-8"))
+        port, secret, pid = int(found["port"]), str(found["secret"]), int(found.get("pid") or 0)
+        if WINDOWS and pid:
+            import ctypes
+
+            ctypes.windll.user32.AllowSetForegroundWindow(pid)
+        with socket.create_connection(("127.0.0.1", port), timeout=LINK_TIMEOUT_SECONDS) as connection:
+            connection.sendall(json.dumps({"secret": secret, "path": path}).encode("utf-8") + b"\n")
+            with connection.makefile("rb") as reply:
+                return reply.readline(16) == b"ok\n"
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def webview_user_agent(env: Mapping[str, str]) -> str | None:
     """The desktop user agent that the launcher prepared for WebView2, if any."""
     match = _USER_AGENT_ARGUMENT.search(env.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", ""))
     return match.group(1) if match else None
 
 
-def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR) -> bool:
+def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
+                   navigate: Callable[[str], str] | None = None) -> bool:
     """Study Library in a frameless WebView2 window, whose page draws its own
-    tabs and window controls, kept open until the person closes it. The
-    profile lives in the home folder, so the window keeps its Access sign-in,
-    offline copy and service worker from one start to the next. False, before
-    anything is shown, when this is not Windows, pywebview is missing or
-    WebView2 cannot start, so that the caller can open Edge instead."""
+    tabs and window controls, kept open until the person closes it. Once it
+    appears it takes on a native frame's behaviour through
+    install_native_frame. The profile lives in the home folder, so the window
+    keeps its Access sign-in, offline copy and service worker from one start
+    to the next. When navigate is given, which main does while this process
+    holds the window lock, the window also takes the open links that later
+    launches forward, coming to the front at the address navigate gives for
+    each path. False, before anything is shown, when this is not Windows,
+    pywebview is missing or WebView2 cannot start, so that the caller can
+    open Edge instead."""
     if not WINDOWS:
         return False
     try:
@@ -972,6 +1326,8 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR) -> bool
     except ValueError:
         colour = TITLE_BAR_COLOUR
     shown = threading.Event()
+    frame: list[int] = []
+    stop_links: Callable[[], None] | None = None
     try:
         api = WindowApi()
         window = webview.create_window(
@@ -979,14 +1335,32 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR) -> bool
             min_size=WINDOW_MIN_SIZE, frameless=True, easy_drag=False, background_color=colour,
         )
         api._bind(window)  # noqa: SLF001 - kept private so the page cannot see it
+
+        def adopt() -> None:
+            hwnd = adopt_native_frame(window)
+            if hwnd:
+                frame.append(hwnd)
+
         window.events.shown += shown.set
+        window.events.shown += adopt
         window.events.loaded += SignInHandoff(window, url).on_loaded
+        if navigate is not None:
+            def on_link(path: str) -> None:
+                focus_window(frame[0] if frame else None)
+                window.load_url(navigate(path))
+
+            try:
+                stop_links = listen_for_links(home, on_link)
+            except OSError as error:
+                log.warning("could not listen for open links, so each one opens a window of its own: %s", error)
         log.info("opening the frameless window through pywebview %s", getattr(webview, "__version__", "unknown"))
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(Path(home) / "webview"),
                       user_agent=webview_user_agent(os.environ))
     except Exception:  # noqa: BLE001 - any failure before the window shows falls back to Edge
         log.exception("the frameless window could not run")
-        return shown.is_set()
+    finally:
+        if stop_links is not None:
+            stop_links()
     return shown.is_set()
 
 
@@ -1132,6 +1506,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--app-only", action="store_true", help="Open the window only")
     mode.add_argument("--once", action="store_true", help="Work through the queue in this window, then exit")
     mode.add_argument("--connect", metavar="LINK", help="Check and save the credentials in a studylibrary:// link")
+    parser.add_argument("link", nargs="?", help="A studylibrary:// link, as the link handler passes it")
     args = parser.parse_args(argv)
     home = default_home()
     (home / "logs").mkdir(parents=True, exist_ok=True)
@@ -1140,8 +1515,13 @@ def main(argv: list[str] | None = None) -> int:
         handlers=[logging.handlers.RotatingFileHandler(home / "logs" / "desktop.log", maxBytes=1_000_000,
                                                        backupCount=1, encoding="utf-8")],
     )
-    if args.connect is not None:
-        return _run_connect(home, args.connect)
+    link = args.connect if args.connect is not None else args.link
+    start_path = "/"
+    if link is not None:
+        opened = parse_open_link(link)
+        if opened is None:
+            return _run_connect(home, link)
+        start_path = opened
     if args.once:
         return subprocess.call([_python(home), "-m", "study.processor", "--once"],
                                cwd=_workdir(home), env=prepare_environment(home))
@@ -1151,19 +1531,33 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001 - pythonw has nowhere else to say it
             log.exception("the supervisor stopped")
             return 1
-    if not args.app_only:
-        # Exits at once if a supervisor is already running.
-        _spawn_supervisor(home, handover=False)
-    env = prepare_environment(home)
-    url = env.get("STUDY_URL")
-    if not url:
-        log.error("STUDY_URL is not set in %s or %s", *env_files(home))
-        return 1
-    link = window_url(url, env)
-    colour = env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR
-    if not open_frameless(home, desktop_url(link, frameless=True), colour):
-        open_window(desktop_url(link), colour) if env.get("STUDY_TITLE_BAR_COLOUR") else open_window(desktop_url(link))
-    return 0
+    window_lock = acquire_single_instance(WINDOW_MUTEX_NAME)
+    try:
+        if window_lock is None and link is not None and forward_to_window(home, start_path):
+            log.info("handed the link to the window that is already open")
+            return 0
+        if not args.app_only:
+            # Exits at once if a supervisor is already running.
+            _spawn_supervisor(home, handover=False)
+        env = prepare_environment(home)
+        url = env.get("STUDY_URL")
+        if not url:
+            log.error("STUDY_URL is not set in %s or %s", *env_files(home))
+            return 1
+        colour = env.get("STUDY_TITLE_BAR_COLOUR") or TITLE_BAR_COLOUR
+
+        def navigate(path: str) -> str:
+            # Read afresh, so that a link followed after connecting drops the connect hint.
+            return app_address(url, path, _settings(home), frameless=True)
+
+        if not open_frameless(home, app_address(url, start_path, env, frameless=True), colour,
+                              navigate=navigate if window_lock is not None else None):
+            edge = app_address(url, start_path, env, frameless=False)
+            open_window(edge, colour) if env.get("STUDY_TITLE_BAR_COLOUR") else open_window(edge)
+        return 0
+    finally:
+        if window_lock is not None:
+            window_lock.close()
 
 
 if __name__ == "__main__":

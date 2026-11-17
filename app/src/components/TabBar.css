@@ -6,10 +6,14 @@
    frameless window the row also carries the window controls, and in an
    installed window that uses the window controls overlay it moves up into the
    title bar, beside the caption buttons. Every shade is mixed from the text
-   colour, so it follows light, dark and each accent. */
+   colour, so it follows light, dark and each accent. The top bar, the menus
+   and the page heads beneath them take a few overrides from the end of this
+   file, which apply in a browser and on a phone as well. */
 
 html.sl-desktop {
-  --sl-tabs-h: 2.25rem;
+  --sl-tabs-h: 2.5rem;
+  /* Every tab is this wide until the strip runs out of room, as in Chrome. */
+  --sl-tab-w: 15rem;
   --sl-shell-bg: Canvas;
 }
 
@@ -120,13 +124,17 @@ html.sl-desktop.sl-bare .sl-tabs {
 }
 
 /* Each tab is a pill on the paper rather than a cell of a grey strip, so the
-   one in front is lifted onto the surface colour and the rest stay quiet. */
+   one in front is lifted onto the surface colour and the rest stay quiet.
+   Every tab takes the same width whatever its title, as Chrome's do, and the
+   explicit width is what the strip measures, so the row only shrinks, and
+   shrinks every tab by the same amount, once the window runs out of room. */
 .sl-tab {
   display: flex;
   align-items: center;
-  flex: 0 1 12rem;
-  min-width: 6rem;
-  height: 1.75rem;
+  flex: 0 1 var(--sl-tab-w, 15rem);
+  width: var(--sl-tab-w, 15rem);
+  min-width: 5.5rem;
+  height: calc(var(--sl-tabs-h) - 0.5rem);
   border-radius: 0.5rem;
   color: color-mix(in srgb, currentColor 70%, transparent);
   transition: background-color 120ms ease, color 120ms ease;
@@ -134,6 +142,7 @@ html.sl-desktop.sl-bare .sl-tabs {
 
 .sl-tab.is-pinned {
   flex: 0 0 auto;
+  width: auto;
   min-width: 0;
 }
 
@@ -162,7 +171,8 @@ html.sl-desktop.sl-bare .sl-tabs {
   background: none;
   color: inherit;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
   text-align: start;
   cursor: default;
 }
@@ -202,8 +212,8 @@ html.sl-desktop.sl-bare .sl-tabs {
 }
 
 .sl-tab-new {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 0.5rem;
 }
 
@@ -213,7 +223,45 @@ html.sl-desktop.sl-bare .sl-tabs {
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
+/* Back and Forward, as Edge draws them: two bare arrows that light on hover
+   and fade when there is nowhere to go, set off from the tabs by a gap. */
+.sl-history {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.125rem;
+  margin-right: 0.375rem;
+}
+
+.sl-history-button {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.375rem;
+  background: none;
+  color: inherit;
+  opacity: 0.8;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.sl-history-button:hover:not(:disabled) {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.sl-history-button:active:not(:disabled) {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.sl-history-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 .sl-tab-title:focus-visible,
+.sl-history-button:focus-visible,
 .sl-tab-new:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: -2px;
@@ -221,6 +269,7 @@ html.sl-desktop.sl-bare .sl-tabs {
 
 @media (prefers-reduced-motion: reduce) {
   .sl-tab,
+  .sl-history-button,
   .sl-window-button {
     transition: none;
   }
@@ -250,6 +299,7 @@ html.sl-desktop.sl-wco .sl-tabs {
   -webkit-app-region: drag;
 }
 
+html.sl-desktop.sl-wco .sl-history,
 html.sl-desktop.sl-wco .sl-tabs-list,
 html.sl-desktop.sl-wco .sl-tab-new {
   app-region: no-drag;
@@ -272,4 +322,203 @@ html.sl-desktop .topbar-btn {
   background: #e8590c;
   box-shadow: 0 0 0 2px var(--sl-shell-bg, Canvas);
   pointer-events: none;
+}
+
+/* The top bar on a wider screen. The brand and the module links hold the
+   left, and the switch, the sync indicator and the tools gather as one group
+   on the right of every side, with the switch's automatic margin taking up
+   the slack. The order is set here rather than in the markup, so that the
+   phone keeps the sync indicator before the switch as it always has. */
+@media (min-width: 44.01rem) {
+  .topbar > .side-switch {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .topbar > .sync {
+    order: 2;
+    margin-left: 0.25rem;
+  }
+
+  .topbar > .topbar-tools {
+    order: 3;
+    gap: 0.375rem;
+  }
+
+  /* The module links keep a little air before the group when the bar is full. */
+  .topbar .modules-nav {
+    margin-right: 0.5rem;
+  }
+}
+
+/* Open on desktop is the one filled button in the bar, a rounded pill in the
+   accent with its glyph, its words and a chevron, as Word's Share is. The
+   selectors outweigh .topbar-btn's own square size and quiet colours. */
+.topbar .topbar-btn.open-desktop-btn {
+  width: auto;
+  height: 2rem;
+  gap: 0.4rem;
+  padding: 0 0.6rem 0 0.75rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.topbar .topbar-btn.open-desktop-btn:hover,
+.topbar .topbar-btn.open-desktop-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+  color: var(--accent-ink);
+}
+
+.topbar .topbar-btn.open-desktop-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.topbar .topbar-btn.open-desktop-btn svg {
+  color: currentColor;
+  flex: none;
+}
+
+.open-desktop-chevron {
+  display: inline-flex;
+  margin-left: 0.05rem;
+  transition: rotate var(--dur-1, 120ms) ease;
+}
+
+.open-desktop-btn[aria-expanded="true"] .open-desktop-chevron {
+  rotate: 180deg;
+}
+
+/* Its menu opens clear of the pill, under its right edge. */
+.topbar .menu-panel.open-desktop-panel {
+  top: calc(100% + 0.4rem);
+  right: 0;
+  left: auto;
+  min-width: 13rem;
+}
+
+.menu-panel .menu-link {
+  display: flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+
+.menu-panel .menu-link:hover,
+.menu-panel .menu-link:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+/* The desktop app is of no use on a phone, so the pill is not offered there. */
+@media (max-width: 44rem) {
+  .topbar .open-desktop {
+    display: none;
+  }
+}
+
+/* Menus. A dangerous item no longer draws a line above itself, and a group
+   opened in place on a phone is indented rather than ruled, so the only rule
+   left in any menu is the single separator before its dangerous items. The
+   role selector outweighs the older rules without rewriting them. */
+.menu-panel[role="menu"] button.danger {
+  border-top: 0;
+}
+
+.menu-panel[role="menu"] .menu-sub {
+  margin: 0 0 0.15rem;
+  padding-left: 0.75rem;
+  border-left: 0;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 0.3rem 0.45rem;
+  background: var(--rule);
+}
+
+.menu-panel button.menu-parent.is-open {
+  background: var(--surface);
+}
+
+.menu-chevron {
+  display: inline-flex;
+  transition: rotate var(--dur-1, 120ms) ease;
+}
+
+.menu-chevron.is-side {
+  rotate: -90deg;
+}
+
+.menu-chevron.is-up {
+  rotate: 180deg;
+}
+
+/* A flyout is a second panel beside its item, placed from script, so it
+   keeps the panel's look but none of its anchoring to the menu button. */
+.menu-panel.menu-flyout {
+  min-width: 11rem;
+}
+
+@media (max-width: 44rem) {
+  .menu-separator {
+    margin: 0.3rem 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-chevron,
+  .open-desktop-chevron {
+    transition: none;
+  }
+}
+
+/* Week and session pages. With the breadcrumb gone, the line above the title
+   holds only when the week runs and the way to its neighbours, so it is
+   slimmer and the page starts higher. The page's three dots sit right beside
+   its title, and the group grows to push the page's buttons to the far end. */
+:is(.page.week-page, .page.session-page) {
+  padding-top: 0.25rem;
+}
+
+.week-crumbs.page-topline {
+  min-height: 0;
+  margin-bottom: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.page-topline .week-when {
+  margin-left: 0;
+}
+
+.page-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-title-group > h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* While the title is being renamed its field takes the room the title had. */
+.page-title-group > :first-child:not(h1) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-title-group > .menu {
+  flex: none;
 }

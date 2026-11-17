@@ -10,7 +10,7 @@ import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames } from "../lib/settings";
 import { currentYear, defaultDates, useTermDates, type TermDates } from "../lib/term";
 import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
-import { ago, processorQuiet, useProcessorStatus } from "../lib/status";
+import { ago, processorQuiet, useProcessorStatus, type StatusJob } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
@@ -193,12 +193,70 @@ function ConnectComputer() {
   );
 }
 
+const JOB_STATUS_LABEL: Record<StatusJob["status"], string> = {
+  running: "Running",
+  queued: "Queued",
+  failed: "Failed",
+};
+
+// Job kinds are stored as short words such as ocr or redo_cover, so they are
+// shown with spaces for the underscores and a capital to start.
+function jobKindLabel(kind: string): string {
+  const words = kind.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Job";
+}
+
+// The jobs the processor has in hand, in a box of its own that scrolls, so a
+// long queue does not push the rest of the card down the page.
+function JobList({ jobs, total }: { jobs: StatusJob[]; total: number }) {
+  if (jobs.length === 0) {
+    return <p className="small muted" style={{ marginTop: "0.5rem" }}>No jobs queued, so the processor has nothing in hand.</p>;
+  }
+  return (
+    <div style={{ marginTop: "0.75rem" }}>
+      <ul
+        className="list small"
+        aria-label="Processor jobs"
+        tabIndex={0}
+        style={{
+          maxHeight: "14rem",
+          overflowY: "auto",
+          margin: 0,
+          padding: "0.25rem 0.75rem",
+          border: "1px solid color-mix(in srgb, currentColor 15%, transparent)",
+          borderRadius: "0.5rem",
+        }}
+      >
+        {jobs.map((job) => {
+          const target = job.label || job.targetId;
+          const cleanError = (job.error || "").replace(/\.+$/, "");
+          return (
+            <li key={`${job.status}-${job.id}`} style={{ padding: "0.35rem 0" }}>
+              <span style={{ fontWeight: 600 }}>{jobKindLabel(job.kind)}</span>
+              <span className={job.status === "failed" ? "problem" : "muted"}>
+                {", "}{JOB_STATUS_LABEL[job.status] ?? job.status}{job.attempts > 1 ? `, attempt ${job.attempts}` : ""}
+              </span>
+              {target && <span className="muted">, {target}</span>}
+              {job.status === "failed" && cleanError && (
+                <details className="small muted"><summary>Details</summary>{cleanError}</details>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {total > jobs.length && (
+        <p className="small muted" style={{ marginTop: "0.4rem" }}>
+          The first {jobs.length} of {total} jobs are shown, since the rest follow once these are done.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProcessorState() {
   const status = useProcessorStatus();
   const unpaired = useNeedsConnecting();
   const connection = connectionOf(status, unpaired);
-  // A connected processor needs no link, so one is only asked for when someone chooses to reconnect.
-  const [reconnecting, setReconnecting] = useState(false);
   // The heading is drawn before the status arrives, so the sections below it do not move down.
   if (!status) {
     return (
@@ -227,6 +285,7 @@ function ProcessorState() {
         </p>
       )}
       {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
+      <JobList jobs={status.jobs} total={waiting + status.failed} />
       <p className="small muted" style={{ marginTop: "1rem" }}>
         Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
         straightened, two-page spreads split. Covers can also be redrawn as full uncropped pages.
@@ -237,13 +296,8 @@ function ProcessorState() {
         <button className="button" onClick={() => void rescan()}>Read every scan again</button>
       </div>
       <DesktopDownload />
-      {connection === "connected" && !reconnecting
-        ? (
-            <p className="small muted" style={{ marginTop: "1.25rem" }}>
-              <button type="button" className="link" onClick={() => setReconnecting(true)}>Reconnect this computer</button>
-            </p>
-          )
-        : <ConnectComputer />}
+      {/* A connected processor needs no link, so the panel only appears once it needs connecting. */}
+      {connection !== "connected" && <ConnectComputer />}
       <UpdateSettings />
     </>
   );

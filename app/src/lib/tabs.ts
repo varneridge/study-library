@@ -1,4 +1,4 @@
-// The desktop window's tabs as plain data: what is open, which is in front,
+﻿// The desktop window's tabs as plain data: what is open, which is in front,
 // which stay mounted and what was closed recently enough to bring back. Each
 // change returns a new state, or the same one when nothing changes, so the
 // rules can be tested without a window and a caller can tell a no-op apart.
@@ -81,6 +81,17 @@ export function followRoute(state: TabState, href: string): TabState {
   if (front.href === href) return state;
   if (front.id === HOME_TAB_ID) return openTab(state, href);
   return { ...state, tabs: state.tabs.map((tab) => (tab.id === front.id ? { ...tab, href } : tab)) };
+}
+
+// A tab names a page inside a module by the module's code with the place in
+// it in brackets, as "HY335 (Week 3)", so that a row of equal tabs stays short
+// enough to read while each one still says where it leads. Either half alone
+// stands in for the whole while the other is still being looked up.
+export function tabLabel(code: string | null | undefined, place: string | null | undefined): string | null {
+  const module = code?.trim() || null;
+  const within = place?.trim() || null;
+  if (module && within) return `${module} (${within})`;
+  return module ?? within;
 }
 
 // The tabs kept mounted: the one in front and those most recently in front before it.

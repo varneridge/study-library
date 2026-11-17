@@ -202,6 +202,87 @@ function markMatches(container: HTMLElement, needles: string[]): HTMLElement[] {
   return marks;
 }
 
+// Keeping a selection on the pages steady, as pdf.js's own viewer does. Each
+// text layer ends in an empty endOfContent element. While dragging over the
+// space between words, Chromium and WebKit resolve the point to that element,
+// so the selection leapt to the end of the page and back, which flashed the
+// whole page as selected. Moving the element beside the end being dragged
+// limits any leap to one run of text. The "selecting" class, which the layer
+// gets on every press, is also taken off again when the press ends, where it
+// used to stay on for good.
+const textLayers = new Map<HTMLElement, HTMLElement>();
+let watchingSelections = false;
+
+function resetTextLayer(end: HTMLElement, layer: HTMLElement) {
+  if (end.parentElement !== layer || layer.lastChild !== end) layer.append(end);
+  end.style.width = "";
+  end.style.height = "";
+  layer.classList.remove("selecting");
+}
+
+function watchSelections() {
+  if (watchingSelections || typeof document === "undefined") return;
+  watchingSelections = true;
+  let down = false;
+  let previous: Range | null = null;
+  // Firefox resolves empty space sensibly, so it needs the class alone.
+  const firefox = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("-moz-appearance", "none");
+  const resetAll = () => textLayers.forEach(resetTextLayer);
+  document.addEventListener("pointerdown", () => { down = true; }, true);
+  document.addEventListener("pointerup", () => { down = false; resetAll(); }, true);
+  document.addEventListener("pointercancel", () => { down = false; resetAll(); }, true);
+  window.addEventListener("blur", () => { down = false; resetAll(); });
+  document.addEventListener("keyup", () => { if (!down) resetAll(); });
+  document.addEventListener("selectionchange", () => {
+    const sel = document.getSelection();
+    if (!sel || !sel.rangeCount || !textLayers.size) {
+      previous = null;
+      resetAll();
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    for (const [layer, end] of textLayers) {
+      if (range.intersectsNode(layer)) layer.classList.add("selecting");
+      else resetTextLayer(end, layer);
+    }
+    if (firefox || sel.isCollapsed) {
+      previous = sel.isCollapsed ? null : range.cloneRange();
+      return;
+    }
+    // Which end is moving: the start, when the end is where it was.
+    let movingStart = false;
+    if (previous) {
+      try {
+        movingStart = range.compareBoundaryPoints(Range.END_TO_END, previous) === 0
+          || range.compareBoundaryPoints(Range.START_TO_END, previous) === 0;
+      } catch {
+        // The earlier range was in text that has since been redrawn.
+      }
+    }
+    let point: Node | null = movingStart ? range.startContainer : range.endContainer;
+    if (point?.nodeType === Node.TEXT_NODE) point = point.parentNode;
+    const parent = point?.parentElement;
+    const layer = parent?.closest<HTMLElement>(".textLayer");
+    const end = layer ? textLayers.get(layer) : undefined;
+    if (point && parent && layer && end && point !== end) {
+      end.style.width = layer.style.width;
+      end.style.height = layer.style.height;
+      parent.insertBefore(end, movingStart ? point : point.nextSibling);
+    }
+    previous = range.cloneRange();
+  });
+}
+
+// Registers a drawn text layer and its endOfContent element, until the
+// returned function is called.
+function trackTextLayer(layer: HTMLElement, end: HTMLElement): () => void {
+  watchSelections();
+  textLayers.set(layer, end);
+  return () => {
+    if (textLayers.get(layer) === end) textLayers.delete(layer);
+  };
+}
+
 export const PageView = memo(function PageView({
   doc, index, size, scale, theme, crop, highlights, activeId, query, currentHit, onViewport, onHighlightClick,
 }: {
@@ -252,6 +333,7 @@ export const PageView = memo(function PageView({
     let cancelled = false;
     let render: RenderTask | null = null;
     let layer: pdfjs.TextLayer | null = null;
+    let untrack: (() => void) | null = null;
     void (async () => {
       const page = await doc.getPage(index + 1);
       if (cancelled) return;
@@ -302,6 +384,7 @@ export const PageView = memo(function PageView({
       const end = document.createElement("div");
       end.className = "endOfContent";
       container.append(end);
+      untrack = trackTextLayer(container, end);
       setViewport(vp);
       setRendered((n) => n + 1);
       onViewport(index, vp);
@@ -310,6 +393,7 @@ export const PageView = memo(function PageView({
       cancelled = true;
       render?.cancel();
       layer?.cancel();
+      untrack?.();
     };
   }, [near, scale, doc, index, onViewport, theme]);
 

@@ -457,7 +457,6 @@ export function ModulePage({ id }: { id: string }) {
   const [reviewing, setReviewing] = useState(false);
   const [addingSection, setAddingSection] = useState(false);
   const [arranging, setArranging] = useState(false);
-  const scrolledFor = useRef<string | null>(null);
   const sensors = useDragSensors();
   // The sections a drag can reorder: every section of a dissertation or a
   // library, and the admin and syllabus sections among a taught module's
@@ -471,25 +470,8 @@ export function ModulePage({ id }: { id: string }) {
   const [sortableWeeks, setSectionOrder] = useOptimisticOrder(sortableSource, (ov) => ov.week.id, data);
   useTitle(data?.module.code);
 
-  // Opening a taught module that has something in it brings the Content
-  // heading to the top of the screen, with every week laid out below it.
-  // The scroll waits one frame so that it lands after the router's own
-  // scroll on navigation; the module is marked done only once it has run,
-  // so a cancelled frame (as in Strict Mode) still leads to one scroll.
-  useEffect(() => {
-    if (!data || scrolledFor.current === id) return;
-    if (isDissertation(data.module) || isLibrary(data.module) || data.empty) {
-      scrolledFor.current = id;
-      return;
-    }
-    const frame = requestAnimationFrame(() => {
-      scrolledFor.current = id;
-      if (window.scrollY === 0) {
-        document.getElementById("module-content")?.scrollIntoView({ behavior: "auto", block: "start" });
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [id, data]);
+  // A module always opens at its top, with its title and course materials in
+  // view, and the router's own scroll on navigation is the only one it gets.
 
   useEffect(() => {
     if (!data) return;
@@ -712,7 +694,7 @@ export function ModulePage({ id }: { id: string }) {
 
 
 
-      <section id="module-content" data-scroll-anchor className="section module-weeks" style={{ marginTop: "1rem" }}>
+      <section id="module-content" className="section module-weeks" style={{ marginTop: "1rem" }}>
         <div className="section-head" style={{ marginBottom: "0.75rem" }}>
           <h2 style={{ margin: 0, display: "inline-flex", alignItems: "center", minHeight: "2.75rem" }}>
             <span>{customSectionsOnly ? (library ? "Shelves" : "Sections") : "Content"}</span>

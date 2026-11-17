@@ -1,6 +1,7 @@
-"""The frameless window's controls and the Cloudflare Access sign-in handoff,
-which run without Windows or pywebview because every part that needs them is
-passed in or stands behind WINDOWS."""
+"""The frameless window's controls, its native frame calculations, the
+studylibrary://open links and the Cloudflare Access sign-in handoff, which run
+without Windows or pywebview because every part that needs them is passed in
+or stands behind WINDOWS."""
 
 from __future__ import annotations
 
@@ -15,6 +16,12 @@ import urllib.request
 import pytest
 
 from study import desktop
+
+
+@pytest.fixture(autouse=True)
+def _own_window_lock(monkeypatch, tmp_path):
+    """Each test takes a window lock of its own, so that none waits on another's."""
+    monkeypatch.setattr(desktop, "WINDOW_MUTEX_NAME", f"StudyLibraryTest-{tmp_path.name}")
 
 
 def _token(claims: dict) -> str:
@@ -203,7 +210,7 @@ def test_main_falls_back_to_edge_without_the_frameless_window(monkeypatch, tmp_p
     monkeypatch.setenv("STUDY_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("STUDY_URL=https://s.example/\n")
     opened: list[str] = []
-    monkeypatch.setattr(desktop, "open_frameless", lambda home, url, colour: opened.append(url) and False)
+    monkeypatch.setattr(desktop, "open_frameless", lambda home, url, colour, navigate=None: opened.append(url) and False)
     monkeypatch.setattr(desktop, "open_window", lambda url, colour=None: opened.append(url))
     assert desktop.main(["--app-only"]) == 0
     assert opened == ["https://s.example/?connect=processor&sl=frameless", "https://s.example/?connect=processor&sl=desktop"]
@@ -212,3 +219,165 @@ def test_main_falls_back_to_edge_without_the_frameless_window(monkeypatch, tmp_p
 def test_open_frameless_declines_off_windows(monkeypatch, tmp_path):
     monkeypatch.setattr(desktop, "WINDOWS", False)
     assert desktop.open_frameless(tmp_path, "https://s.example/") is False
+
+
+# The native frame: maximised bounds, hit-test zones and mouse coordinates.
+
+@pytest.mark.parametrize("monitor, work", [
+    ((0, 0, 1920, 1080), (0, 0, 1920, 1040)),          # taskbar along the bottom
+    ((0, 0, 2560, 1440), (0, 48, 2560, 1440)),         # taskbar along the top
+    ((-1920, 0, 0, 1080), (-1872, 0, 0, 1080)),        # a monitor to the left, taskbar on its left
+    ((1920, -300, 3840, 780), (1920, -300, 3840, 780)),  # a monitor above and right, with no taskbar
+])
+def test_maximised_window_fills_the_work_area_and_never_the_taskbar(monitor, work):
+    border = 8
+    x, y, width, height = desktop.maximised_bounds(work, monitor, border)
+    window = (monitor[0] + x, monitor[1] + y, monitor[0] + x + width, monitor[1] + y + height)
+    # WM_NCCALCSIZE insets a maximised window by the border, which leaves the work area exactly.
+    assert desktop.inset_rect(window, border) == work
+
+
+def test_maximised_bounds_reach_past_the_work_area_by_the_border_alone():
+    assert desktop.maximised_bounds((0, 0, 1920, 1040), (0, 0, 1920, 1080), 8) == (-8, -8, 1936, 1056)
+
+
+@pytest.mark.parametrize("x, y, expected", [
+    (100, 100, desktop.HTTOPLEFT),
+    (899, 100, desktop.HTTOPRIGHT),
+    (100, 699, desktop.HTBOTTOMLEFT),
+    (899, 699, desktop.HTBOTTOMRIGHT),
+    (500, 107, desktop.HTTOP),
+    (500, 692, desktop.HTBOTTOM),
+    (107, 400, desktop.HTLEFT),
+    (892, 400, desktop.HTRIGHT),
+    (108, 400, desktop.HTCLIENT),
+    (891, 400, desktop.HTCLIENT),
+    (500, 108, desktop.HTCLIENT),
+    (50, 50, desktop.HTNOWHERE),
+    (900, 400, desktop.HTNOWHERE),
+])
+def test_hit_test_finds_the_edges_and_corners_within_the_border(x, y, expected):
+    assert desktop.hit_test(x, y, (100, 100, 900, 700), 8, zoomed=False) == expected
+
+
+def test_a_maximised_window_has_no_resize_edges():
+    assert desktop.hit_test(100, 100, (100, 100, 900, 700), 8, zoomed=True) == desktop.HTCLIENT
+    assert desktop.hit_test(899, 699, (100, 100, 900, 700), 8, zoomed=True) == desktop.HTCLIENT
+
+
+@pytest.mark.parametrize("x, y", [(1919, 1079), (-5, 20), (-1920, -300), (0, 0)])
+def test_point_from_lparam_keeps_negative_coordinates(x, y):
+    assert desktop.point_from_lparam(((y & 0xFFFF) << 16) | (x & 0xFFFF)) == (x, y)
+
+
+def test_native_frame_styles_keep_snap_resize_and_the_taskbar():
+    for style in (desktop.WS_THICKFRAME, desktop.WS_MAXIMIZEBOX, desktop.WS_MINIMIZEBOX, desktop.WS_SYSMENU):
+        assert desktop.NATIVE_FRAME_STYLES & style == style
+
+
+# studylibrary://open links.
+
+@pytest.mark.parametrize("link, expected", [
+    ("studylibrary://open?path=/library/42", "/library/42"),
+    ("studylibrary://open?path=%2Flibrary%2F42%3Ftab%3Dnotes%23p3", "/library/42?tab=notes#p3"),
+    ("studylibrary://open/?path=/notes/caf%C3%A9%201", "/notes/caf%C3%A9%201"),
+    ("STUDYLIBRARY:open?path=/a", "/a"),
+    ("  studylibrary://open?path=/a  ", "/a"),
+    ("studylibrary://open", "/"),
+    ("studylibrary://open?path=", "/"),
+    ("studylibrary://open?other=/a", "/"),
+    ("studylibrary://open?path=/a&path=/b", "/"),
+    ("studylibrary://open?path=library", "/"),
+    ("studylibrary://open?path=//evil.example/", "/"),
+    ("studylibrary://open?path=/%5Cevil.example", "/"),
+    ("studylibrary://open?path=https://evil.example/", "/"),
+    ("studylibrary://open?path=javascript:alert(1)", "/"),
+    ("studylibrary://open?path=/a/../../b", "/"),
+    ("studylibrary://open?path=/a%0Ab", "/"),
+    ("studylibrary://open?path=/" + "a" * desktop.OPEN_PATH_LIMIT, "/"),
+])
+def test_parse_open_link_gives_a_safe_app_path(link, expected):
+    assert desktop.parse_open_link(link) == expected
+
+
+@pytest.mark.parametrize("link", [
+    "studylibrary://connect?v=1&PROCESSOR_KEY=a&CF_ACCESS_CLIENT_ID=b&CF_ACCESS_CLIENT_SECRET=c",
+    "studylibrary://openx?path=/a",
+    "https://s.example/?path=/a",
+    "",
+])
+def test_parse_open_link_leaves_other_links_alone(link):
+    assert desktop.parse_open_link(link) is None
+
+
+def test_app_address_puts_the_path_on_the_app_host_ahead_of_the_hints():
+    connected = dict.fromkeys(desktop.CONNECT_KEYS, "x")
+    assert desktop.app_address("https://s.example/", "/", connected, frameless=True) == "https://s.example/?sl=frameless"
+    assert (desktop.app_address("https://s.example/app/", "/library/42?tab=notes#p3", {}, frameless=False)
+            == "https://s.example/library/42?tab=notes&connect=processor&sl=desktop#p3")
+
+
+def test_a_forwarded_link_reaches_the_open_window_once_checked(tmp_path):
+    received: list[str] = []
+    arrived = threading.Event()
+    stop = desktop.listen_for_links(tmp_path, lambda path: (received.append(path), arrived.set()))
+    try:
+        assert desktop.forward_to_window(tmp_path, "/library/42") is True
+        assert arrived.wait(5)
+        arrived.clear()
+        # A launch that skipped the checks still cannot send the window elsewhere.
+        assert desktop.forward_to_window(tmp_path, "//evil.example/") is True
+        assert arrived.wait(5)
+        assert received == ["/library/42", "/"]
+        info = json.loads((tmp_path / desktop.WINDOW_FILE).read_text())
+        (tmp_path / desktop.WINDOW_FILE).write_text(json.dumps({**info, "secret": "guessed"}))
+        assert desktop.forward_to_window(tmp_path, "/elsewhere") is False
+        assert received == ["/library/42", "/"]
+    finally:
+        stop()
+    assert not (tmp_path / desktop.WINDOW_FILE).exists()
+    assert desktop.forward_to_window(tmp_path, "/library/42") is False
+
+
+def test_main_hands_an_open_link_to_the_window_already_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("STUDY_HOME", str(tmp_path))
+    forwarded: list[str] = []
+    monkeypatch.setattr(desktop, "forward_to_window", lambda home, path: forwarded.append(path) or True)
+    monkeypatch.setattr(desktop, "_spawn_supervisor", lambda home, handover: pytest.fail("started a supervisor"))
+    monkeypatch.setattr(desktop, "open_frameless", lambda *args, **kwargs: pytest.fail("opened a second window"))
+    held = desktop.acquire_single_instance(desktop.WINDOW_MUTEX_NAME)
+    assert held is not None
+    try:
+        assert desktop.main(["--connect", "studylibrary://open?path=/library/42"]) == 0
+    finally:
+        held.close()
+    assert forwarded == ["/library/42"]
+
+
+def test_main_opens_a_fresh_window_at_the_link_and_listens_for_more(monkeypatch, tmp_path):
+    monkeypatch.setenv("STUDY_HOME", str(tmp_path))
+    (tmp_path / ".env").write_text("STUDY_URL=https://s.example/\n")
+    monkeypatch.setattr(desktop, "_spawn_supervisor", lambda home, handover: None)
+    monkeypatch.setattr(desktop, "forward_to_window", lambda home, path: pytest.fail("no window was open"))
+    opened: list[tuple[str, str]] = []
+
+    def frameless(home, url, colour, navigate=None):
+        opened.append((url, navigate("/next")))
+        return True
+
+    monkeypatch.setattr(desktop, "open_frameless", frameless)
+    assert desktop.main(["studylibrary://open?path=/library/42"]) == 0
+    assert opened == [("https://s.example/library/42?connect=processor&sl=frameless",
+                       "https://s.example/next?connect=processor&sl=frameless")]
+    # The window lock is let go once the window closes.
+    again = desktop.acquire_single_instance(desktop.WINDOW_MUTEX_NAME)
+    assert again is not None
+    again.close()
+
+
+def test_main_still_runs_connect_for_a_connect_link(monkeypatch, tmp_path):
+    monkeypatch.setenv("STUDY_HOME", str(tmp_path))
+    links: list[str] = []
+    monkeypatch.setattr(desktop, "_run_connect", lambda home, link: links.append(link) or 2)
+    assert desktop.main(["--connect", "studylibrary://connect?v=1"]) == 2
+    assert links == ["studylibrary://connect?v=1"]

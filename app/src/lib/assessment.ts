@@ -15,6 +15,12 @@ import { commit, newId } from "./sync";
 import { chicagoNote, shortAuthor, shortTitle } from "./titles";
 import type { AttachmentRef, ItemRow } from "./types";
 import { isAssessmentEnabled } from "./assessmentEnabled";
+import {
+  normaliseSourceCategory,
+  normaliseSourceLinks,
+  type EssaySourceCategory,
+  type SourceLink,
+} from "./essaySources";
 
 const EMPTY_REF_IDS: string[] = [];
 const EMPTY_DRAFTS: AssessmentSnapshot[] = [];
@@ -43,11 +49,36 @@ export interface CustomSource {
   author?: string;
   title: string;
   year?: string;
-  kind?: "primary" | "secondary";
+  // "secondary" is the kind stored before course and outside reading were split,
+  // and is read back as "secondary_course" by normaliseAssessmentData.
+  kind?: EssaySourceCategory | "secondary";
   publisher?: string;
   url?: string;
   notes?: string;
 }
+
+// A file uploaded straight onto an essay as one of its sources, such as an archive
+// scan or an article found outside the course, so it belongs to the essay rather
+// than to any week of the module.
+export interface AttachedPaper {
+  id: string;
+  title: string;
+  kind: EssaySourceCategory;
+  author?: string;
+  year?: string;
+  publisher?: string;
+  url?: string;
+  notes?: string;
+  fileId?: string;
+  r2Key?: string;
+  name?: string;
+  mime?: string;
+  size?: number;
+  added_at?: string;
+}
+
+// Anything the essay can cite apart from a reading list item.
+export type EssaySource = CustomSource | AttachedPaper;
 
 export interface ModuleEssayMeta {
   id: string;
@@ -69,6 +100,8 @@ export interface AssessmentData {
   customSources?: CustomSource[];
   // The module's own papers for this essay, such as the brief and the rubric.
   adminDocuments?: AttachmentRef[];
+  attachedPapers?: AttachedPaper[];
+  sourceLinks?: SourceLink[];
   previousDrafts: AssessmentSnapshot[];
   rev: number;
   updated_at?: string;
@@ -140,6 +173,47 @@ function isAttachmentRef(value: unknown): value is AttachmentRef {
     && (ref.r2Key === undefined || typeof ref.r2Key === "string");
 }
 
+// Reads the older plain "secondary" kind as course reading, leaving every other
+// source exactly as stored so that nothing else about it changes on read.
+function normaliseCustomSource(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const source = value as CustomSource;
+  return source.kind === "secondary" ? { ...source, kind: "secondary_course" } : source;
+}
+
+function optionalText(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+// Reads an uploaded paper, dropping one without an id or any name to show, since
+// it could be neither opened nor listed. A paper with no stored kind was uploaded
+// to the essay itself rather than set by the course, so it counts as outside reading.
+export function normaliseAttachedPaper(value: unknown): AttachedPaper | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+  const id = optionalText(obj.id);
+  const name = optionalText(obj.name);
+  const title = optionalText(obj.title) ?? name;
+  if (!id || !title) return null;
+  const paper: AttachedPaper = { id, title, kind: normaliseSourceCategory(obj.kind, "secondary_outside") };
+  for (const field of ["author", "year", "publisher", "url", "notes", "fileId", "r2Key", "mime", "added_at"] as const) {
+    const text = optionalText(obj[field]);
+    if (text !== undefined) paper[field] = text;
+  }
+  if (name) paper.name = name;
+  if (typeof obj.size === "number" && Number.isFinite(obj.size) && obj.size >= 0) paper.size = obj.size;
+  return paper;
+}
+
+// Every source the essay can cite apart from its reading list items, custom
+// sources first and uploaded papers after them, each in the order stored.
+export function essaySourcesOf(data: Pick<AssessmentData, "customSources" | "attachedPapers">): EssaySource[] {
+  return [...(data.customSources ?? []), ...(data.attachedPapers ?? [])];
+}
+
 export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essayId?: string): AssessmentData {
   const fallback = defaultAssessmentData(moduleCode, essayId);
   if (!raw || typeof raw !== "object") return fallback;
@@ -155,6 +229,10 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
 
   // Kept only when stored, so an essay that never had any reads as before.
   const adminDocuments = Array.isArray(obj.adminDocuments) ? obj.adminDocuments.filter(isAttachmentRef) : undefined;
+  const attachedPapers = Array.isArray(obj.attachedPapers)
+    ? obj.attachedPapers.map(normaliseAttachedPaper).filter((paper): paper is AttachedPaper => paper !== null)
+    : undefined;
+  const sourceLinks = Array.isArray(obj.sourceLinks) ? normaliseSourceLinks(obj.sourceLinks) : undefined;
 
   return {
     id: typeof obj.id === "string" && obj.id ? obj.id : (essayId ?? "default"),
@@ -165,8 +243,10 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
     includeFootnotes: typeof obj.includeFootnotes === "boolean" ? obj.includeFootnotes : true,
     draft,
     referenceItemIds: Array.isArray(obj.referenceItemIds) ? obj.referenceItemIds : EMPTY_REF_IDS,
-    customSources: Array.isArray(obj.customSources) ? obj.customSources : [],
+    customSources: Array.isArray(obj.customSources) ? (obj.customSources.map(normaliseCustomSource) as CustomSource[]) : [],
     ...(adminDocuments ? { adminDocuments } : {}),
+    ...(attachedPapers ? { attachedPapers } : {}),
+    ...(sourceLinks ? { sourceLinks } : {}),
     previousDrafts: Array.isArray(obj.previousDrafts) ? obj.previousDrafts : EMPTY_DRAFTS,
     rev: typeof obj.rev === "number" ? obj.rev : 1,
     updated_at: typeof obj.updated_at === "string" ? obj.updated_at : undefined,

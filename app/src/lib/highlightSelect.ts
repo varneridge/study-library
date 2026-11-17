@@ -60,3 +60,37 @@ export function shortcutFor(e: KeyLike, focusEditable: boolean, barOpen: boolean
   if (k === "c") return "comment";
   return null;
 }
+
+export interface EdgesLike {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+// Whether a rectangle read from the page can place anything. A range in text
+// that is hidden, or not yet laid out, reports a rectangle of zeros, and
+// placing the selection bar against that sends it to the corner of the screen.
+export function usableRect<T extends EdgesLike>(rect: T | null | undefined): rect is T {
+  if (!rect) return false;
+  const { left, top, right, bottom } = rect;
+  if (![left, top, right, bottom].every(Number.isFinite)) return false;
+  return right - left > 0 || bottom - top > 0;
+}
+
+export interface SelectionLike {
+  page: number;
+  text: string;
+  rects: readonly (readonly number[])[];
+  x: number;
+  y: number;
+}
+
+// A key that is equal for two reports of the same selection in the same
+// place. Browsers fire selectionchange when nothing visible has changed, and
+// passing each of those on re-rendered and re-placed the selection bar, so
+// the reader compares keys and only reports a selection that really changed.
+export function selectionKey(s: SelectionLike): string {
+  const rects = s.rects.map((r) => r.map((n) => Math.round(n * 10) / 10).join(",")).join(";");
+  return `${s.page}|${normaliseBody(s.text)}|${rects}|${Math.round(s.x)}|${Math.round(s.y)}`;
+}

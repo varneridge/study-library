@@ -1,37 +1,81 @@
 /*
- * The essay workspace. From 1280px it is three columns, so that the essay sits in the
- * middle with its brief and sources on the left and its references and outline on the
- * right. Between 900px and 1280px the right column becomes a drawer opened from the
- * toolbar, and below 900px the three panes share the space, chosen by the tabs above them.
+ * The essay workspace. It takes the full width of the screen, so that no space is lost to
+ * a narrow page cap, and from 1280px it is three columns, with the essay in the middle, its
+ * brief and sources on the left and its references and contents on the right. Between
+ * 900px and 1280px the right column becomes a drawer opened from the toolbar, and below
+ * 900px the three panes share the space, chosen by the tabs above them.
+ *
+ * Class contract for Phase 4b markup, beyond the classes the page already uses:
+ *   .essay-ws-head-menu         wrapper for the three dots menu placed beside the title
+ *   .essay-ws-edit              the Edit pane, which sits beside Preview and Plan
+ *   .essay-preview-corner       the sticky corner slot, first child of .essay-ws-preview
+ *   .essay-corner-bar           the translucent bar inside it (zoom, fullscreen, menu)
+ *   .essay-corner-sep           a hairline between the bar's groups of controls
+ *   .essay-ws-source-groups     the list of Primary, Secondary (course), Secondary (outside)
+ *   .essay-ws-source-group      one group, headed by .essay-ws-source-group-head and holding
+ *                               a .essay-ws-sources list, with .essay-ws-source-group-count
+ *   .essay-ws-source-sub        the muted author and year shown after a source's title
+ *   .essay-ws-source-links      the passage-linked reference badges of a source
+ *   .essay-ws-link-badge        one badge, a button that jumps to its passage
+ *   .essay-ws-source-actions    the quick actions, holding .essay-ws-source-action buttons
+ *                               (add .is-danger to the delete action)
+ * A Contents entry for the essay title takes data-level="0" so that it reads as the title.
  */
 
-/* The page starts close under the top bar, with the crumbs, the title row and the toolbar
-   packed together, so that the essay itself begins high on the screen. */
-.page.essay-page.essay-ws-page {
-  padding-top: 0.75rem;
+/* The page drops the shared page width cap and starts close under the top bar, so that
+   the essay begins high on the screen and the side columns sit near the window edges. */
+.page.wide.essay-page.essay-ws-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding: 0.5rem clamp(0.75rem, 1.5vw, 1.5rem) 1.5rem;
 }
 
+/* The crumbs keep no spacing of their own, because the title row directly below them
+   already separates them from the workspace. */
 .essay-ws-page > .crumbs {
-  margin: 0 0 0.25rem;
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
 }
 
+/* The title row holds the title with its three dots menu directly beside it, and pushes
+   the save status and the snapshots button to the far end on one line. */
 .section-head.essay-ws-head {
-  margin: 0 0 0.6rem;
-  padding: 0;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0 0 0.5rem;
+  padding: 0;
 }
 
 .essay-ws-head .essay-title-input {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
+.essay-ws-head-menu,
+.essay-ws-head .save-status,
+.essay-ws-head > .button {
+  flex: none;
+}
+
+.essay-ws-head-menu {
+  display: inline-flex;
+  align-items: center;
 }
 
 .essay-ws {
   display: grid;
-  grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(17rem, 21rem);
-  gap: 1.25rem;
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr) minmax(15rem, 19rem);
+  gap: 1rem;
   align-items: start;
 }
 
@@ -39,11 +83,11 @@
 .essay-ws-rail,
 .essay-ws-aside {
   display: grid;
-  gap: 1rem;
+  gap: 0.75rem;
   min-width: 0;
   position: sticky;
-  top: calc(var(--topbar-h, 0px) + 0.75rem);
-  max-height: calc(100vh - var(--topbar-h, 0px) - 1.5rem);
+  top: calc(var(--topbar-h, 0px) + 0.5rem);
+  max-height: calc(100vh - var(--topbar-h, 0px) - 1rem);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -54,12 +98,17 @@
   min-width: 0;
 }
 
-/* The columns' cards, which share the look of the page's existing panels. */
+/* The columns' cards share the look of the page's panels, with tighter padding so that
+   the side columns give their width to content rather than to indents. */
 .essay-ws-card {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.5rem;
   margin: 0;
   min-width: 0;
+}
+
+.essay-panel.essay-ws-card {
+  padding: 0.75rem 0.85rem;
 }
 
 .essay-ws-card-head {
@@ -77,6 +126,10 @@
   margin: 0;
   font-family: var(--sans);
   font-size: var(--fs-md);
+}
+
+.essay-ws-card > p {
+  margin: 0;
 }
 
 .essay-ws-brief-count {
@@ -129,13 +182,61 @@
   grid-area: remove;
 }
 
-/* Sources: a mouse drags a whole row, a finger drags its "#" handle. */
+/* Sources are grouped as Primary, Secondary (course) and Secondary (outside), and each
+   group is headed quietly so that the groups differ only by their heading and not by
+   colour, which keeps a list of thirty or more sources even and easy to scan. */
+.essay-ws-source-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.essay-ws-source-group {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.essay-ws-source-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0 0.25rem;
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.essay-ws-source-group-count {
+  margin-left: auto;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rows follow the week readings rows, one line each with a hairline between them, so
+   that a long list reads as a list rather than as a stack of cards. */
+.essay-ws-sources {
+  gap: 0;
+}
+
+.essay-ws-sources > li + li {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* A mouse drags a whole row, and a finger drags its "#" handle. */
 .essay-ws-source {
   display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
-  padding: 0.4rem 0.35rem;
-  border-radius: 8px;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.3rem 0.25rem;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
   cursor: grab;
 }
 
@@ -154,7 +255,7 @@
   color: var(--muted);
   font: inherit;
   font-weight: 600;
-  padding: 0.1rem 0.3rem;
+  padding: 0.1rem 0.25rem;
   border-radius: 4px;
 }
 
@@ -167,23 +268,120 @@
   flex: 1;
   min-width: 0;
   display: grid;
-  gap: 0.2rem;
-  overflow-wrap: anywhere;
+  gap: 0.15rem;
 }
 
+/* A title stays on one line and is cut short with an ellipsis, because its full form is
+   in the row's tooltip and in the reader, and wrapping would make rows uneven. */
+.essay-ws-source-body > a,
 .essay-ws-source-title {
-  font-family: var(--serif);
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.essay-ws-source-sub {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .essay-ws-source-meta {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  min-width: 0;
   flex-wrap: wrap;
 }
 
 .essay-ws-cited {
   opacity: 0.75;
+}
+
+/* Each reference that cites a passage of the source shows as a small badge, and pressing
+   it jumps to that passage in the essay. */
+.essay-ws-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.essay-ws-link-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 10rem;
+  min-height: 1.25rem;
+  padding: 0 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b5bdb) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #3b5bdb) 7%, transparent);
+  color: var(--accent, #3b5bdb);
+  font: inherit;
+  font-size: var(--fs-xs, 0.75rem);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.essay-ws-link-badge:hover {
+  background: color-mix(in srgb, var(--accent, #3b5bdb) 14%, transparent);
+}
+
+.essay-ws-link-badge:focus-visible {
+  outline: 2px solid var(--accent, #3b5bdb);
+  outline-offset: 1px;
+}
+
+/* The quick jump and delete actions appear when a row is pointed at or holds focus, so
+   that thirty quiet rows do not each carry a set of buttons, and on touch screens, which
+   cannot hover, they are always shown. */
+.essay-ws-source-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.essay-ws-source:hover .essay-ws-source-actions,
+.essay-ws-source:focus-within .essay-ws-source-actions {
+  opacity: 1;
+}
+
+.essay-ws-source-action {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.essay-ws-source-action:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.essay-ws-source-action.is-danger:hover {
+  color: var(--danger, #c92a2a);
+}
+
+.essay-ws-source-action:focus-visible {
+  outline: 2px solid var(--accent, #3b5bdb);
+  outline-offset: 1px;
 }
 
 .essay-ws-drag-chip {
@@ -284,6 +482,16 @@
   cursor: pointer;
 }
 
+/* Contents, formerly the outline, is sized for a title, an introduction, three to five
+   body sections and a conclusion, so each entry takes a single short line and the list
+   scrolls only when a draft has more headings than that. */
+.essay-ws-outline {
+  gap: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .essay-ws-outline button {
   display: block;
   width: 100%;
@@ -292,8 +500,13 @@
   background: transparent;
   color: var(--ink);
   font: inherit;
-  padding: 0.2rem 0.35rem;
-  border-radius: 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  padding: 0.18rem 0.4rem;
+  border-radius: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -301,41 +514,187 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
+.essay-ws-outline button:focus-visible {
+  outline: 2px solid var(--accent, #3b5bdb);
+  outline-offset: -2px;
+}
+
+.essay-ws-outline button[data-level="0"] {
+  font-weight: 600;
+}
+
 .essay-ws-outline button[data-level="2"] {
-  padding-left: 1rem;
+  padding-left: 0.9rem;
 }
 
 .essay-ws-outline button[data-level="3"] {
-  padding-left: 1.75rem;
-  font-size: var(--fs-sm);
+  padding-left: 1.5rem;
+  color: var(--muted);
 }
 
-/* The centre column */
+/* The centre column, whose toolbar switches between Preview, Edit and Plan. */
 .essay-ws-toolbar,
 .essay-ws-preview-bar {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.essay-ws-toolbar {
+  min-height: 2.25rem;
 }
 
 .essay-ws-toolbar .essay-tabs-track {
   margin: 0;
 }
 
-/* The preview box is drawn about 30% taller than one A4 page, so that more of the essay
-   shows before the box needs scrolling. */
-.essay-ws-preview {
+/* Edit and Plan keep the same height as the preview, so that switching between the three
+   views does not make the page jump. */
+.essay-ws-centre > .essay-ws-edit,
+.essay-ws-centre > .essay-plan {
   display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: max(85vh, 40rem);
+  min-height: max(85svh, 40rem);
+}
+
+.essay-ws-centre > .essay-plan > .essay-hint {
+  margin: 0;
+}
+
+/* The preview box keeps its shape of about 30% taller than one A4 page, and is never
+   shorter than 85% of the window, so that a whole page shows clearly without clipping. */
+.essay-ws-preview {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.4rem;
   --page-zoom-ratio: 210 / 386;
+}
+
+.essay-ws-preview > :not(.essay-ws-preview-bar):not(.essay-preview-corner) {
+  min-height: max(85vh, 40rem);
+  min-height: max(85svh, 40rem);
 }
 
 .essay-ws-preview-bar {
   justify-content: space-between;
 }
 
-/* The place reached from a reference or the outline, marked for a moment. */
+/* Once the corner bar is in place it replaces the bar above the preview, and it shares
+   the preview's grid cell so that it floats over the page rather than above it. */
+.essay-ws-preview:has(.essay-preview-corner) > .essay-ws-preview-bar {
+  display: none;
+}
+
+.essay-ws-preview:has(.essay-preview-corner) > * {
+  grid-area: 1 / 1;
+}
+
+/* The corner slot sticks beneath the top bar while the page scrolls, and lets clicks
+   through everywhere except on the bar itself. */
+.essay-preview-corner {
+  grid-area: 1 / 1;
+  align-self: start;
+  justify-self: end;
+  position: sticky;
+  top: calc(var(--topbar-h, 0px) + 0.5rem);
+  z-index: 6;
+  margin: 0.5rem;
+  pointer-events: none;
+}
+
+/* The corner bar is small and translucent, so that it reads as part of the preview and
+   not as a toolbar, and it comes forward when the preview is pointed at or it holds focus. */
+.essay-corner-bar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper, #fff) 70%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.08);
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.essay-ws-preview:hover .essay-corner-bar,
+.essay-corner-bar:focus-within {
+  opacity: 1;
+}
+
+.essay-corner-bar .essay-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Only the bar's own controls are styled here, not the items of the menu it opens. */
+.essay-corner-bar > button,
+.essay-corner-bar > .essay-zoom-controls > button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.9rem;
+  min-height: 1.9rem;
+  padding: 0 0.35rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.essay-corner-bar > button:hover:not(:disabled),
+.essay-corner-bar > .essay-zoom-controls > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.essay-corner-bar > button:focus-visible,
+.essay-corner-bar > .essay-zoom-controls > button:focus-visible {
+  outline: 2px solid var(--accent, #3b5bdb);
+  outline-offset: 1px;
+}
+
+.essay-corner-bar .essay-zoom-percent {
+  min-width: 3rem;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.essay-corner-sep {
+  flex: none;
+  width: 1px;
+  height: 1.1rem;
+  margin: 0 0.15rem;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+/* In fullscreen the preview fills the screen on the page's own background, and the page
+   box grows to the screen's height less its padding. */
+.essay-ws-preview:fullscreen {
+  box-sizing: border-box;
+  padding: 1rem;
+  overflow: auto;
+  background: var(--bg, var(--paper, #fff));
+}
+
+.essay-ws-preview:fullscreen > :not(.essay-ws-preview-bar):not(.essay-preview-corner) {
+  min-height: calc(100vh - 2rem);
+}
+
+.essay-ws-preview:fullscreen .essay-preview-corner {
+  top: 0.5rem;
+}
+
+/* The place reached from a reference or the contents, marked for a moment. */
 .essay-sheet-cited,
 .is-jumped {
   background: color-mix(in srgb, #f5c542 45%, transparent);
@@ -364,6 +723,26 @@
 .essay-ws-drawer-toggle,
 .essay-ws-drawer-close {
   display: none;
+}
+
+/* Touch screens cannot hover, so the quick actions and the corner bar stay in view there. */
+@media (hover: none) {
+  .essay-ws-source-actions {
+    opacity: 1;
+  }
+
+  .essay-corner-bar {
+    opacity: 0.9;
+  }
+}
+
+/* Very wide screens give the side columns a little more room, while the essay keeps the
+   rest of the width. */
+@media (min-width: 1680px) {
+  .essay-ws {
+    grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr) minmax(17rem, 22rem);
+    gap: 1.25rem;
+  }
 }
 
 @media (max-width: 1279.98px) {
@@ -442,9 +821,23 @@
   }
 }
 
+/* On a phone the title row may wrap, so that a long question is not squeezed beside the
+   save status and the snapshots button. */
+@media (max-width: 599.98px) {
+  .section-head.essay-ws-head {
+    flex-wrap: wrap;
+  }
+
+  .essay-ws-head .essay-title-input {
+    flex: 1 1 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .essay-ws-aside,
   .essay-ws-refs,
+  .essay-ws-source-actions,
+  .essay-corner-bar,
   .essay-sheet-cited,
   .is-jumped {
     transition: none;

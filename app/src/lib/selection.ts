@@ -5,18 +5,69 @@
 
 let fingers = 0;
 const lifted = new Set<() => void>();
+// A mouse or pen button held down means the same as a finger on the screen:
+// the selection may still be being dragged out, so it is not offered yet.
+let held = false;
+const released = new Set<() => void>();
+// Where the latest press began, and when it ended (0 while it is held), so a
+// selection change caused by pressing the reader's own controls can be told
+// apart from one made in the text.
+let pressedAt: Element | null = null;
+let pressEnded = 0;
 if (typeof document !== "undefined") {
+  const capture = { passive: true, capture: true } as const;
   const track = (e: TouchEvent) => {
     const before = fingers;
     fingers = e.touches.length;
-    if (before && !fingers) lifted.forEach((fn) => fn());
+    if (before && !fingers) {
+      lifted.forEach((fn) => fn());
+      released.forEach((fn) => fn());
+    }
   };
-  document.addEventListener("touchstart", track, { passive: true, capture: true });
-  document.addEventListener("touchend", track, { passive: true, capture: true });
-  document.addEventListener("touchcancel", track, { passive: true, capture: true });
+  document.addEventListener("touchstart", track, capture);
+  document.addEventListener("touchend", track, capture);
+  document.addEventListener("touchcancel", track, capture);
+
+  const press = (e: PointerEvent) => {
+    pressedAt = e.target instanceof Element ? e.target : null;
+    pressEnded = 0;
+    if (e.pointerType !== "touch" && e.button === 0) held = true;
+  };
+  const release = () => {
+    pressEnded = Date.now();
+    if (!held) return;
+    held = false;
+    released.forEach((fn) => fn());
+  };
+  document.addEventListener("pointerdown", press, capture);
+  document.addEventListener("pointerup", release, capture);
+  document.addEventListener("pointercancel", release, capture);
+  // A button let go outside the window sends no pointerup, so the next move
+  // with no button down, or the window losing focus, ends the press instead.
+  document.addEventListener("pointermove", (e: PointerEvent) => {
+    if (held && e.buttons === 0) release();
+  }, capture);
+  if (typeof window !== "undefined") window.addEventListener("blur", release);
 }
 
 export const fingerDown = () => fingers > 0;
+
+// Whether any finger, mouse button or pen is pressed down at the moment.
+export const pressing = () => held || fingers > 0;
+
+// Whether the press that is held now, or one that ended within the last
+// within milliseconds, began inside an element matching selector.
+export function pressInside(selector: string, within = 500): boolean {
+  if (!pressedAt?.closest(selector)) return false;
+  return pressEnded === 0 || Date.now() - pressEnded < within;
+}
+
+// Calls fn whenever the last finger leaves the screen or a mouse or pen
+// button is let go, which is when a dragged selection is finished.
+export function whenReleased(fn: () => void): () => void {
+  released.add(fn);
+  return () => released.delete(fn);
+}
 
 // Asks the reader to take the selection as it stands now, without waiting
 // for it to settle, as after Whole sentence widens it.

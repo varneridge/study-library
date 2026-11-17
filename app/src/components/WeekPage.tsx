@@ -33,7 +33,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { droppedOrder, dragHandleProps, steppedOrder, swallowClickAfterDrag, useDragSensors, useOptimisticOrder } from "../lib/drag";
 
-// When a week runs, and whether that is now, beside the crumbs.
+// When a week runs, and whether that is now, in the slim line above the title.
 export function WeekWhen({ week }: { week: WeekRow }) {
   const dates = useTermDates();
   const now = useTeachingWeek();
@@ -483,11 +483,10 @@ export function WeekPage({ id }: { id: string }) {
       onDrop={onDrop}
     >
       {overText && <div className="drop-banner" role="status">{overText}</div>}
-      <div className="crumbs week-crumbs">
-        <div className="crumbs-path">
-          <Link to={{ view: "module", id: module.id }}>{module.code}</Link> <span aria-hidden="true">/</span> {weekCode(week)}
-          <WeekWhen week={week} />
-        </div>
+      {/* The tab and Back already say where the week sits, so the line above the
+          title keeps only when it runs and the way to the weeks either side. */}
+      <div className="week-crumbs page-topline">
+        <WeekWhen week={week} />
         <nav className="week-nav week-nav-top" aria-label="Other weeks">
           {data.previous ? (
             <Link
@@ -520,7 +519,36 @@ export function WeekPage({ id }: { id: string }) {
         </nav>
       </div>
       <div className="section-head" style={{ marginBottom: 0, alignItems: "center" }}>
-        <div style={{ flex: 1, minWidth: 0 }}><TitleEditor week={week} editing={renaming} setEditing={setRenaming} /></div>
+        {/* The week's own actions sit beside its title, which they act upon,
+            and the buttons for adding to the week stay at the far end. */}
+        <div className="page-title-group">
+          <TitleEditor week={week} editing={renaming} setEditing={setRenaming} />
+          {section ? (
+            <Menu
+              label={isLibrary(module) ? "More actions for this shelf" : "More actions for this section"}
+              items={[
+                { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
+                { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+                { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+                { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
+                { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
+              ]}
+            />
+          ) : (
+            <Menu
+              label="More actions for this week"
+              items={[
+                { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
+                { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
+                { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+                { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+                ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
+                { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
+                { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
+              ]}
+            />
+          )}
+        </div>
         {isDocumentOnly ? (
           <button
             className="button primary"
@@ -546,31 +574,6 @@ export function WeekPage({ id }: { id: string }) {
         )}
         {section && moduleHasMeetings(module) && (
           <button className="button" onClick={async () => navigate({ view: "session", id: await addMeeting(week.id) })}>Add a meeting</button>
-        )}
-        {section ? (
-          <Menu
-            label={isLibrary(module) ? "More actions for this shelf" : "More actions for this section"}
-            items={[
-              { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
-              { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
-              { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-              { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
-              { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
-            ]}
-          />
-        ) : (
-        <Menu
-          label="More actions for this week"
-          items={[
-            { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
-            { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
-            { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
-            { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-            ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
-            { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
-            { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
-          ]}
-        />
         )}
         <input ref={coverPicker} type="file" hidden accept="image/*" onChange={onPickCover} />
         <input
