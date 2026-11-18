@@ -311,10 +311,8 @@ export const PageView = memo(function PageView({
 
   useEffect(() => {
     const element = ref.current!;
-    // The reader's scroller and the shared zoom frame both scroll their own pages, so either
-    // is the root that decides which pages are near enough to draw.
     const observer = new IntersectionObserver(([entry]) => setNear(entry.isIntersecting), {
-      root: element.closest(".scroller, [data-zoom-frame]"),
+      root: element.closest(".scroller"),
       rootMargin: "150% 0px",
     });
     observer.observe(element);

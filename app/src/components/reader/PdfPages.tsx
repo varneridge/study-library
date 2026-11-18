@@ -1,41 +1,29 @@
-// PDF pages drawn by the reader's own page primitive inside the shared zoom viewport, for
-// screens that show a PDF without the reader around it, such as the essay preview and the
-// documents opened from an essay. Pages are drawn only while they are near the frame's view
-// and give their memory back once they leave it, so a long source costs no more than a short one.
+// Outside PDF viewer using Mozilla PDF.js's official PDFViewer component, giving virtualised
+// page rendering, crisp HiDPI canvases, text selection, annotation links and fit-to-width inside
+// a single scrollable frame.
 
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { EXACT_SIZES_UP_TO, exactPageSizes, pageSizes } from "../../lib/pdfOpen";
-import type { HighlightRow } from "../../lib/types";
-import type { Box, FitMode } from "../../lib/zoom";
-import { PageView, type Needles, type Size } from "./pages";
-import { ZoomViewport } from "./ZoomViewport";
+import { EventBus, PDFLinkService, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
+import "pdfjs-dist/web/pdf_viewer.css";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { stepZoom } from "../../lib/zoom";
 
-// PDF sizes are in points, a 72nd of an inch, so this turns them into CSS pixels and makes
-// 100 per cent the page's printed size, which is the scale the Word sheet uses as well.
-export const PT_TO_PX = 96 / 72;
-
-// These are module constants because PageView is memoised, so fresh empty values on every
-// render would redraw every page each time the zoom changed.
-const NO_HIGHLIGHTS: HighlightRow[] = [];
-const NO_NEEDLES: Needles = { list: [], separate: false };
-const ignoreViewport = (): void => undefined;
+// Ensure the worker is configured even if the reader route has not been opened yet.
+if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+}
 
 export interface PdfPagesProps {
-  // The file to draw, from stored bytes or from a link; bytes win when both are given.
   bytes?: Uint8Array | null;
   url?: string | null;
-  // null fits the pages to the frame, and a number is a manual scale where 1 is printed size.
   zoom: number | null;
-  fit?: FitMode;
-  // A zero-based page to open at, which is scrolled to once, after the first fitted layout.
+  fit?: "width" | "page";
   initialPage?: number;
   onZoomChange?(zoom: number | null): void;
   onEffectiveScale?(scale: number): void;
   onError?(error: unknown): void;
   className?: string;
-  // Shown while the file opens and whenever it cannot be opened.
   fallback?: ReactNode;
 }
 
@@ -51,103 +39,139 @@ export function PdfPages({
   className,
   fallback = null,
 }: PdfPagesProps) {
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
-  const [sizes, setSizes] = useState<Size[]>([]);
-  const [failed, setFailed] = useState(false);
-  const frameRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const pdfViewerRef = useRef<PDFViewer | null>(null);
+  const linkServiceRef = useRef<PDFLinkService | null>(null);
+  const zoomRef = useRef(zoom);
+  const fitRef = useRef(fit);
+  const initialPageRef = useRef(initialPage);
+  const onZoomChangeRef = useRef(onZoomChange);
+  const onEffectiveScaleRef = useRef(onEffectiveScale);
   const onErrorRef = useRef(onError);
+
+  zoomRef.current = zoom;
+  fitRef.current = fit;
+  initialPageRef.current = initialPage;
+  onZoomChangeRef.current = onZoomChange;
+  onEffectiveScaleRef.current = onEffectiveScale;
   onErrorRef.current = onError;
+
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
   const data = bytes && bytes.byteLength > 0 ? bytes : null;
   const link = data ? null : url || null;
 
-  // Loading is keyed on the source alone, so that zooming never parses the file again.
+  // Initialise the PDF.js PDFViewer once on mount and tear down on unmount.
   useEffect(() => {
-    setDoc(null);
-    setSizes([]);
+    const container = containerRef.current;
+    const viewerEl = viewerRef.current;
+    if (!container || !viewerEl) return undefined;
+
+    const eventBus = new EventBus();
+    const linkService = new PDFLinkService({ eventBus });
+    const pdfViewer = new PDFViewer({
+      container,
+      viewer: viewerEl,
+      eventBus,
+      linkService,
+      removePageBorders: true,
+    });
+    linkService.setViewer(pdfViewer);
+    pdfViewerRef.current = pdfViewer;
+    linkServiceRef.current = linkService;
+
+    const applyScale = () => {
+      if (!pdfViewer.pagesCount) return;
+      const z = zoomRef.current;
+      pdfViewer.currentScaleValue = z === null ? (fitRef.current === "page" ? "page-fit" : "page-width") : String(z);
+    };
+
+    eventBus.on("pagesinit", () => {
+      applyScale();
+      const target = initialPageRef.current;
+      if (target !== undefined && target > 0 && pdfViewer.pagesCount > 0) {
+        pdfViewer.currentPageNumber = Math.min(target + 1, pdfViewer.pagesCount);
+      }
+      onEffectiveScaleRef.current?.(pdfViewer.currentScale);
+    });
+
+    eventBus.on("scalechanging", (evt: { scale: number }) => {
+      onEffectiveScaleRef.current?.(evt.scale);
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (zoomRef.current === null && pdfViewer.pagesCount > 0) {
+        applyScale();
+      }
+    });
+    resizeObserver.observe(container);
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (!onZoomChangeRef.current) return;
+      event.preventDefault();
+      onZoomChangeRef.current(stepZoom(pdfViewer.currentScale, event.deltaY < 0 ? 1 : -1));
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+      resizeObserver.disconnect();
+      pdfViewer.cleanup();
+      pdfViewerRef.current = null;
+      linkServiceRef.current = null;
+    };
+  }, []);
+
+  // Load the PDF document whenever bytes or url changes.
+  useEffect(() => {
+    setReady(false);
     setFailed(false);
-    if (!data && !link) return undefined;
+    const pdfViewer = pdfViewerRef.current;
+    if (!data && !link) {
+      pdfViewer?.setDocument(null as unknown as PDFDocumentProxy);
+      linkServiceRef.current?.setDocument(null as unknown as PDFDocumentProxy);
+      return undefined;
+    }
+
     let live = true;
-    // pdf.js transfers the buffer it is given, so a copy keeps the caller's bytes usable.
     const task = pdfjs.getDocument(data ? { data: data.slice() } : { url: link as string });
     task.promise
-      .then(async (loaded) => {
-        const all = await pageSizes(loaded);
+      .then((loaded) => {
         if (!live) return;
-        setSizes(all);
-        setDoc(loaded);
-        // A long file shows at once with every page the size of its first, as the reader
-        // does, and pages of any other size are put right in the background.
-        if (loaded.numPages > EXACT_SIZES_UP_TO && all.length > 0) {
-          void exactPageSizes(loaded, all[0], () => !live)
-            .then((exact) => {
-              if (exact && live) setSizes(exact);
-            })
-            .catch(() => undefined);
-        }
+        pdfViewerRef.current?.setDocument(loaded);
+        linkServiceRef.current?.setDocument(loaded);
+        setReady(true);
       })
       .catch((error: unknown) => {
         if (!live) return;
         setFailed(true);
         onErrorRef.current?.(error);
       });
+
     return () => {
       live = false;
       void task.destroy();
     };
   }, [data, link]);
 
-  const boxes = useMemo<Box[]>(
-    () => sizes.map((size) => ({ width: size.width * PT_TO_PX, height: size.height * PT_TO_PX })),
-    [sizes],
-  );
-
-  // The scroll waits for an animation frame because the viewport settles on its fitted scale
-  // in a render of its own straight after mounting, and a scroll made before that would land
-  // on the page's provisional position instead.
-  const pageCount = sizes.length;
+  // Keep zoom and fit mode in sync when controlled by the parent corner bar.
   useEffect(() => {
-    if (!doc || pageCount === 0 || initialPage === undefined || initialPage <= 0) return undefined;
-    const target = Math.min(initialPage, pageCount - 1);
-    const frameId = requestAnimationFrame(() => {
-      const frame = frameRef.current;
-      const slot = frame?.querySelector<HTMLElement>(`[data-page="${target}"]`)?.parentElement;
-      // The frame is the slot's offset parent, so setting its own scroll never moves the
-      // sheet or the page around it, as scrollIntoView would.
-      if (frame && slot) frame.scrollTop = Math.max(0, slot.offsetTop - 8);
-    });
-    return () => cancelAnimationFrame(frameId);
-  }, [doc, pageCount, initialPage]);
+    const pdfViewer = pdfViewerRef.current;
+    if (!pdfViewer || !pdfViewer.pagesCount) return;
+    pdfViewer.currentScaleValue = zoom === null ? (fit === "page" ? "page-fit" : "page-width") : String(zoom);
+  }, [zoom, fit, ready]);
 
-  if (failed || !doc || pageCount === 0) return <>{fallback}</>;
+  if (failed || (!data && !link)) return <>{fallback}</>;
 
   return (
-    <ZoomViewport
-      ref={frameRef}
-      className={className}
-      pageSizes={boxes}
-      zoom={zoom}
-      fit={fit}
-      onZoomChange={onZoomChange}
-      onEffectiveScale={onEffectiveScale}
-    >
-      {(layout) =>
-        sizes.map((size, index) => (
-          <PageView
-            key={index}
-            doc={doc}
-            index={index}
-            size={size}
-            scale={layout.scale * PT_TO_PX}
-            theme="plain"
-            crop={null}
-            highlights={NO_HIGHLIGHTS}
-            activeId={null}
-            query={NO_NEEDLES}
-            currentHit={null}
-            onViewport={ignoreViewport}
-          />
-        ))
-      }
-    </ZoomViewport>
+    <div className={className ? `essay-pdfjs-frame ${className}` : "essay-pdfjs-frame"}>
+      <div ref={containerRef} className="essay-pdfjs-container" tabIndex={0} aria-label="PDF preview">
+        <div ref={viewerRef} className="pdfViewer" />
+      </div>
+      {!ready && <div className="essay-pdfjs-loading">{fallback}</div>}
+    </div>
   );
 }

@@ -988,8 +988,31 @@ button.essay-ws-doc-name:hover {
   background: transparent;
 }
 
-/* PDF pages are the reader's own, ringed with a hairline so that a white page still shows
-   its edge against a light desk. */
+/* PDF pages are drawn by PDF.js's PDFViewer inside a single scrollable frame. */
+.essay-pdfjs-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.essay-pdfjs-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+}
+
+.essay-pdfjs-container .pdfViewer .page {
+  margin: 0 auto 0.75rem;
+  border: none;
+  box-shadow: 0 0 0 1px var(--rule);
+  background: #fff;
+}
+
+.essay-pdfjs-loading {
+  position: relative;
+  z-index: 1;
+}
+
 .essay-preview-frame .pdf-slot,
 .essay-doc-frame .pdf-slot {
   box-shadow: 0 0 0 1px var(--rule);
