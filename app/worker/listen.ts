@@ -174,3 +174,65 @@ listenProcessor.post("/audio/:key/fail", async (c) => {
     .bind(key, final ? "failed" : "queued", String(error ?? "").slice(0, 2000)).run();
   return c.json({ final });
 });
+
+/** Most readings the status lists, as it lists at most thirty jobs. */
+export const STATUS_LISTEN_LIMIT = 30;
+
+/** One reading's prepared audio in one voice that is waiting, being made or has failed, as Settings lists it. */
+export interface StatusListen {
+  item_id: string | null;
+  voice: string;
+  title: string | null;
+  state: "running" | "upgrading" | "queued" | "failed";
+  /** Paragraphs that already play, which includes those being remade. */
+  ready: number;
+  total: number;
+  failed: number;
+  requested_at: string | null;
+}
+
+/**
+ * The readings with Listen audio in hand, one row for each reading and voice:
+ * those being made first, then those being remade, then those waiting, then
+ * those that failed. Within each, the reading asked for most recently comes
+ * first, as /claim hands them out. The groups are found from the active rows
+ * alone, and each one's counts by seeks on listen_audio_status
+ * (migration 0023), so the poll Settings makes every minute never reads every
+ * paragraph ever prepared.
+ */
+export function listenStatusStatement(db: D1Database): D1PreparedStatement {
+  return db.prepare(
+    `SELECT g.item_id, g.voice, g.requested_at, g.running, g.upgrading, g.queued, g.failed,
+            (SELECT COUNT(*) FROM listen_audio d
+              WHERE d.status IN ('done', 'upgrading') AND d.item_id IS g.item_id AND d.voice = g.voice) AS ready,
+            (SELECT COUNT(*) FROM listen_audio t
+              WHERE t.status IN ('queued', 'running', 'upgrading', 'done', 'failed') AND t.item_id IS g.item_id AND t.voice = g.voice) AS total,
+            (SELECT i.title FROM items i WHERE i.id = g.item_id) AS title
+       FROM (SELECT item_id, voice, MAX(requested_at) AS requested_at,
+                    SUM(status = 'running') AS running, SUM(status = 'upgrading') AS upgrading,
+                    SUM(status = 'queued') AS queued, SUM(status = 'failed') AS failed
+               FROM listen_audio
+              WHERE status IN ('running', 'upgrading', 'queued', 'failed')
+              GROUP BY item_id, voice) g
+      ORDER BY CASE WHEN g.running > 0 THEN 0 WHEN g.upgrading > 0 THEN 1 WHEN g.queued > 0 THEN 2 ELSE 3 END,
+               g.requested_at DESC
+      LIMIT ?1`,
+  ).bind(STATUS_LISTEN_LIMIT);
+}
+
+/** A row of listenStatusStatement as the status sends it. */
+export function statusListen(row: Record<string, unknown>): StatusListen {
+  const count = (value: unknown) => Math.max(0, Number(value) || 0);
+  const state: StatusListen["state"] =
+    count(row.running) > 0 ? "running" : count(row.upgrading) > 0 ? "upgrading" : count(row.queued) > 0 ? "queued" : "failed";
+  return {
+    item_id: typeof row.item_id === "string" ? row.item_id : null,
+    voice: String(row.voice ?? ""),
+    title: typeof row.title === "string" && row.title ? row.title.slice(0, 200) : null,
+    state,
+    ready: count(row.ready),
+    total: count(row.total),
+    failed: count(row.failed),
+    requested_at: typeof row.requested_at === "string" ? row.requested_at : null,
+  };
+}

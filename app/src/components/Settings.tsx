@@ -1,5 +1,5 @@
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { db } from "../lib/db";
 import { formatBytes, keepEverything, setKeepEverything } from "../lib/files";
 import { cancelAllUploads } from "../lib/uploads";
@@ -10,7 +10,7 @@ import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames } from "../lib/settings";
 import { currentYear, defaultDates, useTermDates, type TermDates } from "../lib/term";
 import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
-import { ago, processorQuiet, useProcessorStatus, type StatusJob } from "../lib/status";
+import { ago, gpuPresent, processorQuiet, useProcessorStatus, VISIBLE_WORK, waitingSummary, workRows, type ProcessorStatus } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
@@ -30,14 +30,38 @@ const APPEARANCES: { value: Appearance; label: string }[] = [
 const SECTIONS = [
   { id: "section-appearance", label: "Appearance" },
   { id: "section-term-dates", label: "Term dates" },
-  { id: "section-pronunciations", label: "Pronunciations" },
   { id: "section-shortcuts", label: "Shortcuts" },
-  { id: "section-processor", label: "Background processor" },
-  { id: "section-speech", label: "Speech on this computer" },
+  { id: "section-processor", label: "Processor and speech" },
+  { id: "section-updates", label: "Updates" },
   { id: "section-device", label: "On this device" },
   { id: "section-bin", label: "Recently deleted" },
   { id: "section-danger", label: "Start again" },
 ];
+
+// The parts of Processor and speech that fold away until asked for.
+type Panel = "pronunciations" | "maintenance" | "reconnect";
+
+// Links from before Processor and speech name sections that now live inside
+// it, so each still scrolls to the part it named, opening it if it is folded.
+const SECTION_ALIASES: Record<string, { section: string; open?: Panel }> = {
+  "section-pronunciations": { section: "section-processor", open: "pronunciations" },
+  "section-speech": { section: "section-processor" },
+};
+
+// How many deleted things Recently deleted shows before See more.
+const VISIBLE_BIN = 5;
+
+// What kind of device this is, since each does different work: the desktop
+// app can be the background processor and has a speech server of its own, a
+// browser on a computer only syncs and plays, and a phone or tablet cannot
+// connect a computer at all.
+type DeviceKind = "desktop-app" | "browser" | "phone";
+
+function deviceKind(): DeviceKind {
+  if (isDesktop()) return "desktop-app";
+  if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) return "phone";
+  return "browser";
+}
 
 // Whether the background processor is connected. It needs connecting when the
 // desktop launcher said this computer lacks its credentials, or when no
@@ -61,34 +85,45 @@ const CONNECTION_LABEL: Record<ProcessorConnection, string> = {
   needs: "Needs connecting",
 };
 
-const CONNECTION_COLOUR: Record<ProcessorConnection, string> = {
-  checking: "color-mix(in srgb, currentColor 35%, transparent)",
-  connected: "#2f9e44",
-  needs: "#e8590c",
-};
-
 function ConnectionBadge({ connection }: { connection: ProcessorConnection }) {
   return (
-    <p
-      className="small"
-      role="status"
-      aria-live="polite"
-      style={{ display: "flex", alignItems: "center", gap: "0.45rem", margin: "0.25rem 0 0.5rem", fontWeight: 600 }}
-    >
-      <span
-        aria-hidden="true"
-        style={{ flex: "none", width: "0.6rem", height: "0.6rem", borderRadius: "50%", background: CONNECTION_COLOUR[connection] }}
-      />
+    <p className="small connection-badge" role="status" aria-live="polite">
+      <span aria-hidden="true" className={`connection-dot is-${connection}`} />
       {CONNECTION_LABEL[connection]}
     </p>
   );
 }
 
-function needsNote(unpaired: boolean, seen: boolean): string {
+function needsNote(unpaired: boolean, seen: boolean, device: DeviceKind): string {
   if (unpaired) return "This computer has not been connected yet, so press Connect this computer below and choose Open when Edge asks.";
+  if (device === "phone") {
+    return seen
+      ? "No processor has asked for work recently, so check that the desktop app is running on the Windows computer that processes."
+      : "No computer has been connected yet, so open Settings on the Windows computer that will do the processing and connect it there.";
+  }
   if (seen) return "No processor has asked for work recently, so check that the desktop app is running on the computer that processes, or connect this one below.";
   return "No computer has been connected yet, so connect one below to process scans, slides and recordings.";
 }
+
+// What the background computer does, said for the device reading it.
+const PROCESSOR_INTRO: Record<DeviceKind, string> = {
+  "desktop-app":
+    "Scans, slides, recordings and Listen audio are processed by whichever connected Windows computer is on, which can be this one. Speech on this computer says what this desktop app's own voice can do.",
+  browser:
+    "Scans, slides, recordings and Listen audio are processed on a background Windows computer running the desktop app, not in this browser, which only shows how that work is going.",
+  phone:
+    "Scans, slides, recordings and Listen audio are processed on a background Windows computer, not on this phone or tablet, which only shows how that work is going.",
+};
+
+// What this device does for itself, as against the background computer's work.
+const DEVICE_INTRO: Record<DeviceKind, string> = {
+  "desktop-app":
+    "The desktop app keeps this computer's copy of your library in sync, saves readings to read offline, plays Listen audio and checks GitHub for updates. Processing is described under Processor and speech.",
+  browser:
+    "This browser keeps its own copy of your library in sync, saves readings to read offline and plays Listen audio. It processes nothing itself, so closing it never stops the background computer's work.",
+  phone:
+    "This phone or tablet keeps its own copy of your library in sync, saves readings to read offline and plays Listen audio. It processes nothing itself, so it only needs to be online to send and receive changes.",
+};
 
 function normalizeColours(obj: Record<string, string | undefined>): Record<string, string> {
   const clean: Record<string, string> = {};
@@ -134,7 +169,7 @@ async function cropCovers() {
   }
 }
 
-function ConnectComputer() {
+function ConnectComputer({ heading = true }: { heading?: boolean }) {
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,8 +205,8 @@ function ConnectComputer() {
   }, []);
 
   return (
-    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
-      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>This computer</h3>
+    <div className={heading ? "settings-subgroup" : undefined}>
+      {heading && <h3 className="settings-subhead">This computer</h3>}
       {loading && <p className="small muted">Preparing connection link…</p>}
       {error && (
         <div>
@@ -197,112 +232,213 @@ function ConnectComputer() {
   );
 }
 
-const JOB_STATUS_LABEL: Record<StatusJob["status"], string> = {
-  running: "Running",
-  queued: "Queued",
-  failed: "Failed",
-};
-
-// Job kinds are stored as short words such as ocr or redo_cover, so they are
-// shown with spaces for the underscores and a capital to start.
-function jobKindLabel(kind: string): string {
-  const words = kind.replace(/[_-]+/g, " ").trim();
-  return words ? words[0].toUpperCase() + words.slice(1) : "Job";
+// A part of a section that folds away. Its contents are drawn the first time
+// it opens and kept while it is folded, so nothing typed in it is lost and a
+// part that fetches something, such as a connection link, waits until asked.
+function Disclosure({
+  id,
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: string;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const [drawn, setDrawn] = useState(open);
+  useEffect(() => {
+    if (open) setDrawn(true);
+  }, [open]);
+  return (
+    <div id={id} className={`settings-disclosure${open ? " is-open" : ""}`}>
+      <h3 className="settings-disclosure-head">
+        <button
+          type="button"
+          className="settings-disclosure-toggle"
+          aria-expanded={open}
+          aria-controls={`${id}-body`}
+          onClick={() => onToggle(!open)}
+        >
+          <span className="settings-disclosure-title">{title}</span>
+          {summary && <span className="settings-disclosure-summary">{summary}</span>}
+        </button>
+      </h3>
+      <div id={`${id}-body`} className="settings-disclosure-body" hidden={!open}>
+        {(open || drawn) && children}
+      </div>
+    </div>
+  );
 }
 
-// The jobs the processor has in hand, in a box of its own that scrolls, so a
-// long queue does not push the rest of the card down the page.
-function JobList({ jobs, total }: { jobs: StatusJob[]; total: number }) {
-  if (jobs.length === 0) {
-    return <p className="small muted" style={{ marginTop: "0.5rem" }}>No jobs queued, so the processor has nothing in hand.</p>;
-  }
+// See more and Show fewer for a list that starts short.
+function MoreToggle({ hidden, expanded, controls, onToggle }: { hidden: number; expanded: boolean; controls: string; onToggle: () => void }) {
   return (
-    <div style={{ marginTop: "0.75rem" }}>
-      <ul
-        className="list small"
-        aria-label="Processor jobs"
-        tabIndex={0}
-        style={{
-          maxHeight: "14rem",
-          overflowY: "auto",
-          margin: 0,
-          padding: "0.25rem 0.75rem",
-          border: "1px solid color-mix(in srgb, currentColor 15%, transparent)",
-          borderRadius: "0.5rem",
-        }}
-      >
-        {jobs.map((job) => {
-          const target = job.label || job.targetId;
-          const cleanError = (job.error || "").replace(/\.+$/, "");
-          return (
-            <li key={`${job.status}-${job.id}`} style={{ padding: "0.35rem 0" }}>
-              <span style={{ fontWeight: 600 }}>{jobKindLabel(job.kind)}</span>
-              <span className={job.status === "failed" ? "problem" : "muted"}>
-                {", "}{JOB_STATUS_LABEL[job.status] ?? job.status}{job.attempts > 1 ? `, attempt ${job.attempts}` : ""}
-              </span>
-              {target && <span className="muted">, {target}</span>}
-              {job.status === "failed" && cleanError && (
-                <details className="small muted"><summary>Details</summary>{cleanError}</details>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {total > jobs.length && (
-        <p className="small muted" style={{ marginTop: "0.4rem" }}>
-          The first {jobs.length} of {total} jobs are shown, since the rest follow once these are done.
-        </p>
+    <button type="button" className="quiet more-toggle" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
+      {expanded ? "Show fewer" : `See ${hidden} more`}
+    </button>
+  );
+}
+
+// Every job and reading's Listen audio the background computer has in hand,
+// on a soft panel of its own: five at first, and the rest on asking, so a long
+// queue never pushes the rest of the section down the page.
+function WorkList({ status }: { status: ProcessorStatus | null }) {
+  const [all, setAll] = useState(false);
+  const rows = useMemo(() => (status ? workRows(status) : []), [status]);
+  const shown = all ? rows : rows.slice(0, VISIBLE_WORK);
+  const jobsTotal = status ? status.queued + status.running + status.failed : 0;
+  return (
+    <div className="work-panel">
+      <h3 className="settings-subhead">Work in hand</h3>
+      {!status ? (
+        <p className="small muted">Checking what the background computer has in hand…</p>
+      ) : rows.length === 0 ? (
+        <p className="small muted">Nothing is waiting, so the background computer has no work in hand.</p>
+      ) : (
+        <>
+          <ul id="work-list" className="work-list" aria-label="Work in hand">
+            {shown.map((row) => (
+              <li key={row.key} className={`work-row is-${row.state}`}>
+                <span className={`work-when is-${row.state}`}>{row.when}</span>
+                <span className="work-body">
+                  <span className="work-task">{row.task}</span>
+                  {row.title && <span className="work-title">{row.title}</span>}
+                  {row.progress && <span className="work-progress">{row.progress}</span>}
+                  {row.error && (
+                    <details className="work-error">
+                      <summary>Details</summary>
+                      {row.error}
+                    </details>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {rows.length > VISIBLE_WORK && (
+            <MoreToggle hidden={rows.length - VISIBLE_WORK} expanded={all} controls="work-list" onToggle={() => setAll((v) => !v)} />
+          )}
+          {jobsTotal > status.jobs.length && (
+            <p className="small muted work-note">
+              The first {status.jobs.length} of {jobsTotal} jobs are listed, since the rest follow once these are done.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function ProcessorState() {
-  const status = useProcessorStatus();
-  const unpaired = useNeedsConnecting();
-  const connection = connectionOf(status, unpaired);
-  // The heading is drawn before the status arrives, so the sections below it do not move down.
-  if (!status) {
-    return (
-      <>
-        <h2>Background processor</h2>
-        <ConnectionBadge connection={connection} />
-        <p className="small muted">Checking the processor…</p>
-      </>
-    );
-  }
+// Where the background computer stands, said for this device.
+function ProcessorFacts({ status, connection, unpaired, device }: {
+  status: ProcessorStatus;
+  connection: ProcessorConnection;
+  unpaired: boolean;
+  device: DeviceKind;
+}) {
   const quiet = processorQuiet(status);
   const waiting = status.queued + status.running;
+  const listening = status.listen.some((group) => group.state !== "failed");
   return (
     <>
-      <h2>Background processor</h2>
-      <ConnectionBadge connection={connection} />
-      {connection === "needs" && <p className="small muted">{needsNote(unpaired, Boolean(status.seenAt))}</p>}
-      <p className={quiet && waiting ? "problem" : undefined}>
-        {status.seenAt ? `Last asked for work ${ago(status.seenAt)}.` : "Has not asked for work yet."}
-        {" "}{waiting ? `${waiting} ${waiting === 1 ? "job" : "jobs"} waiting.` : "Nothing waiting."}
+      {connection === "needs" && <p className="small muted">{needsNote(unpaired, Boolean(status.seenAt), device)}</p>}
+      <p className={quiet && waiting ? "small problem" : "small"}>
+        {status.seenAt ? `It last asked for work ${ago(status.seenAt)}.` : "It has not asked for work yet."}
+        {" "}{waitingSummary(status)}
       </p>
       {quiet && waiting > 0 && (
         <p className="small muted">
-          Readings stay readable. New scans, slides and recordings are processed when it next runs. On the laptop, check the
+          Readings stay readable. New scans, slides and recordings are processed when it next runs. On that computer, check the
           Task Scheduler task and processor.log.
         </p>
       )}
       {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
-      <JobList jobs={status.jobs} total={waiting + status.failed} />
-      <p className="small muted" style={{ marginTop: "1rem" }}>
-        Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
-        straightened, two-page spreads split. Covers can also be redrawn as full uncropped pages.
-      </p>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-        <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
-        <button className="button" onClick={() => void cropCovers()}>Redraw reading covers</button>
-        <button className="button" onClick={() => void rescan()}>Read every scan again</button>
+      {listening && (
+        <p className="small muted">
+          {gpuPresent(status)
+            ? "A computer with a graphics card is on, so it prepares Listen audio first and quickly."
+            : "No computer with a graphics card is on, so a computer without one prepares Listen audio, more slowly."}
+        </p>
+      )}
+    </>
+  );
+}
+
+function ProcessorState({ device, isOpen, onPanel }: {
+  device: DeviceKind;
+  isOpen: (panel: Panel) => boolean;
+  onPanel: (panel: Panel, open: boolean) => void;
+}) {
+  const status = useProcessorStatus();
+  const unpaired = useNeedsConnecting();
+  const connection = connectionOf(status, unpaired);
+  return (
+    <>
+      <h2>Processor and speech</h2>
+      <p className="small muted">{PROCESSOR_INTRO[device]}</p>
+      {/* The work list sits beside the status on a wide screen and below it on a narrow one. */}
+      <div className="processor-layout">
+        <div className="processor-status">
+          <h3 className="settings-subhead">The background computer</h3>
+          <ConnectionBadge connection={connection} />
+          {status ? (
+            <ProcessorFacts status={status} connection={connection} unpaired={unpaired} device={device} />
+          ) : (
+            <p className="small muted">Checking the processor…</p>
+          )}
+          {device === "desktop-app" && (
+            <div id="section-speech" className="settings-subgroup">
+              <SpeechState />
+            </div>
+          )}
+        </div>
+        <WorkList status={status} />
       </div>
-      <DesktopDownload />
       {/* A connected processor needs no link, so the panel only appears once it needs connecting. */}
-      {connection !== "connected" && <ConnectComputer />}
-      <UpdateSettings />
+      {connection === "needs" && device !== "phone" && <ConnectComputer />}
+      <div className="settings-disclosures">
+        <Disclosure
+          id="section-pronunciations"
+          title="Pronunciations"
+          summary="Words Listen says wrongly, and how they should sound"
+          open={isOpen("pronunciations")}
+          onToggle={(open) => onPanel("pronunciations", open)}
+        >
+          <Pronunciations />
+        </Disclosure>
+        <Disclosure
+          id="processor-maintenance"
+          title="Maintenance"
+          summary="Read scans again, draw thumbnails and covers"
+          open={isOpen("maintenance")}
+          onToggle={(open) => onPanel("maintenance", open)}
+        >
+          <p className="small muted">
+            Scans added before the processor learnt something new can be read again: French and German, pages turned upright and
+            straightened, two-page spreads split. Covers can also be redrawn as full uncropped pages.
+          </p>
+          <div className="settings-actions">
+            <button className="button" onClick={() => void generateThumbs()}>Generate missing thumbnails</button>
+            <button className="button" onClick={() => void cropCovers()}>Redraw reading covers</button>
+            <button className="button" onClick={() => void rescan()}>Read every scan again</button>
+          </div>
+        </Disclosure>
+        {connection === "connected" && device !== "phone" && (
+          <Disclosure
+            id="processor-reconnect"
+            title="Reconnect this computer"
+            summary="Only needed after its credentials change"
+            open={isOpen("reconnect")}
+            onToggle={(open) => onPanel("reconnect", open)}
+          >
+            <ConnectComputer heading={false} />
+          </Disclosure>
+        )}
+      </div>
     </>
   );
 }
@@ -314,8 +450,8 @@ function DesktopDownload() {
   const agent = typeof navigator === "undefined" ? "" : navigator.userAgent;
   const windows = /Windows/.test(agent);
   return (
-    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
-      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Desktop app</h3>
+    <div className="settings-subgroup">
+      <h3 className="settings-subhead">Desktop app</h3>
       <p className="small muted">
         The Windows desktop app opens Study Library in a window of its own and lets that computer act as the background processor.
       </p>
@@ -341,7 +477,8 @@ function SyncLine() {
   );
 }
 
-function UpdateSettings() {
+// Checks GitHub for a newer release of Study Library, in a section of its own.
+function UpdateSettings({ device }: { device: DeviceKind }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [release, setRelease] = useState<Release | null>(null);
@@ -361,10 +498,14 @@ function UpdateSettings() {
   }
 
   return (
-    <div className="settings-subgroup" style={{ marginTop: "1.25rem" }}>
-      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Updates</h3>
-      <p className="small muted">You are using Study Library {currentVersion}.</p>
-      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.5rem" }}>
+    <>
+      <h2>Updates</h2>
+      <p className="small muted">
+        {device === "desktop-app"
+          ? `This desktop app is Study Library ${currentVersion}. Checking compares it with the latest release on GitHub.`
+          : `You are using Study Library ${currentVersion} on this device. Checking compares it with the latest release on GitHub.`}
+      </p>
+      <div className="settings-actions">
         <button type="button" className="button" onClick={() => void check()} disabled={busy}>
           Check for updates
         </button>
@@ -374,8 +515,8 @@ function UpdateSettings() {
           </a>
         )}
       </div>
-      {status && <p className="small muted" style={{ marginTop: "0.5rem" }}>{status}</p>}
-    </div>
+      {status && <p className="small muted" role="status" style={{ marginTop: "0.5rem" }}>{status}</p>}
+    </>
   );
 }
 
@@ -427,46 +568,54 @@ function AppearanceChoice() {
     <>
       <h2>Appearance</h2>
       <p className="small muted">Theme mode and accent palette across every screen, the reader panels and the pages themselves. Syncs across all your devices.</p>
-      {/* Each theme is shown as a small page in its own colours, so the choice can be seen before it is made.
-          The label stays on the button as its name, which the theme tests look for. */}
-      <div className="zotero-themes appearance-choice" role="group" aria-label="Appearance" style={{ marginTop: "0.75rem" }}>
-        {APPEARANCES.map((a) => (
-          <button
-            key={a.value}
-            type="button"
-            className={`theme-chip zotero-theme-card ${a.value}`}
-            aria-pressed={current === a.value}
-            aria-label={a.label}
-            onClick={() => void chooseAppearance(a.value)}
-          >
-            <span className="zotero-theme-page" aria-hidden="true">
-              <span className="zotero-theme-aa">Aa</span>
-              <span className="zotero-theme-lines"><span /><span /></span>
-            </span>
-            <span className="zotero-theme-label">{a.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* The theme and the accent sit side by side on a wide screen. */}
+      <div className="appearance-layout">
+        <div>
+          <h3 className="settings-subhead">Theme</h3>
+          {/* Each theme is shown as a small page in its own colours, so the choice can be seen before it is made.
+              The label stays on the button as its name, which the theme tests look for. */}
+          <div className="zotero-themes appearance-choice" role="group" aria-label="Appearance">
+            {APPEARANCES.map((a) => (
+              <button
+                key={a.value}
+                type="button"
+                className={`theme-chip zotero-theme-card ${a.value}`}
+                aria-pressed={current === a.value}
+                aria-label={a.label}
+                onClick={() => void chooseAppearance(a.value)}
+              >
+                <span className="zotero-theme-page" aria-hidden="true">
+                  <span className="zotero-theme-aa">Aa</span>
+                  <span className="zotero-theme-lines"><span /><span /></span>
+                </span>
+                <span className="zotero-theme-label">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-      <h3 className="settings-subhead">Accent colour</h3>
-      <p className="small muted">A touch of colour for active links, buttons and current selections.</p>
-      <div className="accent-grid" role="group" aria-label="Accent colour" style={{ marginTop: "0.5rem" }}>
-        {ACCENTS.map((acc) => {
-          const hex = dark ? acc.darkHex : acc.lightHex;
-          const active = currentAccent === acc.value;
-          return (
-            <button
-              key={acc.value}
-              type="button"
-              className={`accent-btn${active ? " is-active" : ""}`}
-              aria-pressed={active}
-              onClick={() => void chooseAccent(acc.value)}
-            >
-              <span className="accent-swatch" style={{ backgroundColor: hex }} aria-hidden="true" />
-              <span className="accent-name">{acc.label}</span>
-            </button>
-          );
-        })}
+        <div>
+          <h3 className="settings-subhead">Accent colour</h3>
+          <p className="small muted">A touch of colour for active links, buttons and current selections.</p>
+          <div className="accent-grid" role="group" aria-label="Accent colour">
+            {ACCENTS.map((acc) => {
+              const hex = dark ? acc.darkHex : acc.lightHex;
+              const active = currentAccent === acc.value;
+              return (
+                <button
+                  key={acc.value}
+                  type="button"
+                  className={`accent-btn${active ? " is-active" : ""}`}
+                  aria-pressed={active}
+                  onClick={() => void chooseAccent(acc.value)}
+                >
+                  <span className="accent-swatch" style={{ backgroundColor: hex }} aria-hidden="true" />
+                  <span className="accent-name">{acc.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </>
   );
@@ -482,7 +631,7 @@ function ColourNames({
 }) {
   return (
     <div className="settings-subgroup">
-      <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Highlight colours</h3>
+      <h3 className="settings-subhead">Highlight colours</h3>
       <p className="small muted">Give a colour a meaning, such as Argument or Evidence. Names show when you highlight and in the highlights list.</p>
       <ul className="colour-names">
         {COLOURS.map((c) => (
@@ -505,6 +654,8 @@ const KIND_LABEL = { module: "Module", reading: "Reading", session: "Session", q
 function Bin() {
   const entries = useSuspendingLiveQuery(loadBin, ["settings-bin"]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const shown = all ? entries : entries.slice(0, VISIBLE_BIN);
   return (
     <>
       <h2>Recently deleted</h2>
@@ -513,8 +664,8 @@ function Bin() {
       ) : (
         <>
           <p className="small muted">Deleted things stay here for 90 days. Restoring brings back everything that was deleted with them.</p>
-          <ul className="list bin" style={{ marginTop: "0.75rem" }}>
-            {entries.map((entry) => (
+          <ul id="bin-list" className="list bin" style={{ marginTop: "0.75rem" }}>
+            {shown.map((entry) => (
               <li key={entry.key}>
                 <span className="kind">{KIND_LABEL[entry.kind]}</span>
                 <span className="label">
@@ -537,6 +688,9 @@ function Bin() {
               </li>
             ))}
           </ul>
+          {entries.length > VISIBLE_BIN && (
+            <MoreToggle hidden={entries.length - VISIBLE_BIN} expanded={all} controls="bin-list" onToggle={() => setAll((v) => !v)} />
+          )}
         </>
       )}
     </>
@@ -549,6 +703,18 @@ export function Settings() {
   const [estimate, setEstimate] = useState<StorageEstimate | null>(null);
   const [activeSection, setActiveSection] = useState("section-appearance");
   const isNavigatingRef = useRef(false);
+  const device = useMemo(deviceKind, []);
+  const [openPanels, setOpenPanels] = useState<ReadonlySet<Panel>>(() => new Set());
+  const isOpen = useCallback((panel: Panel) => openPanels.has(panel), [openPanels]);
+  const setPanel = useCallback((panel: Panel, open: boolean) => {
+    setOpenPanels((current) => {
+      if (current.has(panel) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(panel);
+      else next.delete(panel);
+      return next;
+    });
+  }, []);
 
   // Term dates draft state with useFormDraft
   const rawTermDates = useTermDates();
@@ -656,10 +822,11 @@ export function Settings() {
     return () => observer.disconnect();
   }, []);
 
-  const scrollToSection = (id: string) => {
+  // Scrolls to a section, or to a part inside it when target names one that is on the screen.
+  const scrollToSection = (id: string, target = id) => {
     isNavigatingRef.current = true;
     setActiveSection(id);
-    const el = document.getElementById(id);
+    const el = document.getElementById(target) ?? document.getElementById(id);
     if (el) {
       const reduceMotion =
         typeof window !== "undefined" &&
@@ -680,17 +847,30 @@ export function Settings() {
     }
   };
 
+  // A link to a section scrolls to it, and an old link to a part that now
+  // lives inside Processor and speech opens that part first, then scrolls to it
+  // once it is drawn.
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window === "undefined") return;
+    const follow = () => {
       const hash = window.location.hash.replace(/^#/, "");
-      if (hash && SECTIONS.some((s) => s.id === hash)) {
+      if (!hash) return;
+      if (SECTIONS.some((s) => s.id === hash)) {
         scrollToSection(hash);
+        return;
       }
-    }
+      const alias = SECTION_ALIASES[hash];
+      if (!alias) return;
+      if (alias.open) setPanel(alias.open, true);
+      requestAnimationFrame(() => scrollToSection(alias.section, hash));
+    };
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
   }, []);
 
   const isCoarse = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
-  const visibleSections = SECTIONS.filter((s) => (!isCoarse || s.id !== "section-shortcuts") && (isDesktop() || s.id !== "section-speech"));
+  const visibleSections = SECTIONS.filter((s) => !isCoarse || s.id !== "section-shortcuts");
 
   return (
     <div className="page wide">
@@ -735,11 +915,7 @@ export function Settings() {
             />
           </section>
 
-          <section id="section-pronunciations" className="settings-section settings-card">
-            <Pronunciations />
-          </section>
-
-                    <section id="section-shortcuts" className="settings-section settings-card keyboard-only">
+          <section id="section-shortcuts" className="settings-section settings-card keyboard-only">
             <h2>Keyboard shortcuts</h2>
             <p className="small muted" style={{ margin: "0.2rem 0 0.6rem" }}>
               / opens search. On a week, [ and ] navigate between weeks. Press ? anywhere for the full list.
@@ -750,17 +926,17 @@ export function Settings() {
           </section>
 
           <section id="section-processor" className="settings-section settings-card">
-            <ProcessorState />
+            <ProcessorState device={device} isOpen={isOpen} onPanel={setPanel} />
           </section>
 
-          {isDesktop() && (
-            <section id="section-speech" className="settings-section settings-card">
-              <SpeechState />
-            </section>
-          )}
+          <section id="section-updates" className="settings-section settings-card">
+            <UpdateSettings device={device} />
+            <DesktopDownload />
+          </section>
 
           <section id="section-device" className="settings-section settings-card">
             <h2>On this device</h2>
+            <p className="small muted">{DEVICE_INTRO[device]}</p>
             <SyncLine />
             <label className="choices" style={{ marginTop: "0.75rem" }}>
               <input
@@ -782,7 +958,7 @@ export function Settings() {
 
             {failed && failed.length > 0 && (
               <div className="settings-subgroup">
-                <h3 style={{ margin: "0 0 0.4rem", fontSize: "var(--fs-md)", fontWeight: 600 }}>Rejected changes</h3>
+                <h3 className="settings-subhead">Rejected changes</h3>
                 <p className="small muted">The server turned these down. They are kept here so nothing disappears silently.</p>
                 <ul className="list small">
                   {failed.slice(-20).map((f) => {

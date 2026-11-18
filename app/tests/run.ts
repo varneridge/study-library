@@ -53,6 +53,7 @@ import { registerSpokenTextTests } from "./test_spoken_text";
 import { registerPinyinTests } from "./test_pinyin";
 import { registerPreparedTests, registerPreparedTierTests } from "./test_prepared";
 import { registerAnnotateTests, registerMarkedSoundTests } from "./test_annotate";
+import { registerStatusTests } from "./test_status";
 
 let failed = 0;
 function test(name: string, fn: () => void) {
@@ -1681,6 +1682,7 @@ registerPreparedTests(test);
 registerPreparedTierTests(test);
 registerAnnotateTests(test);
 registerMarkedSoundTests(test);
+registerStatusTests(test);
 
 if (failed) {
 

@@ -10,8 +10,8 @@ import { proxyIcsFeed } from "./calendarProxy";
 import { search } from "./search";
 import { maintain, purge } from "./maintenance";
 import { serveModelFile } from "./models";
-import { processor } from "./processor";
-import { listen, listenProcessor } from "./listen";
+import { JOB_CLAIM_ORDER, processor } from "./processor";
+import { listen, listenProcessor, listenStatusStatement, statusListen } from "./listen";
 import { TABLE_NAMES } from "./schema";
 import { pull, push, type Change } from "./sync";
 
@@ -24,19 +24,43 @@ app.use("/api/*", requireAccess);
 app.get("/api/ping", (c) => c.json({ ok: true }));
 
 // The jobs Settings lists, at most this many: running first, then queued in
-// turn, then the latest failures. SELECT * keeps the status answering whichever
-// optional columns this database has, since one unknown column would fail the
-// whole batch, and a payload is a small JSON object, so thirty stay cheap to read.
+// the order the processor takes them (JOB_CLAIM_ORDER), then the latest
+// failures. SELECT * keeps the status answering whichever optional columns this
+// database has, since one unknown column would fail the whole batch, and a
+// payload is a small JSON object, so thirty stay cheap to read.
 const STATUS_JOB_LIMIT = 30;
+
+// What each job is for, in words: the reading a file or item belongs to (a
+// converted file's reading now points at its PDF, named <id>:pdf), or the
+// module, week and session of a recording. Each lookup is by primary key or
+// an index, so thirty jobs stay cheap, and json_valid comes first because
+// json_extract on a payload that is not JSON would fail the whole batch.
+const JOB_TARGET_TITLE = `CASE WHEN json_valid(j.payload) THEN COALESCE(
+    (SELECT i.title FROM items i WHERE i.id = json_extract(j.payload, '$.item_id') AND i.deleted = 0),
+    (SELECT i.title FROM items i WHERE i.file_id = json_extract(j.payload, '$.file_id') AND i.deleted = 0 ORDER BY i.id LIMIT 1),
+    (SELECT i.title FROM items i WHERE i.file_id = json_extract(j.payload, '$.file_id') || ':pdf' AND i.deleted = 0 ORDER BY i.id LIMIT 1),
+    (SELECT COALESCE(m.code || ', ', '') || COALESCE(NULLIF(s.title, ''),
+              CASE w.term WHEN 'AT' THEN 'Autumn Term' ELSE 'Winter Term' END || ' week ' || w.number || ' '
+              || CASE s.kind WHEN 'lecture' THEN 'lecture' ELSE 'seminar' END)
+       FROM recordings r JOIN sessions s ON s.id = r.session_id JOIN weeks w ON w.id = s.week_id
+       LEFT JOIN modules m ON m.id = w.module_id
+      WHERE r.id = json_extract(j.payload, '$.recording_id')),
+    (SELECT NULLIF(f.original_name, 'recording') FROM files f WHERE f.id = json_extract(j.payload, '$.file_id'))
+  ) END`;
 
 interface StatusJob {
   id: number;
   kind: string;
   status: string;
   target_id: string | null;
+  // What the target is, from its payload key: file, recording or item.
+  target_kind: string | null;
   label: string | null;
+  title: string | null;
   attempts: number;
   error: string | null;
+  // When a job waiting to try again may next be taken.
+  run_after: string | null;
 }
 
 function statusJob(row: Record<string, unknown>): StatusJob {
@@ -56,35 +80,46 @@ function statusJob(row: Record<string, unknown>): StatusJob {
     kind: typeof row.type === "string" && row.type ? row.type : "job",
     status: String(row.status),
     target_id: targetKey ? String(payload[targetKey]) : null,
+    target_kind: targetKey ? targetKey.replace(/_id$/, "") : null,
     label: label ? label.slice(0, 120) : null,
+    title: typeof row.target_title === "string" && row.target_title ? row.target_title.slice(0, 200) : null,
     attempts: Number(row.attempts) || 0,
     error: typeof row.error === "string" && row.error ? row.error.slice(0, 300) : null,
+    run_after: row.status === "queued" && typeof row.run_after === "string" ? row.run_after : null,
   };
 }
 
-// When the processor last asked for work, how much is waiting for it, and the
-// jobs themselves. Clients from before the list simply ignore the extra field.
+// When the processor last asked for work, and when a speech computer with a
+// graphics card last asked for Listen audio, how much is waiting, the jobs
+// themselves and the readings whose Listen audio is in hand. Clients from
+// before the lists simply ignore the extra fields.
 app.get("/api/status", async (c) => {
-  const [seen, jobs, list] = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT value FROM counters WHERE name = 'processor_seen'"),
+  const [seen, jobs, list, listenList] = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT name, value FROM counters WHERE name IN ('processor_seen', 'listen_gpu_seen')"),
     c.env.DB.prepare(
       `SELECT SUM(status = 'queued') AS queued, SUM(status = 'running') AS running, SUM(status = 'failed') AS failed FROM jobs`,
     ),
     c.env.DB.prepare(
-      `SELECT rowid AS job_rowid, * FROM jobs WHERE status IN ('running', 'queued', 'failed')
-       ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
-                CASE WHEN status = 'failed' THEN -rowid ELSE rowid END
-       LIMIT ?1`,
+      `SELECT j.rowid AS job_rowid, j.*, ${JOB_TARGET_TITLE} AS target_title
+         FROM jobs j WHERE j.status IN ('running', 'queued', 'failed')
+        ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                 CASE WHEN j.status = 'failed' THEN -j.id ELSE 0 END,
+                 ${JOB_CLAIM_ORDER}
+        LIMIT ?1`,
     ).bind(STATUS_JOB_LIMIT),
+    listenStatusStatement(c.env.DB),
   ]);
   const row = (jobs.results?.[0] ?? {}) as { queued?: number | null; running?: number | null; failed?: number | null };
-  const value = (seen.results?.[0] as { value?: number } | undefined)?.value ?? null;
+  const counters = (seen.results ?? []) as { name: string; value: number | null }[];
+  const counter = (name: string) => counters.find((r) => r.name === name)?.value ?? null;
   return c.json({
-    processor_seen: value,
+    processor_seen: counter("processor_seen"),
+    listen_gpu_seen: counter("listen_gpu_seen"),
     queued: row.queued ?? 0,
     running: row.running ?? 0,
     failed: row.failed ?? 0,
     jobs: ((list.results ?? []) as Record<string, unknown>[]).map(statusJob),
+    listen: ((listenList.results ?? []) as Record<string, unknown>[]).map(statusListen),
   });
 });
 

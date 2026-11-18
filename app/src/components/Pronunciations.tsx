@@ -96,9 +96,9 @@ export function Pronunciations() {
     });
   }
 
+  // The heading is Settings' own, on the part of Processor and speech that folds away.
   return (
     <>
-      <h2>Pronunciations</h2>
       <p className="small muted">
         How Listen should say words it gets wrong, in every reading. Type how a word sounds with hyphens between syllables and the stressed one in
         capitals, such as oo-SOO-ree for Ussuri. Chinese names in pinyin are already read correctly.

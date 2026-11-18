@@ -47,6 +47,12 @@ processor.use("/objects/*", requireCurrentLease);
 // The same rescan, from the laptop: python -m study.processor --rescan
 processor.post("/rescan", async (c) => c.json({ queued: await queueRescan(c.env) }));
 
+// The order the processor takes queued work in: jobs with a priority first,
+// lowest first, then the rest, each in the order it was queued. Settings lists
+// the queue in this same order (index.ts), so what it shows as next is what
+// the processor takes next.
+export const JOB_CLAIM_ORDER = "priority IS NULL, priority, id";
+
 processor.post("/claim", async (c) => {
   // The app shows when the processor last asked for work.
   await c.env.DB.prepare(
@@ -59,7 +65,7 @@ processor.post("/claim", async (c) => {
       WHERE id = (
         SELECT id FROM jobs
          WHERE status = 'queued' AND run_after <= ${NOW}
-         ORDER BY priority IS NULL, priority, id
+         ORDER BY ${JOB_CLAIM_ORDER}
          LIMIT 1)
       RETURNING id, type, payload, attempts, priority, lease_id`,
   ).bind(crypto.randomUUID())

@@ -1025,6 +1025,8 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 **Possible next steps**
 
+- Improvements completed after 0.54.0 (Settings overhaul):
+  - Regrouped Settings (`Appearance`, `Term dates`, `Shortcuts`, `Processor and speech`, `Updates`, `On this device`, `Recently deleted`, `Start again`) with speech inside **Processor and speech** and **Updates** in its own section; folded **Pronunciations**, **Maintenance**, and **Reconnect this computer** into disclosures; tailored status wording for the desktop app, desktop browser, and phone/tablet; added a two-column **Work in hand** list merging processor jobs (with resolved document/slide/recording titles and `JOB_CLAIM_ORDER`) and Listen audio groups (`listen_audio_status_item` index in `0023_listen_audio_status_index.sql`) showing 5 items with **See N more** / **Show fewer**; added **See more** on **Recently deleted**; and compacted Theme and Highlight colour controls (`Settings.tsx`, `SpeechState.tsx`, `Pronunciations.tsx`, `status.ts`, `styles.css`).
 - Improvements completed in 0.53.2:
   - Web and tab polish: direct `StudyLibrarySetup.exe` download URL (`INSTALLER_DOWNLOAD_URL`), context-aware Settings (hiding "Connect this computer" when connected and hiding "Download desktop app" inside the desktop app), pinned Home tab always returning to `/` while links from Home open in fresh desktop tabs, removal of "This week" top navigation, and desktop-web "Open on desktop" top-bar dropdown (`studylibrary://open?path=...` + direct installer download).
 - Improvements completed in 0.53.4:

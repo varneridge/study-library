@@ -1,8 +1,8 @@
-// "Speech on this computer" in Settings, in the desktop app only: which Kokoro
-// engine this computer's speech server runs (backend/tts/server.py, health),
-// and the high-quality speech pack for computers with an NVIDIA card
-// (backend/study/speech_pack.py), installed or removed through a
-// studylibrary:// link that the desktop app handles.
+// "Speech on this computer" under Processor and speech in Settings, in the
+// desktop app only: which Kokoro engine this computer's speech server runs
+// (backend/tts/server.py, health), and the high-quality speech pack for
+// computers with an NVIDIA card (backend/study/speech_pack.py), installed or
+// removed through a studylibrary:// link that the desktop app handles.
 
 import { useEffect, useState } from "react";
 
@@ -56,7 +56,7 @@ export function SpeechState() {
 
   return (
     <>
-      <h2>Speech on this computer</h2>
+      <h3 className="settings-subhead">Speech on this computer</h3>
       <p className="small">{describeSpeech(health)}</p>
       {health?.nvidia && !health.pack && (
         <>
