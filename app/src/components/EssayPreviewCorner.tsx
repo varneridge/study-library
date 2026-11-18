@@ -1,30 +1,20 @@
-// The essay preview's corner bar and its PDF pages. The bar floats wholly inside the top
-// right of the preview frame, small and translucent, so that it reads as part of the page
-// rather than as a toolbar, and its rarer actions live in the house ••• menu so that the
-// bar itself stays short. PDF pages are drawn at their printed size inside the same fixed
-// frame the Word sheet uses, so that zooming changes only the pages and never the frame.
+// The essay preview's corner bar. The bar floats wholly inside the top right of the preview
+// frame, small and translucent, so that it reads as part of the page rather than as a
+// toolbar, and its rarer actions live in the house ••• menu so that the bar itself stays
+// short. The pages themselves are drawn by the reader's PdfPages and ZoomViewport.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import * as pdfjsLib from "pdfjs-dist";
-import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { clampZoom, stepZoom } from "../lib/zoom";
 import { Menu } from "./Menu";
-import { PageZoomViewport } from "./PageZoomViewport";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+// The essay keeps a narrower range than the reader, because a page drawn much above twice
+// its printed size passes the largest canvas an iPhone will draw and comes out blank.
+export const ESSAY_ZOOM_MIN = 0.5;
+export const ESSAY_ZOOM_MAX = 2;
 
-export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 2.5;
-export const ZOOM_STEP = 0.1;
-
-// PDF units are points (1/72 inch), so this factor makes 100% match true printed size on screen.
-const PDF_TO_CSS_UNITS = 96 / 72;
-// Pages are redrawn with more pixels only in steps of this much zoom, so that zooming in
-// keeps text sharp without redrawing every page on every press.
-const SHARPNESS_STEP = 0.5;
-
-export const clampZoom = (zoom: number): number =>
-  Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(zoom * 100) / 100));
+// Every zoom passes through the shared limits first and then the essay's own range, as the
+// reader's zoom does with its range.
+export const clampEssayZoom = (zoom: number): number =>
+  Math.min(ESSAY_ZOOM_MAX, Math.max(ESSAY_ZOOM_MIN, clampZoom(zoom)));
 
 type Glyph = "minus" | "plus" | "expand" | "collapse";
 
@@ -54,9 +44,12 @@ function CornerGlyph({ glyph }: { glyph: Glyph }) {
 }
 
 export interface EssayPreviewCornerProps {
-  zoom: number;
-  onZoomChange: (zoom: number) => void;
-  onFit: () => void;
+  // null means the page is fitted to the width of the frame.
+  zoom: number | null;
+  // The scale actually in use, which the viewport reports, so that the bar can show a
+  // percentage while the page is fitted.
+  scale: number;
+  onZoomChange: (zoom: number | null) => void;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   onExportDocx: () => void;
@@ -67,8 +60,8 @@ export interface EssayPreviewCornerProps {
 
 export function EssayPreviewCorner({
   zoom,
+  scale,
   onZoomChange,
-  onFit,
   fullscreen,
   onToggleFullscreen,
   onExportDocx,
@@ -76,7 +69,9 @@ export function EssayPreviewCorner({
   onReplace,
   disabled = false,
 }: EssayPreviewCornerProps) {
-  const percent = Math.round(zoom * 100);
+  const percent = Math.round(scale * 100);
+  const smaller = clampEssayZoom(stepZoom(scale, -1));
+  const larger = clampEssayZoom(stepZoom(scale, 1));
   const fullscreenLabel = fullscreen ? "Leave full screen" : "Full screen";
   // An empty essay has nothing to export, so the menu offers only the way to bring one in.
   const menuItems = [
@@ -95,8 +90,8 @@ export function EssayPreviewCorner({
         <button
           type="button"
           className="essay-corner-button"
-          onClick={() => onZoomChange(clampZoom(zoom - ZOOM_STEP))}
-          disabled={disabled || zoom <= ZOOM_MIN}
+          onClick={() => onZoomChange(smaller)}
+          disabled={disabled || smaller >= scale}
           aria-label="Zoom out"
           title="Zoom out"
         >
@@ -108,8 +103,8 @@ export function EssayPreviewCorner({
         <button
           type="button"
           className="essay-corner-button"
-          onClick={() => onZoomChange(clampZoom(zoom + ZOOM_STEP))}
-          disabled={disabled || zoom >= ZOOM_MAX}
+          onClick={() => onZoomChange(larger)}
+          disabled={disabled || larger <= scale}
           aria-label="Zoom in"
           title="Zoom in"
         >
@@ -118,8 +113,9 @@ export function EssayPreviewCorner({
         <button
           type="button"
           className="essay-corner-button"
-          onClick={onFit}
+          onClick={() => onZoomChange(null)}
           disabled={disabled}
+          aria-pressed={zoom === null}
           title="Fit the page to the width of the preview"
         >
           Fit
@@ -143,120 +139,5 @@ export function EssayPreviewCorner({
         </span>
       </div>
     </div>
-  );
-}
-
-export interface EssayPdfPreviewProps {
-  pdfBytes?: Uint8Array | null;
-  pdfUrl?: string | null;
-  // Given a zoom, the pages sit in the fixed preview frame and the frame zooms them, as the
-  // essay preview needs. Without one they are drawn at the width of their container, which
-  // is how the document viewer shows a source.
-  zoom?: number;
-  label?: string;
-  children?: ReactNode;
-  onError?: (error: unknown) => void;
-}
-
-export function EssayPdfPreview({ pdfBytes, pdfUrl, zoom, label = "Essay preview", children, onError }: EssayPdfPreviewProps) {
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
-  const [failed, setFailed] = useState(false);
-  const pagesRef = useRef<HTMLDivElement>(null);
-  const drawnRef = useRef<PDFDocumentProxy | null>(null);
-  const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
-  // The pages keep one size and the frame does the zooming, so a change of zoom redraws
-  // them only when they need more pixels to stay sharp, never to change their size.
-  const sharpness = Math.max(1, Math.ceil(clampZoom(zoom ?? 1) / SHARPNESS_STEP) * SHARPNESS_STEP);
-
-  // Loading is keyed on the source alone, so zooming never parses the file again.
-  useEffect(() => {
-    setDoc(null);
-    setFailed(false);
-    const hasBytes = !!pdfBytes && pdfBytes.length > 0;
-    if (!hasBytes && !pdfUrl) return;
-
-    // pdf.js transfers the buffer it receives, so a copy keeps the caller's bytes usable afterwards.
-    const task = pdfjsLib.getDocument(hasBytes ? { data: pdfBytes.slice() } : { url: pdfUrl as string });
-    let live = true;
-    task.promise.then(
-      (loaded) => {
-        if (live) setDoc(loaded);
-      },
-      (error: unknown) => {
-        if (!live) return;
-        setFailed(true);
-        onErrorRef.current?.(error);
-      },
-    );
-    return () => {
-      live = false;
-      void task.destroy();
-    };
-  }, [pdfBytes, pdfUrl]);
-
-  useEffect(() => {
-    const host = pagesRef.current;
-    if (!doc || !host) return;
-    let live = true;
-    const tasks: RenderTask[] = [];
-    // Drawing at the device pixel ratio, raised for a zoomed page, keeps text sharp on
-    // high density screens.
-    const density = (window.devicePixelRatio || 1) * sharpness;
-    // A new file starts from no pages, while a sharper redraw reuses the canvases it has,
-    // so that the frame's content keeps its height and its scroll position does not jump.
-    if (drawnRef.current !== doc) {
-      host.replaceChildren();
-      drawnRef.current = doc;
-    }
-
-    (async () => {
-      for (let pageNumber = 1; pageNumber <= doc.numPages && live; pageNumber += 1) {
-        const page = await doc.getPage(pageNumber);
-        if (!live) return;
-        const viewport = page.getViewport({ scale: PDF_TO_CSS_UNITS });
-        let canvas = host.children.item(pageNumber - 1) as HTMLCanvasElement | null;
-        if (!canvas) {
-          canvas = document.createElement("canvas");
-          canvas.className = "essay-pdf-page";
-          canvas.setAttribute("aria-label", `Page ${pageNumber} of ${doc.numPages}`);
-          host.appendChild(canvas);
-        }
-        // Only the width is set on screen, so that a page wider than its column can shrink
-        // to fit and its height follows from the canvas's own shape.
-        canvas.width = Math.floor(viewport.width * density);
-        canvas.height = Math.floor(viewport.height * density);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        const context = canvas.getContext("2d");
-        if (!context) continue;
-        const task = page.render({
-          canvasContext: context,
-          viewport,
-          transform: density === 1 ? undefined : [density, 0, 0, density, 0, 0],
-        });
-        tasks.push(task);
-        await task.promise;
-      }
-    })().catch((error: unknown) => {
-      // A cancelled render is the expected result of zooming mid-draw rather than a real failure.
-      const cancelled = (error as { name?: string } | null)?.name === "RenderingCancelledException";
-      if (!live || cancelled) return;
-      setFailed(true);
-      onErrorRef.current?.(error);
-    });
-
-    return () => {
-      live = false;
-      tasks.forEach((task) => task.cancel());
-    };
-  }, [doc, sharpness]);
-
-  if (!doc || failed) return <>{children}</>;
-  const pages = <div ref={pagesRef} className="essay-pdf-pages" />;
-  if (zoom === undefined) return pages;
-  return (
-    <PageZoomViewport zoom={zoom} label={label}>
-      {pages}
-    </PageZoomViewport>
   );
 }

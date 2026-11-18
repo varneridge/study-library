@@ -1,8 +1,8 @@
 /*
  * The essay workspace, holding every rule the page needs, including those once kept in
  * EssayWorkspace.css, so that file can be deleted. From 1280px the page is three columns
- * held to 88rem and centred, with the essay in the middle at a width that takes a 90% A4
- * page with a little desk on either side, the brief and sources on the left, and the
+ * held to 88rem and centred, with the essay in the middle fitted to the width of its column
+ * by the reader's zoom viewport, the brief and sources on the left, and the
  * references and contents on the right. Between 900px and 1280px the right column becomes
  * a drawer opened from the toolbar, and below 900px the three panes share the space,
  * chosen by the tabs above them.
@@ -11,6 +11,8 @@
  *   .essay-ws-head-menu          wrapper for the ••• menu placed directly beside the title
  *   .essay-ws-edit               the Edit pane, which sits beside Preview and Plan
  *   .essay-preview-corner        the corner slot, first child of .essay-ws-preview
+ *   .essay-preview-frame         the one zoom frame inside .essay-ws-preview, for a PDF or the sheet
+ *   .essay-doc-frame             the zoom frame of a PDF opened in the document viewer
  *   .essay-corner-bar            the translucent bar inside it (zoom, Fit, full screen, menu)
  *   .essay-corner-button         one control of the bar, holding text or a drawn glyph
  *   .essay-corner-sep            a hairline between the bar's groups of controls
@@ -89,15 +91,15 @@
   margin-left: 0.5rem;
 }
 
-/* The side columns are equal so the essay sits in the true middle, and within 88rem the
-   middle column comes to about 49rem, which takes a 90% A4 page with a narrow desk on
-   either side instead of a wide band of empty space. The frame height is shared by the
+/* The side columns are equal so the essay sits in the true middle, and they take up to
+   18rem each, because the preview fits its page to whatever width the middle column has
+   left and so no longer needs a fixed desk around it. The frame height is shared by the
    preview and the plan, so that switching between them never makes the page jump. */
 .essay-ws {
   --essay-ws-frame-h: clamp(32rem, calc(100vh - var(--topbar-h, 0px) - 8rem), 72rem);
   display: grid;
-  grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr) minmax(14rem, 17rem);
-  gap: 1rem;
+  grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(15rem, 18rem);
+  gap: 0.75rem;
   align-items: start;
 }
 
@@ -965,27 +967,32 @@ button.essay-ws-doc-name:hover {
   margin: 0;
 }
 
-/* The preview is a fixed frame, the desk, that fills its column at one height whatever
-   the zoom. PageZoomViewport zooms only the pages inside it, so zooming out shrinks the
-   pages and shows more of them while the frame and its background stay exactly as they
-   are. The sheet's own background is cleared because it is inside the zoom and would
-   otherwise shrink with the pages. */
+/* The preview is one fixed frame that fills its column at one height whatever the zoom.
+   ZoomViewport zooms only the pages inside it and gives them its own narrow gutter, so the
+   frame is the only shell, and the sheet inside it keeps no padding or background of its
+   own that would draw a second desk inside the first. */
 .essay-ws-preview {
-  --page-zoom-width: 210mm;
   position: relative;
   min-width: 0;
 }
 
-.essay-ws-preview .page-zoom-viewport {
-  width: 100%;
-  aspect-ratio: auto;
+.essay-ws-preview > .essay-preview-frame {
   height: var(--essay-ws-frame-h);
   border-radius: var(--r-md);
   background: var(--surface);
 }
 
-.essay-ws-preview .essay-sheet-container {
+.essay-preview-frame .essay-sheet-container {
+  padding: 0;
+  gap: 0.75rem;
   background: transparent;
+}
+
+/* PDF pages are the reader's own, ringed with a hairline so that a white page still shows
+   its edge against a light desk. */
+.essay-preview-frame .pdf-slot,
+.essay-doc-frame .pdf-slot {
+  box-shadow: 0 0 0 1px var(--rule);
 }
 
 /* The corner sits wholly inside the frame's top right, clear of its scroll bar, and the
@@ -1077,31 +1084,9 @@ button.essay-ws-doc-name:hover {
   align-items: center;
 }
 
-/* PDF pages are drawn at their printed size and spaced like the Word sheet's pages, and
-   any page wider than A4, such as US Letter, is scaled down to the column, keeping its
-   shape. */
-.essay-pdf-pages {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 1.5rem 0 3rem;
-}
-
-.essay-pdf-page {
-  display: block;
-  flex: none;
-  max-width: 100%;
-  height: auto;
-  background: var(--card);
-  box-shadow: 0 0 0 1px var(--rule);
-}
-
-/* Full screen fills the screen on the paper, and the frame grows to the screen's height
-   less its padding. The class serves the browser's own full screen and the overlay that
-   stands in for it where full screen is refused, as on an iPhone. */
-.essay-ws-preview.is-fullscreen,
-.essay-ws-preview:fullscreen {
+/* Full screen is an overlay inside the window that fills it with the paper, and the frame
+   grows to the window's height less its padding. */
+.essay-ws-preview.is-fullscreen {
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -1110,13 +1095,11 @@ button.essay-ws-doc-name:hover {
   background: var(--paper);
 }
 
-.essay-ws-preview.is-fullscreen .page-zoom-viewport,
-.essay-ws-preview:fullscreen .page-zoom-viewport {
+.essay-ws-preview.is-fullscreen > .essay-preview-frame {
   height: 100%;
 }
 
-.essay-ws-preview.is-fullscreen .essay-preview-corner,
-.essay-ws-preview:fullscreen .essay-preview-corner {
+.essay-ws-preview.is-fullscreen .essay-preview-corner {
   top: calc(max(1rem, env(safe-area-inset-top, 0px)) + 0.5rem);
   right: 2.25rem;
 }
@@ -1152,8 +1135,24 @@ button.essay-ws-doc-name:hover {
   max-width: 100%;
 }
 
-.essay-doc-viewer .essay-pdf-pages {
-  padding: 0.5rem 0 1rem;
+/* The viewer's frame has a height of its own, so that it scrolls its pages itself and draws
+   only those near its view, however long the file. Its holder is a plain block, because the
+   frame's inline flex basis of zero would collapse it inside a column flex box of no height. */
+.essay-doc-viewer-body {
+  display: block;
+  min-width: 0;
+}
+
+.essay-doc-frame {
+  height: min(75vh, 60rem);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+@supports (height: 100svh) {
+  .essay-doc-frame {
+    height: min(75svh, 60rem);
+  }
 }
 
 /* The frame that prints the pages for Export as PDF. Its paper is white whatever the
@@ -1203,7 +1202,7 @@ button.essay-ws-doc-name:hover {
 
 @media (max-width: 1279.98px) {
   .essay-ws {
-    grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+    grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
   }
 
   .essay-ws-drawer-toggle,

@@ -41,6 +41,7 @@ import {
   type SourceLink,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
+import type { Box } from "../lib/zoom";
 import { api, newId } from "../lib/sync";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
@@ -48,11 +49,12 @@ import { confirmAction, showToast, useTitle } from "../lib/ui";
 import { mimeFor, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
-import { clampZoom, EssayPdfPreview, EssayPreviewCorner } from "./EssayPreviewCorner";
+import { clampEssayZoom, EssayPreviewCorner } from "./EssayPreviewCorner";
 import { EssaySourcesPanel, type EssaySourceUpload } from "./EssaySourcesPanel";
 import { Icon } from "./icons";
 import { Menu } from "./Menu";
-import { PageZoomViewport } from "./PageZoomViewport";
+import { PdfPages } from "./reader/PdfPages";
+import { ZoomViewport } from "./reader/ZoomViewport";
 import { Sheet } from "./Sheet";
 import "./AssessmentPage.css";
 
@@ -60,14 +62,9 @@ const NoteEditor = lazy(() => import("./NoteEditor"));
 
 const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
-// The preview opens a little below full size, so that a whole page width and more of its
-// length fit in the centre column before any zooming.
-const PREVIEW_DEFAULT_ZOOM = 0.9;
-// An A4 page is 210mm wide, which is 794 CSS pixels, and Fit falls back on that width when
-// no page has been drawn yet that it could measure.
-const A4_PAGE_WIDTH_PX = 794;
-// Fit leaves this much room beside the page, so that its shadow and the scroll bar never crowd it.
-const FIT_GUTTER_PX = 48;
+// The Word sheet is laid out on A4, 210mm by 297mm, which is 794 by 1123 CSS pixels, and the
+// zoom viewport fits that box to the width of the frame just as it fits a stored PDF's pages.
+const A4_PAGE: readonly Box[] = [{ width: 794, height: 1123 }];
 // A reference typed into saves once the typing has paused for this long, as well as on blur.
 const REFERENCE_SAVE_DELAY = 600;
 // How long a sentence or heading reached from the side columns stays highlighted.
@@ -808,35 +805,21 @@ function DocumentViewer({ file, onClose }: { file: ViewedDocument | null; onClos
 }
 
 function ViewerPages({ file }: { file: ViewedDocument }) {
-  const hostRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   const pdf = isPdfDocument(file) && !failed;
 
-  // The cited page is drawn a moment after the sheet opens, so it is watched for and brought
-  // into view as soon as it appears rather than guessed at with a fixed delay.
-  useEffect(() => {
-    const host = hostRef.current;
-    const page = file.page;
-    if (!host || !pdf || !page || page < 2) return;
-    const reveal = () => {
-      const canvas = host.querySelector<HTMLElement>(`.essay-pdf-page[aria-label^="Page ${page} of "]`);
-      canvas?.scrollIntoView({ block: "start" });
-      return Boolean(canvas);
-    };
-    if (reveal()) return;
-    const observer = new MutationObserver(() => {
-      if (reveal()) observer.disconnect();
-    });
-    observer.observe(host, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [file.page, pdf]);
-
   return (
-    <div ref={hostRef} className="essay-doc-viewer-body">
+    <div className="essay-doc-viewer-body">
       {pdf ? (
-        <EssayPdfPreview pdfUrl={file.url} onError={() => setFailed(true)}>
-          <p className="small muted">Opening {file.title}, which may take a moment for a long file.</p>
-        </EssayPdfPreview>
+        <PdfPages
+          url={file.url}
+          zoom={null}
+          fit="width"
+          initialPage={file.page ? file.page - 1 : undefined}
+          className="essay-doc-frame"
+          onError={() => setFailed(true)}
+          fallback={<p className="small muted">Opening {file.title}, which may take a moment for a long file.</p>}
+        />
       ) : (
         <p className="small muted">
           {failed ? "This PDF could not be drawn here" : "Only PDFs can be shown inside the essay"}, so use Open in a
@@ -886,7 +869,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  const [zoom, setZoom] = useState(PREVIEW_DEFAULT_ZOOM);
+  // null fits the page to the width of the frame, which is how the preview opens, and scale
+  // is the scale the viewport reports as actually in use, for the corner's percentage.
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [scale, setScale] = useState(1);
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -920,18 +906,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     };
   }, [jump]);
 
-  // The state follows the browser, so that leaving full screen with Escape or a gesture
-  // leaves the corner's button showing the right way round.
+  // Full screen is an overlay inside the window, never the browser's own full screen, which
+  // in the desktop window covers the taskbar and runs off the screen. It closes with Escape.
   useEffect(() => {
-    const sync = () =>
-      setFullscreen(Boolean(document.fullscreenElement) && document.fullscreenElement === previewRef.current);
-    document.addEventListener("fullscreenchange", sync);
-    return () => document.removeEventListener("fullscreenchange", sync);
-  }, []);
-
-  // The overlay that stands in for full screen closes with Escape, as the browser's own does.
-  useEffect(() => {
-    if (!fullscreen || document.fullscreenElement) return;
+    if (!fullscreen) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setFullscreen(false);
     };
@@ -961,7 +939,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const saveLabel = unsavedTitle
     ? "Unsaved"
     : saveState === "saving"
-      ? "Savingâ€¦"
+      ? "Saving…"
       : saveState === "error"
         ? "Not saved"
         : "Saved";
@@ -997,41 +975,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     importer.current?.click();
   };
 
-  // Fit sizes the page to the fixed frame rather than to the preview around it, because the
-  // frame keeps one size whatever the zoom and its client width already leaves out the scroll
-  // bar, so that a fitted page never runs under it. A page already drawn is measured so that
-  // the Word sheet and a stored PDF both fit, with A4 as the guess before either shows, and
-  // the preview still opens at 90% so that a whole page width sits on the desk before any fit.
-  const fitPreview = () => {
-    const host = previewRef.current;
-    if (!host) return;
-    const frame = host.querySelector<HTMLElement>(".page-zoom-viewport") ?? host;
-    const page = frame.querySelector<HTMLElement>(".essay-pdf-page, .essay-preview-page");
-    const shown = page?.getBoundingClientRect().width ?? 0;
-    const pageWidth = shown > 0 ? shown / zoom : A4_PAGE_WIDTH_PX;
-    const room = frame.clientWidth - FIT_GUTTER_PX;
-    if (room > 0) setZoom(clampZoom(room / pageWidth));
-  };
+  // Every zoom from the corner bar or a Ctrl and wheel gesture passes through the essay's range.
+  const changeZoom = (next: number | null) => setZoom(next === null ? null : clampEssayZoom(next));
 
-  const leaveFullscreen = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
-    setFullscreen(false);
-  };
-
-  // The browser's own full screen is used where it exists, and a fixed overlay stands in
-  // where it does not or is refused, as on an iPhone, so that the button always works.
-  const toggleFullscreen = () => {
-    if (fullscreen) {
-      void leaveFullscreen();
-      return;
-    }
-    const host = previewRef.current;
-    if (host && typeof host.requestFullscreen === "function") {
-      host.requestFullscreen().catch(() => setFullscreen(true));
-    } else {
-      setFullscreen(true);
-    }
-  };
+  const toggleFullscreen = () => setFullscreen((on) => !on);
 
   const exportDocx = () => {
     downloadDocxFile(assessment.draft, assessment.title);
@@ -1052,9 +999,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     else showToast("The pages could not be prepared for a PDF, so try again once the preview has drawn.");
   };
 
-  // A confirmation cannot show over the browser's full screen, so the preview leaves it first.
+  // A confirmation cannot show over the full screen overlay, so the preview leaves it first.
   const replaceDocument = async () => {
-    await leaveFullscreen();
+    setFullscreen(false);
     await handleImportClick();
   };
 
@@ -1581,7 +1528,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                             line appears beneath it only while its upload is unfinished. */}
                         {!doc.r2Key && (
                           <span className="small muted">
-                            {uploadingIds.includes(doc.id) ? "Uploadingâ€¦" : "Upload interrupted"}
+                            {uploadingIds.includes(doc.id) ? "Uploading…" : "Upload interrupted"}
                           </span>
                         )}
                         <span className="essay-ws-doc-menu" style={{ gridArea: "remove" }}>
@@ -1656,8 +1603,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               >
                 <EssayPreviewCorner
                   zoom={zoom}
-                  onZoomChange={setZoom}
-                  onFit={fitPreview}
+                  scale={scale}
+                  onZoomChange={changeZoom}
                   fullscreen={fullscreen}
                   onToggleFullscreen={toggleFullscreen}
                   onExportDocx={exportDocx}
@@ -1665,16 +1612,34 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   onReplace={() => void replaceDocument()}
                   disabled={!hasContent && !storedPdf}
                 />
-                {/* A stored PDF is drawn page for page, and without one the Word sheet shows as before. */}
-                <EssayPdfPreview
-                  pdfBytes={storedPdf}
+                {/* A stored PDF is drawn page for page by the reader's pages, and while it opens,
+                    or without one, the Word sheet shows in the same viewport at the same zoom. */}
+                <PdfPages
+                  bytes={storedPdf}
                   zoom={zoom}
+                  onZoomChange={changeZoom}
+                  onEffectiveScale={setScale}
+                  className="essay-preview-frame"
                   onError={(err) => console.error("Drawing the essay PDF failed", err)}
-                >
-                  <PageZoomViewport zoom={zoom} label="Essay preview">
-                    <EssayDocumentSheet doc={assessment.draft} jump={jump} />
-                  </PageZoomViewport>
-                </EssayPdfPreview>
+                  fallback={
+                    <ZoomViewport
+                      className="essay-preview-frame"
+                      pageSizes={A4_PAGE}
+                      zoom={zoom}
+                      fit="width"
+                      onZoomChange={changeZoom}
+                      onEffectiveScale={setScale}
+                    >
+                      {(layout) => (
+                        // The zoom sits on a wrapper outside the sheet, so that printing the sheet
+                        // for Export as PDF never carries the preview's zoom with it.
+                        <div className="essay-sheet-zoom" style={{ zoom: layout.scale }}>
+                          <EssayDocumentSheet doc={assessment.draft} jump={jump} />
+                        </div>
+                      )}
+                    </ZoomViewport>
+                  }
+                />
               </div>
             ) : (
               <div id="essay-centre-plan" role="tabpanel" aria-labelledby="essay-view-plan" className="essay-plan">
