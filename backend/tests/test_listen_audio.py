@@ -136,3 +136,57 @@ def test_audio_is_only_prepared_on_mains_power(api):
     # Which paragraph went first is the claim order's business, which the
     # reading-order test covers; this test is only about stopping the batch.
     assert ready.count(True) == 1, "the batch stopped once the computer was unplugged"
+
+
+def usage(api):
+    return api._json("GET", "/api/listen/usage")
+
+
+def test_reopening_a_reading_within_the_hour_writes_nothing(api):
+    texts = [f"Paragraph {i}." for i in range(5)]
+    prepare(api, texts, item="again")
+    first = usage(api)["writesToday"]
+    assert first == 5 * 2, "each new paragraph costs its row and its index"
+    prepare(api, texts, item="again")
+    assert usage(api)["writesToday"] == first
+
+
+def test_the_daily_write_budget_holds_new_paragraphs_back(api):
+    body = {"itemId": "budget", "voice": VOICE, "utterances": [f"Budget {i}." for i in range(10)], "testBudget": 8}
+    reply = api._json("POST", "/api/listen/prepare", json=body)
+    assert reply["held"] == "budget"
+    assert len(api.listen_claim(16)) == 4, "eight rows of budget queue four paragraphs"
+    assert usage(api)["writeBudget"] == 30_000, "the real budget is unchanged by a test's"
+
+
+def test_audio_storage_is_counted_capped_and_cleared_out(api):
+    keys = [i["key"] for i in prepare(api, ["Stored one.", "Stored two."], item="store")]
+    work_once(api, fake_speak, fake_mp3)
+    stored = usage(api)["audioBytes"]
+    assert stored > 0
+    body = {"itemId": "store", "voice": VOICE, "utterances": ["Something new."], "testCap": 1}
+    assert api._json("POST", "/api/listen/prepare", json=body)["held"] == "storage"
+    assert api.listen_claim(8) == [], "nothing new is queued at the cap"
+    cleared = api._json("POST", "/api/processor/listen/evict", json={"limit": 50, "testCap": 1, "testDays": 0})
+    assert cleared["evicted"] == 2 and cleared["bytes"] == 0
+    assert usage(api)["audioBytes"] == 0
+    for key in keys:
+        try:
+            api._request("GET", f"/api/listen/audio/{key}")
+        except Exception as exc:
+            assert "404" in str(exc)
+        else:
+            raise AssertionError("cleared audio is still served")
+    assert [i["ready"] for i in prepare(api, ["Stored one."], item="store")] == [False], "asked for again, it is queued again"
+
+
+def test_nothing_is_cleared_out_below_the_cap(api):
+    prepare(api, ["Small."], item="small")
+    work_once(api, fake_speak, fake_mp3)
+    assert api._json("POST", "/api/processor/listen/evict", json={"limit": 50, "testDays": 0})["evicted"] == 0
+
+
+def test_usage_reports_the_database_size_and_limits(api):
+    report = usage(api)
+    assert report["audioCap"] == 5 * 1024**3 and report["databaseLimit"] == 500 * 1024**2
+    assert report["databaseBytes"] is None or report["databaseBytes"] > 0

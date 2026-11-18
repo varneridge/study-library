@@ -50,6 +50,7 @@ MAGIC_IN = b"KTT1"
 MAGIC_OUT = b"KTM1"
 MP3_BITRATE = "48k"
 CLAIM = {"gpu": 16, "cpu": 4}
+EVICT_EVERY_SECONDS = 3600
 WINDOWS = sys.platform == "win32"
 
 Speak = Callable[[str, str], tuple[dict, bytes]]
@@ -197,7 +198,17 @@ def main() -> None:
     url = os.environ.get("LISTEN_URL", "http://127.0.0.1:8765")
     speak = server_speaker(url, os.environ.get("LISTEN_TOKEN") or None)
     idle = 5.0
+    last_evict = 0.0
     while not asked_to_stop():
+        if time.monotonic() - last_evict > EVICT_EVERY_SECONDS:
+            # Keeps prepared audio under its cap in R2 (worker/listen.ts, /evict).
+            last_evict = time.monotonic()
+            try:
+                for _ in range(10):  # at most 500 paragraphs an hour, a batch a request
+                    if not api.listen_evict(50).get("evicted"):
+                        break
+            except Exception as exc:
+                log.warning("could not clear out old audio: %s", exc)
         tier = server_tier(url)
         if tier is None or tier == "basic" or on_battery():
             # Nothing is claimed while the speech server is down, on the compressed

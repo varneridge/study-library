@@ -5864,3 +5864,10 @@ html.typing .cal-fab { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .settings-disclosure-toggle::after { transition: none; }
 }
+
+/* Listen audio usage in Settings (components/ListenUsage.tsx) */
+.listen-usage { margin: 0.75rem 0 0; display: grid; gap: 0.35rem; }
+.listen-usage > div { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; font-size: var(--fs-sm); }
+.listen-usage dt { color: var(--muted); }
+.listen-usage dd { margin: 0; font-variant-numeric: tabular-nums; }
+.listen-usage .is-near dd { color: var(--danger); }

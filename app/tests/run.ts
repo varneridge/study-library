@@ -51,7 +51,7 @@ import { registerRoutingTests } from "./routing";
 import { runUpdateTests } from "./test_update";
 import { registerSpokenTextTests } from "./test_spoken_text";
 import { registerPinyinTests } from "./test_pinyin";
-import { registerPreparedTests, registerPreparedTierTests } from "./test_prepared";
+import { registerPreparedLimitTests, registerPreparedTests, registerPreparedTierTests } from "./test_prepared";
 import { registerAnnotateTests, registerMarkedSoundTests } from "./test_annotate";
 import { registerStatusTests } from "./test_status";
 
@@ -1680,6 +1680,7 @@ registerSpokenTextTests(test);
 registerPinyinTests(test);
 registerPreparedTests(test);
 registerPreparedTierTests(test);
+registerPreparedLimitTests(test);
 registerAnnotateTests(test);
 registerMarkedSoundTests(test);
 registerStatusTests(test);

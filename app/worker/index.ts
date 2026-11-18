@@ -342,7 +342,7 @@ app.post("/api/dev/reset", async (c) => {
     c.env.DB.prepare("DELETE FROM page_text"),
     c.env.DB.prepare("DELETE FROM transcript_text"),
     c.env.DB.prepare("DELETE FROM listen_audio"),
-    c.env.DB.prepare("DELETE FROM counters WHERE name = 'listen_gpu_seen'"),
+    c.env.DB.prepare("DELETE FROM counters WHERE name = 'listen_gpu_seen' OR name = 'listen_audio_bytes' OR name LIKE 'listen_writes:%'"),
     c.env.DB.prepare("UPDATE counters SET value = 0 WHERE name = 'seq'"),
   ]);
   let cursor: string | undefined;

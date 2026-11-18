@@ -1,11 +1,13 @@
 // Unit tests for prepared Listen audio on the device (prepared.ts, preparedKey.ts).
 import assert from "node:assert/strict";
-import { betterTier, downloadPrepared, fitDecoded, parsePrepared, PreparedAudioEngine, preparedUrl, requestPreparation, type PreparedDeps } from "../src/lib/listen/prepared";
+import { betterTier, downloadPrepared, fitDecoded, forgetCacheIndex, parsePrepared, PreparedAudioEngine, preparedUrl, requestPreparation, type PreparedDeps } from "../src/lib/listen/prepared";
 import { isPreparedAudioKey, preparedAudioKey } from "../src/lib/listen/preparedKey";
 import { PRONUNCIATION_VERSION } from "../src/lib/listen/spokenText";
 import type { SynthResult, TtsEngine } from "../src/lib/listen/types";
 import fixtures from "../../shared/pronunciation-fixtures.json";
 import { describeSpeech } from "../src/components/SpeechState";
+import { formatBytes, nearlyFull } from "../src/components/ListenUsage";
+import { writesThatFit } from "../src/lib/listen/limits";
 
 type Test = (name: string, fn: () => void | Promise<void>) => void;
 
@@ -21,6 +23,9 @@ function frame(header: object, mp3: number[]): Uint8Array<ArrayBuffer> {
 
 class MemoryCache {
   store = new Map<string, Uint8Array>();
+  async delete(url: string) {
+    return this.store.delete(url);
+  }
   async match(url: string) {
     const hit = this.store.get(url);
     return hit ? new Response(hit.slice()) : undefined;
@@ -122,6 +127,7 @@ export function registerPreparedTests(test: Test): void {
   });
 
   test("prepared: requests go in batches and ready paragraphs are downloaded", async () => {
+    forgetCacheIndex();
     const bodies: Array<{ utterances: string[] }> = [];
     const doFetch = (async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { utterances: string[] };
@@ -135,7 +141,7 @@ export function registerPreparedTests(test: Test): void {
     const cache = new MemoryCache();
     const deps: PreparedDeps = { fetch: (async () => new Response(new Uint8Array([1]))) as typeof fetch, decode: async () => new Float32Array(0), cache: async () => cache as unknown as Cache, lexicon: async () => [] };
     assert.equal(await downloadPrepared(["a", "b", "c"], deps), 3);
-    assert.equal(cache.store.size, 3);
+    assert.equal([...cache.store.keys()].filter((k) => !k.startsWith("/__")).length, 3);
   });
 }
 
@@ -169,5 +175,45 @@ export function registerPreparedTierTests(test: Test): void {
     assert.match(describeSpeech({ engine: "torch", device: "cuda" }), /graphics card.*prepares Listen audio first/);
     assert.match(describeSpeech({ engine: "onnx", device: "cpu", precision: "fp32" }), /Standard speech on the processor/);
     assert.match(describeSpeech({ engine: "onnx", device: "cpu", precision: "int8" }), /compressed/);
+  });
+}
+
+export function registerPreparedLimitTests(test: Test): void {
+  test("limits: Listen's writes stop at its share of the daily allowance", () => {
+    assert.equal(writesThatFit(0, 100, 30_000), 100);
+    assert.equal(writesThatFit(29_990, 100, 30_000), 5, "each paragraph costs two rows, its own and its index's");
+    assert.equal(writesThatFit(30_000, 100, 30_000), 0);
+    assert.equal(writesThatFit(31_000, 100, 30_000), 0);
+  });
+
+  test("limits: a device keeps prepared audio under its cap, removing what was played longest ago", async () => {
+    forgetCacheIndex();
+    const cache = new MemoryCache();
+    let n = 0;
+    const deps: PreparedDeps = {
+      fetch: (async () => new Response(new Uint8Array(400))) as typeof fetch,
+      decode: async () => new Float32Array(0),
+      cache: async () => cache as unknown as Cache,
+      lexicon: async () => [],
+      deviceCap: 1000,
+    };
+    const tick = () => new Promise((r) => setTimeout(r, 2 + n++));
+    await downloadPrepared(["a"], deps);
+    await tick();
+    await downloadPrepared(["b"], deps);
+    await tick();
+    await downloadPrepared(["a"], deps); // played again, so "b" is now the oldest
+    await tick();
+    await downloadPrepared(["c"], deps); // 1,200 bytes against a 1,000 cap
+    const kept = [...cache.store.keys()].filter((k) => !k.startsWith("/__"));
+    assert.deepEqual(kept.sort(), [preparedUrl("a"), preparedUrl("c")]);
+    forgetCacheIndex();
+  });
+
+  test("limits: Settings shows sizes in words and warns at 80%", () => {
+    assert.equal(formatBytes(340 * 1024 ** 2), "340 MB");
+    assert.equal(formatBytes(1.25 * 1024 ** 3), "1.3 GB");
+    assert.equal(formatBytes(5 * 1024 ** 3), "5 GB");
+    assert.ok(nearlyFull(80, 100) && !nearlyFull(79, 100) && !nearlyFull(1, 0));
   });
 }

@@ -14,6 +14,7 @@ import { ago, gpuPresent, prioritiseWork, processorQuiet, refreshProcessorStatus
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
+import { ListenUsage } from "./ListenUsage";
 import { Pronunciations } from "./Pronunciations";
 import { SpeechState } from "./SpeechState";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
@@ -39,12 +40,13 @@ const SECTIONS = [
 ];
 
 // The parts of Processor and speech that fold away until asked for.
-type Panel = "pronunciations" | "maintenance" | "reconnect";
+type Panel = "pronunciations" | "listen-audio" | "maintenance" | "reconnect";
 
 // Links from before Processor and speech name sections that now live inside
 // it, so each still scrolls to the part it named, opening it if it is folded.
 const SECTION_ALIASES: Record<string, { section: string; open?: Panel }> = {
   "section-pronunciations": { section: "section-processor", open: "pronunciations" },
+  "section-listen-audio": { section: "section-processor", open: "listen-audio" },
   "section-speech": { section: "section-processor" },
 };
 
@@ -461,6 +463,16 @@ function ProcessorState({ device, isOpen, onPanel }: {
           onToggle={(open) => onPanel("pronunciations", open)}
         >
           <Pronunciations />
+        </Disclosure>
+        {/* Usage is asked for only once the panel opens, as a folded part waits until asked. */}
+        <Disclosure
+          id="section-listen-audio"
+          title="Listen audio"
+          summary="How much of the free plan prepared audio uses"
+          open={isOpen("listen-audio")}
+          onToggle={(open) => onPanel("listen-audio", open)}
+        >
+          <ListenUsage />
         </Disclosure>
         <Disclosure
           id="processor-maintenance"

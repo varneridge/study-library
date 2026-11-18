@@ -275,6 +275,9 @@ class Api:
                       headers={"Content-Type": "application/x-kokoro-prepared", "X-Listen-Seconds": f"{seconds:.3f}",
                                "X-Listen-Tier": tier}).close()
 
+    def listen_evict(self, limit: int = 50) -> dict:
+        return self._json("POST", "/api/processor/listen/evict", json={"limit": limit})
+
     def listen_fail(self, key: str, error: str) -> bool:
         return self._json("POST", f"/api/processor/listen/audio/{key}/fail", json={"error": error})["final"]
 

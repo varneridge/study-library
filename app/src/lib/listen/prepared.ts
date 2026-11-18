@@ -9,10 +9,17 @@
 // on Wi-Fi plays again offline and with the screen locked.
 
 import { annotate, type PronunciationEntry } from "./annotate";
+import { DEVICE_CAP_BYTES } from "./limits";
 import { preparedAudioKey } from "./preparedKey";
 import type { SynthResult, TimedToken, TtsEngine, VoiceInfo } from "./types";
 
 export const PREPARED_CACHE = "listen-prepared-v1";
+// Past DEVICE_CAP_BYTES (limits.ts), the paragraphs heard longest ago are
+// removed until the device is back under 80%, so audio never crowds out the
+// readings the app keeps for offline use.
+export { DEVICE_CAP_BYTES } from "./limits";
+/** A small record in the same cache of each file's size and when it was last played. */
+const INDEX_URL = "/__listen-prepared-index";
 const MAGIC = [0x4b, 0x54, 0x4d, 0x31]; // "KTM1"
 /** The delay an MP3 decoder adds at the start (576 encoder plus 529 decoder samples), when the browser does not trim it. */
 const MP3_DELAY = 1105;
@@ -78,6 +85,46 @@ export interface PreparedDeps {
   cache: () => Promise<Cache | null>;
   /** The course dictionary as it is now (pronunciations.ts). */
   lexicon: () => Promise<PronunciationEntry[]>;
+  /** The device's cap, when not DEVICE_CAP_BYTES (tests). */
+  deviceCap?: number;
+}
+
+type CacheIndex = Record<string, { bytes: number; usedAt: number }>;
+/** Each cache's record, read once per page load (one cache in the app, one per test). */
+let cacheIndexes = new WeakMap<Cache, Promise<CacheIndex>>();
+
+/** Forget the in-memory copies of the caches' records, as a new page load would (tests). */
+export function forgetCacheIndex(): void {
+  cacheIndexes = new WeakMap();
+}
+
+function loadIndex(cache: Cache): Promise<CacheIndex> {
+  let index = cacheIndexes.get(cache);
+  if (!index) {
+    index = cache
+      .match(INDEX_URL)
+      .catch(() => undefined)
+      .then(async (hit) => (hit ? (((await hit.json().catch(() => ({}))) as CacheIndex) ?? {}) : {}));
+    cacheIndexes.set(cache, index);
+  }
+  return index;
+}
+
+/** Note a file just stored, then remove the least recently played ones while the device is over its cap. */
+async function keepWithinCap(cache: Cache, url: string, bytes: number, cap: number): Promise<void> {
+  const index = await loadIndex(cache);
+  index[url] = { bytes, usedAt: Date.now() };
+  let total = Object.values(index).reduce((sum, e) => sum + e.bytes, 0);
+  if (total > cap) {
+    for (const [old, entry] of Object.entries(index).sort((a, b) => a[1].usedAt - b[1].usedAt)) {
+      if (total <= cap * 0.8) break;
+      if (old === url) continue;
+      await cache.delete(old).catch(() => false);
+      delete index[old];
+      total -= entry.bytes;
+    }
+  }
+  await cache.put(INDEX_URL, new Response(JSON.stringify(index), { headers: { "Content-Type": "application/json" } })).catch(() => {});
 }
 
 async function openCache(): Promise<Cache | null> {
@@ -103,6 +150,11 @@ async function preparedBytes(key: string, deps: PreparedDeps, signal?: AbortSign
   let reload = false;
   if (hit) {
     const bytes = new Uint8Array(await hit.arrayBuffer());
+    // Played now, so it is the last to be removed; written out with the next stored file.
+    if (cache) {
+      const index = await loadIndex(cache);
+      index[url] = { bytes: bytes.length, usedAt: Date.now() };
+    }
     // A copy made on a lesser machine is replaced once a better one has remade it.
     if (!betterTier(tier, parsePrepared(bytes)?.header.tier)) return bytes;
     reload = true;
@@ -115,7 +167,13 @@ async function preparedBytes(key: string, deps: PreparedDeps, signal?: AbortSign
   }
   if (!response.ok) return null;
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (cache) await cache.put(url, new Response(bytes.slice(), { headers: { "Content-Type": "application/x-kokoro-prepared" } })).catch(() => {});
+  if (cache) {
+    const stored = await cache.put(url, new Response(bytes.slice(), { headers: { "Content-Type": "application/x-kokoro-prepared" } })).then(
+      () => true,
+      () => false,
+    );
+    if (stored) await keepWithinCap(cache, url, bytes.length, deps.deviceCap ?? DEVICE_CAP_BYTES);
+  }
   return bytes;
 }
 
@@ -206,4 +264,11 @@ export async function downloadPrepared(
   };
   await Promise.all([lane(), lane()]);
   return stored;
+}
+
+/** How much prepared audio this device holds, from the cache's record. */
+export async function deviceAudioBytes(): Promise<number> {
+  const cache = await openCache();
+  if (!cache) return 0;
+  return Object.values(await loadIndex(cache)).reduce((sum, e) => sum + e.bytes, 0);
 }
