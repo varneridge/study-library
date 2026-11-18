@@ -11,6 +11,7 @@ import { search } from "./search";
 import { maintain, purge } from "./maintenance";
 import { serveModelFile } from "./models";
 import { processor } from "./processor";
+import { listen, listenProcessor } from "./listen";
 import { TABLE_NAMES } from "./schema";
 import { pull, push, type Change } from "./sync";
 
@@ -253,6 +254,7 @@ app.post("/api/files/:id/retry", async (c) => {
   return c.json({ ok: await retryFile(c.env, c.req.param("id")) });
 });
 
+app.route("/api/processor/listen", listenProcessor);
 // Runs one step of a file's processing again: its OCR, its cover or its citation.
 // A missing or unreadable body is answered as a bad step rather than a crash.
 app.post("/api/files/:id/redo", async (c) => {
@@ -263,6 +265,7 @@ app.post("/api/files/:id/redo", async (c) => {
 });
 
 app.route("/api/processor", processor);
+app.route("/api/listen", listen);
 
 // Wipes everything. Only for local tests, and only when DEV_RESET is set.
 app.post("/api/dev/reset", async (c) => {
@@ -272,6 +275,7 @@ app.post("/api/dev/reset", async (c) => {
     c.env.DB.prepare("DELETE FROM jobs"),
     c.env.DB.prepare("DELETE FROM page_text"),
     c.env.DB.prepare("DELETE FROM transcript_text"),
+    c.env.DB.prepare("DELETE FROM listen_audio"),
     c.env.DB.prepare("UPDATE counters SET value = 0 WHERE name = 'seq'"),
   ]);
   let cursor: string | undefined;

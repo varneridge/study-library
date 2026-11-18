@@ -106,3 +106,11 @@ def test_private_network_preflight(client):
     assert r.status_code == 200
     assert r.headers.get("access-control-allow-private-network") == "true"
     assert r.headers.get("access-control-allow-origin") == "https://study.example"
+
+
+def test_engine_sends_misaki_the_spoken_form_with_names_as_sounds():
+    calls: list = []
+    engine = KokoroEngine(pipeline_factory=fake_pipeline_factory(calls))
+    engine.synthesise("Deng Xiaoping, c. 1975.", "bf_emma")
+    sent = [c[1] for c in calls if c[0] == "run"]
+    assert sent == ["[Deng](/d\u02c8\u028c\u014b/) [Xiaoping](/\u0283jWp\u02c8\u026a\u014b/), circa 1975."]

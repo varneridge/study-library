@@ -33,6 +33,7 @@
 
 import type { KokoroTTS, KokoroVoice } from "kokoro-js";
 import type { Tensor } from "@huggingface/transformers";
+import { parseMarks, phonemiseMarked } from "./annotate";
 import { chunkTokens, joinChunkSpans, spansFromDurations } from "./durations";
 import { explainProbes, HUB, isNetworkFailure, mirrorUrl, normaliseHost, probeModel } from "./modelProbe";
 import type { TimedToken, VoiceInfo } from "./types";
@@ -150,7 +151,7 @@ interface TransformersEnv {
 let KokoroTTSClass: typeof KokoroTTS | null = null;
 
 /** kokoro-js's sentence splitter, which stream() reads until it is closed. */
-type Splitter = { push(...text: string[]): void; close(): void };
+type Splitter = { push(...text: string[]): void; close(): void } & AsyncIterable<string>;
 let SplitterClass: (new () => Splitter) | null = null;
 
 /**
@@ -215,6 +216,8 @@ async function ensureModules(): Promise<void> {
 let tts: KokoroTTS | null = null;
 let voiceBase = "";
 let lastDurations: Float64Array | null = null;
+// While set, generate_from_ids skips the model: stream() is being run only for its phonemes.
+let capturing = false;
 const voiceCache = new Map<string, Float32Array>();
 const queue: Job[] = [];
 const cancelled = new Set<number>();
@@ -276,6 +279,7 @@ function install(model: KokoroTTS): void {
     ids: Tensor,
     { voice = "af_heart", speed = 1 }: { voice?: string; speed?: number } = {},
   ): Promise<{ audio: Float32Array; sampling_rate: number }> => {
+    if (capturing) return { audio: new Float32Array(0), sampling_rate: SAMPLE_RATE };
     // The input ids are kokoro-js's own Tensor, so their class is the one its ONNX session accepts.
     const TensorOfModel = ids.constructor as new (type: string, data: unknown, dims: number[]) => Tensor;
     const row = Math.min(Math.max(Number(ids.dims[ids.dims.length - 1]) - 2, 0), MAX_STYLE_ROW);
@@ -374,30 +378,60 @@ async function explainFailure(modelId: string, hosts: string[], attempts: string
   return explainProbes(probes);
 }
 
+/** kokoro-js's own sounds for a stretch of text, from its stream() with the model skipped. */
+async function phonemesOf(text: string, voice: string): Promise<string> {
+  if (!tts || !SplitterClass) throw new Error("the model is not loaded");
+  const splitter = new SplitterClass();
+  splitter.push(text);
+  splitter.close();
+  const out: string[] = [];
+  capturing = true;
+  try {
+    for await (const part of tts.stream(splitter as never, { voice: voice as never, speed: 1 })) out.push(part.phonemes);
+  } finally {
+    capturing = false;
+  }
+  return out.join(" ");
+}
+
+type Tokenizer = (text: string, options: { truncation: boolean }) => { input_ids: Tensor };
+
 async function run(job: Job): Promise<void> {
   if (!tts) throw new Error("the model is not loaded");
   const pcmChunks: Float32Array[] = [];
   const spanChunks: Array<{ spans: TimedToken[]; seconds: number }> = [];
   const textChunks: Array<{ text: string; seconds: number }> = [];
   let timestamped = true;
-  // stream() splits text into sentences and phonemises each one. Given a plain
-  // string, kokoro-js 1.2.1 wraps it in a splitter it never closes, so the last
-  // sentence is held back for text that never comes and the loop never ends.
-  // A splitter closed here gives up every sentence and then finishes.
+  // Text arrives marked by annotate.ts: "[Xiaoping](/\u0283ja\u028ap\u02c8\u026a\u014b/)" gives a
+  // word fixed sounds. Each sentence is phonemised here rather than inside
+  // stream(), so marked words keep their sounds and the rest is read by
+  // kokoro-js's own front end exactly as before. A splitter closed here gives
+  // up every sentence and then finishes (an unclosed one waits for ever).
   if (!SplitterClass) throw new Error("Kokoro's sentence splitter is not loaded");
+  const { plain, marks } = parseMarks(job.text);
   const splitter = new SplitterClass();
-  splitter.push(job.text);
+  splitter.push(plain);
   splitter.close();
-  for await (const part of tts.stream(splitter as never, { voice: job.voice as never, speed: 1 })) {
+  let cursor = 0;
+  for await (const sentence of splitter) {
     if (cancelled.has(job.id)) throw new Error("cancelled");
-    const pcm = part.audio.audio as Float32Array;
+    const at = plain.indexOf(sentence, cursor);
+    const inside = at < 0 ? [] : marks.filter((m) => m.start >= at && m.end <= at + sentence.length).map((m) => ({ ...m, start: m.start - at, end: m.end - at }));
+    if (at >= 0) cursor = at + sentence.length;
+    const phonemes = inside.length
+      ? await phonemiseMarked(sentence, inside, (t) => phonemesOf(t, job.voice))
+      : await phonemesOf(sentence, job.voice);
+    if (phonemes.trim() === "") continue;
+    const { input_ids } = (tts.tokenizer as Tokenizer)(phonemes, { truncation: true });
+    const result = (await tts.generate_from_ids(input_ids, { voice: job.voice, speed: 1 })) as { audio: Float32Array };
+    const pcm = result.audio;
     const seconds = pcm.length / SAMPLE_RATE;
-    const spans = lastDurations ? spansFromDurations(part.phonemes, lastDurations, seconds) : [];
+    const spans = lastDurations ? spansFromDurations(phonemes, lastDurations, seconds) : [];
     lastDurations = null;
     if (spans.length === 0) timestamped = false;
     pcmChunks.push(pcm);
     spanChunks.push({ spans, seconds });
-    textChunks.push({ text: part.text ?? "", seconds });
+    textChunks.push({ text: sentence, seconds });
   }
   const pcm = new Float32Array(pcmChunks.reduce((s, c) => s + c.length, 0));
   let o = 0;

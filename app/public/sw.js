@@ -13,7 +13,6 @@ const CACHE = PREFIX + BUILD;
 // their own caches across builds.
 const FONTS = "study-fonts-v1";
 const PICTURES = "study-pictures-v1";
-const KEEP_OTHERS = new Set([FONTS, PICTURES]);
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/pdf.worker.min.mjs"];
 
 self.addEventListener("install", (event) => {
@@ -27,7 +26,9 @@ self.addEventListener("activate", (event) => {
         // Shell caches are named with the build time first, so they sort in order.
         const shells = keys.filter((key) => key.startsWith(PREFIX) && key !== CACHE).sort();
         const previous = shells.filter((key) => key < CACHE).at(-1);
-        const stale = keys.filter((key) => key !== CACHE && key !== previous && !KEEP_OTHERS.has(key));
+        // Only old shell caches are deleted. Caches the app keeps for itself, such as
+        // Kokoro's model and voices and prepared Listen audio, survive each new build.
+        const stale = shells.filter((key) => key !== previous);
         return Promise.all(stale.map((key) => caches.delete(key)));
       })
       .then(() => self.clients.claim()),

@@ -48,6 +48,7 @@ export class LocalKokoroEngine implements TtsEngine {
         "Content-Type": "application/json",
         ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
       },
+      // The server applies the pronunciation rules itself (backend/tts/pronounce.py).
       body: JSON.stringify({ text, voice }),
       signal,
     });

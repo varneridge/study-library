@@ -5773,3 +5773,23 @@ html.typing .cal-fab { display: none; }
   .cal-chip { min-height: 1.5rem; }
   .cal-month { --chip-h: 1.5rem; }
 }
+/* Pronunciations in Settings (components/Pronunciations.tsx) */
+.pronunciation-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.75rem; align-items: end; margin-top: 0.75rem; }
+.pronunciation-form .field { margin-bottom: 0; }
+.pronunciation-form .field-error { grid-column: 1 / -1; margin: 0; }
+.pronunciation-actions { display: flex; gap: 0.5rem; align-items: center; }
+.pronunciation-list { margin-top: 0.75rem; }
+.pronunciation-list > li { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.45rem 0.5rem; border-radius: var(--r-sm); }
+.pronunciation-list > li:hover { background: var(--surface); }
+.pronunciation-list > li.is-editing { display: block; background: var(--surface); }
+.pronunciation-list > li.is-editing .pronunciation-form { margin-top: 0; }
+.pronunciation-word { font-family: var(--serif); min-width: 9rem; }
+.pronunciation-say { flex: 1; min-width: 0; color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 44rem) {
+  .pronunciation-form { grid-template-columns: 1fr; }
+  .pronunciation-form input { font-size: 16px; }
+  .pronunciation-list > li { flex-wrap: wrap; }
+  .pronunciation-word { min-width: 0; flex: 1 1 100%; }
+  .pronunciation-list .quiet { min-height: 44px; }
+}
+.quiet.danger { color: var(--danger); }

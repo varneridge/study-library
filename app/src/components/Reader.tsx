@@ -41,7 +41,9 @@ import { VideoReader } from "./VideoReader";
 import "../lib/listen/listen.css";
 import { buildListenScript } from "../lib/listen/script";
 import type { PagePoint, VoiceInfo } from "../lib/listen/types";
-import { DEFAULT_VOICES } from "../lib/listen/types";
+import { DEFAULT_VOICE, DEFAULT_VOICES } from "../lib/listen/types";
+import { defaultDeps, downloadPrepared, PreparedAudioEngine, requestPreparation } from "../lib/listen/prepared";
+import { loadPronunciations } from "../lib/listen/pronunciations";
 import { createListenController, type ListenController } from "../lib/listen/controller";
 import { createPageSurface, createTextSurface, type ListenSurface, type PageBox, type PageSpan } from "../lib/listen/highlight";
 import { modelIsCached, sharedBrowserEngine } from "../lib/listen/browserEngine";
@@ -58,6 +60,9 @@ interface Selected { page: number; rects: number[][]; text: string; x: number; y
 
 const NO_NEEDLES: Needles = { list: [], separate: false };
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+
+/** Readings whose paragraphs this session has already asked to be prepared. */
+const preparationAsked = new Set<string>();
 
 export function Reader({ id, page, q }: { id: string; page?: number; q?: string }) {
   const data = useLiveQuery(() => loadReader(id), [id]);
@@ -671,6 +676,27 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     };
   }, []);
 
+  // Each reading opened asks, once per session, for its paragraphs to be
+  // prepared in the default voice, so audio is usually ready on the phone by
+  // the time Listen is pressed. Asking again later costs nothing: paragraphs
+  // already prepared are only marked as wanted.
+  useEffect(() => {
+    if (!reflowed || !reflowed.usable || preparationAsked.has(id)) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const script = await buildListenScript(reflowed.blocks);
+      if (cancelled || script.utterances.length === 0) return;
+      preparationAsked.add(id);
+      void loadPronunciations()
+        .then((lexicon) => requestPreparation(id, DEFAULT_VOICE, script.utterances.map((u) => u.text), lexicon))
+        .catch(() => preparationAsked.delete(id));
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [id, reflowed]);
+
   // Controller lifecycle when audio listening is toggled
   useEffect(() => {
     if (!listenOpen || !reflowed || !reflowed.usable) {
@@ -683,6 +709,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
 
     let disposed = false;
     let ctrl: ListenController | null = null;
+    let stopDownload = () => {};
 
     void (async () => {
       const script = await buildListenScript(reflowed.blocks);
@@ -696,6 +723,18 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         engine = sharedBrowserEngine();
       }
       if (disposed) return;
+
+      // Prepared paragraphs play from their finished files, the rest from the
+      // engine just chosen. Opening Listen also keeps this reading's prepared
+      // paragraphs on the device, for listening offline or with the screen locked.
+      const texts = script.utterances.map((u) => u.text);
+      const download = new AbortController();
+      stopDownload = () => download.abort();
+      const ask = (voice: string) => loadPronunciations().then((lexicon) => requestPreparation(id, voice, texts, lexicon));
+      engine = new PreparedAudioEngine(engine, (voice) => void ask(voice).catch(() => {}), defaultDeps(loadPronunciations));
+      void ask(DEFAULT_VOICE)
+        .then((items) => downloadPrepared(items.filter((i) => i.ready).map((i) => i.key), undefined, download.signal))
+        .catch(() => {});
 
       // The bar opens at once. Kokoro's voices arrive when the model has loaded,
       // which the first time means downloading it, so waiting for them here kept
@@ -727,9 +766,10 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
 
     return () => {
       disposed = true;
+      stopDownload();
       if (ctrl) ctrl.dispose();
     };
-  }, [listenOpen, reflowed, data.item.title, placeLabel]);
+  }, [listenOpen, reflowed, data.item.title, placeLabel, id]);
 
   // Listen paints and follows in whichever layout is on screen: the article in
   // text layout, the PDF pages in page layout. A change of layout while it

@@ -3,6 +3,7 @@
 
 import type { SynthResult, TtsEngine, VoiceInfo } from "./types";
 import { DEFAULT_MODEL_HOSTS, DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type KokoroDevice, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
+import { annotate } from "./annotate";
 
 /** The parts of a Worker this engine uses, so tests can pass a fake one. */
 export interface WorkerLike {
@@ -183,7 +184,7 @@ export class BrowserKokoroEngine implements TtsEngine {
           reject(e);
         },
       });
-      worker.postMessage({ type: "synthesise", id, text, voice });
+      worker.postMessage({ type: "synthesise", id, text: /\]\(\//.test(text) ? text : annotate(text), voice });
     });
   }
 

@@ -1,0 +1,14 @@
+{
+  "about": "Used by app/src/lib/listen/pinyin.ts and its Python twin. A capitalised word that splits into pinyin is read as Chinese when its spelling is one only pinyin uses, when it is listed under names, or when it stands beside a word that is. notNames lists English, Japanese and other words that pass the spelling test anyway. Entries are lower case without tone marks.",
+  "names": [
+    "anhui", "beijing", "chen", "fei", "fujian", "gansu", "hainan", "han", "hebei", "henan",
+    "hu", "hubei", "hunan", "jilin", "jin", "lei", "li", "lin", "mei", "ming",
+    "nanjing", "pei", "shandong", "shanghai", "sichuan", "tang", "tianjin", "wang", "wei", "wu",
+    "wuhan", "yang", "yuan", "yunnan"
+  ],
+  "notNames": [
+    "benghazi", "bengali", "bengaluru", "cacao", "cengage", "cuomo", "curacao", "disengage", "duo", "duomo",
+    "familiarize", "foliage", "fukuoka", "humiliate", "humiliating", "kaori", "kaoru", "karaoke", "kazuo", "maori",
+    "mindanao", "miura", "naomi", "paola", "retaliate", "serengeti", "shaqiri"
+  ]
+}

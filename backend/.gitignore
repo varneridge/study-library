@@ -7,3 +7,5 @@ tts.log.*
 __pycache__
 .pytest_cache
 audit/
+prepare.log
+prepare.log.1

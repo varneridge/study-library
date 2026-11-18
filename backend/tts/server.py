@@ -46,6 +46,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from .pronounce import prepare_for_misaki
+
 MAGIC = b"KTT1"
 SAMPLE_RATE = 24_000
 MAX_TEXT_CHARS = 1_000
@@ -126,7 +128,10 @@ class KokoroEngine:
             # Speed stays 1.0: playback speed is the media element's job, so a
             # speed change never needs new audio (as Kokoro-Clipboard-TTS does
             # with its Sonic DSP).
-            for result in pipeline(text, voice=voice, speed=1.0, split_pattern=None):
+            # Dates, abbreviations and pinyin names are written out first (pronounce.py),
+            # with names as fixed sounds in misaki's own link syntax.
+            spoken = prepare_for_misaki(text, british=lang_code(voice) == "b")
+            for result in pipeline(spoken, voice=voice, speed=1.0, split_pattern=None):
                 audio = result.audio
                 if audio is None:
                     continue

@@ -1,0 +1,306 @@
+{
+ "about": "Expected spoken forms for the Listen pronunciation rules. app/tests and backend/tests both check against this file, so the browser and the speech server always agree. Pinyin phonemes are in Kokoro's symbols; null means the word is not pinyin. When a rule changes, raise version here, in spokenText.ts and in pronounce.py.",
+ "version": 1,
+ "spokenText": [
+  [
+   "from 1975\u20131980",
+   "from 1975 to 1980"
+  ],
+  [
+   "from 1975 \u2014 1980",
+   "from 1975 to 1980"
+  ],
+  [
+   "in 1950\u201353",
+   "in 1950 to 53"
+  ],
+  [
+   "in 1950-53",
+   "in 1950 to 53"
+  ],
+  [
+   "the 1950s\u201360s",
+   "the 1950s to 60s"
+  ],
+  [
+   "the 1950s\u20131960s",
+   "the 1950s to 1960s"
+  ],
+  [
+   "Xi (1953\u2013)",
+   "Xi (1953 onwards)"
+  ],
+  [
+   "from 1949\u2013present",
+   "from 1949 to present"
+  ],
+  [
+   "on 2020-05-17 it",
+   "on the seventeenth of May 2020 it"
+  ],
+  [
+   "code 1950-12",
+   "code 1950-12"
+  ],
+  [
+   "c. 1945",
+   "circa 1945"
+  ],
+  [
+   "ca. 1945",
+   "circa 1945"
+  ],
+  [
+   "pp. 12\u201315",
+   "pages 12 to 15"
+  ],
+  [
+   "p. 7",
+   "page 7"
+  ],
+  [
+   "p. 33ff.",
+   "page 33 and following"
+  ],
+  [
+   "Mao (d. 1976)",
+   "Mao (died 1976)"
+  ],
+  [
+   "vol. 2, ch. 3, n. 14",
+   "volume 2, chapter 3, note 14"
+  ],
+  [
+   "cf. Westad, e.g. here, i.e. there, Chen et al. argue",
+   "compare Westad, for example here, that is there, Chen and others argue"
+  ],
+  [
+   "Westad (ed.)",
+   "Westad (editor)"
+  ],
+  [
+   "AD 618",
+   "A-D 618"
+  ],
+  [
+   "618 AD",
+   "618 A-D"
+  ],
+  [
+   "200 CE",
+   "200 C-E"
+  ],
+  [
+   "200 BC",
+   "200 BC"
+  ],
+  [
+   "World War II began",
+   "World War Two began"
+  ],
+  [
+   "after World War I",
+   "after World War One"
+  ],
+  [
+   "Henry VIII's court",
+   "Henry the Eighth's court"
+  ],
+  [
+   "Pope John XXIII",
+   "Pope John the Twenty-third"
+  ],
+  [
+   "Elizabeth I and Pius V",
+   "Elizabeth the First and Pius the Fifth"
+  ],
+  [
+   "see Part II and chapter IV",
+   "see Part Two and chapter Four"
+  ],
+  [
+   "Vatican II",
+   "Vatican Two"
+  ],
+  [
+   "Malcolm X spoke",
+   "Malcolm X spoke"
+  ],
+  [
+   "Then I went",
+   "Then I went"
+  ],
+  [
+   "Did I say",
+   "Did I say"
+  ],
+  [
+   "The XX Congress",
+   "The XX Congress"
+  ],
+  [
+   "and II",
+   "and II"
+  ],
+  [
+   "Xi Jinping",
+   "Xi Jinping"
+  ],
+  [
+   "MI5",
+   "MI5"
+  ],
+  [
+   "the Sino-Soviet split",
+   "the Sighno-Soviet split"
+  ],
+  [
+   "Sinology",
+   "Sinology"
+  ],
+  [
+   "Brezhnev and Gorbachev pursued detente, perestroika and glasnost in 1985, etc.",
+   "Brezhnev and Gorbachev pursued detente, perestroika and glasnost in 1985, etc."
+  ]
+ ],
+ "pinyinPhonemes": [
+  [
+   "Mao",
+   "m\u02c8a\u028a"
+  ],
+  [
+   "Zedong",
+   "dz\u0259d\u02c8\u0252\u014b"
+  ],
+  [
+   "Zhou",
+   "d\u0292\u02c8\u0259\u028a"
+  ],
+  [
+   "Enlai",
+   "\u025bnl\u02c8a\u026a"
+  ],
+  [
+   "Deng",
+   "d\u02c8\u028c\u014b"
+  ],
+  [
+   "Xiaoping",
+   "\u0283ja\u028ap\u02c8\u026a\u014b"
+  ],
+  [
+   "Xi",
+   "\u0283\u02c8i\u02d0"
+  ],
+  [
+   "Jinping",
+   "d\u0292\u026anp\u02c8\u026a\u014b"
+  ],
+  [
+   "Qing",
+   "t\u0283\u02c8\u026a\u014b"
+  ],
+  [
+   "Xi'an",
+   "\u0283i\u02d0\u02c8an"
+  ],
+  [
+   "Liu",
+   "lj\u02c8\u0259\u028a"
+  ],
+  [
+   "Shaoqi",
+   "\u0283a\u028at\u0283\u02c8i\u02d0"
+  ],
+  [
+   "Hua",
+   "hw\u02c8\u0251\u02d0"
+  ],
+  [
+   "Guofeng",
+   "\u0261w\u0254\u02d0f\u02c8\u028c\u014b"
+  ],
+  [
+   "Zhenbao",
+   "d\u0292\u0259nb\u02c8a\u028a"
+  ],
+  [
+   "Yan'an",
+   "j\u025bn\u02c8an"
+  ],
+  [
+   "L\u00fc",
+   "lj\u02c8u\u02d0"
+  ],
+  [
+   "Xuan",
+   "\u0283w\u02c8\u025bn"
+  ],
+  [
+   "Shi",
+   "\u0283\u02c8\u025c\u02d0"
+  ],
+  [
+   "Zi",
+   "dz\u02c8\u0259"
+  ],
+  [
+   "M\u00e1o",
+   "m\u02c8a\u028a"
+  ],
+  [
+   "Z\u00e9d\u014dng",
+   "dz\u0259d\u02c8\u0252\u014b"
+  ],
+  [
+   "Chiang",
+   null
+  ],
+  [
+   "Kuomintang",
+   "kw\u0254\u02d0m\u026ant\u02c8a\u014b"
+  ],
+  [
+   "Lenin",
+   "l\u0259n\u02c8\u026an"
+  ]
+ ],
+ "pinyinNames": [
+  {
+   "text": "Mao Zedong and Liu Shaoqi met Deng Xiaoping in Beijing.",
+   "names": [
+    "Mao",
+    "Zedong",
+    "Liu",
+    "Shaoqi",
+    "Deng",
+    "Xiaoping",
+    "Beijing"
+   ]
+  },
+  {
+   "text": "Hua Guofeng and Kang Sheng, then Xi'an.",
+   "names": [
+    "Hua",
+    "Guofeng",
+    "Kang",
+    "Sheng",
+    "Xi'an"
+   ]
+  },
+  {
+   "text": "Chiang Kai-shek, Sun Yat-sen, Lenin and China did not change.",
+   "names": []
+  },
+  {
+   "text": "Change came. Taxi drivers went Boxing.",
+   "names": []
+  },
+  {
+   "text": "He met Wang.",
+   "names": [
+    "Wang"
+   ]
+  }
+ ]
+}

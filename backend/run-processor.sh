@@ -13,6 +13,14 @@ if ! pgrep -f "backend.tts.server:app" > /dev/null; then
   python -m uvicorn backend.tts.server:app --host 127.0.0.1 --port 8765 >> tts.log 2>&1 &
 fi
 
+# Prepares Listen audio ahead of time with that server (backend/tts/prepare.py)
+if ! pgrep -f "backend.tts.prepare" > /dev/null; then
+  if [ -f prepare.log ] && [ "$(stat -c %s prepare.log)" -gt 5000000 ]; then
+    mv -f prepare.log prepare.log.1
+  fi
+  python -m backend.tts.prepare >> prepare.log 2>&1 &
+fi
+
 # The log is set aside at each start once it passes 5 MB, keeping one old copy.
 if [ -f processor.log ] && [ "$(stat -c %s processor.log)" -gt 5000000 ]; then
   mv -f processor.log processor.log.1

@@ -14,6 +14,7 @@ import { ago, processorQuiet, useProcessorStatus, type StatusJob } from "../lib/
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
+import { Pronunciations } from "./Pronunciations";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
 import { availableUpdate, currentVersion, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, updateHref, type Release } from "../lib/update";
 import { SyncIcon, useSyncView } from "./icons";
@@ -28,6 +29,7 @@ const APPEARANCES: { value: Appearance; label: string }[] = [
 const SECTIONS = [
   { id: "section-appearance", label: "Appearance" },
   { id: "section-term-dates", label: "Term dates" },
+  { id: "section-pronunciations", label: "Pronunciations" },
   { id: "section-shortcuts", label: "Shortcuts" },
   { id: "section-processor", label: "Background processor" },
   { id: "section-device", label: "On this device" },
@@ -731,7 +733,11 @@ export function Settings() {
             />
           </section>
 
-          <section id="section-shortcuts" className="settings-section settings-card keyboard-only">
+          <section id="section-pronunciations" className="settings-section settings-card">
+            <Pronunciations />
+          </section>
+
+                    <section id="section-shortcuts" className="settings-section settings-card keyboard-only">
             <h2>Keyboard shortcuts</h2>
             <p className="small muted" style={{ margin: "0.2rem 0 0.6rem" }}>
               / opens search. On a week, [ and ] navigate between weeks. Press ? anywhere for the full list.
