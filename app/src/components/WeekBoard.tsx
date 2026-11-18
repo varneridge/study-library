@@ -25,6 +25,10 @@ import type { WeekRow } from "../lib/types";
 import { KIND_GROUP, KIND_LABEL } from "../lib/kinds";
 import { ReadingRow } from "./ReadingRow";
 import { ViewSwitcher } from "./ViewSwitcher";
+import { AddTile } from "./AddTile";
+import { FolderStrip } from "./Folders";
+import { moveToFolder } from "../lib/folders";
+import type { FolderRow } from "../lib/types";
 import { setSetting, useSetting } from "../lib/settings";
 import { showToast } from "../lib/ui";
 import { defaultViewMode, isTileMode, parseViewMode, viewSettingKey, type ReadingViewMode } from "../lib/views";
@@ -72,10 +76,13 @@ function List({ id, label, views, weeks, dragging, isLibrary, mode, tools, fileO
     ? `Drop here to make it ${hintText}`
     : fileOver
       ? `Drop files here to add them as ${(label ?? "documents").toLowerCase()}`
-      : `No ${(label ?? "documents").toLowerCase()} yet. Drop files here or choose Add.`;
-  const add = onAdd && (
-    <button type="button" className="quiet" onClick={onAdd} aria-label={`Add ${(label ?? "documents").toLowerCase()}`}>Add</button>
+      : `No ${(label ?? "documents").toLowerCase()} yet. Drop files here.`;
+  // Adding is a blank tile, or row, at the end of the list rather than a button above it.
+  const named = (label ?? "documents").toLowerCase();
+  const addTile = onAdd && (
+    <AddTile label={`Add ${named}`} announce={`Add ${named}`} onAdd={onAdd} variant={isTileMode(mode) ? "tile" : "row"} />
   );
+  const add = null;
   return (
     <div className={`section${fileOver ? " drop-over-lists" : ""}`} data-drop={zone}>
       {/* The first list's heading also carries the folder's view buttons, so
@@ -94,7 +101,8 @@ function List({ id, label, views, weeks, dragging, isLibrary, mode, tools, fileO
       <SortableContext id={listContextId(id)} items={views.map((v) => v.link!.id)} strategy={isTileMode(mode) ? rectSortingStrategy : verticalListSortingStrategy}>
         <ul ref={setNodeRef} className={`readings view-${mode}${arranging ? " arranging" : ""}${!views.length ? " empty-target" : ""}${isOver ? " over" : ""}`}>
           {views.map((v) => <Sortable key={v.link!.id} view={v} weeks={weeks} mode={mode} isLibrary={isLibrary} />)}
-          {!views.length && <li className="drop-hint">{emptyText}</li>}
+          {!views.length && (!addTile || dragging || fileOver) && <li className="drop-hint">{emptyText}</li>}
+          {addTile}
         </ul>
       </SortableContext>
     </div>
@@ -113,9 +121,12 @@ export function Target({ id, label, current, reading }: { id: string; label: str
 
 const NONE: ReadingView[] = [];
 
-export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, isLibrary, isSyllabus, dropKind = null, onAddTo }: {
+export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries = NONE, weeks, isLibrary, isSyllabus, dropKind = null, onAddTo, folders, folderViews }: {
   week: WeekRow; primaries?: ReadingView[]; readings?: ReadingView[]; summaries?: ReadingView[]; weeks: WeekRow[]; moduleId?: string;
   isLibrary?: boolean; isSyllabus?: boolean;
+  // A Library shelf's folders, shown at its front, and the readings in each; left out inside a folder and elsewhere.
+  folders?: FolderRow[];
+  folderViews?: (folderId: string) => ReadingView[];
   // What files dragged over the page would become, so the matching list can light up.
   dropKind?: FileTarget["kind"] | null;
   // Adds files to one list; left out where the week takes documents only.
@@ -203,6 +214,19 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
     const id = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
     const view = all.get(id);
+    // A reading dropped on a folder's tile goes into that folder.
+    if (view?.link && overId?.startsWith("folder:")) {
+      setActive(null);
+      settling.current = true;
+      try {
+        await moveToFolder(view.link, overId.slice("folder:".length));
+      } catch (error) {
+        settling.current = false;
+        setLists(fromProps());
+        showToast(`The reading could not be moved. ${(error as Error).message || "Try again in a moment."}`);
+      }
+      return;
+    }
     const to = overId ? listOf(overId) : null;
     if (!view?.link || !overId || !to) {
       onCancel();
@@ -266,6 +290,7 @@ export function WeekBoard({ week, primaries = NONE, readings = NONE, summaries =
 
   return (
     <DndContext sensors={sensors} collisionDetection={collide} onDragStart={onStart} onDragOver={onOver} onDragEnd={onEnd} onDragCancel={onCancel}>
+      {folders && folderViews && <FolderStrip week={week} folders={folders} viewsIn={folderViews} />}
       {isSyllabus ? (
         <List id="flat" label="Documents" views={viewsOf("flat")} weeks={weeks} dragging={Boolean(active)} isLibrary={isLibrary} mode={mode} tools={toolsFor("flat")} arranging={reorganising} />
       ) : (

@@ -5871,3 +5871,62 @@ html.typing .cal-fab { display: none; }
 .listen-usage dt { color: var(--muted); }
 .listen-usage dd { margin: 0; font-variant-numeric: tabular-nums; }
 .listen-usage .is-near dd { color: var(--danger); }
+
+/* Adding things: a blank tile or row with a plus (components/AddTile.tsx) */
+.add-tile { list-style: none; position: relative; }
+.add-tile-button {
+  width: 100%; height: 100%; min-height: 44px;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  border: 1px dashed var(--rule-strong, var(--rule)); border-radius: var(--r-md);
+  background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-sm);
+  cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.add-tile-button:hover:not(:disabled), .add-tile-button:focus-visible, .add-tile.file-over .add-tile-button {
+  border-style: solid; border-color: var(--rule-strong, var(--rule)); background: var(--surface); color: var(--ink, inherit);
+}
+.add-tile-button:disabled { opacity: 0.5; cursor: default; }
+.add-tile.add-tile > .add-tile-button { padding: 0.5rem; }
+.add-tile.add-tile:not(.add-row) .add-tile-button { flex-direction: column; }
+.add-tile:not(.add-row) { min-height: 7rem; }
+/* In a grid of readings the tile takes a reading's shape. */
+.readings.view-icons > .add-tile:not(.add-row), .readings.view-large > .add-tile:not(.add-row) { aspect-ratio: 5 / 7; min-height: 0; }
+.add-row .add-tile-button { justify-content: flex-start; padding: 0.45rem 0.75rem; }
+.add-tile-plus { display: grid; place-items: center; }
+@media (pointer: coarse) { .add-row .add-tile-button { min-height: 48px; } }
+
+/* Folders on Library shelves (components/Folders.tsx) */
+.folder-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr)); align-items: start; }
+.folder-tile { position: relative; display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem; border-radius: var(--r-md); transition: background 0.15s ease, box-shadow 0.15s ease; }
+.folder-tile:hover, .folder-tile:focus-within { background: var(--surface); }
+.folder-tile.over { background: var(--surface); box-shadow: inset 0 0 0 2px var(--rule-strong); }
+.folder-open { display: block; border-radius: var(--r-sm); }
+.folder-covers { position: relative; display: block; aspect-ratio: 5 / 7; border-radius: var(--r-sm); background: var(--surface); overflow: hidden; }
+.folder-tile:hover .folder-covers { background: var(--surface-hover, var(--surface)); }
+.folder-covers img { position: absolute; width: 62%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 3px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.18); }
+.folder-covers.n1 img { left: 19%; top: 12%; width: 62%; }
+.folder-covers.n2 img:nth-child(1) { left: 10%; top: 10%; transform: rotate(-4deg); }
+.folder-covers.n2 img:nth-child(2) { left: 28%; top: 16%; transform: rotate(3deg); }
+.folder-covers.n3 img:nth-child(1) { left: 6%; top: 8%; transform: rotate(-6deg); }
+.folder-covers.n3 img:nth-child(2) { left: 19%; top: 13%; }
+.folder-covers.n3 img:nth-child(3) { left: 32%; top: 18%; transform: rotate(5deg); }
+/* An empty folder shows a folder's outline, so it reads as a place to put things. */
+.folder-empty { position: absolute; inset: 22% 16%; border: 1px solid var(--rule-strong); border-radius: 4px; border-top-left-radius: 0; }
+.folder-empty::before { content: ""; position: absolute; left: -1px; top: -0.55rem; width: 40%; height: 0.55rem; border: 1px solid var(--rule-strong); border-bottom: 0; border-radius: 4px 4px 0 0; }
+.folder-caption { display: flex; flex-direction: column; min-width: 0; padding-right: 1.75rem; }
+.folder-name { font-family: var(--serif); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.folder-count { font-size: var(--fs-xs); color: var(--muted); }
+.folder-tile .menu-button { position: absolute; right: 0.25rem; bottom: 0.4rem; }
+.folder-name-field { font: inherit; font-family: var(--serif); width: 100%; min-width: 0; padding: 0.1rem 0.3rem; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); color: var(--ink); }
+.folder-name-field.is-title { font-size: var(--fs-xl, 1.6rem); }
+.folder-grid > .add-tile { aspect-ratio: 5 / 7; min-height: 0; }
+.section.folders { margin-bottom: 0.5rem; }
+.folder-header { display: flex; flex-direction: column; gap: 0.15rem; }
+.folder-trail a { color: var(--muted); }
+.folder-header h1.folder-name { -webkit-line-clamp: 3; }
+/* Add tiles in the module and section grids take a card's height. */
+.week-grid > .add-tile { min-height: 12rem; }
+.module-grid > .add-tile { min-height: 9rem; }
+@media (pointer: coarse) {
+  .folder-name-field { font-size: 16px; }
+  .folder-tile .menu-button { min-width: 44px; min-height: 44px; }
+}

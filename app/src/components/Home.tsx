@@ -1,4 +1,5 @@
 import { closestCenter, DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { AddTile } from "./AddTile";
 import { rectSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useSuspendingLiveQuery } from "dexie-react-hooks";
@@ -213,10 +214,8 @@ export function Home() {
             {arranging ? "Done" : "Reorganise"}
           </button>
         )}
-        {/* The page's own action sits by its heading, as on every page. */}
-        {!adding && <button className="button primary" onClick={() => setAdding(true)}>Add a module</button>}
       </div>
-      {/* The new module opens where its button was, not below every card. */}
+      {/* The new module opens above the grid, where it will be read first. */}
       {adding && <NewModule onDone={() => setAdding(false)} />}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} onDragCancel={swallowClickAfterDrag}>
         <SortableContext items={ids} strategy={rectSortingStrategy}>
@@ -230,6 +229,8 @@ export function Home() {
                 onStep={(direction) => save(steppedOrder(ids, item.module.id, direction))}
               />
             ))}
+            {/* A new module is added from a blank tile at the end of the grid (AddTile.tsx). */}
+            {!adding && !arranging && <AddTile label="New module" announce="Add a module" onAdd={() => setAdding(true)} className="module-add" />}
           </ul>
         </SortableContext>
       </DndContext>

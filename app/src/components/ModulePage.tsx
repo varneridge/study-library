@@ -1,4 +1,5 @@
 import { navigate } from "../lib/router";
+import { AddTile } from "./AddTile";
 import { shortDate } from "../lib/dates";
 import { deleteSection } from "../lib/edits";
 import { reorderSections, addSection, isDissertation, isLibrary, hasCustomSections, saveKeyDates, countdown, coverLabel, type CoverVariant } from "../lib/sections";
@@ -413,7 +414,6 @@ function KeyDates({ module }: { module: ModuleRow }) {
       <div className="section-head">
         <h2>Key dates</h2>
         <span className="spacer" />
-        {!adding && <button className="quiet" onClick={() => setAdding(true)}>Add a date</button>}
       </div>
       {dates.length === 0 && !adding && <p className="small muted">The proposal, chapter drafts, the submission. Each counts down on the This week page.</p>}
       <ul className="key-date-list">
@@ -424,6 +424,8 @@ function KeyDates({ module }: { module: ModuleRow }) {
             <button className="quiet small" aria-label={`Remove ${d.label}`} onClick={() => void saveKeyDates(module, dates.filter((x) => x.id !== d.id))}>Remove</button>
           </li>
         ))}
+        {/* A new date is added from a blank row at the end of the list (AddTile.tsx). */}
+        {!adding && <AddTile variant="row" label="New date" announce="Add a date" onAdd={() => setAdding(true)} />}
       </ul>
       {adding && (
         <div className="row key-date-add">
@@ -577,11 +579,6 @@ export function ModulePage({ id }: { id: string }) {
           </button>
         )}
         <button className="quiet" aria-pressed={editing} onClick={() => setEditing(!editing)}>Edit module</button>
-        {customSectionsOnly && (
-          <button className="button primary" disabled={addingSection} onClick={() => void addOneSection()}>
-            {library ? "Add a shelf" : "Add a section"}
-          </button>
-        )}
       </div>
       {module.title && <p className="lede">{module.title}</p>}
       {reviewing && found.length > 0 && <CitationReview views={found} onClose={() => setReviewing(false)} />}
@@ -719,6 +716,17 @@ export function ModulePage({ id }: { id: string }) {
                   />
                 ))}
                 {sortableWeeks.map(sortableCard)}
+                {/* A new shelf or section is added from a blank tile at the end (AddTile.tsx). */}
+                {!reorganising && (
+                  <AddTile
+                    as="div"
+                    label={library ? "New shelf" : "New section"}
+                    announce={library ? "Add a shelf" : "Add a section"}
+                    onAdd={() => void addOneSection()}
+                    disabled={addingSection}
+                    className="week-add"
+                  />
+                )}
               </div>
             </SortableContext>
           </DndContext>

@@ -104,6 +104,11 @@ export async function downloadWeekArchive(
   const links = (await db.week_items.where("week_id").equals(week.id).toArray()).filter((l) => !l.deleted);
   const items = (await db.items.bulkGet(links.map((l) => l.item_id))).filter((i): i is NonNullable<typeof i> => Boolean(i && !i.deleted));
 
+  // Readings in a shelf's folders go in a subfolder of their own, named after the folder.
+  const shelfFolders = (await db.folders.where("week_id").equals(week.id).toArray()).filter((f) => !f.deleted);
+  const folderName = new Map(shelfFolders.map((f) => [f.id, safeFileName(f.title?.trim() || "New folder", "").replace(/\.$/, "")]));
+  const folderOfItem = new Map(links.map((l) => [l.item_id, l.folder_id ? folderName.get(l.folder_id) ?? null : null]));
+
   let fetchedCount = 0;
   for (const item of items) {
     if (!item.file_id) continue;
@@ -117,7 +122,8 @@ export async function downloadWeekArchive(
       const blob = await fileBlob(file);
       const buf = new Uint8Array(await blob.arrayBuffer());
       const fileName = readingFileName(item, file);
-      const folder = item.kind === "slides" ? "slides" : "readings";
+      const inFolder = folderOfItem.get(item.id);
+      const folder = item.kind === "slides" ? "slides" : inFolder ? `readings/${inFolder}` : "readings";
       entries.push({
         name: `${folder}/${fileName}`,
         data: buf,

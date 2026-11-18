@@ -1,4 +1,5 @@
 import { NotesLoading } from "./ErrorBoundary";
+import { AddTile } from "./AddTile";
 import { addMeeting, isLibrary, isSyllabus, moduleHasNotes, moduleHasSessions, moduleHasMeetings } from "../lib/sections";
 import { combinePhotos, READING_ACCEPT } from "../lib/photos";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
@@ -9,10 +10,10 @@ import { prefetch, PREFETCH_MAX_BYTES } from "../lib/files";
 import { applyPlans, planFile, addSlides, sessionDeck, SLIDES_ACCEPT } from "../lib/importing";
 import { byPosition } from "../lib/keys";
 import { clock } from "../lib/recorder";
-import { loadWeekPage, type NoteView, type SessionView } from "../lib/library";
+import { loadWeekPage, type NoteView, type ReadingView, type SessionView } from "../lib/library";
 import { sessionLabel, weekCode, SESSION_KINDS, titleAfter, isSection } from "../lib/modules";
 import { update } from "../lib/sync";
-import type { FileRow, ModuleRow, RecordingRow, WeekRow } from "../lib/types";
+import type { FileRow, FolderRow, ModuleRow, RecordingRow, WeekRow } from "../lib/types";
 import { recordingState } from "./Recording";
 import { Menu } from "./Menu";
 import { addSession, reorderSessions, setReadingWeek, deleteSessionAsking, deleteSection } from "../lib/edits";
@@ -22,6 +23,8 @@ import { isThisWeek, useTeachingWeek, useTermDates, weekDatesText } from "../lib
 import { blockText } from "../lib/notes";
 import { Icon } from "./icons";
 import { TitleEdit } from "./TitleEdit";
+import { FolderContext, FolderHeader } from "./Folders";
+import { linksAt, moveToFolder, shelfFolders } from "../lib/folders";
 import { WeekBoard } from "./WeekBoard";
 import { sessionMaterials } from "../lib/sessionMaterials";
 import { uploadModulePicture } from "../lib/uploads";
@@ -101,7 +104,7 @@ function recordingLine(recording: RecordingRow): string {
 // readings, unless their names say otherwise.
 export interface FileTarget { kind: "auto" | "primary" | "secondary" | "summary" | "slides"; sessionId?: string; label: string }
 
-async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?: FileTarget) {
+async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?: FileTarget, folderId?: string | null) {
   // Pictures added together become one reading, a page each.
   let files: File[];
   try { files = await combinePhotos(added); } catch (error) { showToast((error as Error).message); return; }
@@ -143,8 +146,14 @@ async function addFiles(added: File[], module: ModuleRow, week: WeekRow, target?
     }
     return plan;
   });
+  // Readings added inside a folder go into it; the links that are new afterwards are this drop's.
+  const before = folderId ? new Set((await db.week_items.where("week_id").equals(week.id).toArray()).map((l) => l.id)) : null;
   const count = await applyPlans(module, plans);
   if (!count) return;
+  if (folderId && before) {
+    const added = (await db.week_items.where("week_id").equals(week.id).toArray()).filter((l) => !before.has(l.id) && !l.deleted && !l.session_id);
+    for (const link of added) await moveToFolder(link, folderId);
+  }
   // A session keeps one deck, so a drop on it is told as slides added or
   // replaced rather than as a count of files that may have replaced each other.
   if (effectiveTarget?.kind === "slides" && effectiveTarget.sessionId) {
@@ -166,6 +175,7 @@ function targetOf(element: Element | null, week: WeekRow, isDocumentOnly?: boole
 
 const KINDS = SESSION_KINDS;
 const NO_SESSIONS: SessionView[] = [];
+const NO_FOLDERS: FolderRow[] = [];
 const NoteEditor = lazy(() => import("./NoteEditor"));
 
 function SectionNotes({ weekId, code }: { weekId: string; code: string }) {
@@ -328,8 +338,33 @@ function WeekSessionCard({
   );
 }
 
-export function WeekPage({ id }: { id: string }) {
+/** The week's blank row for a new session: pressing it offers a seminar or a lecture, as the week asks for both. */
+function SessionAddRow({ empty, onAdd }: { empty: boolean; onAdd: (kind: "seminar" | "lecture") => void }) {
+  const [choosing, setChoosing] = useState(false);
+  if (choosing) {
+    return (
+      <div className="week-add-row row session-add-choice" role="group" aria-label="Add a session to this week" style={{ gap: "0.5rem" }}>
+        <button type="button" className="button" autoFocus onClick={() => { setChoosing(false); onAdd("seminar"); }}>Seminar</button>
+        <button type="button" className="button" onClick={() => { setChoosing(false); onAdd("lecture"); }}>Lecture</button>
+        <button type="button" className="quiet" onClick={() => setChoosing(false)}>Cancel</button>
+      </div>
+    );
+  }
+  return (
+    <AddTile
+      as="div"
+      variant="row"
+      label={empty ? "No sessions yet. Add a seminar or lecture" : "New session"}
+      announce="Add a session to this week"
+      onAdd={() => setChoosing(true)}
+    />
+  );
+}
+
+export function WeekPage({ id, folder: folderId }: { id: string; folder?: string }) {
   const data = useSuspendingLiveQuery(() => loadWeekPage(id), ["week-page", id]);
+  // A Library shelf's folders (lib/folders.ts), and the open one when the route names it.
+  const folders = useLiveQuery(() => shelfFolders(id), [id]) ?? NO_FOLDERS;
   const weeks = useLiveQuery(async () => {
     if (!data) return [];
     return (await db.weeks.where("module_id").equals(data.module.id).toArray()).filter((w) => !w.deleted);
@@ -406,6 +441,13 @@ export function WeekPage({ id }: { id: string }) {
   const week = view.week;
   const hasSectionNotes = (data.sectionNotes ?? []).some((n) => n.blocks.some((b) => blockText(b).trim()));
   const isDocumentOnly = isSyllabus(week) || isLibrary(module);
+  // On a Library shelf, folders sit at the front and the readings in them are
+  // shown only inside them; everything else stays loose on the shelf.
+  const library = isLibrary(module);
+  const openFolder = library && folderId ? folders.find((f) => f.id === folderId) ?? null : null;
+  const here = (views: ReadingView[]) =>
+    library ? views.filter((v) => linksAt([{ folder_id: v.link?.folder_id ?? null }], folders, openFolder?.id ?? null).length > 0) : views;
+  const viewsIn = (fid: string) => [...view.primaries, ...view.readings, ...view.summaries].filter((v) => v.link?.folder_id === fid);
 
   // Sessions keep their own order. The card last opened from here, or else
   // the first, is the one that morphs into its session page.
@@ -441,7 +483,7 @@ export function WeekPage({ id }: { id: string }) {
     if (!event.dataTransfer.files.length) return;
     event.preventDefault();
     event.stopPropagation();
-    void addFiles(Array.from(event.dataTransfer.files), module, week, targetOf(event.target as Element, week, isDocumentOnly));
+    void addFiles(Array.from(event.dataTransfer.files), module, week, targetOf(event.target as Element, week, isDocumentOnly), openFolder?.id ?? null);
   };
   const overText = over
     ? isDocumentOnly
@@ -470,6 +512,7 @@ export function WeekPage({ id }: { id: string }) {
   };
 
   return (
+    <FolderContext.Provider value={library ? { folders, current: openFolder?.id ?? null, weekId: week.id } : null}>
     <div
       className={`page wide week-page dropzone${over ? " over" : ""}`}
       onDragOver={(e) => {
@@ -521,34 +564,38 @@ export function WeekPage({ id }: { id: string }) {
       <div className="section-head" style={{ marginBottom: 0, alignItems: "center" }}>
         {/* The week's own actions sit beside its title, which they act upon,
             and the buttons for adding to the week stay at the far end. */}
+        {openFolder ? (
+          <FolderHeader folder={openFolder} week={week} shelfTitle={week.title || weekCode(week)} />
+        ) : (
         <div className="page-title-group">
-          <TitleEditor week={week} editing={renaming} setEditing={setRenaming} />
-          {section ? (
-            <Menu
-              label={isLibrary(module) ? "More actions for this shelf" : "More actions for this section"}
-              items={[
-                { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
-                { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
-                { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-                { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
-                { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
-              ]}
-            />
-          ) : (
-            <Menu
-              label="More actions for this week"
-              items={[
-                { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
-                { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
-                { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
-                { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
-                ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
-                { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
-                { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
-              ]}
-            />
-          )}
-        </div>
+            <TitleEditor week={week} editing={renaming} setEditing={setRenaming} />
+            {section ? (
+              <Menu
+                label={isLibrary(module) ? "More actions for this shelf" : "More actions for this section"}
+                items={[
+                  { label: isLibrary(module) ? "Rename shelf" : "Rename section", onSelect: () => setRenaming(true) },
+                  { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+                  { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+                  { label: isLibrary(module) ? "Download all shelf content" : "Download all section content", onSelect: () => void handleDownloadArchive() },
+                  { label: isLibrary(module) ? "Delete shelf" : "Delete section", danger: true, onSelect: async () => { await deleteSection(week, module.id); navigate({ view: "module", id: module.id }); } },
+                ]}
+              />
+            ) : (
+              <Menu
+                label="More actions for this week"
+                items={[
+                  { label: week.title ? "Rename week" : "Give the week a title", onSelect: () => setRenaming(true) },
+                  { label: week.is_reading_week ? "Make this a teaching week" : "Make this a reading week", onSelect: () => void toggleReadingWeek() },
+                  { label: "Set cover picture", onSelect: () => coverPicker.current?.click() },
+                  { label: "Remove cover picture", onSelect: onRemoveCover, hidden: !week.image_key },
+                  ...(moduleHasSessions(module) ? KINDS.map((k) => ({ label: `Add a ${k.label.toLowerCase()}`, onSelect: () => void addSession(week, k.value) })) : []),
+                  { label: "Download all week content", onSelect: () => void handleDownloadArchive() },
+                  { label: "Clear the week title", onSelect: () => void update("weeks", week.id, { title: null }), hidden: !week.title },
+                ]}
+              />
+            )}
+          </div>
+        )}
         {isDocumentOnly ? (
           <button
             className="button primary"
@@ -581,7 +628,7 @@ export function WeekPage({ id }: { id: string }) {
           onChange={(e) => {
             const target = addTargetRef.current;
             addTargetRef.current = undefined;
-            if (e.target.files) void addFiles(Array.from(e.target.files), module, week, target);
+            if (e.target.files) void addFiles(Array.from(e.target.files), module, week, target, openFolder?.id ?? null);
             e.target.value = "";
           }}
         />
@@ -619,26 +666,12 @@ export function WeekPage({ id }: { id: string }) {
                 {/* A week starts as a blank slate, offering both kinds of session in
                     one click. With one session, a quiet row offers another, and once
                     there are two the week's menu adds any more. */}
-                {!section && moduleHasSessions(module) && view.sessions.length === 0 && (
-                  <div className="week-blank-slate" role="group" aria-label="Add a session to this week">
-                    <p className="small muted">No sessions yet</p>
-                    <div className="row" style={{ gap: "0.5rem" }}>
-                      <button type="button" className="button" onClick={() => void addSession(week, "seminar")}>
-                        <Icon name="add" size={16} />
-                        <span>Add seminar</span>
-                      </button>
-                      <button type="button" className="button" onClick={() => void addSession(week, "lecture")}>
-                        <Icon name="add" size={16} />
-                        <span>Add lecture</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {!section && moduleHasSessions(module) && view.sessions.length === 1 && (
-                  <div className="week-add-row row" role="group" aria-label="Add another session to this week" style={{ gap: "0.5rem" }}>
-                    <button type="button" className="quiet" onClick={() => void addSession(week, "seminar")}>Add seminar</button>
-                    <button type="button" className="quiet" onClick={() => void addSession(week, "lecture")}>Add lecture</button>
-                  </div>
+                {/* Sessions are added from a blank row at the end, which offers each kind (AddTile.tsx). */}
+                {!section && moduleHasSessions(module) && (
+                  <SessionAddRow
+                    empty={view.sessions.length === 0}
+                    onAdd={(kind) => void addSession(week, kind)}
+                  />
                 )}
               </div>
               </DndContext>
@@ -653,9 +686,11 @@ export function WeekPage({ id }: { id: string }) {
           <div data-drop="readings" className={over?.kind === "auto" ? "drop-over-lists" : undefined}>
             <WeekBoard
               week={week}
-              primaries={view.primaries}
-              readings={view.readings}
-              summaries={view.summaries}
+              primaries={here(view.primaries)}
+              readings={here(view.readings)}
+              summaries={here(view.summaries)}
+              folders={library && !openFolder ? folders : undefined}
+              folderViews={library && !openFolder ? viewsIn : undefined}
               weeks={weeks ?? []}
               moduleId={module.id}
               isLibrary={isLibrary(module)}
@@ -690,5 +725,6 @@ export function WeekPage({ id }: { id: string }) {
         }}
       />
     </div>
+    </FolderContext.Provider>
   );
 }

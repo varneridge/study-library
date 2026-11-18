@@ -131,6 +131,15 @@ export interface WeekItemRow extends SyncedRow {
   item_id: string;
   session_id: string | null;
   position: string;
+  /** The folder on a Library shelf this reading is in, or null (or absent, before 0.55) when it is loose on the shelf. */
+  folder_id?: string | null;
+}
+
+/** A folder on a Library shelf, such as a book series, from 0.55. One level deep. */
+export interface FolderRow extends SyncedRow {
+  week_id: string;
+  title: string | null;
+  position: string;
 }
 
 export interface QuestionRow extends SyncedRow {
@@ -293,6 +302,7 @@ export interface Tables {
   files: FileRow;
   items: ItemRow;
   week_items: WeekItemRow;
+  folders: FolderRow;
   questions: QuestionRow;
   highlights: HighlightRow;
   recordings: RecordingRow;
@@ -314,6 +324,7 @@ export const SYNCED_TABLES: TableName[] = [
   "files",
   "items",
   "week_items",
+  "folders",
   "questions",
   "highlights",
   "recordings",

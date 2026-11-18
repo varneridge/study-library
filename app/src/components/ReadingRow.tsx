@@ -17,6 +17,8 @@ import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/ki
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
 import { Menu } from "./Menu";
+import { folderTitle, useFolders } from "./Folders";
+import { createFolder, moveToFolder } from "../lib/folders";
 import { keepMine, lookAgain, pending, putBack, applySuggestion, redoFileStep, viaLabel, parseReference, type ReferenceFields } from "../lib/citations";
 export { parseReference, type ReferenceFields };
 import { dragHandleProps } from "../lib/drag";
@@ -604,6 +606,8 @@ export function ReadingRow({
     dragging: boolean;
   };
 }) {
+  // The shelf's folders, when this reading is on a Library shelf (Folders.tsx).
+  const shelf = useFolders();
   // A reading offers the same menu wherever it appears. A page that does not
   // pass the module's weeks has them looked up here.
   const looked = useLiveQuery(async () => {
@@ -681,6 +685,26 @@ export function ReadingRow({
             { label: "Edit details", onSelect: () => { setEditFrom(null); setEditing(true); } },
             { label: "Copy reference", onSelect: () => void copyReference(view.item), hidden: !citable(view.item) },
             { label: "Move to another week or module", onSelect: () => setMoving(true) },
+            ...(shelf && view.link
+              ? [{
+                  // On a Library shelf: into one of its folders, out of the one it is in, or into a new one.
+                  label: "Move to folder",
+                  items: [
+                    ...shelf.folders
+                      .filter((f) => f.id !== (view.link!.folder_id ?? null))
+                      .map((f) => ({ label: folderTitle(f), onSelect: () => void moveToFolder(view.link!, f.id).then(() => showToast(`Moved to ${folderTitle(f)}.`)) })),
+                    {
+                      label: "Out of this folder, onto the shelf",
+                      hidden: !view.link.folder_id || !shelf.folders.some((f) => f.id === view.link!.folder_id),
+                      onSelect: () => void moveToFolder(view.link!, null).then(() => showToast("Moved onto the shelf.")),
+                    },
+                    {
+                      label: "Into a new folder",
+                      onSelect: () => void createFolder(shelf.weekId).then((id) => moveToFolder(view.link!, id)).then(() => showToast("Moved into a new folder. Rename it from its tile.")),
+                    },
+                  ],
+                }]
+              : []),
             { label: "Download file", onSelect: () => void download(view), hidden: !view.file },
             {
               // The rarer actions, and those that run a file's processing again, wait in here.

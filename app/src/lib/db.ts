@@ -83,6 +83,7 @@ class StudyDB extends Dexie {
   files!: Table<Tables["files"], string>;
   items!: Table<Tables["items"], string>;
   week_items!: Table<Tables["week_items"], string>;
+  folders!: Table<Tables["folders"], string>;
   questions!: Table<Tables["questions"], string>;
   highlights!: Table<Tables["highlights"], string>;
   recordings!: Table<Tables["recordings"], string>;
@@ -156,6 +157,12 @@ class StudyDB extends Dexie {
       gcal_events: "key, start_date",
     }).upgrade(async (tx) => {
       await tx.table("meta").put({ key: "cursor", value: 0 });
+    });
+    // Folders on Library shelves, from 0.55. No folder exists before this
+    // version, so nothing needs pulling again.
+    this.version(11).stores({
+      folders: "id, week_id",
+      week_items: "id, week_id, item_id, folder_id",
     });
   }
 }

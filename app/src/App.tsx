@@ -527,7 +527,7 @@ function Page({ route }: { route: Route }) {
   switch (route.view) {
     case "home": return <Home />;
     case "module": return <ModulePage id={route.id} />;
-    case "week": return <WeekPage id={route.id} />;
+    case "week": return <WeekPage key={`${route.id}:${route.folder ?? ""}`} id={route.id} folder={route.folder} />;
     case "assessment": return <AssessmentPage id={route.id} essayId={route.essay} />;
     case "across": return <AcrossPage term={route.term} number={route.number} />;
     case "settings": return <Settings />;
