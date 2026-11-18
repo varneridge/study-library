@@ -178,7 +178,7 @@ def test_route_leaves_everything_else_alone(argv):
 def test_desktop_main_sends_update_links_to_the_updater(flag, tmp_path, monkeypatch):
     monkeypatch.setenv("STUDY_HOME", str(tmp_path))
     ran = []
-    monkeypatch.setattr(update, "run", lambda link, notify: ran.append(link) or 0)
+    monkeypatch.setattr(update, "run", lambda link, notify, **_: ran.append(link) or 0)
     assert desktop.main([flag, LINK]) == 0
     assert ran == [LINK]
 

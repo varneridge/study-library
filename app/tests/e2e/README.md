@@ -16,6 +16,7 @@ These drive the real app in headless Chromium against the Worker running locally
 - `test_citations.py` checks readings naming themselves from JSTOR cover pages.
 - `test_transcripts.py` imports the Moodle transcript in `fixtures` and checks how it reads.
 - `test_folders.py` covers folders on Library shelves (making, naming, filling, opening, renaming, deleting and Undo) and the add tiles that replace Add buttons, at desktop and phone widths.
+- `test_work_refresh.py` covers the Refresh button on Settings, Work in hand.
 - `test_dragging.py` covers dragging readings, dropping files, undoing moves and Go to.
 - `test_mobile.py` covers the phone: the tab bar, touch targets, sheets, swiping, finger highlighting and the installable app.
 - `test_photos.py` covers photos added together becoming one reading, and OCR reading them.

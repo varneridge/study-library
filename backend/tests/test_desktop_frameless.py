@@ -188,7 +188,7 @@ def test_window_api_drives_the_window_and_follows_its_state():
 
 def test_window_api_hides_the_window_from_the_page():
     exposed = {name for name in dir(desktop.WindowApi()) if not name.startswith("_")}
-    assert exposed == {"minimize", "toggle_maximize", "is_maximized", "close", "open_in_browser", "start_drag"}
+    assert exposed == {"minimize", "toggle_maximize", "is_maximized", "close", "open_in_browser", "start_drag", "app_version"}
 
 
 def test_start_drag_hands_the_press_to_windows_once_the_frame_is_known(monkeypatch):
