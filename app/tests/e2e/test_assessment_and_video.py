@@ -93,26 +93,92 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(page.locator(".essay-page")).to_be_visible()
     assert "v=assessment" in page.url, page.url
 
-    # The page with clear segmented tabs: Draft & preview, Plan & argument, References, Snapshots.
-    for tab in ["Draft & preview", "Plan & argument", "References", "Snapshots"]:
-        expect(page.get_by_role("tab", name=re.compile(tab))).to_be_visible()
+    # The workspace is three flush columns, so each begins where the one before it ends, with
+    # a hairline between them and no gap, and the side columns follow their planned widths.
+    ws = page.locator(".essay-ws").bounding_box()
+    rail = page.locator("#essay-pane-rail").bounding_box()
+    centre = page.locator("#essay-pane-centre").bounding_box()
+    aside = page.locator("#essay-pane-aside").bounding_box()
+    assert abs(centre["x"] - (rail["x"] + rail["width"])) <= 1, (rail, centre)
+    assert abs(aside["x"] - (centre["x"] + centre["width"])) <= 1, (centre, aside)
+    assert abs(rail["width"] - min(max(17 * 16, 0.2 * ws["width"]), 26 * 16)) <= 1.5, (ws, rail)
+    assert abs(aside["width"] - min(max(20 * 16, 0.28 * ws["width"]), 36 * 16)) <= 1.5, (ws, aside)
+    panes = page.evaluate(
+        """() => {
+            const style = (selector) => getComputedStyle(document.querySelector(selector));
+            return {
+                gap: style(".essay-ws").columnGap,
+                railLine: style("#essay-pane-rail").borderRightWidth,
+                asideLine: style("#essay-pane-aside").borderLeftWidth,
+                sticky: [
+                    style("#essay-pane-rail").position,
+                    style("#essay-pane-aside").position,
+                    style(".essay-ws-toolbar").position,
+                ],
+            };
+        }"""
+    )
+    assert panes == {
+        "gap": "0px",
+        "railLine": "1px",
+        "asideLine": "1px",
+        "sticky": ["sticky", "sticky", "sticky"],
+    }, panes
+
+    # Preview, Plan and Edit in Word are three equal rectangles across the centre column, and
+    # none of them is a filled button.
+    segments = page.locator(".essay-ws-modes [role=tab], .essay-ws-modes > .essay-ws-mode")
+    expect(segments).to_have_text(["Preview", "Plan", "Edit in Word"])
+    sizes = segments.evaluate_all(
+        "nodes => nodes.map((n) => { const r = n.getBoundingClientRect(); return [r.width, r.height]; })"
+    )
+    widths = [width for width, _ in sizes]
+    heights = [height for _, height in sizes]
+    assert max(widths) - min(widths) <= 1, sizes
+    assert max(heights) - min(heights) <= 0.5, sizes
+    assert page.locator(".essay-ws-modes .button.primary").count() == 0
+
+    # The preview flows in the window: no frame inside it scrolls vertically, so the whole
+    # essay is scrolled by the page itself while the side columns stay in view.
+    expect(page.locator("#essay-centre-preview [data-zoom-frame], #essay-centre-preview iframe")).to_have_count(0)
+    flow = page.evaluate(
+        """() => {
+            const pages = document.querySelector(".essay-preview-flow");
+            return {
+                overflowY: getComputedStyle(pages).overflowY,
+                fitsItsContent: pages.scrollHeight <= pages.clientHeight + 1,
+            };
+        }"""
+    )
+    assert flow == {"overflowY": "hidden", "fitsItsContent": True}, flow
+    print("the essay page has three flush columns, three equal mode segments and a preview that flows in the window")
+
+    # The essay's two views are the Preview and Plan tabs, the references are the right-hand
+    # column, and snapshots open from the button in the title row.
+    for tab in ["Preview", "Plan"]:
+        expect(page.get_by_role("tab", name=tab, exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name=re.compile(r"^References \(\d+\)$"))).to_be_visible()
+    expect(page.get_by_role("button", name=re.compile(r"^Snapshots"))).to_be_visible()
     question = "How far was Germany responsible for the outbreak of war in 1914?"
     page.get_by_label("Essay question").fill(question)
-    expect(page.locator(".essay-stats-bar")).to_contain_text("0 words of 2,500")
+    expect(page.locator(".essay-ws-brief-count")).to_contain_text("0 words of 2,500")
     page.screenshot(path=str(HERE / "shots" / "assessment-1-page.png"), full_page=True)
 
     # A collapsible heading in the plan folds its whole section, up to the
     # next heading of the same level.
-    page.get_by_role("tab", name=re.compile("Plan & argument")).click()
-    plan = page.locator(".essay-plan .bn-editor")
+    page.get_by_role("tab", name="Plan", exact=True).click()
+    plan = page.locator(".essay-plan .bn-editor[contenteditable='true']")
+    plan.wait_for()
     plan.click()
-    page.keyboard.type("/collapsible heading 2")
+    page.keyboard.type("/heading 2")
+    page.locator(".bn-suggestion-menu").wait_for()
     page.keyboard.press("Enter")
     page.keyboard.type("Causes")
     page.keyboard.press("Enter")
     page.keyboard.type("The alliance system bound the powers together.")
     page.keyboard.press("Enter")
     page.keyboard.type("/heading 2")
+    page.locator(".bn-suggestion-menu").wait_for()
     page.keyboard.press("Enter")
     page.keyboard.type("Consequences")
     section = page.locator(".essay-plan .bn-block-outer", has_text="The alliance system bound the powers together.")
@@ -125,9 +191,10 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(section).to_be_visible()
     print("a collapsible heading folds its whole section and opens again")
 
-    # Open WordCraft from the Draft & preview tab, where the question is the essay's title.
-    page.get_by_role("tab", name=re.compile("Draft & preview")).click()
-    page.get_by_role("link", name="Open in word processor").click()
+    # Open WordCraft from the Preview, through the mode bar's Edit in Word, where the question
+    # is the essay's title.
+    page.get_by_role("tab", name="Preview", exact=True).click()
+    page.get_by_role("link", name="Edit in Word", exact=True).click()
     expect(page.locator(".word-processor")).to_be_visible()
     expect(page.locator(".wp-title")).to_contain_text(question)
     expect(page.locator(".wp-count")).to_contain_text("0 of 2,500 words")

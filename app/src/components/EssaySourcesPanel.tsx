@@ -639,7 +639,7 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, uploadFile, o
   }
 
   return (
-    <section className="essay-panel essay-ws-card essay-ws-sources-card" aria-labelledby="essay-ws-sources-title">
+    <section className="essay-ws-card essay-ws-sources-card" aria-labelledby="essay-ws-sources-title">
       <div className="essay-ws-card-head">
         <h2 id="essay-ws-sources-title" className="essay-ws-card-title">
           Readings and sources

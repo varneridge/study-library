@@ -1,12 +1,13 @@
-﻿// Assessment & essay: a module's essay studio, laid out for an LSE history student.
-// The workspace has three columns so that the writing stays front and centre: the brief
+// Assessment & essay: a module's essay studio, laid out for an LSE history student.
+// The workspace has three flush columns so that the writing stays front and centre: the brief
 // with its admin documents, the module readings and the essay's sources on the left, the
 // essay itself in the centre (the page preview or the plan), and its references and
-// contents on the right. Below 1280px the right column becomes a drawer, and below 900px
-// one pane shows at a time, chosen by tabs. On the module page it is a card under Course
-// materials & assessments, opened like a week.
+// contents on the right. The essay's pages scroll with the window, as one long document,
+// while the two side columns and the mode bar stay in view. Below 1280px the right column
+// becomes a drawer, and below 900px one pane shows at a time, chosen by tabs. On the module
+// page it is a card under Course materials & assessments, opened like a week.
 
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DndContext, DragOverlay, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
@@ -41,7 +42,6 @@ import {
   type SourceLink,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
-import type { Box } from "../lib/zoom";
 import { api, newId } from "../lib/sync";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
@@ -50,11 +50,10 @@ import { mimeFor, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
 import { clampEssayZoom, EssayPreviewCorner } from "./EssayPreviewCorner";
+import { EssayPdfPages, useCtrlWheelZoom, useEssayFitScale } from "./EssayPreviewPages";
 import { EssaySourcesPanel, type EssaySourceUpload } from "./EssaySourcesPanel";
-import { Icon } from "./icons";
 import { Menu } from "./Menu";
 import { PdfPages } from "./reader/PdfPages";
-import { ZoomViewport } from "./reader/ZoomViewport";
 import { Sheet } from "./Sheet";
 import "./AssessmentPage.css";
 
@@ -62,9 +61,6 @@ const NoteEditor = lazy(() => import("./NoteEditor"));
 
 const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 
-// The Word sheet is laid out on A4, 210mm by 297mm, which is 794 by 1123 CSS pixels, and the
-// zoom viewport fits that box to the width of the frame just as it fits a stored PDF's pages.
-const A4_PAGE: readonly Box[] = [{ width: 794, height: 1123 }];
 // A reference typed into saves once the typing has paused for this long, as well as on blur.
 const REFERENCE_SAVE_DELAY = 600;
 // How long a sentence or heading reached from the side columns stays highlighted.
@@ -710,6 +706,22 @@ function ReferenceRow({
     if (area.scrollHeight) area.style.height = `${area.scrollHeight}px`;
   }, [value]);
 
+  // The right column's width follows the window, so the box is refitted whenever its own width
+  // changes, which also covers a drawer or pane that has just been shown.
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area || typeof ResizeObserver === "undefined") return undefined;
+    let width = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      if (Math.abs(entry.contentRect.width - width) < 0.5) return;
+      width = entry.contentRect.width;
+      area.style.height = "auto";
+      if (area.scrollHeight) area.style.height = `${area.scrollHeight}px`;
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
+
   // The menu shows where a reference is cited by bringing the preview to its sentence, which
   // keeps the row to its number and text alone instead of opening a panel beneath it.
   const showCitation = () => {
@@ -723,7 +735,7 @@ function ReferenceRow({
 
   return (
     <li className="essay-ws-ref">
-      <span className="essay-ref-badge">[{number}]</span>
+      <span className="essay-ref-badge" aria-hidden="true">{number}.</span>
       <div className="essay-ws-ref-body">
         <textarea
           ref={areaRef}
@@ -864,17 +876,24 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  // null fits the page to the width of the frame, which is how the preview opens, and scale
-  // is the scale the viewport reports as actually in use, for the corner's percentage.
+  // null fits the page to the width of the column, which is how the preview opens.
   const [zoom, setZoom] = useState<number | null>(null);
-  const [scale, setScale] = useState(1);
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [uploadingIds, setUploadingIds] = useState<string[]>([]);
   const [fullscreen, setFullscreen] = useState(false);
   const [viewing, setViewing] = useState<ViewedDocument | null>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
+  // The preview is mounted only while it is the chosen view, so the measuring hooks follow the
+  // element itself rather than a ref that they could not see change.
+  const attachPreview = useCallback((node: HTMLDivElement | null) => {
+    previewRef.current = node;
+    setPreviewEl(node);
+  }, []);
+  // The scale the pages are drawn at, which is also the percentage the corner reports.
+  const scale = useEssayFitScale(previewEl, zoom);
   const sensors = useDragSensors();
 
   useEffect(() => {
@@ -972,6 +991,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
   // Every zoom from the corner bar or a Ctrl and wheel gesture passes through the essay's range.
   const changeZoom = (next: number | null) => setZoom(next === null ? null : clampEssayZoom(next));
+
+  useCtrlWheelZoom(previewEl, scale, changeZoom);
 
   const toggleFullscreen = () => setFullscreen((on) => !on);
 
@@ -1324,6 +1345,14 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     ...(essayId && essayId !== "default" ? { essay: essayId } : {}),
   };
 
+  const sheet = (
+    // The zoom sits on a wrapper outside the sheet, so that printing the sheet for Export as
+    // PDF never carries the preview's zoom with it.
+    <div className="essay-sheet-zoom" style={{ zoom: scale }}>
+      <EssayDocumentSheet doc={assessment.draft} jump={jump} />
+    </div>
+  );
+
   return (
     <div className="page wide essay-page essay-ws-page">
       <div className="section-head essay-head essay-ws-head">
@@ -1337,15 +1366,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           onBlur={(e) => void save({ title: e.target.value.trim() })}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          style={{
-            fontFamily: "var(--serif)",
-            fontSize: "var(--fs-2xl)",
-            fontWeight: 700,
-            border: "none",
-            background: "transparent",
-            padding: 0,
-            color: "var(--ink)",
           }}
         />
         {/* The breadcrumb row is gone, so the way back to the module lives in this menu beside the title. */}
@@ -1364,6 +1384,16 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           <span className="save-status-dot" aria-hidden="true" />
           {saveLabel}
         </span>
+        {/* The References toggle shows only between 900px and 1280px, where the right column is a drawer. */}
+        <button
+          type="button"
+          className="button small essay-ws-drawer-toggle"
+          aria-expanded={pane === "aside"}
+          aria-controls="essay-pane-aside"
+          onClick={() => setPane((current) => (current === "aside" ? "centre" : "aside"))}
+        >
+          References{orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}
+        </button>
         <button type="button" className="button small" onClick={() => setSnapshotsOpen(true)}>
           Snapshots{assessment.previousDrafts.length > 0 ? ` (${assessment.previousDrafts.length})` : ""}
         </button>
@@ -1396,7 +1426,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         <div className="essay-ws" data-pane={pane}>
           {/* Left rail: the brief, the essay's own papers and its sources */}
           <DropZone list="sources" id="essay-pane-rail" className="essay-ws-rail">
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-brief-head">
+            <section className="essay-ws-card" aria-labelledby="essay-brief-head">
               <h2 id="essay-brief-head" className="essay-ws-card-title">Brief</h2>
               <div className="essay-ws-brief-count">
                 <strong>{effectiveWords.toLocaleString("en-GB")}</strong>{" "}
@@ -1557,35 +1587,27 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           {/* Centre: the essay itself */}
           <DropZone list="draft" id="essay-pane-centre" className="essay-ws-centre">
             <div className="essay-ws-toolbar">
-              <SegmentedTabs
-                label="Essay view"
-                value={centreView}
-                onChange={setCentreView}
-                options={[
-                  { value: "preview", label: "Preview", id: "essay-view-preview", controls: "essay-centre-preview" },
-                  { value: "plan", label: "Plan & argument", id: "essay-view-plan", controls: "essay-centre-plan" },
-                ]}
-              />
-              {/* Preview, Plan and Edit in Word stay adjacent children of the toolbar, so that the
-                  stylesheet draws them as one pill centred over the column, with the References
-                  toggle of the medium layout kept apart at the far end. */}
-              <Link
-                to={wordProcessorRoute}
-                className="button primary essay-open-button"
-                title="Open the draft in the word processor"
-              >
-                <Icon name="notes" size={16} />
-                <span>Edit in Word</span>
-              </Link>
-              <button
-                type="button"
-                className="button small essay-ws-drawer-toggle"
-                aria-expanded={pane === "aside"}
-                aria-controls="essay-pane-aside"
-                onClick={() => setPane((current) => (current === "aside" ? "centre" : "aside"))}
-              >
-                References{orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}
-              </button>
+              {/* Preview, Plan and Edit in Word are three equal segments of one control across the
+                  column, so the way into Word reads as the essay's third mode rather than as a
+                  separate call to action. */}
+              <div className="essay-ws-modes">
+                <SegmentedTabs
+                  label="Essay view"
+                  value={centreView}
+                  onChange={setCentreView}
+                  options={[
+                    { value: "preview", label: "Preview", id: "essay-view-preview", controls: "essay-centre-preview" },
+                    { value: "plan", label: "Plan", id: "essay-view-plan", controls: "essay-centre-plan" },
+                  ]}
+                />
+                <Link
+                  to={wordProcessorRoute}
+                  className="essay-ws-mode essay-open-button"
+                  title="Open the draft in the word processor"
+                >
+                  Edit in Word
+                </Link>
+              </div>
             </div>
 
             {centreView === "preview" ? (
@@ -1594,7 +1616,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 role="tabpanel"
                 aria-labelledby="essay-view-preview"
                 className={`essay-ws-preview${fullscreen ? " is-fullscreen" : ""}`}
-                ref={previewRef}
+                ref={attachPreview}
               >
                 <EssayPreviewCorner
                   zoom={zoom}
@@ -1606,32 +1628,13 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   onExportPdf={exportPdf}
                   onReplace={() => void replaceDocument()}
                   disabled={!hasContent && !storedPdf}
-                  menuOnly={Boolean(storedPdf)}
                 />
-                {/* A stored PDF uses the outside viewer's built-in zoom and fullscreen controls;
-                    without one, the Word sheet shows in the shared ZoomViewport. */}
-                <PdfPages
-                  bytes={storedPdf}
-                  className="essay-preview-frame"
-                  fallback={
-                    <ZoomViewport
-                      className="essay-preview-frame"
-                      pageSizes={A4_PAGE}
-                      zoom={zoom}
-                      fit="width"
-                      onZoomChange={changeZoom}
-                      onEffectiveScale={setScale}
-                    >
-                      {(layout) => (
-                        // The zoom sits on a wrapper outside the sheet, so that printing the sheet
-                        // for Export as PDF never carries the preview's zoom with it.
-                        <div className="essay-sheet-zoom" style={{ zoom: layout.scale }}>
-                          <EssayDocumentSheet doc={assessment.draft} jump={jump} />
-                        </div>
-                      )}
-                    </ZoomViewport>
-                  }
-                />
+                {/* The pages sit in the page's own flow, so the window scrolls through them while
+                    the side columns stay put, and a zoom past the column's width scrolls sideways
+                    here alone. */}
+                <div className="essay-preview-frame essay-preview-flow" role="region" aria-label="Pages">
+                  {storedPdf ? <EssayPdfPages bytes={storedPdf} scale={scale} fallback={sheet} /> : sheet}
+                </div>
               </div>
             ) : (
               <div id="essay-centre-plan" role="tabpanel" aria-labelledby="essay-view-plan" className="essay-plan">
@@ -1651,7 +1654,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
           {/* Right column: references and contents, a drawer below 1280px */}
           <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and contents">
-            <DropZone list="references" className="essay-panel essay-ws-card essay-ws-refs">
+            <DropZone list="references" className="essay-ws-card essay-ws-refs">
               <div className="essay-ws-card-head">
                 <h2 className="essay-ws-card-title">References ({orderedFootnotes.length})</h2>
                 {(orderedFootnotes.length > 0 || hasSources) && (
@@ -1695,7 +1698,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               )}
             </DropZone>
 
-            <section className="essay-panel essay-ws-card" aria-labelledby="essay-contents-head">
+            <section className="essay-ws-card" aria-labelledby="essay-contents-head">
               <h2 id="essay-contents-head" className="essay-ws-card-title">Contents</h2>
               {contents.length === 0 ? (
                 <p className="small muted">

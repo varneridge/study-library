@@ -1,7 +1,7 @@
 // The essay preview's corner bar. The bar floats wholly inside the top right of the preview
 // frame, small and translucent, so that it reads as part of the page rather than as a
 // toolbar, and its rarer actions live in the house ••• menu so that the bar itself stays
-// short. The pages themselves are drawn by the reader's PdfPages and ZoomViewport.
+// short. The pages themselves are drawn by EssayPreviewPages.
 
 import { clampZoom, stepZoom } from "../lib/zoom";
 import { Menu } from "./Menu";
@@ -56,8 +56,6 @@ export interface EssayPreviewCornerProps {
   onExportPdf: () => void;
   onReplace: () => void;
   disabled?: boolean;
-  // When an outside PDF viewer supplies its own zoom and fullscreen toolbar, keep only the menu.
-  menuOnly?: boolean;
 }
 
 export function EssayPreviewCorner({
@@ -70,7 +68,6 @@ export function EssayPreviewCorner({
   onExportPdf,
   onReplace,
   disabled = false,
-  menuOnly = false,
 }: EssayPreviewCornerProps) {
   const percent = Math.round(scale * 100);
   const smaller = clampEssayZoom(stepZoom(scale, -1));
@@ -88,58 +85,54 @@ export function EssayPreviewCorner({
   ];
 
   return (
-    <div className={menuOnly ? "essay-preview-corner essay-preview-corner--menu-only" : "essay-preview-corner"}>
-      <div className="essay-corner-bar" role="toolbar" aria-label={menuOnly ? "Essay actions" : "Preview controls"}>
-        {!menuOnly && (
-          <>
-            <button
-              type="button"
-              className="essay-corner-button"
-              onClick={() => onZoomChange(smaller)}
-              disabled={disabled || smaller >= scale}
-              aria-label="Zoom out"
-              title="Zoom out"
-            >
-              <CornerGlyph glyph="minus" />
-            </button>
-            <span className="essay-corner-zoom" aria-live="polite" title="Current zoom">
-              {percent}%
-            </span>
-            <button
-              type="button"
-              className="essay-corner-button"
-              onClick={() => onZoomChange(larger)}
-              disabled={disabled || larger <= scale}
-              aria-label="Zoom in"
-              title="Zoom in"
-            >
-              <CornerGlyph glyph="plus" />
-            </button>
-            <button
-              type="button"
-              className="essay-corner-button"
-              onClick={() => onZoomChange(null)}
-              disabled={disabled}
-              aria-pressed={zoom === null}
-              title="Fit the page to the width of the preview"
-            >
-              Fit
-            </button>
+    <div className="essay-preview-corner">
+      <div className="essay-corner-bar" role="toolbar" aria-label="Preview controls">
+        <button
+          type="button"
+          className="essay-corner-button"
+          onClick={() => onZoomChange(smaller)}
+          disabled={disabled || smaller >= scale}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          <CornerGlyph glyph="minus" />
+        </button>
+        <span className="essay-corner-zoom" aria-live="polite" title="Current zoom">
+          {percent}%
+        </span>
+        <button
+          type="button"
+          className="essay-corner-button"
+          onClick={() => onZoomChange(larger)}
+          disabled={disabled || larger <= scale}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          <CornerGlyph glyph="plus" />
+        </button>
+        <button
+          type="button"
+          className="essay-corner-button"
+          onClick={() => onZoomChange(null)}
+          disabled={disabled}
+          aria-pressed={zoom === null}
+          title="Fit the page to the width of the preview"
+        >
+          Fit
+        </button>
 
-            <span className="essay-corner-sep" aria-hidden="true" />
+        <span className="essay-corner-sep" aria-hidden="true" />
 
-            <button
-              type="button"
-              className="essay-corner-button"
-              onClick={onToggleFullscreen}
-              aria-pressed={fullscreen}
-              aria-label={fullscreenLabel}
-              title={fullscreenLabel}
-            >
-              <CornerGlyph glyph={fullscreen ? "collapse" : "expand"} />
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          className="essay-corner-button"
+          onClick={onToggleFullscreen}
+          aria-pressed={fullscreen}
+          aria-label={fullscreenLabel}
+          title={fullscreenLabel}
+        >
+          <CornerGlyph glyph={fullscreen ? "collapse" : "expand"} />
+        </button>
 
         <span className="essay-corner-menu">
           <Menu label="Preview actions" items={menuItems} />
