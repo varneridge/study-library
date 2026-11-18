@@ -1627,7 +1627,7 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
     assert.equal(ref.issue, "2");
     assert.equal(ref.pages, "1-20");
     const settingsSrc = readFileSync(new URL("../src/components/Settings.tsx", import.meta.url), "utf8");
-    assert.ok(settingsSrc.includes("zotero-theme-card") && settingsSrc.includes("Redraw reading covers"), "Settings Zotero theme cards");
+    assert.ok(settingsSrc.includes("theme-pill") && settingsSrc.includes("Redraw reading covers"), "Settings theme pills");
     console.log(`ok   ${name}`);
   } catch (error) {
     failed += 1;
