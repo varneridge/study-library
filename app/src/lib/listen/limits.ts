@@ -18,8 +18,14 @@ export const REMARK_AFTER_MINUTES = 60;
 export const DATABASE_LIMIT_BYTES = 500 * 1024 ** 2;
 /** Prepared audio kept on one device; past it, what was played longest ago goes first. */
 export const DEVICE_CAP_BYTES = 500 * 1024 ** 2;
-/** Each row written to listen_audio also writes its index, and D1 counts both. */
-export const ROW_COST = 2;
+/**
+ * Rows D1 counts for one row written to listen_audio: the row itself and one
+ * for each of its indexes, which since listen_audio_status (migration 0023)
+ * are its key's and that one. Set from rows_written for one new paragraph on
+ * the local database, and raised whenever listen_audio gains an index, since
+ * counting too few is the direction that could stop the site saving.
+ */
+export const ROW_COST = 3;
 
 /** How many of `wanted` writes fit in what is left of today's budget, given what is spent. */
 export function writesThatFit(spent: number, wanted: number, budget: number): number {

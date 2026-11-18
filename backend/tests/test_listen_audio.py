@@ -138,6 +138,10 @@ def test_audio_is_only_prepared_on_mains_power(api):
     assert ready.count(True) == 1, "the batch stopped once the computer was unplugged"
 
 
+# Rows D1 counts for each paragraph written, as ROW_COST in app/src/lib/listen/limits.ts.
+ROW_COST = 3
+
+
 def usage(api):
     return api._json("GET", "/api/listen/usage")
 
@@ -146,16 +150,16 @@ def test_reopening_a_reading_within_the_hour_writes_nothing(api):
     texts = [f"Paragraph {i}." for i in range(5)]
     prepare(api, texts, item="again")
     first = usage(api)["writesToday"]
-    assert first == 5 * 2, "each new paragraph costs its row and its index"
+    assert first == 5 * ROW_COST, "each new paragraph costs its own row and one for each index"
     prepare(api, texts, item="again")
     assert usage(api)["writesToday"] == first
 
 
 def test_the_daily_write_budget_holds_new_paragraphs_back(api):
-    body = {"itemId": "budget", "voice": VOICE, "utterances": [f"Budget {i}." for i in range(10)], "testBudget": 8}
+    body = {"itemId": "budget", "voice": VOICE, "utterances": [f"Budget {i}." for i in range(10)], "testBudget": 4 * ROW_COST}
     reply = api._json("POST", "/api/listen/prepare", json=body)
     assert reply["held"] == "budget"
-    assert len(api.listen_claim(16)) == 4, "eight rows of budget queue four paragraphs"
+    assert len(api.listen_claim(16)) == 4, "four paragraphs' worth of budget queues four paragraphs"
     assert usage(api)["writeBudget"] == 30_000, "the real budget is unchanged by a test's"
 
 

@@ -36,6 +36,12 @@ with sync_playwright() as p:
     expect(rows).to_have_count(2, timeout=5000)
     expect(button).to_be_enabled()
 
+    # Listen audio now folds inside Processor and speech, and its old link still opens it, with usage loaded through api().
+    page.goto(BASE + "/?v=settings#section-listen-audio")
+    usage = page.locator("#section-listen-audio-body")
+    expect(usage).to_be_visible()
+    expect(usage).to_contain_text("Paragraphs waiting to be prepared")
+
     # On a phone the button keeps a 44-point target, as Send to top does.
     phone = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
     phone.goto(BASE + "/?v=settings#section-processor")
@@ -43,5 +49,5 @@ with sync_playwright() as p:
     assert box and box["height"] >= 44, box
 
     assert not errors, errors
-    print("work in hand: Refresh lists newly queued work at once, and keeps its touch target on a phone")
+    print("work in hand: Refresh lists newly queued work at once and keeps its touch target; Listen audio opens from its link")
     browser.close()

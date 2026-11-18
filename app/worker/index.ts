@@ -11,7 +11,8 @@ import { search } from "./search";
 import { maintain, purge } from "./maintenance";
 import { serveModelFile } from "./models";
 import { JOB_CLAIM_ORDER, processor } from "./processor";
-import { listen, listenProcessor, listenStatusStatement, statusListen } from "./listen";
+import { listen, listenProcessor, listenStatusStatement, spend, statusListen } from "./listen";
+import { ROW_COST } from "../src/lib/listen/limits";
 import { TABLE_NAMES } from "./schema";
 import { pull, push, type Change } from "./sync";
 
@@ -149,6 +150,8 @@ app.post("/api/status/prioritise", async (c) => {
            FROM listen_audio WHERE status IN ('running', 'upgrading', 'queued', 'failed'))
         WHERE item_id IS ?1 AND voice = ?2 AND status IN ('queued', 'upgrading')`,
     ).bind(itemId, body.voice).run();
+    // Every paragraph moved is a Listen write, so it counts against Listen's daily share (lib/listen/limits.ts).
+    await spend(c.env, (result.meta?.changes ?? 0) * ROW_COST);
     return c.json({ ok: (result.meta?.changes ?? 0) > 0 });
   }
   return c.json({ error: "invalid work" }, 400);

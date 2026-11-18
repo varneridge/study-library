@@ -65,9 +65,26 @@ function addTo(env: Env, name: string, amount: number) {
   ).bind(name, amount);
 }
 
-/** Count rows written by Listen today. */
-async function spend(env: Env, rows: number): Promise<void> {
+/** Count rows written by Listen today, here and wherever else listen_audio is written (worker/index.ts, Send to top). */
+export async function spend(env: Env, rows: number): Promise<void> {
   if (rows > 0) await addTo(env, writesCounter(), rows).run();
+}
+
+/**
+ * Prepared audio's size in R2 as the counter keeps it. The counter starts with
+ * 0.55, so the first time it is asked for, audio uploaded before then is added
+ * up once from listen_audio; otherwise /evict would subtract bytes that were
+ * never added, and the count would drift below what R2 holds.
+ */
+async function audioBytes(env: Env): Promise<number> {
+  const row = await env.DB.prepare("SELECT value FROM counters WHERE name = 'listen_audio_bytes'").first<{ value: number }>();
+  if (row) return row.value;
+  // WHERE 1 lets SQLite tell the SELECT apart from the ON CONFLICT that follows it.
+  await env.DB.prepare(
+    `INSERT INTO counters (name, value) SELECT 'listen_audio_bytes', COALESCE(SUM(bytes), 0) FROM listen_audio WHERE 1
+     ON CONFLICT (name) DO NOTHING`,
+  ).run();
+  return counter(env, "listen_audio_bytes");
 }
 
 /** In a test run (DEV_RESET), a request may lower a limit to exercise it; otherwise the constant stands. */
@@ -118,7 +135,7 @@ listen.post("/prepare", async (c) => {
   const needs = keys.map((k, i) => ({ i, row: known.get(k) })).filter(({ row }) => !row || row.status === "failed" || !row.fresh);
   const budget = testLimit(c.env, body?.testBudget, WRITE_BUDGET);
   const cap = testLimit(c.env, body?.testCap, AUDIO_CAP_BYTES);
-  const [spent, stored] = await Promise.all([counter(c.env, writesCounter()), counter(c.env, "listen_audio_bytes")]);
+  const [spent, stored] = await Promise.all([counter(c.env, writesCounter()), audioBytes(c.env)]);
   let held: "budget" | "storage" | null = null;
   let writing = needs;
   if (stored >= cap) {
@@ -157,7 +174,7 @@ listen.post("/prepare", async (c) => {
 listen.get("/usage", async (c) => {
   const probe = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM listen_audio WHERE status IN ('queued', 'running')").first<{ n: number }>();
   const size = await c.env.DB.prepare("SELECT 1").run();
-  const [writes, bytes] = await Promise.all([counter(c.env, writesCounter()), counter(c.env, "listen_audio_bytes")]);
+  const [writes, bytes] = await Promise.all([counter(c.env, writesCounter()), audioBytes(c.env)]);
   return c.json({
     audioBytes: bytes,
     audioCap: AUDIO_CAP_BYTES,
@@ -246,6 +263,8 @@ listenProcessor.put("/audio/:key", async (c) => {
   const seconds = Number(c.req.header("x-listen-seconds")) || null;
   const tierHeader = c.req.header("x-listen-tier");
   const tier = tierHeader === "gpu" || tierHeader === "cpu" || tierHeader === "basic" ? tierHeader : null;
+  // The counter must exist, holding the bytes before this upload, before the difference below is added to it.
+  await audioBytes(c.env);
   await c.env.BUCKET.put(objectKey(key), bytes, { httpMetadata: { contentType: "application/x-kokoro-prepared" } });
   await c.env.DB.prepare(
     `UPDATE listen_audio SET status = 'done', done_at = ${NOW}, bytes = ?2, seconds = ?3, tier = ?4, error = NULL, attempts = 0 WHERE key = ?1`,
@@ -349,7 +368,7 @@ listenProcessor.post("/evict", async (c) => {
     ? Number((body as { testDays?: number }).testDays)
     : EVICT_AFTER_DAYS;
   await c.env.DB.prepare("DELETE FROM counters WHERE name LIKE 'listen_writes:%' AND name < ?1").bind(writesCounter()).run();
-  const stored = await counter(c.env, "listen_audio_bytes");
+  const stored = await audioBytes(c.env);
   if (stored < cap * EVICT_AT) return c.json({ evicted: 0, bytes: stored });
   const old = await c.env.DB.prepare(
     `SELECT key, bytes FROM listen_audio

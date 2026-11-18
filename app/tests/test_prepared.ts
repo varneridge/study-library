@@ -7,7 +7,7 @@ import type { SynthResult, TtsEngine } from "../src/lib/listen/types";
 import fixtures from "../../shared/pronunciation-fixtures.json";
 import { describeSpeech } from "../src/components/SpeechState";
 import { formatBytes, nearlyFull } from "../src/components/ListenUsage";
-import { writesThatFit } from "../src/lib/listen/limits";
+import { ROW_COST, writesThatFit } from "../src/lib/listen/limits";
 
 type Test = (name: string, fn: () => void | Promise<void>) => void;
 
@@ -181,7 +181,7 @@ export function registerPreparedTierTests(test: Test): void {
 export function registerPreparedLimitTests(test: Test): void {
   test("limits: Listen's writes stop at its share of the daily allowance", () => {
     assert.equal(writesThatFit(0, 100, 30_000), 100);
-    assert.equal(writesThatFit(29_990, 100, 30_000), 5, "each paragraph costs two rows, its own and its index's");
+    assert.equal(writesThatFit(29_990, 100, 30_000), Math.floor(10 / ROW_COST), "each paragraph costs its own row and one for each index");
     assert.equal(writesThatFit(30_000, 100, 30_000), 0);
     assert.equal(writesThatFit(31_000, 100, 30_000), 0);
   });
