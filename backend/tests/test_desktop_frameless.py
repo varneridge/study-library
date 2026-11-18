@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -187,7 +188,29 @@ def test_window_api_drives_the_window_and_follows_its_state():
 
 def test_window_api_hides_the_window_from_the_page():
     exposed = {name for name in dir(desktop.WindowApi()) if not name.startswith("_")}
-    assert exposed == {"minimize", "toggle_maximize", "is_maximized", "close", "open_in_browser"}
+    assert exposed == {"minimize", "toggle_maximize", "is_maximized", "close", "open_in_browser", "start_drag"}
+
+
+def test_start_drag_hands_the_press_to_windows_once_the_frame_is_known(monkeypatch):
+    posted: list[int] = []
+    monkeypatch.setattr(desktop, "begin_drag", lambda hwnd: posted.append(hwnd) or True)
+    api = desktop.WindowApi()
+    api.start_drag()
+    api._hwnd = 4242
+    api.start_drag()
+    assert posted == [4242]
+
+
+_TAB_BAR = Path(__file__).resolve().parents[2] / "app" / "src" / "components" / "TabBar.tsx"
+
+
+@pytest.mark.skipif(not _TAB_BAR.is_file(), reason="the app is not checked out beside the backend")
+def test_the_tabs_row_hands_its_drag_to_windows_rather_than_to_pywebview():
+    """pywebview drags a .pywebview-drag-region by calling window.move on every
+    mousemove, which Aero Snap never sees and which moves a maximised window."""
+    source = _TAB_BAR.read_text(encoding="utf-8-sig")
+    assert "pywebview-drag-region" not in source
+    assert "start_drag" in source
 
 
 def test_open_in_browser_refuses_anything_but_http(monkeypatch):
@@ -243,8 +266,9 @@ def test_a_maximised_native_frame_fills_the_work_area_of_every_monitor():
     """Maximises a real window with the native frame on each monitor in turn.
     Before the fix this failed on any monitor larger than the primary one,
     because Windows grew MINMAXINFO's size there by the difference; it passes
-    either way on a single monitor. Messages are delivered on this thread, so
-    no message loop is needed."""
+    either way on a single monitor. A move alone, as pywebview's window.move
+    makes, then leaves the maximised window where it is. Messages are
+    delivered on this thread, so no message loop is needed."""
     import ctypes
     from ctypes import wintypes
 
@@ -282,6 +306,10 @@ def test_a_maximised_native_frame_fills_the_work_area_of_every_monitor():
             user32.GetClientRect(hwnd, ctypes.byref(client))
             user32.MapWindowPoints(hwnd, None, ctypes.byref(client), 2)
             assert (client.left, client.top, client.right, client.bottom) == work
+            user32.SetWindowPos(hwnd, None, work[0] + 200, work[1] + 200, 0, 0, 0x0001 | 0x0004 | 0x0010)  # NOSIZE
+            user32.GetClientRect(hwnd, ctypes.byref(client))
+            user32.MapWindowPoints(hwnd, None, ctypes.byref(client), 2)
+            assert (client.left, client.top, client.right, client.bottom) == work
     finally:
         user32.DestroyWindow(hwnd)
 
@@ -313,10 +341,24 @@ def test_a_maximised_window_has_no_resize_edges():
 @pytest.mark.parametrize("x, y", [(1919, 1079), (-5, 20), (-1920, -300), (0, 0)])
 def test_point_from_lparam_keeps_negative_coordinates(x, y):
     assert desktop.point_from_lparam(((y & 0xFFFF) << 16) | (x & 0xFFFF)) == (x, y)
+    # begin_drag packs the cursor the same way for the title bar press it posts.
+    assert desktop.point_from_lparam(desktop.point_to_lparam(x, y)) == (x, y)
+
+
+@pytest.mark.parametrize("flags, expected", [
+    (0, (300, 200, 1100, 800)),
+    (desktop.SWP_NOSIZE, (300, 200, 700, 500)),
+    (desktop.SWP_NOMOVE, (0, 0, 800, 600)),
+])
+def test_proposed_rect_fills_in_what_the_flags_leave_out(flags, expected):
+    # The window stands at (0, 0, 400, 300) and is asked to go to (300, 200) at 800 by 600.
+    assert desktop.proposed_rect((300, 200, 800, 600), flags, (0, 0, 400, 300)) == expected
 
 
 def test_native_frame_styles_keep_snap_resize_and_the_taskbar():
-    for style in (desktop.WS_THICKFRAME, desktop.WS_MAXIMIZEBOX, desktop.WS_MINIMIZEBOX, desktop.WS_SYSMENU):
+    # Windows offers snapping, Win+Arrow and the maximise animation only to a window with a caption.
+    for style in (desktop.WS_CAPTION, desktop.WS_THICKFRAME, desktop.WS_MAXIMIZEBOX, desktop.WS_MINIMIZEBOX,
+                  desktop.WS_SYSMENU):
         assert desktop.NATIVE_FRAME_STYLES & style == style
 
 

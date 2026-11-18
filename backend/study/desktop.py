@@ -135,12 +135,17 @@ WS_THICKFRAME = 0x00040000
 WS_MINIMIZEBOX = 0x00020000
 WS_MAXIMIZEBOX = 0x00010000
 WS_SYSMENU = 0x00080000
-NATIVE_FRAME_STYLES = WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU
+# Windows offers snapping, Win+Arrow and the maximise animation only to a window
+# with a caption, which costs no pixels here because WM_NCCALCSIZE gives the
+# whole window to the page.
+WS_CAPTION = 0x00C00000
+NATIVE_FRAME_STYLES = WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU
 WM_WINDOWPOSCHANGING = 0x0046
 WM_STYLECHANGING = 0x007C
 WM_NCDESTROY = 0x0082
 WM_NCCALCSIZE = 0x0083
 WM_NCHITTEST = 0x0084
+WM_NCLBUTTONDOWN = 0x00A1
 MONITOR_DEFAULTTONEAREST = 0x00000002
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
@@ -150,6 +155,7 @@ SM_CXSIZEFRAME = 32
 SM_CXPADDEDBORDER = 92
 HTNOWHERE = 0
 HTCLIENT = 1
+HTCAPTION = 2
 HTLEFT = 10
 HTRIGHT = 11
 HTTOP = 12
@@ -1000,6 +1006,7 @@ class WindowApi:
 
     def __init__(self) -> None:
         self._window: Any = None
+        self._hwnd: int | None = None
         self._maximised = False
 
     def _bind(self, window: Any) -> None:
@@ -1032,6 +1039,13 @@ class WindowApi:
     def close(self) -> None:
         self._window.destroy()
 
+    def start_drag(self) -> None:
+        """Hands a press on the tabs row's empty stretch to Windows as a press on
+        a title bar, so that Windows moves the window itself, which is what
+        brings Aero Snap and restores a maximised window as it is dragged."""
+        if self._hwnd:
+            begin_drag(self._hwnd)
+
     def open_in_browser(self, url: str) -> bool:
         """Opens an http or https address in the default browser. Any other
         scheme is refused, because the page must never start a program."""
@@ -1046,6 +1060,42 @@ def point_from_lparam(lparam: int) -> tuple[int, int]:
     primary one gives negative coordinates rather than large positive ones."""
     x, y = lparam & 0xFFFF, (lparam >> 16) & 0xFFFF
     return x - 0x10000 if x & 0x8000 else x, y - 0x10000 if y & 0x8000 else y
+
+
+def point_to_lparam(x: int, y: int) -> int:
+    """The lParam that carries a screen point, as MAKELPARAM packs it, so that
+    point_from_lparam reads the same point back, negative coordinates included."""
+    return (y & 0xFFFF) << 16 | x & 0xFFFF
+
+
+def begin_drag(hwnd: int) -> bool:
+    """Posts the window a left press on its caption at the cursor, which starts
+    Windows' own move loop exactly as dragging a framed window's title bar
+    does. Safe from any thread, because the window procedure releases the
+    page's mouse capture on the window's own thread when the press arrives."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32")
+    user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    cursor = wintypes.POINT()
+    if not user32.GetCursorPos(ctypes.byref(cursor)):
+        return False
+    return bool(user32.PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, point_to_lparam(cursor.x, cursor.y)))
+
+
+def proposed_rect(pos: tuple[int, int, int, int], flags: int, current: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """The screen rectangle that a WM_WINDOWPOSCHANGING asks for, given its x, y,
+    cx and cy, taking the window's current place or size for whichever of them
+    SWP_NOMOVE or SWP_NOSIZE leaves out, since WINDOWPOS's fields mean nothing then."""
+    x, y, width, height = pos
+    left, top, right, bottom = current
+    if flags & SWP_NOMOVE:
+        x, y = left, top
+    if flags & SWP_NOSIZE:
+        width, height = right - left, bottom - top
+    return x, y, x + width, y + height
 
 
 def inset_rect(rect: tuple[int, int, int, int], border: int) -> tuple[int, int, int, int]:
@@ -1112,6 +1162,7 @@ def install_native_frame(hwnd: int) -> bool:
     user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
     user32.CallWindowProcW.restype = wintypes.LPARAM
     user32.IsZoomed.argtypes = [wintypes.HWND]
+    user32.ReleaseCapture.argtypes = []
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.MonitorFromRect.argtypes, user32.MonitorFromRect.restype = [ctypes.POINTER(wintypes.RECT), wintypes.DWORD], wintypes.HMONITOR
     user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
@@ -1147,22 +1198,28 @@ def install_native_frame(hwnd: int) -> bool:
             elif message == WM_WINDOWPOSCHANGING and user32.IsZoomed(handle):
                 # Windows reads MINMAXINFO's maximised size as the primary monitor's and grows it on any larger
                 # monitor, so the final rectangle is set here, once WinForms and Windows have applied their limits.
+                # A move alone is pinned as well, so that nothing, pywebview's window.move included, can carry a
+                # maximised window off its work area.
                 result = user32.CallWindowProcW(previous, handle, message, wparam, lparam)
                 pos = WINDOWPOS.from_address(lparam)
-                if not pos.flags & SWP_NOSIZE:
-                    proposed = wintypes.RECT(pos.x, pos.y, pos.x + pos.cx, pos.y + pos.cy)
+                now = wintypes.RECT()
+                if pos.flags & (SWP_NOSIZE | SWP_NOMOVE) != SWP_NOSIZE | SWP_NOMOVE and user32.GetWindowRect(handle, ctypes.byref(now)):
+                    proposed = wintypes.RECT(*proposed_rect((pos.x, pos.y, pos.cx, pos.cy), pos.flags, as_tuple(now)))
                     monitor = user32.MonitorFromRect(ctypes.byref(proposed), MONITOR_DEFAULTTONEAREST)
                     info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
                     if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
                         left, top, right, bottom = maximised_rect(as_tuple(info.rcWork), border(handle))
                         pos.x, pos.y, pos.cx, pos.cy = left, top, right - left, bottom - top
-                        pos.flags &= ~SWP_NOMOVE
+                        pos.flags &= ~(SWP_NOMOVE | SWP_NOSIZE)
                 return result
             elif message == WM_STYLECHANGING and wparam & 0xFFFFFFFF == GWL_STYLE & 0xFFFFFFFF:
                 # WinForms rebuilds a borderless form's styles whenever it updates them, so they are kept here.
                 result = user32.CallWindowProcW(previous, handle, message, wparam, lparam)
                 STYLESTRUCT.from_address(lparam).styleNew |= NATIVE_FRAME_STYLES
                 return result
+            elif message == WM_NCLBUTTONDOWN and wparam == HTCAPTION:
+                # begin_drag's press arrives while WebView2 still holds the mouse, which the move loop needs first.
+                user32.ReleaseCapture()
             elif message == WM_NCDESTROY:
                 # The callback stays in _FRAME_HOOKS, because Windows is still running it.
                 set_long(handle, GWLP_WNDPROC, previous)
@@ -1331,9 +1388,12 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
     stop_links: Callable[[], None] | None = None
     try:
         api = WindowApi()
+        # text_select is off by default, whereupon pywebview injects
+        # body { user-select: none }, which the reader's text layer inherits,
+        # so no selection could ever form and nothing could be highlighted.
         window = webview.create_window(
             "Study Library", url, js_api=api, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1],
-            min_size=WINDOW_MIN_SIZE, frameless=True, easy_drag=False, background_color=colour,
+            min_size=WINDOW_MIN_SIZE, frameless=True, easy_drag=False, text_select=True, background_color=colour,
         )
         api._bind(window)  # noqa: SLF001 - kept private so the page cannot see it
 
@@ -1341,6 +1401,7 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
             hwnd = adopt_native_frame(window)
             if hwnd:
                 frame.append(hwnd)
+                api._hwnd = hwnd  # noqa: SLF001 - kept private so the page cannot see it
 
         window.events.shown += shown.set
         window.events.shown += adopt

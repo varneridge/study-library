@@ -1,4 +1,4 @@
-﻿// The desktop window's tabs, in the manner of Zotero's: Home is pinned on the
+// The desktop window's tabs, in the manner of Zotero's: Home is pinned on the
 // left and cannot be closed, anything else opens beside it, and the five most
 // recently shown stay mounted, so a reading or a long page keeps its place.
 // The strip is the window's top row, and in the frameless window it carries
@@ -459,6 +459,20 @@ function WindowControls({ maximised, onToggle }: { maximised: boolean; onToggle:
   );
 }
 
+// A press on the empty stretch is handed to Windows as a press on a title bar,
+// so that Windows moves the window itself, with Aero Snap, Win+Arrow and a
+// maximised window restored as it is dragged, rather than pywebview moving it
+// pixel by pixel. Windows keeps the mouse until the press ends, so the page
+// never sees the double-click, and its second press maximises here instead.
+// start_drag is optional because a desktop.py from before it leaves the
+// stretch inert rather than throwing.
+function dragWindow(event: React.MouseEvent, toggle: () => void): void {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  if (event.detail === 2) toggle();
+  else void windowControls().then((api) => (api as { start_drag?: () => unknown } | null | undefined)?.start_drag?.());
+}
+
 // Whether the frameless window is maximised, asked again after every resize,
 // since Win+Up, a snap or a double-click can each change it.
 function useMaximised(frameless: boolean): [boolean, () => void] {
@@ -529,9 +543,8 @@ export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: T
       <button type="button" className="sl-tab-new" aria-label="New tab" title="New tab (Ctrl+T)" onClick={commands.openNew}>
         <Icon name="plus" size={16} />
       </button>
-      {/* pywebview moves the window while this is dragged, and a double-click
-          maximises it as a title bar's would. */}
-      <div className="sl-tabs-drag pywebview-drag-region" aria-hidden="true" onDoubleClick={frameless ? toggleMaximised : undefined} />
+      <div className="sl-tabs-drag" aria-hidden="true"
+        onMouseDown={frameless ? (event) => dragWindow(event, toggleMaximised) : undefined} />
       {frameless && <WindowControls maximised={maximised} onToggle={toggleMaximised} />}
     </div>
   );
