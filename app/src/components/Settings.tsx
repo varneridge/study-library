@@ -10,7 +10,7 @@ import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames } from "../lib/settings";
 import { currentYear, defaultDates, useTermDates, type TermDates } from "../lib/term";
 import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
-import { ago, gpuPresent, processorQuiet, useProcessorStatus, VISIBLE_WORK, waitingSummary, workRows, type ProcessorStatus } from "../lib/status";
+import { ago, gpuPresent, prioritiseWork, processorQuiet, useProcessorStatus, VISIBLE_WORK, waitingSummary, workRows, type ProcessorStatus, type WorkRow } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
@@ -287,21 +287,34 @@ function MoreToggle({ hidden, expanded, controls, onToggle }: { hidden: number; 
 // Every job and reading's Listen audio the background computer has in hand,
 // on a soft panel of its own: five at first, and the rest on asking, which
 // scroll inside the panel so a long queue never pushes the rest of the
-// section down the page. Failed work is counted beside it, not listed.
+// section down the page. Failed work is not listed, and with nothing in hand
+// the panel is left out, since an empty list says nothing worth reading. Work
+// waiting behind what comes next offers Send to top, one request at a time.
 function WorkList({ status }: { status: ProcessorStatus | null }) {
   const [all, setAll] = useState(false);
+  const [sending, setSending] = useState(false);
   const rows = useMemo(() => (status ? workRows(status) : []), [status]);
+  const sendToTop = async (row: WorkRow) => {
+    setSending(true);
+    try {
+      const moved = await prioritiseWork(row.target);
+      showToast(moved ? "Sent to the top of the queue." : "That work has already started, so it stays where it is.");
+    } catch {
+      showToast("Could not send that work to the top. Check you are online.");
+    } finally {
+      setSending(false);
+    }
+  };
   const shown = all ? rows : rows.slice(0, VISIBLE_WORK);
   // The Worker lists failed jobs after the rest, so the jobs in hand it listed are those before them.
   const jobsListed = status ? status.jobs.filter((job) => job.status !== "failed").length : 0;
   const jobsTotal = status ? status.queued + status.running : 0;
+  if (status && rows.length === 0) return null;
   return (
     <div className="work-panel">
       <h3 className="settings-subhead">Work in hand</h3>
       {!status ? (
         <p className="small muted">Checking what the background computer has in hand…</p>
-      ) : rows.length === 0 ? (
-        <p className="small muted">Nothing is waiting, so the background computer has no work in hand.</p>
       ) : (
         <>
           {/* Expanded, the list scrolls inside the panel, and can take focus so the keyboard can scroll it too. */}
@@ -314,6 +327,17 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
                   {row.title && <span className="work-title">{row.title}</span>}
                   {row.progress && <span className="work-progress">{row.progress}</span>}
                 </span>
+                {row.state === "later" && (
+                  <button
+                    type="button"
+                    className="quiet work-send"
+                    aria-label={`Send to top: ${row.task}${row.title ? `, ${row.title}` : ""}`}
+                    disabled={sending}
+                    onClick={() => void sendToTop(row)}
+                  >
+                    Send to top
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -340,6 +364,7 @@ function ProcessorFacts({ status, connection, unpaired, device }: {
 }) {
   const quiet = processorQuiet(status);
   const waiting = status.queued + status.running;
+  const summary = waitingSummary(status);
   const listening = status.listen.some((group) => group.state !== "failed");
   // Readings whose Listen audio failed outright are left out of Work in hand, so they are counted here.
   const listenFailed = status.listen.filter((group) => group.state === "failed").length;
@@ -348,7 +373,7 @@ function ProcessorFacts({ status, connection, unpaired, device }: {
       {connection === "needs" && <p className="small muted">{needsNote(unpaired, Boolean(status.seenAt), device)}</p>}
       <p className={quiet && waiting ? "small problem" : "small"}>
         {status.seenAt ? `It last asked for work ${ago(status.seenAt)}.` : "It has not asked for work yet."}
-        {" "}{waitingSummary(status)}
+        {summary && ` ${summary}`}
       </p>
       {quiet && waiting > 0 && (
         <p className="small muted">
@@ -356,7 +381,6 @@ function ProcessorFacts({ status, connection, unpaired, device }: {
           Task Scheduler task and processor.log.
         </p>
       )}
-      {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
       {listenFailed > 0 && (
         <p className="small muted">
           Listen audio for {listenFailed} {listenFailed === 1 ? "reading" : "readings"} could not be made, and opening a reading in Listen

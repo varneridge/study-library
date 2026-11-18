@@ -1,7 +1,8 @@
 // The processor status as Settings shows it (src/lib/status.ts): how the
 // Worker's answer is read, including from a Worker deployed before the work
 // list, how jobs are named, and how jobs and Listen audio are ordered and
-// worded in the one list of work in hand, which leaves out what failed.
+// worded in the one list of work in hand, which leaves out what failed, and
+// what Send to top moves for each row.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
@@ -147,7 +148,7 @@ export function registerStatusTests(test: Test) {
     });
     const rows = workRows(parsed, NOW);
     assert.deepEqual(rows.map((r) => [r.key, r.when]), [["job-9", "Next"], ["listen-i2-bf_emma", "Next"]]);
-    assert.equal(parsed.failed, 2, "the failed count is still there for the note beside the list");
+    assert.equal(parsed.failed, 2, "the failed count is still read from the Worker");
     assert.equal(rows[1].progress, "4 of 10 paragraphs ready in Emma\u2019s British voice, 1 paragraph could not be made");
     assert.deepEqual(workRows(status({ failed: 1, jobs: [job(1, "ocr", "failed")], listen: [listen("i1", "failed")] }), NOW), []);
   });
@@ -176,10 +177,26 @@ export function registerStatusTests(test: Test) {
     assert.equal(voiceLabel("bm_george"), "George\u2019s British voice");
   });
 
-  test("an empty status has no work in hand and says nothing is waiting", () => {
+  test("an empty status has no work in hand and no waiting summary to add", () => {
     const empty = status({ jobs: [], listen: [] });
     assert.deepEqual(workRows(empty, NOW), []);
-    assert.equal(waitingSummary(empty), "Nothing is waiting.");
+    assert.equal(waitingSummary(empty), null);
+    assert.equal(waitingSummary(status({ failed: 3, listen: [listen("i1", "failed")] })), null, "failed work alone is not waiting");
+  });
+
+  test("each row says what Send to top moves: its job, or its reading's Listen audio in its voice", () => {
+    const rows = workRows(status({
+      queued: 2,
+      jobs: [job(1, "ocr", "queued"), job(2, "thumb", "queued")],
+      listen: [listen("i1", "queued"), listen("i2", "queued", { voice: "am_adam" }), listen("", "queued", { item_id: null })],
+    }), NOW);
+    assert.deepEqual(rows.map((r) => [r.when, r.target]), [
+      ["Next", { source: "job", id: 1 }],
+      ["Next", { source: "listen", itemId: "i1", voice: "bf_emma" }],
+      ["Later", { source: "job", id: 2 }],
+      ["Later", { source: "listen", itemId: "i2", voice: "am_adam" }],
+      ["Later", { source: "listen", itemId: null, voice: "bf_emma" }],
+    ]);
   });
 
   test("the waiting summary counts jobs and readings with Listen audio still to make", () => {
@@ -210,6 +227,8 @@ export function registerStatusTests(test: Test) {
     assert.ok(!/maxHeight: "14rem"|overflowY: "auto"/.test(src), "the work list sets its own scrolling inline again");
     assert.ok(src.includes('is-expanded') && !src.includes("work-error"), "the work list neither scrolls when expanded nor drops failed rows");
     assert.ok(!/#2f9e44|#e8590c/i.test(src), "the connection badge writes its own colours");
+    assert.ok(!src.includes("Nothing is waiting") && !src.includes("Each shows Retry where it belongs"), "an empty queue or the failed jobs are spelt out again");
+    assert.ok(/row\.state === "later" && \(\s*<button/.test(src) && src.includes("Send to top") && src.includes("prioritiseWork(row.target)"), "later rows no longer offer Send to top");
   });
 
   test("the work list scrolls inside its panel only once See more has opened it", () => {

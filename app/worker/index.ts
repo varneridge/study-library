@@ -123,6 +123,37 @@ app.get("/api/status", async (c) => {
   });
 });
 
+// Sends queued work to the top of its queue, as Settings offers for work
+// waiting behind what comes next. A job takes a priority below every queued
+// job's, since the processor takes the lowest first (JOB_CLAIM_ORDER), and a
+// reading's Listen audio in one voice is marked as asked for after every
+// reading in hand, a millisecond later where one shares this instant, since
+// /claim hands out the reading asked for most recently first. Work that has
+// started meanwhile is left where it is, and ok says whether anything moved.
+app.post("/api/status/prioritise", async (c) => {
+  const body = await c.req.json<{ source?: unknown; id?: unknown; itemId?: unknown; voice?: unknown }>().catch(() => null);
+  if (body?.source === "job" && typeof body.id === "number" && Number.isInteger(body.id)) {
+    const result = await c.env.DB.prepare(
+      `UPDATE jobs SET priority = (SELECT COALESCE(MIN(priority), 0) - 1 FROM jobs WHERE status = 'queued')
+        WHERE id = ?1 AND status = 'queued'`,
+    ).bind(body.id).run();
+    return c.json({ ok: (result.meta?.changes ?? 0) > 0 });
+  }
+  if (body?.source === "listen" && typeof body.voice === "string") {
+    const itemId = typeof body.itemId === "string" ? body.itemId : null;
+    const result = await c.env.DB.prepare(
+      `UPDATE listen_audio SET requested_at = (
+         SELECT CASE WHEN MAX(requested_at) >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                     THEN strftime('%Y-%m-%dT%H:%M:%fZ', MAX(requested_at), '+0.001 seconds')
+                     ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END
+           FROM listen_audio WHERE status IN ('running', 'upgrading', 'queued', 'failed'))
+        WHERE item_id IS ?1 AND voice = ?2 AND status IN ('queued', 'upgrading')`,
+    ).bind(itemId, body.voice).run();
+    return c.json({ ok: (result.meta?.changes ?? 0) > 0 });
+  }
+  return c.json({ error: "invalid work" }, 400);
+});
+
 app.post("/api/connect", async (c) => {
   const jwt = c.req.header("cf-access-jwt-assertion");
   const email = accessEmail(jwt);

@@ -203,9 +203,12 @@ export function jobKindLabel(kind: string): string {
 // How many rows of work Settings shows before See more.
 export const VISIBLE_WORK = 5;
 
-// Work that failed is not in hand, so it has no state here: Settings counts
-// it in a note instead, and each failed job offers Retry where it belongs.
+// Work that failed is not in hand, so it has no state here: each failed job
+// offers Retry where it belongs, and Settings counts failed Listen audio in a note.
 export type WorkState = "now" | "next" | "later";
+
+// The work Send to top moves: one job, or one reading's Listen audio in one voice.
+export type WorkTarget = { source: "job"; id: number } | { source: "listen"; itemId: string | null; voice: string };
 
 // One row of work in hand, as Settings lists it, for a job or a reading's Listen audio.
 export interface WorkRow {
@@ -217,6 +220,8 @@ export interface WorkRow {
   task: string;
   title: string | null;
   progress: string | null;
+  // What Send to top moves, which Settings offers on rows that are later.
+  target: WorkTarget;
 }
 
 const WHEN: Record<WorkState, string> = { now: "Now", next: "Next", later: "Later" };
@@ -253,6 +258,7 @@ function jobRow(job: StatusJob, state: WorkState): WorkRow {
   return {
     key: `job-${job.id}`, source: "job", state, when: WHEN[state],
     task: jobKindLabel(job.kind), title, progress,
+    target: { source: "job", id: job.id },
   };
 }
 
@@ -264,6 +270,7 @@ function listenRow(group: ListenWork, state: WorkState): WorkRow {
     task: group.state === "upgrading" ? "Remaking Listen audio on the graphics card" : "Preparing Listen audio",
     title: group.title ? quoted(group.title) : null,
     progress: parts.join(", "),
+    target: { source: "listen", itemId: group.itemId, voice: group.voice },
   };
 }
 
@@ -309,13 +316,29 @@ export function workRows(status: ProcessorStatus, now = Date.now()): WorkRow[] {
     .map(({ row }) => row);
 }
 
-// How much is waiting, in one sentence: jobs, then readings whose Listen audio is still to be made.
-export function waitingSummary(status: ProcessorStatus): string {
+// How much is waiting, in one sentence: jobs, then readings whose Listen audio
+// is still to be made. Nothing waiting needs no sentence, so it has none.
+export function waitingSummary(status: ProcessorStatus): string | null {
   const jobs = status.queued + status.running;
   const readings = status.listen.filter((group) => group.state !== "failed").length;
   const parts: string[] = [];
   if (jobs) parts.push(plural(jobs, "job", "jobs"));
   if (readings) parts.push(`Listen audio for ${plural(readings, "reading", "readings")}`);
-  if (!parts.length) return "Nothing is waiting.";
+  if (!parts.length) return null;
   return `${parts.join(" and ")} ${parts.length > 1 || jobs > 1 ? "are" : "is"} waiting.`;
+}
+
+// Sends queued work to the top of its queue, then asks for the status again,
+// so every list that shows it sees it move. False when it had started by then,
+// which leaves it where it was, and a failed request throws.
+export async function prioritiseWork(target: WorkTarget): Promise<boolean> {
+  const response = await api("/api/status/prioritise", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(target),
+  });
+  if (!response.ok) throw new Error(`Send to top failed with ${response.status}.`);
+  const { ok } = (await response.json()) as { ok?: boolean };
+  await check();
+  return ok === true;
 }

@@ -5816,6 +5816,11 @@ html.typing .cal-fab { display: none; }
 .work-title { flex: 1 1 0; min-width: 0; font-family: var(--serif); font-size: var(--fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-progress { flex-basis: 100%; font-size: var(--fs-xs); color: var(--muted); }
 .work-note { margin: var(--sp-2) 0 0; }
+/* Send to top: small and muted, so the rows stay compact on a pointer, with
+   the touch rule above keeping it a 44-point target; it lifts onto a hover
+   tone of its own, since the panel is already the quiet button's surface. */
+.work-send { flex: none; align-self: center; min-height: 1.5rem; padding: 0 0.4rem; font-size: var(--fs-xs); }
+.work-send:hover:not(:disabled) { background: var(--surface-hover); }
 .more-toggle { margin-top: var(--sp-1); }
 
 /* Parts that fold away: a row that lifts on hover, opening onto the same surface. */
