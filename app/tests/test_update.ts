@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
   availableUpdate, dismiss, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, isDismissed, isNewer, openInDesktopHref,
-  RELEASES_PAGE, updateHref,
+  RELEASES_PAGE, UPDATE_RETRY_MS, updateHref, updatesInPlace, updateStartingText,
 } from "../src/lib/update";
 import type { SyncState } from "../src/lib/sync";
 import { syncStatus, syncView } from "../src/lib/syncStatus";
@@ -79,6 +79,15 @@ export async function runUpdateTests() {
   assert.equal(openInDesktopHref("/?v=reader&id=r1&page=3"), "studylibrary://open?path=%2F%3Fv%3Dreader%26id%3Dr1%26page%3D3");
   const awkward = "/?v=search&q=a b#x";
   assert.equal(new URL(openInDesktopHref(awkward)).searchParams.get("path"), awkward, "the address survives whole, query and fragment included");
+
+  // Update now installs in place only where the Windows app answers the link,
+  // and the banner then says what will happen instead of offering the button again.
+  assert.equal(updatesInPlace("Mozilla/5.0 (Windows NT 10.0; Win64; x64)"), true);
+  assert.equal(updatesInPlace("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)"), false);
+  const starting = updateStartingText("1.4.0");
+  assert.ok(starting.includes("1.4.0") && starting.includes("reopen"), starting);
+  assert.ok(!/[\u2013\u2014]/.test(starting), "no en or em dashes in update words");
+  assert.ok(UPDATE_RETRY_MS >= 60_000, "the button comes back only once the app has had time to close");
   console.log("ok   in-app update logic and links");
 
   // syncStatus: every state is switched on at once, and each is then cleared

@@ -42,6 +42,8 @@ LZMANumBlockThreads=4
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+; A second copy of Setup, such as one from a second press of Update now, refuses to start rather than installing over the first.
+SetupMutex=StudyLibrarySetupMutex
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 #if FileExists(AddBackslash(SourcePath) + "studylibrary.ico")
@@ -68,10 +70,16 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Run]
 Filename: "{localappdata}\Microsoft\WindowsApps\winget.exe"; Parameters: "install --id TheDocumentFoundation.LibreOffice --exact --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing LibreOffice. This can take several minutes and Windows may ask for permission..."; Tasks: libreoffice; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; The in-app update (/UPDATE=1) closed Study Library, so it reopens it once every file is in place.
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: IsInAppUpdate
 
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
+  UpdateFailure: String;
+  SwappedAside: Boolean;
+  UpdateFinished: Boolean;
+  WaitsLeft: Integer;
 
 #include "generated\code.iss"
 
@@ -133,4 +141,121 @@ begin
     if SuppressibleMsgBox('Do you also want to delete your Study Library data, settings and downloaded voices in ' + DataRoot() + '? ' +
       'Choose No to keep them for a future reinstall.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
       DelTree(DataRoot(), True, True, True);
+end;
+
+{ ---- In-app update (/UPDATE=1), started by backend/study/update.py ---------------- }
+const
+  RuntimeParts = 3;
+  AsideSuffix = '.old';
+  WaitStepMs = 250;
+  CloseWaitMs = 120000;
+
+function IsInAppUpdate(): Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
+function RuntimePart(Index: Integer): String;
+begin
+  case Index of
+    0: Result := ExpandConstant('{app}\_internal');
+    1: Result := ExpandConstant('{app}\vendor');
+  else
+    Result := ExpandConstant('{app}\{#AppExe}');
+  end;
+end;
+
+function PartExists(const Path: String): Boolean;
+begin
+  Result := DirExists(Path) or FileExists(Path);
+end;
+
+procedure RemovePart(const Path: String);
+begin
+  if DirExists(Path) then
+    DelTree(Path, True, True, True)
+  else
+    DeleteFile(Path);
+end;
+
+{ Renaming a folder fails while any process has a file inside it open, so a
+  successful rename is both the proof that Study Library has fully exited and
+  the backup that a failed update is restored from. }
+function MoveAside(const Path: String): Boolean;
+begin
+  Result := not PartExists(Path);
+  while not Result do begin
+    Result := RenameFile(Path, Path + AsideSuffix);
+    if Result or (WaitsLeft <= 0) then
+      Exit;
+    WaitsLeft := WaitsLeft - 1;
+    Sleep(WaitStepMs);
+  end;
+end;
+
+procedure PutRuntimeBack();
+var
+  I: Integer;
+begin
+  for I := 0 to RuntimeParts - 1 do
+    if PartExists(RuntimePart(I) + AsideSuffix) then begin
+      RemovePart(RuntimePart(I));
+      RenameFile(RuntimePart(I) + AsideSuffix, RuntimePart(I));
+    end;
+end;
+
+<event('PrepareToInstall')>
+function UpdatePrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I, ResultCode: Integer;
+begin
+  Result := '';
+  if not IsInAppUpdate() then
+    Exit;
+  for I := 0 to RuntimeParts - 1 do
+    RemovePart(RuntimePart(I) + AsideSuffix);
+  { Without /F, taskkill asks each Study Library window to close just as its
+    close button does, so the app stops its own helper processes and nothing
+    is killed in the middle of a write. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  WaitsLeft := CloseWaitMs div WaitStepMs;
+  for I := 0 to RuntimeParts - 1 do
+    if not MoveAside(RuntimePart(I)) then begin
+      PutRuntimeBack();
+      UpdateFailure := 'Study Library or one of its helper processes did not close within two minutes, so the update was not installed ' +
+        'and nothing was changed. Restart Windows, open Study Library and then choose Update now again.';
+      Result := UpdateFailure;
+      Exit;
+    end;
+  SwappedAside := True;
+end;
+
+<event('CurStepChanged')>
+procedure UpdateCurStepChanged(CurStep: TSetupStep);
+var
+  I: Integer;
+begin
+  if (CurStep <> ssPostInstall) or not SwappedAside then
+    Exit;
+  UpdateFinished := True;
+  for I := 0 to RuntimeParts - 1 do
+    RemovePart(RuntimePart(I) + AsideSuffix);
+end;
+
+<event('DeinitializeSetup')>
+procedure UpdateDeinitializeSetup();
+var
+  ResultCode: Integer;
+begin
+  if not IsInAppUpdate() then
+    Exit;
+  if SwappedAside and not UpdateFinished then begin
+    PutRuntimeBack();
+    ExecAsOriginalUser(RuntimePart(2), '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+    UpdateFailure := 'The update did not finish, so the previous version of Study Library was put back as it was and has been opened again. ' +
+      'The details are in ' + ExpandConstant('{log}') + '.';
+  end;
+  { MsgBox rather than SuppressibleMsgBox, because /SUPPRESSMSGBOXES would hide the only explanation the person gets. }
+  if UpdateFailure <> '' then
+    MsgBox(UpdateFailure, mbError, MB_OK);
 end;

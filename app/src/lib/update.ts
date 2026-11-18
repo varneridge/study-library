@@ -53,9 +53,22 @@ export function dismiss(version: string, store?: SessionStore): void {
   }
 }
 
+/** Whether Update now hands over to the Windows app, which installs in place and reopens itself. */
+export function updatesInPlace(userAgent: string = globalThis.navigator?.userAgent ?? ""): boolean {
+  return /Windows/.test(userAgent);
+}
+
+/** How long the banner waits for the app to close before offering Update now again, since a refused update leaves the app running. */
+export const UPDATE_RETRY_MS = 120_000;
+
+export function updateStartingText(version: string): string {
+  return `Study Library is downloading ${version}, after which it will close, install the update and reopen by itself. ` +
+    "If it is still open in two minutes, the Windows notification will explain what went wrong.";
+}
+
 /** The Windows app handles studylibrary://update, and everywhere else the release page offers the download. */
 export function updateHref(release: Release, userAgent: string = globalThis.navigator?.userAgent ?? ""): string {
-  return /Windows/.test(userAgent)
+  return updatesInPlace(userAgent)
     ? `studylibrary://update?version=${encodeURIComponent(release.version)}`
     : RELEASES_PAGE;
 }

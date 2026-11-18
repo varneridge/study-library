@@ -147,8 +147,28 @@ function Invoke-Verification {
     try {
         $env:SL_INSTALLED_EXE = $exe
         Invoke-Native $Py @("-m", "pytest", "-q", (Join-Path $Root "tests\packaging\test_installed_exe.py"))
+        # Install the same build again exactly as backend/study/update.py does, which exercises the swap,
+        # the clean-up and the relaunch; the relaunched copy gets a scratch home so it cannot touch real data.
+        Write-Step "Verifying the in-place update and relaunch"
+        $env:STUDY_HOME = Join-Path $verifyRoot "home"
+        $updateArgs = @("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS", "/SKIPMODELS=1",
+            "/MERGETASKS=`"!libreoffice`"", "/UPDATE=1", "/LOG=`"$verifyRoot\update.log`"")
+        $proc = Start-Process -FilePath $Setup -ArgumentList $updateArgs -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { throw "In-place update failed with exit code $($proc.ExitCode); see $verifyRoot\update.log" }
+        if (Get-ChildItem $appDir -Filter "*.old") { throw "The in-place update left *.old copies in $appDir" }
+        $deadline = (Get-Date).AddSeconds(30)
+        do {
+            $relaunched = @(Get-Process StudyLibrary -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$appDir\*" })
+            if ($relaunched.Count -eq 0) { Start-Sleep -Seconds 1 }
+        } while (($relaunched.Count -eq 0) -and ((Get-Date) -lt $deadline))
+        if ($relaunched.Count -eq 0) { throw "The in-place update did not reopen Study Library" }
+        $relaunched | Stop-Process -Force
+        Start-Sleep -Seconds 2
+        Get-Process StudyLibrary -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$appDir\*" } | Stop-Process -Force
+        Invoke-Native $Py @("-m", "pytest", "-q", (Join-Path $Root "tests\packaging\test_installed_exe.py"))
     } finally {
         Remove-Item Env:SL_INSTALLED_EXE -ErrorAction SilentlyContinue
+        Remove-Item Env:STUDY_HOME -ErrorAction SilentlyContinue
         $uninstaller = Join-Path $appDir "unins000.exe"
         if (Test-Path $uninstaller) {
             Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait | Out-Null

@@ -1,11 +1,13 @@
 # filename: backend/study/update.py
-"""In-app updates: studylibrary://update?version=X downloads and starts the installer.
+"""In-app updates: studylibrary://update?version=X downloads the installer and starts it as a silent in-place update.
 
 Any web page can open a studylibrary:// link, so the link is trusted only to
 name a version. The file, its size and its digest come from GitHub's answer for
 the latest release of varneridge/study-library, the link must name that same
 release, and the installer starts only once the download matches, which means
 a page can neither choose the file nor push an older release onto the computer.
+The installer (installer.iss, /UPDATE=1) then closes Study Library, swaps the
+new files in, puts the old ones back if anything fails, and reopens the app.
 """
 from __future__ import annotations
 
@@ -31,6 +33,11 @@ REDIRECT_HOSTS = frozenset({"github.com", "objects.githubusercontent.com", "rele
 _VERSION = re.compile(r"v?(\d{1,6})\.(\d{1,6})\.(\d{1,6})")
 _AGENT = "StudyLibrary-updater"
 _MISMATCH = "The download did not match the published installer, so it was deleted and nothing was installed."
+_NO_DIGEST = "GitHub did not publish a checksum for this installer, so it was not downloaded and nothing was installed."
+# The same silent flags build.ps1 verifies, minus /CURRENTUSER and /DIR, so that Inno Setup
+# reuses the existing installation's folder and install mode (UsePreviousAppDir, UsePreviousPrivileges).
+INSTALL_ARGS = ("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS", "/SKIPMODELS=1",
+                '/MERGETASKS="!libreoffice"', "/UPDATE=1")
 
 Notify = Callable[..., None]
 
@@ -72,6 +79,8 @@ def latest_release(fetch_json: Callable[[str], object]) -> tuple[str, str, int, 
     if (version is None or not isinstance(url, str) or not url.startswith(DOWNLOAD_PREFIX)
             or type(size) is not int or size <= 0 or not isinstance(digest, str)):
         raise UpdateError("GitHub's answer did not describe a usable installer, so nothing was installed.")
+    if not digest:
+        raise UpdateError(_NO_DIGEST)
     return version, url, size, digest
 
 
@@ -103,8 +112,6 @@ def _stream(url: str, out: BinaryIO, limit: int) -> None:
 
 
 def _digest_matches(path: Path, digest: str) -> bool:
-    if not digest:
-        return True  # assets uploaded before GitHub published digests have none, so the size check stands alone
     algorithm, _, expected = digest.partition(":")
     if algorithm != "sha256":
         return False
@@ -131,12 +138,16 @@ def fetch_installer(url: str, size: int, digest: str, version: str,
     return final
 
 
+def installer_arguments(path: Path) -> str:
+    return " ".join((*INSTALL_ARGS, f'/LOG="{path.with_suffix(".log")}"'))
+
+
 def _launch(path: Path) -> None:
     # ShellExecute rather than CreateProcess, because an installer that writes to
     # Program Files asks for elevation and CreateProcess refuses that with error 740.
     if not hasattr(os, "startfile"):
         raise UpdateError("The installer only runs on Windows, so it was downloaded but not started.")
-    os.startfile(str(path))
+    os.startfile(str(path), "open", installer_arguments(path))
 
 
 def run(link: str, notify: Notify, *, fetch_json: Callable[[str], object] = _fetch_json,
@@ -147,7 +158,7 @@ def run(link: str, notify: Notify, *, fetch_json: Callable[[str], object] = _fet
         version, url, size, digest = latest_release(fetch_json)
         if wanted != version:
             raise UpdateError(f"Study Library {wanted} is not the latest release ({version}), so nothing was installed.")
-        notify(f"Downloading Study Library {version}, and the installer will open once the download is complete.")
+        notify(f"Downloading Study Library {version}, after which Study Library will close, install it and reopen by itself.")
         launch(fetch_installer(url, size, digest, version, stream, folder))
     except UpdateError as exc:
         reason = str(exc)
