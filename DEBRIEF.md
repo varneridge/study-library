@@ -1017,6 +1017,11 @@ The app's design system, visual rules, component patterns and checklist are defi
 - Reading a large book a piece at a time needs the server's range requests to reach the device unchanged. Where they do not, it is downloaded whole, as before.
 - A short PDF with a book's ISBN is taken for a chapter of that book; one that is really a whole short book is offered as a chapter, to be corrected in Edit details.
 - A collapsible heading's fold is remembered on each device, not synced.
+- Prepared audio stays on a phone until the browser clears it; nothing removes old readings to save space.
+- Preparation is asked for in the default voice; other voices are prepared when first heard.
+- Vietnamese, Korean and Japanese names that look like pinyin need dictionary entries.
+- Changing any pronunciation rule means raising `PRONUNCIATION_VERSION` in `spokenText.ts` and `pronounce.py` and the `version` in `shared/pronunciation-fixtures.json`, which prepares every paragraph again.
+- DirectML (ONNX on any graphics card) is supported by the engine order but not installed; it would mean shipping `onnxruntime-directml` instead of `onnxruntime`.
 
 **Possible next steps**
 

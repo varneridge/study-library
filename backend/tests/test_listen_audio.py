@@ -133,4 +133,6 @@ def test_audio_is_only_prepared_on_mains_power(api):
 
     assert work_once(api, fake_speak, fake_mp3, keep_going=unplugged_after_one) == 3
     ready = [i["ready"] for i in prepare(api, ["One.", "Two.", "Three."], item="power")]
-    assert ready == [True, False, False], "the batch stopped once the computer was unplugged"
+    # Which paragraph went first is the claim order's business, which the
+    # reading-order test covers; this test is only about stopping the batch.
+    assert ready.count(True) == 1, "the batch stopped once the computer was unplugged"

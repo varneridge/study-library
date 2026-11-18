@@ -52,7 +52,7 @@ def test_access_redirect_on_file_lookup_raises_api_error():
     Access login redirect surfaces as a JSON decode error, not ApiError."""
     api = Api("https://example.test")
     redirect = _response(302, headers={"Location": "https://team.cloudflareaccess.com/login"})
-    with mock.patch.object(api.session, "get", return_value=redirect):
+    with mock.patch.object(api.session, "request", return_value=redirect):
         with pytest.raises(ApiError):
             api.file("some-file-id")
 

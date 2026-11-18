@@ -62,7 +62,11 @@ with sync_playwright() as p:
     }""")
     page.get_by_role("button", name="Highlight yellow").click()
     expect(page.locator(".hl").first).to_be_visible()
-    # Writing about a highlight happens in the notes, beneath its quotation.
+    # A highlight is made in one step and leaves nothing open, so writing about
+    # it starts from the highlight itself: clicking it opens its panel, and
+    # Write a note about this puts the cursor in the notes, beneath its quotation.
+    mark = page.locator(".pdf-page .hl").first.bounding_box()
+    page.mouse.click(mark["x"] + mark["width"] / 2, mark["y"] + mark["height"] / 2)
     page.get_by_role("button", name="Write a note about this").click()
     page.wait_for_timeout(700)
     page.keyboard.type("Sets up the Cold War frame")
