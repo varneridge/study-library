@@ -1,3 +1,4 @@
+; filename: packaging/windows/installer.iss
 ; Study Library installer (Inno Setup 6.3 or later).
 ; build.ps1 compiles this with /DAppVersion, /DNumericVersion, /DSourceDir and
 ; /DOutputDir, and writes generated\files.iss and generated\code.iss first.
@@ -204,6 +205,17 @@ begin
     end;
 end;
 
+{ /VERYSILENT gives Setup no window, which means nobody is there to close a message box (build.ps1 -Verify). }
+function IsUnattended(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/VERYSILENT') = 0 then
+      Result := True;
+end;
+
 <event('PrepareToInstall')>
 function UpdatePrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -255,7 +267,10 @@ begin
     UpdateFailure := 'The update did not finish, so the previous version of Study Library was put back as it was and has been opened again. ' +
       'The details are in ' + ExpandConstant('{log}') + '.';
   end;
-  { MsgBox rather than SuppressibleMsgBox, because /SUPPRESSMSGBOXES would hide the only explanation the person gets. }
-  if UpdateFailure <> '' then
-    MsgBox(UpdateFailure, mbError, MB_OK);
+  if UpdateFailure = '' then
+    Exit;
+  Log('In-app update failed: ' + UpdateFailure);
+  { MsgBox rather than SuppressibleMsgBox, because update.py passes /SUPPRESSMSGBOXES and this is the only
+    explanation the person gets; unattended, the log above and Setup's exit code report the failure instead. }
+  if not IsUnattended() then MsgBox(UpdateFailure, mbError, MB_OK);
 end;

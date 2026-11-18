@@ -17,6 +17,7 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1 -Verify
 #>
+# filename: packaging/windows/build.ps1
 [CmdletBinding()]
 param(
     [string]$Version = "",
@@ -133,6 +134,18 @@ function Invoke-Sign([string]$Path) {
         "/tr", "http://timestamp.digicert.com", "/td", "sha256", $Path)
 }
 
+# Waits for Setup itself rather than using Start-Process -Wait, which waits for every descendant: the in-place
+# update reopens Study Library as one, so -Wait never returned. The time limit turns any other stall into a failure.
+function Invoke-Setup([string]$What, [string[]]$Arguments, [string]$Log) {
+    $proc = Start-Process -FilePath $Setup -ArgumentList $Arguments -PassThru
+    $null = $proc.Handle  # Windows PowerShell 5.1 only reports ExitCode if the handle was opened before Setup exits
+    if (-not $proc.WaitForExit(600000)) {
+        & taskkill.exe /PID $proc.Id /T /F | Out-Null
+        throw "$What did not finish within 10 minutes, so it was stopped; see $Log"
+    }
+    if ($proc.ExitCode -ne 0) { throw "$What failed with exit code $($proc.ExitCode); see $Log" }
+}
+
 function Invoke-Verification {
     Write-Step "Verifying the installer with a silent install"
     $verifyRoot = Join-Path $Build "verify"
@@ -141,20 +154,20 @@ function Invoke-Verification {
     New-Item -ItemType Directory -Force $verifyRoot | Out-Null
     $installArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER", "/SKIPMODELS=1",
         "/MERGETASKS=`"!desktopicon,!libreoffice`"", "/DIR=`"$appDir`"", "/LOG=`"$verifyRoot\install.log`"")
-    $proc = Start-Process -FilePath $Setup -ArgumentList $installArgs -Wait -PassThru
-    if ($proc.ExitCode -ne 0) { throw "Silent install failed with exit code $($proc.ExitCode); see $verifyRoot\install.log" }
+    Invoke-Setup "Silent install" $installArgs "$verifyRoot\install.log"
     $exe = Join-Path $appDir "StudyLibrary.exe"
     try {
         $env:SL_INSTALLED_EXE = $exe
         Invoke-Native $Py @("-m", "pytest", "-q", (Join-Path $Root "tests\packaging\test_installed_exe.py"))
-        # Install the same build again exactly as backend/study/update.py does, which exercises the swap,
-        # the clean-up and the relaunch; the relaunched copy gets a scratch home so it cannot touch real data.
+        # Install the same build again as backend/study/update.py does, which exercises the swap, the clean-up
+        # and the relaunch, except that /VERYSILENT replaces /SILENT because installer.iss shows its failure box
+        # only when Setup has a window, and nobody here could close it. The relaunched copy gets a scratch home
+        # under the variable test_installed_exe.py uses, so it cannot touch real data.
         Write-Step "Verifying the in-place update and relaunch"
-        $env:STUDY_HOME = Join-Path $verifyRoot "home"
-        $updateArgs = @("/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS", "/SKIPMODELS=1",
+        $env:STUDY_LIBRARY_HOME = Join-Path $verifyRoot "home"
+        $updateArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS", "/SKIPMODELS=1",
             "/MERGETASKS=`"!libreoffice`"", "/UPDATE=1", "/LOG=`"$verifyRoot\update.log`"")
-        $proc = Start-Process -FilePath $Setup -ArgumentList $updateArgs -Wait -PassThru
-        if ($proc.ExitCode -ne 0) { throw "In-place update failed with exit code $($proc.ExitCode); see $verifyRoot\update.log" }
+        Invoke-Setup "In-place update" $updateArgs "$verifyRoot\update.log"
         if (Get-ChildItem $appDir -Filter "*.old") { throw "The in-place update left *.old copies in $appDir" }
         $deadline = (Get-Date).AddSeconds(30)
         do {
@@ -168,7 +181,9 @@ function Invoke-Verification {
         Invoke-Native $Py @("-m", "pytest", "-q", (Join-Path $Root "tests\packaging\test_installed_exe.py"))
     } finally {
         Remove-Item Env:SL_INSTALLED_EXE -ErrorAction SilentlyContinue
-        Remove-Item Env:STUDY_HOME -ErrorAction SilentlyContinue
+        Remove-Item Env:STUDY_LIBRARY_HOME -ErrorAction SilentlyContinue
+        # A failed update reopens the previous version, which would hold its files open against the uninstaller.
+        Get-Process StudyLibrary -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$appDir\*" } | Stop-Process -Force
         $uninstaller = Join-Path $appDir "unins000.exe"
         if (Test-Path $uninstaller) {
             Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait | Out-Null
