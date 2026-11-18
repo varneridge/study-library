@@ -203,23 +203,24 @@ export function jobKindLabel(kind: string): string {
 // How many rows of work Settings shows before See more.
 export const VISIBLE_WORK = 5;
 
-export type WorkState = "now" | "next" | "later" | "failed";
+// Work that failed is not in hand, so it has no state here: Settings counts
+// it in a note instead, and each failed job offers Retry where it belongs.
+export type WorkState = "now" | "next" | "later";
 
 // One row of work in hand, as Settings lists it, for a job or a reading's Listen audio.
 export interface WorkRow {
   key: string;
   source: "job" | "listen";
   state: WorkState;
-  // The state in words: Now, Next, Later or Failed.
+  // The state in words: Now, Next or Later.
   when: string;
   task: string;
   title: string | null;
   progress: string | null;
-  error: string | null;
 }
 
-const WHEN: Record<WorkState, string> = { now: "Now", next: "Next", later: "Later", failed: "Failed" };
-const STATE_RANK: Record<WorkState, number> = { now: 0, next: 1, later: 2, failed: 3 };
+const WHEN: Record<WorkState, string> = { now: "Now", next: "Next", later: "Later" };
+const STATE_RANK: Record<WorkState, number> = { now: 0, next: 1, later: 2 };
 const SOURCE_RANK: Record<WorkRow["source"], number> = { job: 0, listen: 1 };
 
 const quoted = (title: string) => `\u201c${title}\u201d`;
@@ -246,14 +247,12 @@ function jobRow(job: StatusJob, state: WorkState): WorkRow {
     ? job.targetKind === "recording" ? job.title : quoted(job.title)
     : job.label;
   const notes: string[] = [];
-  if (job.status !== "failed" && job.attempts > 1) notes.push(`attempt ${job.attempts}`);
+  if (job.attempts > 1) notes.push(`attempt ${job.attempts}`);
   if (job.status === "queued" && state === "later" && job.runAfter) notes.push(`tries again at ${clock(job.runAfter)}`);
-  if (job.status === "failed" && job.attempts > 0) notes.push(`gave up after ${plural(job.attempts, "attempt", "attempts")}`);
   const progress = notes.length ? notes.join(", ").replace(/^./, (c) => c.toUpperCase()) : null;
-  const error = (job.error || "").replace(/\.+$/, "");
   return {
     key: `job-${job.id}`, source: "job", state, when: WHEN[state],
-    task: jobKindLabel(job.kind), title, progress, error: job.status === "failed" && error ? error : null,
+    task: jobKindLabel(job.kind), title, progress,
   };
 }
 
@@ -265,23 +264,24 @@ function listenRow(group: ListenWork, state: WorkState): WorkRow {
     task: group.state === "upgrading" ? "Remaking Listen audio on the graphics card" : "Preparing Listen audio",
     title: group.title ? quoted(group.title) : null,
     progress: parts.join(", "),
-    // Asking for a reading again queues its failed paragraphs again (worker/listen.ts).
-    error: state === "failed" ? "Opening the reading in Listen tries these paragraphs again" : null,
   };
 }
 
 // Every job and reading's Listen audio in hand, as one list: what is being
-// done now, what each queue takes next, what waits behind it, then what
-// failed. Jobs and Listen audio are taken by different machines, so each
-// queue has its own next, and within a state jobs come before Listen audio,
-// each in the order the Worker sent, which is the order it hands work out.
+// done now, what each queue takes next, then what waits behind it. Failed
+// jobs, and readings whose only paragraphs left have failed, are not in hand,
+// so they are left out, while a reading still being made says in its
+// progress how many of its paragraphs could not be made. Jobs and Listen
+// audio are taken by different machines, so each queue has its own next, and
+// within a state jobs come before Listen audio, each in the order the Worker
+// sent, which is the order it hands work out.
 export function workRows(status: ProcessorStatus, now = Date.now()): WorkRow[] {
   const rows: WorkRow[] = [];
   let jobNext = false;
   for (const job of status.jobs) {
+    if (job.status === "failed") continue;
     let state: WorkState;
     if (job.status === "running") state = "now";
-    else if (job.status === "failed") state = "failed";
     else if (job.runAfter && job.runAfter.getTime() > now) state = "later";
     else if (!jobNext) {
       state = "next";
@@ -291,9 +291,9 @@ export function workRows(status: ProcessorStatus, now = Date.now()): WorkRow[] {
   }
   let listenNext = false;
   for (const group of status.listen) {
+    if (group.state === "failed") continue;
     let state: WorkState;
     if (group.state === "running" || group.state === "upgrading") state = "now";
-    else if (group.state === "failed") state = "failed";
     else if (!listenNext) {
       state = "next";
       listenNext = true;

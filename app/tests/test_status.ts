@@ -1,7 +1,7 @@
 // The processor status as Settings shows it (src/lib/status.ts): how the
 // Worker's answer is read, including from a Worker deployed before the work
 // list, how jobs are named, and how jobs and Listen audio are ordered and
-// worded in the one list of work in hand.
+// worded in the one list of work in hand, which leaves out what failed.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
@@ -73,15 +73,15 @@ export function registerStatusTests(test: Test) {
     const words = [
       ...Object.values(JOB_KIND_LABEL),
       ...workRows(status({
-        queued: 1, failed: 1,
-        jobs: [job(1, "ocr", "queued"), job(2, "thumb", "failed", { attempts: 3, error: "Broken." })],
-        listen: [listen("i1", "failed", { failed: 2, ready: 8 })],
-      }), NOW).flatMap((row) => [row.when, row.task, row.progress ?? "", row.error ?? ""]),
+        queued: 2,
+        jobs: [job(1, "ocr", "queued"), job(2, "thumb", "queued", { attempts: 2, run_after: new Date(NOW + 60_000).toISOString() })],
+        listen: [listen("i1", "queued", { failed: 2, ready: 8 }), listen("i2", "upgrading")],
+      }), NOW).flatMap((row) => [row.when, row.task, row.progress ?? ""]),
     ].join(" ");
     assert.ok(!/[\u2013\u2014]/.test(words), "an en or em dash crept into the wording");
   });
 
-  test("work in hand runs now, next, later, then failed, with jobs before Listen audio in each", () => {
+  test("work in hand runs now, next, then later, with jobs before Listen audio in each and nothing that failed", () => {
     const rows = workRows(status({
       queued: 3, running: 1, failed: 1,
       jobs: [
@@ -101,9 +101,9 @@ export function registerStatusTests(test: Test) {
     }), NOW);
     assert.deepEqual(
       rows.map((r) => r.key),
-      ["job-1", "listen-i1-bf_emma", "listen-i2-bf_emma", "job-2", "listen-i3-bf_emma", "job-3", "job-4", "listen-i4-bf_emma", "job-5", "listen-i5-bf_emma"],
+      ["job-1", "listen-i1-bf_emma", "listen-i2-bf_emma", "job-2", "listen-i3-bf_emma", "job-3", "job-4", "listen-i4-bf_emma"],
     );
-    assert.deepEqual(rows.map((r) => r.when), ["Now", "Now", "Now", "Next", "Next", "Later", "Later", "Later", "Failed", "Failed"]);
+    assert.deepEqual(rows.map((r) => r.when), ["Now", "Now", "Now", "Next", "Next", "Later", "Later", "Later"]);
   });
 
   test("a job waiting to try again is later, and the next job is the first the processor can take", () => {
@@ -135,19 +135,35 @@ export function registerStatusTests(test: Test) {
     assert.equal(rows[3].title, null, "a bare id means nothing to a person, so none is shown");
   });
 
-  test("a failed job says how often it was tried and keeps its error, without the full stop", () => {
-    const [row] = workRows(status({ failed: 1, jobs: [job(9, "ocr", "failed", { attempts: 3, error: "Tesseract crashed..." })] }), NOW);
-    assert.equal(row.state, "failed");
-    assert.equal(row.progress, "Gave up after 3 attempts");
-    assert.equal(row.error, "Tesseract crashed");
+  test("failed jobs and readings whose Listen audio failed are left out, while their counts stay", () => {
+    const parsed = status({
+      queued: 1, failed: 2,
+      jobs: [
+        job(8, "ocr", "failed", { attempts: 3, error: "Tesseract crashed." }),
+        job(9, "thumb", "queued"),
+        job(10, "convert", "failed", { attempts: 1 }),
+      ],
+      listen: [listen("i1", "failed", { failed: 3 }), listen("i2", "queued", { ready: 4, failed: 1 })],
+    });
+    const rows = workRows(parsed, NOW);
+    assert.deepEqual(rows.map((r) => [r.key, r.when]), [["job-9", "Next"], ["listen-i2-bf_emma", "Next"]]);
+    assert.equal(parsed.failed, 2, "the failed count is still there for the note beside the list");
+    assert.equal(rows[1].progress, "4 of 10 paragraphs ready in Emma\u2019s British voice, 1 paragraph could not be made");
+    assert.deepEqual(workRows(status({ failed: 1, jobs: [job(1, "ocr", "failed")], listen: [listen("i1", "failed")] }), NOW), []);
   });
 
-  test("Listen audio says how much is ready, in which voice, and what to do when it failed", () => {
+  test("a running job that is on a later attempt says so", () => {
+    const [row] = workRows(status({ running: 1, jobs: [job(9, "ocr", "running", { attempts: 2 })] }), NOW);
+    assert.equal(row.when, "Now");
+    assert.equal(row.progress, "Attempt 2");
+  });
+
+  test("Listen audio says how much is ready, in which voice, and how much could not be made", () => {
     const rows = workRows(status({
       listen: [
         listen("i1", "running", { title: "Empire", ready: 1, total: 1 }),
         listen("i2", "upgrading", { voice: "am_adam", ready: 12, total: 12 }),
-        listen("i3", "failed", { voice: "xx", ready: 8, total: 10, failed: 2 }),
+        listen("i3", "queued", { voice: "xx", ready: 8, total: 10, failed: 2 }),
       ],
     }), NOW);
     assert.equal(rows[0].task, "Preparing Listen audio");
@@ -155,8 +171,8 @@ export function registerStatusTests(test: Test) {
     assert.equal(rows[0].progress, "1 of 1 paragraph ready in Emma\u2019s British voice");
     assert.equal(rows[1].task, "Remaking Listen audio on the graphics card");
     assert.equal(rows[1].progress, "12 of 12 paragraphs ready in Adam\u2019s American voice");
+    assert.equal(rows[2].when, "Next");
     assert.equal(rows[2].progress, "8 of 10 paragraphs ready in the xx voice, 2 paragraphs could not be made");
-    assert.ok(rows[2].error?.includes("Listen"));
     assert.equal(voiceLabel("bm_george"), "George\u2019s British voice");
   });
 
@@ -191,7 +207,31 @@ export function registerStatusTests(test: Test) {
     assert.ok(src.includes('"section-speech": { section: "section-processor" }'), "the old speech link no longer leads anywhere");
     assert.ok(src.includes("<WorkList") && !src.includes("function JobList"), "the work list did not replace the job list");
     assert.ok(src.includes("VISIBLE_BIN") && src.includes("See ${hidden} more") && src.includes("Show fewer"), "Recently deleted has no See more");
-    assert.ok(!/maxHeight: "14rem"|overflowY: "auto"/.test(src), "the work list scrolls in a box again");
+    assert.ok(!/maxHeight: "14rem"|overflowY: "auto"/.test(src), "the work list sets its own scrolling inline again");
+    assert.ok(src.includes('is-expanded') && !src.includes("work-error"), "the work list neither scrolls when expanded nor drops failed rows");
     assert.ok(!/#2f9e44|#e8590c/i.test(src), "the connection badge writes its own colours");
+  });
+
+  test("the work list scrolls inside its panel only once See more has opened it", () => {
+    const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+    const rule = (selector: string) => {
+      const start = css.indexOf(`\n${selector} {`);
+      assert.ok(start >= 0, `${selector} has no rule`);
+      return css.slice(start, css.indexOf("}", start));
+    };
+    assert.ok(!/max-height|overflow/.test(rule(".work-list")), "five rows scroll in a box before they need to");
+    const expanded = rule(".work-list.is-expanded");
+    assert.ok(/max-height: 18rem/.test(expanded) && /overflow-y: auto/.test(expanded), "the expanded list lengthens the page instead of scrolling");
+  });
+
+  test("Settings shows themes as compact pills and keeps its fields off stark white", () => {
+    const src = readFileSync(new URL("../src/components/Settings.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+    assert.ok(src.includes("theme-chip theme-pill") && !src.includes("zotero-theme"), "the theme cards are back");
+    assert.ok(src.includes('role="group" aria-label="Appearance"'), "the theme tests can no longer find the themes");
+    assert.ok(!/style=\{\{ flex: 1, minWidth: "14rem" \}\}/.test(src), "the term dates stretch apart again");
+    assert.ok(/\.colour-names li \{[^}]*background: var\(--surface\)/.test(css), "the highlight names are not on the soft surface");
+    assert.ok(/\.term-dates \.date-picker-trigger \{[^}]*background: var\(--surface\)/.test(css), "the term dates are not on the soft surface");
+    assert.ok(/\.theme-pill\[aria-pressed="true"\][^{]*\{[^}]*box-shadow: inset 0 0 0 1px var\(--accent\)/.test(css), "the chosen theme lost its accent ring");
   });
 }

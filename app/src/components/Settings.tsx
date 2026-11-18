@@ -285,13 +285,16 @@ function MoreToggle({ hidden, expanded, controls, onToggle }: { hidden: number; 
 }
 
 // Every job and reading's Listen audio the background computer has in hand,
-// on a soft panel of its own: five at first, and the rest on asking, so a long
-// queue never pushes the rest of the section down the page.
+// on a soft panel of its own: five at first, and the rest on asking, which
+// scroll inside the panel so a long queue never pushes the rest of the
+// section down the page. Failed work is counted beside it, not listed.
 function WorkList({ status }: { status: ProcessorStatus | null }) {
   const [all, setAll] = useState(false);
   const rows = useMemo(() => (status ? workRows(status) : []), [status]);
   const shown = all ? rows : rows.slice(0, VISIBLE_WORK);
-  const jobsTotal = status ? status.queued + status.running + status.failed : 0;
+  // The Worker lists failed jobs after the rest, so the jobs in hand it listed are those before them.
+  const jobsListed = status ? status.jobs.filter((job) => job.status !== "failed").length : 0;
+  const jobsTotal = status ? status.queued + status.running : 0;
   return (
     <div className="work-panel">
       <h3 className="settings-subhead">Work in hand</h3>
@@ -301,7 +304,8 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
         <p className="small muted">Nothing is waiting, so the background computer has no work in hand.</p>
       ) : (
         <>
-          <ul id="work-list" className="work-list" aria-label="Work in hand">
+          {/* Expanded, the list scrolls inside the panel, and can take focus so the keyboard can scroll it too. */}
+          <ul id="work-list" className={`work-list${all ? " is-expanded" : ""}`} aria-label="Work in hand" tabIndex={all ? 0 : undefined}>
             {shown.map((row) => (
               <li key={row.key} className={`work-row is-${row.state}`}>
                 <span className={`work-when is-${row.state}`}>{row.when}</span>
@@ -309,12 +313,6 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
                   <span className="work-task">{row.task}</span>
                   {row.title && <span className="work-title">{row.title}</span>}
                   {row.progress && <span className="work-progress">{row.progress}</span>}
-                  {row.error && (
-                    <details className="work-error">
-                      <summary>Details</summary>
-                      {row.error}
-                    </details>
-                  )}
                 </span>
               </li>
             ))}
@@ -322,9 +320,9 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
           {rows.length > VISIBLE_WORK && (
             <MoreToggle hidden={rows.length - VISIBLE_WORK} expanded={all} controls="work-list" onToggle={() => setAll((v) => !v)} />
           )}
-          {jobsTotal > status.jobs.length && (
+          {jobsTotal > jobsListed && (
             <p className="small muted work-note">
-              The first {status.jobs.length} of {jobsTotal} jobs are listed, since the rest follow once these are done.
+              The first {jobsListed} of {jobsTotal} jobs are listed, since the rest follow once these are done.
             </p>
           )}
         </>
@@ -343,6 +341,8 @@ function ProcessorFacts({ status, connection, unpaired, device }: {
   const quiet = processorQuiet(status);
   const waiting = status.queued + status.running;
   const listening = status.listen.some((group) => group.state !== "failed");
+  // Readings whose Listen audio failed outright are left out of Work in hand, so they are counted here.
+  const listenFailed = status.listen.filter((group) => group.state === "failed").length;
   return (
     <>
       {connection === "needs" && <p className="small muted">{needsNote(unpaired, Boolean(status.seenAt), device)}</p>}
@@ -357,6 +357,12 @@ function ProcessorFacts({ status, connection, unpaired, device }: {
         </p>
       )}
       {status.failed > 0 && <p className="small muted">{status.failed} {status.failed === 1 ? "job has" : "jobs have"} failed. Each shows Retry where it belongs.</p>}
+      {listenFailed > 0 && (
+        <p className="small muted">
+          Listen audio for {listenFailed} {listenFailed === 1 ? "reading" : "readings"} could not be made, and opening a reading in Listen
+          tries its paragraphs again.
+        </p>
+      )}
       {listening && (
         <p className="small muted">
           {gpuPresent(status)
@@ -533,8 +539,9 @@ function TermDatesSetting({
     <>
       <h2>Term dates</h2>
       <p className="small muted">The Monday of week 1 in each term, {year}/{String(year + 1).slice(2)}. The home page uses these to show this week's notes.</p>
-      <div className="row" style={{ marginTop: "0.75rem", gap: "1rem", flexWrap: "wrap" }}>
-        <div className="field" style={{ flex: 1, minWidth: "14rem" }}>
+      {/* The two dates sit side by side at their own width, so no empty field stretches between them. */}
+      <div className="term-dates">
+        <div className="field">
           <span id="label-term-at">Autumn Term week 1</span>
           <DatePicker
             value={dates.AT || null}
@@ -544,7 +551,7 @@ function TermDatesSetting({
             onChange={(d) => onChange("AT", d || "")}
           />
         </div>
-        <div className="field" style={{ flex: 1, minWidth: "14rem" }}>
+        <div className="field">
           <span id="label-term-wt">Winter Term week 1</span>
           <DatePicker
             value={dates.WT || null}
@@ -567,28 +574,25 @@ function AppearanceChoice() {
   return (
     <>
       <h2>Appearance</h2>
-      <p className="small muted">Theme mode and accent palette across every screen, the reader panels and the pages themselves. Syncs across all your devices.</p>
-      {/* The theme and the accent sit side by side on a wide screen. */}
+      <p className="small muted">The theme and the accent colour, which marks links, buttons and the current choice, apply to every screen, the reader panels and the pages themselves, and sync across all your devices.</p>
+      {/* The theme and the accent sit side by side wherever both rows fit, and the accent drops below where they do not. */}
       <div className="appearance-layout">
         <div>
           <h3 className="settings-subhead">Theme</h3>
-          {/* Each theme is shown as a small page in its own colours, so the choice can be seen before it is made.
+          {/* Each theme is a pill with a swatch of its own page colour, laid out like the accents beside it.
               The label stays on the button as its name, which the theme tests look for. */}
-          <div className="zotero-themes appearance-choice" role="group" aria-label="Appearance">
+          <div className="theme-pills" role="group" aria-label="Appearance">
             {APPEARANCES.map((a) => (
               <button
                 key={a.value}
                 type="button"
-                className={`theme-chip zotero-theme-card ${a.value}`}
+                className={`theme-chip theme-pill ${a.value}`}
                 aria-pressed={current === a.value}
                 aria-label={a.label}
                 onClick={() => void chooseAppearance(a.value)}
               >
-                <span className="zotero-theme-page" aria-hidden="true">
-                  <span className="zotero-theme-aa">Aa</span>
-                  <span className="zotero-theme-lines"><span /><span /></span>
-                </span>
-                <span className="zotero-theme-label">{a.label}</span>
+                <span className="theme-swatch" aria-hidden="true" />
+                <span className="theme-name">{a.label}</span>
               </button>
             ))}
           </div>
@@ -596,7 +600,6 @@ function AppearanceChoice() {
 
         <div>
           <h3 className="settings-subhead">Accent colour</h3>
-          <p className="small muted">A touch of colour for active links, buttons and current selections.</p>
           <div className="accent-grid" role="group" aria-label="Accent colour">
             {ACCENTS.map((acc) => {
               const hex = dark ? acc.darkHex : acc.lightHex;
