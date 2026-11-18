@@ -344,8 +344,8 @@ function SessionAddRow({ empty, onAdd }: { empty: boolean; onAdd: (kind: "semina
   if (choosing) {
     return (
       <div className="week-add-row row session-add-choice" role="group" aria-label="Add a session to this week" style={{ gap: "0.5rem" }}>
-        <button type="button" className="button" autoFocus onClick={() => { setChoosing(false); onAdd("seminar"); }}>Seminar</button>
-        <button type="button" className="button" onClick={() => { setChoosing(false); onAdd("lecture"); }}>Lecture</button>
+        <button type="button" className="button" autoFocus onClick={() => { setChoosing(false); onAdd("seminar"); }}>Add seminar</button>
+        <button type="button" className="button" onClick={() => { setChoosing(false); onAdd("lecture"); }}>Add lecture</button>
         <button type="button" className="quiet" onClick={() => setChoosing(false)}>Cancel</button>
       </div>
     );

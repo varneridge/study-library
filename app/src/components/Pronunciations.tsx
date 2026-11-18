@@ -7,6 +7,7 @@ import type { PronunciationEntry } from "../lib/listen/annotate";
 import { respellingProblem as pronunciationProblem } from "../lib/listen/respell";
 import { deletePronunciation, savePronunciation, usePronunciations } from "../lib/listen/pronunciations";
 import { showToast } from "../lib/ui";
+import { AddTile } from "./AddTile";
 
 function EntryForm({
   initial,
@@ -86,6 +87,7 @@ function EntryForm({
 export function Pronunciations() {
   const entries = usePronunciations();
   const [editing, setEditing] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   if (!entries) return null;
 
   async function remove(entry: PronunciationEntry) {
@@ -96,6 +98,14 @@ export function Pronunciations() {
     });
   }
 
+  // The blank row at the end of the list opens the form in its place, with a Cancel.
+  const addForm = (
+    <EntryForm initial={{ word: "", say: "" }} submitLabel="Add pronunciation" onDone={() => setAdding(false)} onCancel={() => setAdding(false)} />
+  );
+  const addTile = (as: "li" | "div") => (
+    <AddTile as={as} variant="row" label="New pronunciation" announce="Add a pronunciation" onAdd={() => setAdding(true)} />
+  );
+
   // The heading is Settings' own, on the part of Processor and speech that folds away.
   return (
     <>
@@ -103,9 +113,11 @@ export function Pronunciations() {
         How Listen should say words it gets wrong, in every reading. Type how a word sounds with hyphens between syllables and the stressed one in
         capitals, such as oo-SOO-ree for Ussuri. Chinese names in pinyin are already read correctly.
       </p>
-      <EntryForm initial={{ word: "", say: "" }} submitLabel="Add pronunciation" onDone={() => {}} />
       {entries.length === 0 ? (
-        <p className="small muted">No pronunciations yet. Add a word above and Listen will say it that way from then on.</p>
+        <>
+          <p className="small muted">No pronunciations yet. Add a word below and Listen will say it that way from then on.</p>
+          {adding ? addForm : addTile("div")}
+        </>
       ) : (
         <ul className="list pronunciation-list">
           {entries.map((entry) =>
@@ -126,6 +138,7 @@ export function Pronunciations() {
               </li>
             ),
           )}
+          {adding ? <li className="is-editing">{addForm}</li> : addTile("li")}
         </ul>
       )}
     </>
