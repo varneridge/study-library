@@ -103,8 +103,7 @@ with sync_playwright() as p:
     # The study side, before: its top bar has the switch to the job search.
     page.goto(BASE + "/")
     assert page.locator(".topbar a.to-jobs").inner_text() == "Job search"
-    expect(page.locator(".topbar a.topbar-across")).to_have_text("This week")
-    expect(page.get_by_role("button", name="Go to", exact=True)).to_be_visible()
+    expect(page.locator(".topbar").get_by_role("link", name="Calendar", exact=True)).to_have_attribute("href", "/?v=calendar")
     expect(page.get_by_role("link", name="Search", exact=True)).to_be_visible()
     expect(page.get_by_role("link", name="Settings", exact=True)).to_be_visible()
 

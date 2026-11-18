@@ -7,14 +7,14 @@ back, renames it, and deletes it, checking its book comes back to the shelf and
 that Undo restores both. Run like the others: python test_folders.py BASE
 """
 
-import glob, sys
+import glob, re, sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 (HERE / "shots").mkdir(exist_ok=True)
 
 from playwright.sync_api import sync_playwright, expect
-from helpers import add_files, until
+from helpers import drop_files, until
 
 BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))[:2]
@@ -39,12 +39,13 @@ with sync_playwright() as p:
     page.get_by_role("link", name="Study Library").click()
     expect(page.get_by_role("button", name="Add a module")).to_be_visible()
     page.screenshot(path=f"{shots}-1-home.png")
-    page.get_by_role("link", name="LIB").first.click()
+    # A case-sensitive whole word: a plain name="LIB" also matches the "Study Library" brand link.
+    page.get_by_role("link", name=re.compile(r"\bLIB\b")).first.click()
 
     # A shelf from the module's add tile, which opens it.
     page.get_by_role("button", name="Add a shelf").click()
     expect(page.get_by_role("heading", name="New shelf")).to_be_visible()
-    add_files(page, files)
+    drop_files(page, "#main h1", files)
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 2; }", 30)
     expect(page.locator(".readings > li.reading")).to_have_count(2)
 

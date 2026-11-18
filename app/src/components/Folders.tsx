@@ -84,7 +84,7 @@ function FolderTile({ folder, views, week, editing, setEditing }: {
   const count = views.length;
   return (
     <li ref={setNodeRef} className={`folder-tile${isOver ? " over" : ""}`} data-folder={folder.id}>
-      <Link to={{ view: "week", id: week.id, folder: folder.id }} className="folder-open" aria-label={`Open the folder ${folderTitle(folder)}`}>
+      <Link to={{ view: "week", id: week.id, folder: folder.id }} className="folder-open" label={`Open the folder ${folderTitle(folder)}`}>
         <span className={`folder-covers n${covers.length}`} aria-hidden="true">
           {covers.length === 0 && <span className="folder-empty" />}
           {covers.map((key) => <img key={key} src={`/api/objects/${key}`} alt="" loading="lazy" decoding="async" />)}
