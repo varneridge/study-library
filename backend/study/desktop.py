@@ -136,13 +136,15 @@ WS_MINIMIZEBOX = 0x00020000
 WS_MAXIMIZEBOX = 0x00010000
 WS_SYSMENU = 0x00080000
 NATIVE_FRAME_STYLES = WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU
-WM_GETMINMAXINFO = 0x0024
+WM_WINDOWPOSCHANGING = 0x0046
 WM_STYLECHANGING = 0x007C
 WM_NCDESTROY = 0x0082
 WM_NCCALCSIZE = 0x0083
 WM_NCHITTEST = 0x0084
 MONITOR_DEFAULTTONEAREST = 0x00000002
-SWP_FRAME_ONLY = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020  # NOSIZE, NOMOVE, NOZORDER, NOACTIVATE, FRAMECHANGED
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_FRAME_ONLY = SWP_NOSIZE | SWP_NOMOVE | 0x0004 | 0x0010 | 0x0020  # NOZORDER, NOACTIVATE, FRAMECHANGED
 SW_RESTORE = 9
 SM_CXSIZEFRAME = 32
 SM_CXPADDEDBORDER = 92
@@ -1051,17 +1053,13 @@ def inset_rect(rect: tuple[int, int, int, int], border: int) -> tuple[int, int, 
     return left + border, top + border, right - border, bottom - border
 
 
-def maximised_bounds(work: tuple[int, int, int, int], monitor: tuple[int, int, int, int],
-                     border: int) -> tuple[int, int, int, int]:
-    """MINMAXINFO's ptMaxPosition and ptMaxSize, as (x, y, width, height)
-    relative to the monitor, for a window whose maximised page fills the
+def maximised_rect(work: tuple[int, int, int, int], border: int) -> tuple[int, int, int, int]:
+    """The screen rectangle of a maximised window whose page fills the
     monitor's work area exactly. The window reaches past the work area by the
     resize border on every side, as a framed window does, because
     WM_NCCALCSIZE takes that border back off a maximised window, so the page
     never covers the taskbar and loses no pixels at the screen's edges."""
-    left, top, right, bottom = work
-    return (left - monitor[0] - border, top - monitor[1] - border,
-            right - left + 2 * border, bottom - top + 2 * border)
+    return inset_rect(work, -border)
 
 
 def hit_test(x: int, y: int, rect: tuple[int, int, int, int], border: int, zoomed: bool) -> int:
@@ -1089,9 +1087,9 @@ def install_native_frame(hwnd: int) -> bool:
     import ctypes
     from ctypes import wintypes
 
-    class MINMAXINFO(ctypes.Structure):
-        _fields_ = [("ptReserved", wintypes.POINT), ("ptMaxSize", wintypes.POINT), ("ptMaxPosition", wintypes.POINT),
-                    ("ptMinTrackSize", wintypes.POINT), ("ptMaxTrackSize", wintypes.POINT)]
+    class WINDOWPOS(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("hwndInsertAfter", wintypes.HWND), ("x", ctypes.c_int), ("y", ctypes.c_int),
+                    ("cx", ctypes.c_int), ("cy", ctypes.c_int), ("flags", wintypes.UINT)]
 
     class MONITORINFO(ctypes.Structure):
         _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
@@ -1115,7 +1113,7 @@ def install_native_frame(hwnd: int) -> bool:
     user32.CallWindowProcW.restype = wintypes.LPARAM
     user32.IsZoomed.argtypes = [wintypes.HWND]
     user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-    user32.MonitorFromWindow.argtypes, user32.MonitorFromWindow.restype = [wintypes.HWND, wintypes.DWORD], wintypes.HMONITOR
+    user32.MonitorFromRect.argtypes, user32.MonitorFromRect.restype = [ctypes.POINTER(wintypes.RECT), wintypes.DWORD], wintypes.HMONITOR
     user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
     user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                     ctypes.c_int, wintypes.UINT]
@@ -1146,17 +1144,20 @@ def install_native_frame(hwnd: int) -> bool:
                     zone = hit_test(*point_from_lparam(lparam), as_tuple(rect), border(handle), bool(user32.IsZoomed(handle)))
                     if zone not in (HTCLIENT, HTNOWHERE):
                         return zone
-            elif message == WM_GETMINMAXINFO:
-                # WinForms fills in the minimum size first; only the maximised bounds change.
-                user32.CallWindowProcW(previous, handle, message, wparam, lparam)
-                monitor = user32.MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST)
-                info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
-                if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
-                    x, y, width, height = maximised_bounds(as_tuple(info.rcWork), as_tuple(info.rcMonitor), border(handle))
-                    limits = MINMAXINFO.from_address(lparam)
-                    limits.ptMaxPosition = wintypes.POINT(x, y)
-                    limits.ptMaxSize = wintypes.POINT(width, height)
-                return 0
+            elif message == WM_WINDOWPOSCHANGING and user32.IsZoomed(handle):
+                # Windows reads MINMAXINFO's maximised size as the primary monitor's and grows it on any larger
+                # monitor, so the final rectangle is set here, once WinForms and Windows have applied their limits.
+                result = user32.CallWindowProcW(previous, handle, message, wparam, lparam)
+                pos = WINDOWPOS.from_address(lparam)
+                if not pos.flags & SWP_NOSIZE:
+                    proposed = wintypes.RECT(pos.x, pos.y, pos.x + pos.cx, pos.y + pos.cy)
+                    monitor = user32.MonitorFromRect(ctypes.byref(proposed), MONITOR_DEFAULTTONEAREST)
+                    info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+                    if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                        left, top, right, bottom = maximised_rect(as_tuple(info.rcWork), border(handle))
+                        pos.x, pos.y, pos.cx, pos.cy = left, top, right - left, bottom - top
+                        pos.flags &= ~SWP_NOMOVE
+                return result
             elif message == WM_STYLECHANGING and wparam & 0xFFFFFFFF == GWL_STYLE & 0xFFFFFFFF:
                 # WinForms rebuilds a borderless form's styles whenever it updates them, so they are kept here.
                 result = user32.CallWindowProcW(previous, handle, message, wparam, lparam)

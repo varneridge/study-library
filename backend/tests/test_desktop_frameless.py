@@ -223,22 +223,67 @@ def test_open_frameless_declines_off_windows(monkeypatch, tmp_path):
 
 # The native frame: maximised bounds, hit-test zones and mouse coordinates.
 
-@pytest.mark.parametrize("monitor, work", [
-    ((0, 0, 1920, 1080), (0, 0, 1920, 1040)),          # taskbar along the bottom
-    ((0, 0, 2560, 1440), (0, 48, 2560, 1440)),         # taskbar along the top
-    ((-1920, 0, 0, 1080), (-1872, 0, 0, 1080)),        # a monitor to the left, taskbar on its left
-    ((1920, -300, 3840, 780), (1920, -300, 3840, 780)),  # a monitor above and right, with no taskbar
+@pytest.mark.parametrize("work", [
+    (0, 0, 1920, 1040),          # taskbar along the bottom
+    (0, 48, 2560, 1440),         # taskbar along the top
+    (-1872, 0, 0, 1080),         # a monitor to the left, taskbar on its left
+    (1920, -300, 3840, 780),     # a monitor above and right, with no taskbar
+    (1920, 0, 4480, 1392),       # a monitor larger than the primary one, which MINMAXINFO got wrong
 ])
-def test_maximised_window_fills_the_work_area_and_never_the_taskbar(monitor, work):
+def test_maximised_window_fills_the_work_area_and_never_the_taskbar(work):
     border = 8
-    x, y, width, height = desktop.maximised_bounds(work, monitor, border)
-    window = (monitor[0] + x, monitor[1] + y, monitor[0] + x + width, monitor[1] + y + height)
+    window = desktop.maximised_rect(work, border)
+    assert window == (work[0] - 8, work[1] - 8, work[2] + 8, work[3] + 8)
     # WM_NCCALCSIZE insets a maximised window by the border, which leaves the work area exactly.
     assert desktop.inset_rect(window, border) == work
 
 
-def test_maximised_bounds_reach_past_the_work_area_by_the_border_alone():
-    assert desktop.maximised_bounds((0, 0, 1920, 1040), (0, 0, 1920, 1080), 8) == (-8, -8, 1936, 1056)
+@pytest.mark.skipif(not desktop.WINDOWS, reason="needs a real Windows desktop")
+def test_a_maximised_native_frame_fills_the_work_area_of_every_monitor():
+    """Maximises a real window with the native frame on each monitor in turn.
+    Before the fix this failed on any monitor larger than the primary one,
+    because Windows grew MINMAXINFO's size there by the difference; it passes
+    either way on a single monitor. Messages are delivered on this thread, so
+    no message loop is needed."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32")
+    user32.CreateWindowExW.restype = wintypes.HWND
+    user32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD] + [ctypes.c_int] * 4 + [
+        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID]
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.POINTER(wintypes.RECT), wintypes.UINT]
+    user32.DestroyWindow.argtypes = [wintypes.HWND]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+    works: list[tuple[int, int, int, int]] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+    def visit(monitor, _dc, _rect, _param):
+        info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+        user32.GetMonitorInfoW(monitor, ctypes.byref(info))
+        works.append((info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom))
+        return True
+
+    user32.EnumDisplayMonitors(None, None, visit, 0)
+    hwnd = user32.CreateWindowExW(0, "STATIC", "maximise test", 0x80000000, 100, 100, 400, 300, None, None, None, None)  # WS_POPUP
+    assert hwnd and desktop.install_native_frame(hwnd)
+    try:
+        for work in works:
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetWindowPos(hwnd, None, work[0] + 50, work[1] + 50, 400, 300, 0x0004 | 0x0010)  # NOZORDER, NOACTIVATE
+            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+            client = wintypes.RECT()
+            user32.GetClientRect(hwnd, ctypes.byref(client))
+            user32.MapWindowPoints(hwnd, None, ctypes.byref(client), 2)
+            assert (client.left, client.top, client.right, client.bottom) == work
+    finally:
+        user32.DestroyWindow(hwnd)
 
 
 @pytest.mark.parametrize("x, y, expected", [
