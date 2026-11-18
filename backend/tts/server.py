@@ -17,6 +17,8 @@ Env:  LISTEN_TOKEN       bearer token required when set (always set it behind a 
                          its model files are present, torch otherwise
       STUDY_MODELS_DIR   folder holding kokoro/kokoro-v1.0(.int8).onnx and
                          kokoro/voices-v1.0.bin (default: backend/tts/models)
+      STUDY_APP_VERSION  the installed desktop app's version, which study.desktop
+                         sets and /tts/v1/health reports as appVersion
 
 Wire format of POST /tts/v1/synthesise (application/x-kokoro-utterance):
   bytes 0..3   b"KTT1"
@@ -439,7 +441,11 @@ def create_app(engine: Engine | None = None, token: str | None = None, origins: 
         # server, and whether this computer has an NVIDIA card it could use.
         smi = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
         nvidia = bool(shutil.which("nvidia-smi")) or smi.is_file()
-        return {"ok": True, "modelVersion": model_version, **about, "pack": os.environ.get("SPEECH_PACK") == "1", "nvidia": nvidia}
+        # The installed desktop app's version, null when it was not started by
+        # study.desktop, so that Check for updates can compare the real install.
+        app_version = os.environ.get("STUDY_APP_VERSION") or None
+        return {"ok": True, "modelVersion": model_version, **about, "pack": os.environ.get("SPEECH_PACK") == "1", "nvidia": nvidia,
+                "appVersion": app_version}
 
     @app.get("/tts/v1/voices")
     def voices(authorization: str | None = Header(default=None)) -> list[dict]:

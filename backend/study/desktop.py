@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import csv
 import hmac
 import http.server
 import json
@@ -75,6 +76,13 @@ UPDATE_SECONDS = 6 * 60 * 60
 LOG_LIMIT = 5_000_000
 # A job may run this long after the processor is asked to stop for an update.
 STOP_GRACE_SECONDS = 2 * 60 * 60
+# An update the person asked for gives a running job far less time than that,
+# since the Worker hands an unfinished job out again, and the updater waits this
+# long for the supervisor to go before ending it and every other process itself.
+UPDATE_GRACE_SECONDS = 15
+UPDATE_CLOSE_SECONDS = 60
+# How long the window and any other process get to close before they are ended.
+UPDATE_WINDOW_SECONDS = 10
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 DETACHED_PROCESS = 0x00000008
@@ -259,6 +267,11 @@ def prepare_environment(home: Path, base: Mapping[str, str] | None = None) -> di
     pythonpath = [str(home / "repo" / "backend"), _pop(env, "PYTHONPATH") or ""]
     env["PYTHONPATH"] = os.pathsep.join(p for p in pythonpath if p)
     env["STUDY_MODELS_DIR"] = str(home / "models")
+    # The speech server reports this in /tts/v1/health, so that a page in the
+    # Edge window, which has no pywebview API, still learns the installed version.
+    _pop(env, "STUDY_APP_VERSION")
+    if version := update.installed_version():
+        env["STUDY_APP_VERSION"] = version
     return env
 
 
@@ -1065,6 +1078,12 @@ class WindowApi:
         if self._hwnd:
             begin_drag(self._hwnd)
 
+    def app_version(self) -> str | None:
+        """The installed app's version, which trails the page's own until the
+        installer replaces the app, because the page comes from the web, so
+        that Check for updates compares the version that is really installed."""
+        return update.installed_version()
+
     def open_in_browser(self, url: str) -> bool:
         """Opens an http or https address in the default browser. Any other
         scheme is refused, because the page must never start a program."""
@@ -1446,13 +1465,17 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
 
 
 def _spawn_supervisor(home: Path, handover: bool) -> None:
+    _spawn_desktop(home, "--headless", handover=handover)
+
+
+def _spawn_desktop(home: Path, *args: str, handover: bool = False) -> None:
     env = dict(os.environ)
     if handover:
         env["STUDY_HANDOVER"] = "1"
     else:
         env.pop("STUDY_HANDOVER", None)
     subprocess.Popen(
-        [_python(home, windowless=True), "-m", "study.desktop", "--headless"],
+        [_python(home, windowless=True), "-m", "study.desktop", *args],
         cwd=_workdir(home), env=env,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if WINDOWS else 0,
@@ -1475,7 +1498,13 @@ def _prepare_stop_file(home: Path) -> Path:
     return Path(home) / "prepare.stop"
 
 
-def _stop_children(home: Path, children: dict[str, _Child]) -> None:
+def _update_stop_file(home: Path) -> Path:
+    """Asks the supervisor to stop its children and exit for good, which the
+    updater writes before the installer runs, so that nothing restarts them."""
+    return Path(home) / "update.stop"
+
+
+def _stop_children(home: Path, children: dict[str, _Child], grace: float = STOP_GRACE_SECONDS) -> None:
     """Lets the processor finish its job, then stops all the children. The
     preparation worker is asked first: a paragraph it leaves half done is
     simply handed out again by the Worker."""
@@ -1483,7 +1512,7 @@ def _stop_children(home: Path, children: dict[str, _Child]) -> None:
     _stop_file(home).touch()
     processor = children["processor"].proc
     try:
-        processor.wait(STOP_GRACE_SECONDS)
+        processor.wait(grace)
     except subprocess.TimeoutExpired:
         log.warning("the processor did not stop within the grace period; ending it")
     for child in children.values():
@@ -1530,6 +1559,8 @@ def supervise(home: Path) -> int:
         return 0
     _stop_file(home).unlink(missing_ok=True)
     _prepare_stop_file(home).unlink(missing_ok=True)
+    # Left behind only by an updater that stopped half way, so it is no reason to exit.
+    _update_stop_file(home).unlink(missing_ok=True)
     stamp = settings_stamp(home)
     env = _child_environment(home)
     now = time.monotonic()
@@ -1537,6 +1568,11 @@ def supervise(home: Path) -> int:
     log.info("started the processor, the speech server and the Listen preparation worker")
     next_update = now + UPDATE_SECONDS
     while True:
+        if _update_stop_file(home).exists():
+            log.info("an update is being installed; stopping the processor and the speech server and exiting")
+            _stop_children(home, children, UPDATE_GRACE_SECONDS)
+            instance.close()
+            return 0
         if settings_stamp(home) != stamp:
             # Taken before the settings are read, so that an edit made in
             # between is noticed on the next tick instead of being lost.
@@ -1579,6 +1615,94 @@ def supervise(home: Path) -> int:
         time.sleep(5)
 
 
+def parse_tasklist(text: str, own: int) -> list[int]:
+    """The process ids in tasklist's /FO CSV /NH output, apart from own, which
+    is the updater itself. Its "INFO: No tasks" line has no id and is skipped."""
+    found: list[int] = []
+    for row in csv.reader(text.splitlines()):
+        if len(row) > 1 and row[1].strip().isdigit() and int(row[1]) != own:
+            found.append(int(row[1]))
+    return found
+
+
+def _app_processes() -> list[int]:
+    """Every other running StudyLibrary.exe: the window, the supervisor and,
+    since the packaged build relaunches itself for them, its children. Empty
+    for a source install, whose image is python.exe, shared with other programs."""
+    if not (WINDOWS and _frozen()):
+        return []
+    image = Path(sys.executable).name
+    try:
+        listed = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                                capture_output=True, text=True, timeout=30, creationflags=CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        log.warning("could not list the running Study Library processes", exc_info=True)
+        return []
+    return parse_tasklist(listed.stdout, os.getpid())
+
+
+def _end_process(pid: int, force: bool) -> None:
+    """Asks a process to close, which a window does as when the person closes
+    it, or with force ends it at once. Not /T, because the updater and the
+    installer it starts can sit in the window's own process tree."""
+    try:
+        subprocess.run(["taskkill", "/PID", str(pid), *(["/F"] if force else [])], capture_output=True,
+                       timeout=30, creationflags=CREATE_NO_WINDOW if WINDOWS else 0)
+    except (OSError, subprocess.SubprocessError):
+        log.warning("could not end process %s", pid, exc_info=True)
+
+
+def close_for_update(
+    home: Path,
+    acquire: Callable[[str, float], _Instance | None] = acquire_single_instance,
+    processes: Callable[[], list[int]] = _app_processes,
+    end: Callable[[int, bool], None] = _end_process,
+    sleep: Callable[[float], None] = time.sleep,
+    window_seconds: float = UPDATE_WINDOW_SECONDS,
+) -> None:
+    """Closes every other Study Library process before the installer swaps the
+    files. The supervisor goes first, through update.stop, because it stops its
+    own children, the speech pack's server among them, and would otherwise
+    restart any that were ended; holding its lock proves it has gone. The
+    window and anything left are then asked to close, and ended once
+    window_seconds pass."""
+    stop = _update_stop_file(home)
+    try:
+        Path(home).mkdir(parents=True, exist_ok=True)
+        stop.touch()
+        supervisor = acquire(MUTEX_NAME, UPDATE_CLOSE_SECONDS)
+        if supervisor is None:
+            log.warning("the supervisor did not stop for the update, so it is ended instead")
+        else:
+            # Released at once, so that the supervisor the installer starts can take it.
+            supervisor.close()
+    except OSError:
+        log.warning("could not ask the supervisor to stop for the update", exc_info=True)
+    finally:
+        stop.unlink(missing_ok=True)
+    left = processes()
+    for pid in left:
+        end(pid, False)
+    waited = 0.0
+    while left and waited < window_seconds:
+        sleep(0.5)
+        waited += 0.5
+        left = processes()
+    for pid in left:
+        end(pid, True)
+    if left:
+        log.info("ended %d Study Library processes that did not close for the update", len(left))
+
+
+def reopen_after_update(home: Path) -> None:
+    """Opens Study Library again, window and supervisor, when the installer
+    could not start, so that a declined update leaves the app as it was."""
+    try:
+        _spawn_desktop(home)
+    except OSError:
+        log.exception("could not reopen Study Library after the update did not start")
+
+
 def _run_connect(home: Path, link: str) -> int:
     """What the studylibrary:// link handler runs. Exits 0 once saved, 2 when
     the link or its credentials are refused, and 1 when the file cannot be written."""
@@ -1598,7 +1722,10 @@ def _run_connect(home: Path, link: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if (code := update.route(argv, _notify)) is not None:
+    # Only the Windows app installs in place, so elsewhere nothing is closed or reopened.
+    hooks = ((lambda: close_for_update(default_home()), lambda: reopen_after_update(default_home()))
+             if WINDOWS else (None, None))
+    if (code := update.route(argv, _notify, *hooks)) is not None:
         return code
     if (code := speech_pack.route(argv, default_home(), _notify)) is not None:
         return code

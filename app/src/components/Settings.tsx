@@ -17,7 +17,7 @@ import { DatePicker } from "./DatePicker";
 import { Pronunciations } from "./Pronunciations";
 import { SpeechState } from "./SpeechState";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
-import { availableUpdate, currentVersion, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, updateHref, type Release } from "../lib/update";
+import { availableUpdate, currentVersion, installedVersion, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, updateHref, type Release } from "../lib/update";
 import { SyncIcon, useSyncView } from "./icons";
 
 const APPEARANCES: { value: Appearance; label: string }[] = [
@@ -508,16 +508,33 @@ function SyncLine() {
 }
 
 // Checks GitHub for a newer release of Study Library, in a section of its own.
+// The desktop app compares its installed version, which trails the page's own
+// until the installer runs, since the page itself always comes from the web.
 function UpdateSettings({ device }: { device: DeviceKind }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [release, setRelease] = useState<Release | null>(null);
+  const [installed, setInstalled] = useState(currentVersion);
+
+  useEffect(() => {
+    if (device !== "desktop-app") return;
+    let live = true;
+    void installedVersion(true).then((version) => {
+      if (live) setInstalled(version);
+    });
+    return () => {
+      live = false;
+    };
+  }, [device]);
 
   async function check() {
     setBusy(true);
     setStatus("Checking GitHub for a newer release…");
     try {
-      const found = await availableUpdate();
+      // Asked again here, so that a check made before the first answer arrived never compares the page's version.
+      const version = await installedVersion(device === "desktop-app");
+      setInstalled(version);
+      const found = await availableUpdate(fetch, version);
       setRelease(found);
       setStatus(found ? `Study Library ${found.version} is available.` : "This is the latest version of Study Library.");
     } catch {
@@ -532,8 +549,8 @@ function UpdateSettings({ device }: { device: DeviceKind }) {
       <h2>Updates</h2>
       <p className="small muted">
         {device === "desktop-app"
-          ? `This desktop app is Study Library ${currentVersion}. Checking compares it with the latest release on GitHub.`
-          : `You are using Study Library ${currentVersion} on this device. Checking compares it with the latest release on GitHub.`}
+          ? `This desktop app is Study Library ${installed}. Checking compares it with the latest release on GitHub.`
+          : `You are using Study Library ${installed} on this device. Checking compares it with the latest release on GitHub.`}
       </p>
       <div className="settings-actions">
         <button type="button" className="button" onClick={() => void check()} disabled={busy}>
