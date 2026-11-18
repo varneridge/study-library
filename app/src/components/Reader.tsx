@@ -733,7 +733,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       const ask = (voice: string) => loadPronunciations().then((lexicon) => requestPreparation(id, voice, texts, lexicon));
       engine = new PreparedAudioEngine(engine, (voice) => void ask(voice).catch(() => {}), defaultDeps(loadPronunciations));
       void ask(DEFAULT_VOICE)
-        .then((items) => downloadPrepared(items.filter((i) => i.ready).map((i) => i.key), undefined, download.signal))
+        .then((items) => downloadPrepared(items.filter((i) => i.ready), undefined, download.signal))
         .catch(() => {});
 
       // The bar opens at once. Kokoro's voices arrive when the model has loaded,

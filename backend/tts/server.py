@@ -34,6 +34,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import struct
 import threading
 from dataclasses import dataclass, field
@@ -46,7 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from .pronounce import prepare_for_misaki
+from .pronounce import espeak_parts, join_sounds, prepare_for_misaki, sentences
 
 MAGIC = b"KTT1"
 SAMPLE_RATE = 24_000
@@ -113,6 +114,14 @@ class KokoroEngine:
 
     def device(self) -> str:
         return self._device
+
+    def describe(self) -> dict:
+        """Which engine this is, for /tts/v1/health and the preparation worker."""
+        if self._pipelines:
+            device = self._device
+        else:  # not loaded yet: the device it will choose
+            device = os.environ.get("LISTEN_DEVICE") or ("cuda" if _torch_on_cuda() else "cpu")
+        return {"engine": "torch", "device": device, "precision": "fp32", "tier": "gpu" if device == "cuda" else "cpu"}
 
     def _pipeline(self, code: str):
         if code not in self._pipelines:
@@ -216,41 +225,124 @@ class OnnxEngine:
         files = _onnx_files()
         if files is None:
             raise RuntimeError(f"Kokoro model files are missing from {_models_dir()}")
-        return Kokoro(str(files[0]), str(files[1]))
+        import onnxruntime as rt
+
+        # A graphics card when this ONNX Runtime has a provider for one (the
+        # DirectML or CUDA build), the processor otherwise.
+        available = rt.get_available_providers()
+        wanted = [p for p in GPU_PROVIDERS if p in available and os.environ.get("LISTEN_DEVICE", "") != "cpu"]
+        providers = [*wanted, "CPUExecutionProvider"]
+        session = rt.InferenceSession(str(files[0]), providers=providers)
+        OnnxEngine._provider = session.get_providers()[0]
+        return Kokoro.from_session(session, str(files[1]))
 
     def device(self) -> str:
         return "cpu"
 
+    def describe(self) -> dict:
+        files = _onnx_files()
+        precision = "int8" if files and files[0].name.endswith(".int8.onnx") else "fp32"
+        provider = getattr(self, "_provider", "CPUExecutionProvider")
+        device = "gpu" if provider in GPU_PROVIDERS else "cpu"
+        tier = "gpu" if device == "gpu" else ("cpu" if precision == "fp32" else "basic")
+        return {"engine": "onnx", "device": device, "provider": provider, "precision": precision, "tier": tier}
+
     def synthesise(self, text: str, voice: str) -> tuple[np.ndarray, list[dict]]:
+        """Each sentence is phonemised here, so words the app marked with fixed
+        sounds ("[Xiaoping](/\u0283ja\u028ap\u02c8\u026a\u014b/)") keep them: the plain stretches go through
+        kokoro-onnx's own espeak-ng front end and the whole sentence is spoken
+        from its sounds. kokoro-onnx 0.6 reports when each sound is spoken if
+        the model file has a duration output, and word times come from that;
+        otherwise they are estimated from each word's share of the sentence."""
         with self._lock:
             if self._kokoro is None:
                 self._kokoro = self.kokoro_factory()
+            kokoro = self._kokoro
             lang = "en-gb" if lang_code(voice) == "b" else "en-us"
+            tokenizer = getattr(kokoro, "tokenizer", None)
             chunks: list[np.ndarray] = []
             tokens: list[dict] = []
             offset = 0.0
-            # Speed stays 1.0, as in KokoroEngine: playback speed is the media element's job.
-            for sentence in (part.strip() for part in _SENTENCE_END.split(text)):
-                if not sentence:
+            for sentence in sentences(espeak_parts(text)):
+                written = " ".join("".join(t for t, _ in sentence).split())
+                if not written:
                     continue
-                audio, rate = self._kokoro.create(sentence, voice=voice, speed=1.0, lang=lang)
+                if tokenizer is not None:
+                    phonemes = join_sounds(sentence, lambda t: tokenizer.phonemize(t, lang))
+                    if hasattr(kokoro, "create_timed"):
+                        audio, rate, timed = kokoro.create_timed(phonemes, voice=voice, speed=1.0, lang=lang, is_phonemes=True)
+                    else:
+                        (audio, rate), timed = kokoro.create(phonemes, voice=voice, speed=1.0, lang=lang, is_phonemes=True), []
+                else:  # a test double, or a kokoro-onnx without a tokenizer: plain words only
+                    (audio, rate), timed = kokoro.create(written, voice=voice, speed=1.0, lang=lang), []
                 if int(rate) != SAMPLE_RATE:
                     raise RuntimeError(f"kokoro-onnx returned {rate} Hz audio, expected {SAMPLE_RATE}")
                 audio = np.asarray(audio, dtype=np.float32).reshape(-1)
-                tokens.extend(estimate_tokens(sentence, audio, offset))
+                words = tokens_from_timings(written, timed, offset) or estimate_tokens(written, audio, offset)
+                tokens.extend(words)
                 chunks.append(audio)
                 offset += audio.size / SAMPLE_RATE
             pcm = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
             return pcm, tokens
 
 
+# ONNX Runtime providers that run on a graphics card, best first. DirectML runs
+# on any DirectX 12 card on Windows; CUDA needs NVIDIA's libraries beside it.
+GPU_PROVIDERS = ("CUDAExecutionProvider", "DmlExecutionProvider")
+
+
+def tokens_from_timings(written: str, timed: list, offset: float) -> list[dict]:
+    """Word times from kokoro-onnx's per-sound timings, when its spoken words
+    line up one to one with the written ones; empty otherwise, so the caller
+    estimates instead (numbers, for one, are several spoken words)."""
+    if not timed:
+        return []
+    words = list(_WORD.finditer(written))
+    spans: list[list[float]] = []
+    current: list[float] | None = None
+    for t in timed:
+        ch = getattr(t, "phoneme", "")
+        if ch.isspace() or ch in ".,;:!?\u2026\u00ab\u00bb\u201c\u201d\"()-":
+            if current is not None:
+                spans.append(current)
+                current = None
+            continue
+        if current is None:
+            current = [float(t.start), float(t.end)]
+        else:
+            current[1] = float(t.end)
+    if current is not None:
+        spans.append(current)
+    if len(spans) != len(words):
+        return []
+    return [{"text": w.group(), "start": round(offset + a, 3), "end": round(offset + b, 3)} for w, (a, b) in zip(words, spans)]
+
+
+def _torch_on_cuda() -> bool:
+    """Whether the PyTorch pipeline is installed and can use an NVIDIA card,
+    as with the high-quality speech pack (desktop.py)."""
+    if importlib.util.find_spec("torch") is None or importlib.util.find_spec("kokoro") is None:
+        return False
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:  # a broken CUDA install is no reason not to speak
+        return False
+
+
 def default_engine() -> Engine:
-    """TTS_ENGINE decides when set; otherwise ONNX wherever it can run, since it
-    needs no PyTorch, and the PyTorch pipeline everywhere else."""
+    """TTS_ENGINE decides when set. Otherwise the best engine this machine can
+    run: PyTorch with misaki on an NVIDIA card, which pronounces ordinary words
+    best and gives real word timings; then kokoro-onnx with its model files,
+    on a graphics card when ONNX Runtime has one, else the processor; then
+    PyTorch on the processor."""
     choice = (os.environ.get("TTS_ENGINE") or "").strip().lower()
     if choice == "onnx":
         return OnnxEngine()
     if choice == "torch":
+        return KokoroEngine()
+    if _torch_on_cuda():
         return KokoroEngine()
     if importlib.util.find_spec("kokoro_onnx") is not None and _onnx_files() is not None:
         return OnnxEngine()
@@ -341,7 +433,13 @@ def create_app(engine: Engine | None = None, token: str | None = None, origins: 
 
     @app.get("/tts/v1/health")
     def health() -> dict:
-        return {"ok": True, "modelVersion": model_version}
+        describe = getattr(engine, "describe", None)
+        about = describe() if callable(describe) else {}
+        # For Settings: whether the high-quality speech pack is running this
+        # server, and whether this computer has an NVIDIA card it could use.
+        smi = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvidia-smi.exe"
+        nvidia = bool(shutil.which("nvidia-smi")) or smi.is_file()
+        return {"ok": True, "modelVersion": model_version, **about, "pack": os.environ.get("SPEECH_PACK") == "1", "nvidia": nvidia}
 
     @app.get("/tts/v1/voices")
     def voices(authorization: str | None = Header(default=None)) -> list[dict]:

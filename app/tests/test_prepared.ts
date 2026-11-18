@@ -1,10 +1,11 @@
 // Unit tests for prepared Listen audio on the device (prepared.ts, preparedKey.ts).
 import assert from "node:assert/strict";
-import { downloadPrepared, fitDecoded, parsePrepared, PreparedAudioEngine, preparedUrl, requestPreparation, type PreparedDeps } from "../src/lib/listen/prepared";
+import { betterTier, downloadPrepared, fitDecoded, parsePrepared, PreparedAudioEngine, preparedUrl, requestPreparation, type PreparedDeps } from "../src/lib/listen/prepared";
 import { isPreparedAudioKey, preparedAudioKey } from "../src/lib/listen/preparedKey";
 import { PRONUNCIATION_VERSION } from "../src/lib/listen/spokenText";
 import type { SynthResult, TtsEngine } from "../src/lib/listen/types";
 import fixtures from "../../shared/pronunciation-fixtures.json";
+import { describeSpeech } from "../src/components/SpeechState";
 
 type Test = (name: string, fn: () => void | Promise<void>) => void;
 
@@ -135,5 +136,38 @@ export function registerPreparedTests(test: Test): void {
     const deps: PreparedDeps = { fetch: (async () => new Response(new Uint8Array([1]))) as typeof fetch, decode: async () => new Float32Array(0), cache: async () => cache as unknown as Cache, lexicon: async () => [] };
     assert.equal(await downloadPrepared(["a", "b", "c"], deps), 3);
     assert.equal(cache.store.size, 3);
+  });
+}
+
+export function registerPreparedTierTests(test: Test): void {
+  test("prepared: audio from a lesser machine is fetched again once a graphics card has remade it", async () => {
+    assert.ok(betterTier("gpu", "cpu"));
+    assert.ok(betterTier("gpu", undefined));
+    assert.ok(!betterTier("cpu", "gpu"));
+    assert.ok(!betterTier(null, "cpu"));
+    const cache = new MemoryCache();
+    const old = frame({ sampleRate: 24000, samples: 1, voice: "bf_emma", modelVersion: "m", tier: "cpu", tokens: [] }, [1]);
+    cache.store.set(preparedUrl("k1"), old);
+    const fetched: Array<RequestInit | undefined> = [];
+    const better = frame({ sampleRate: 24000, samples: 1, voice: "bf_emma", modelVersion: "m", tier: "gpu", tokens: [] }, [2]);
+    const deps: PreparedDeps = {
+      fetch: (async (_url: string, init?: RequestInit) => { fetched.push(init); return new Response(better); }) as typeof fetch,
+      decode: async () => new Float32Array(0),
+      cache: async () => cache as unknown as Cache,
+      lexicon: async () => [],
+    };
+    await downloadPrepared([{ key: "k1", tier: "cpu" }], deps);
+    assert.equal(fetched.length, 0, "the same tier is kept");
+    await downloadPrepared([{ key: "k1", tier: "gpu" }], deps);
+    assert.equal(fetched.length, 1);
+    assert.equal(fetched[0]?.cache, "reload");
+    assert.equal(parsePrepared(cache.store.get(preparedUrl("k1"))!)!.header.tier, "gpu");
+  });
+
+  test("speech: Settings describes each engine in words", () => {
+    assert.match(describeSpeech(null), /not answering/);
+    assert.match(describeSpeech({ engine: "torch", device: "cuda" }), /graphics card.*prepares Listen audio first/);
+    assert.match(describeSpeech({ engine: "onnx", device: "cpu", precision: "fp32" }), /Standard speech on the processor/);
+    assert.match(describeSpeech({ engine: "onnx", device: "cpu", precision: "int8" }), /compressed/);
   });
 }

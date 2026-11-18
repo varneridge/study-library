@@ -23,7 +23,16 @@ export interface PreparedHeader {
   samples: number;
   voice: string;
   modelVersion: string;
+  /** The kind of machine that made it: gpu, cpu or basic. Absent in files made before tiers. */
+  tier?: string;
   tokens: TimedToken[];
+}
+
+const TIER_RANK: Record<string, number> = { basic: 0, cpu: 1, gpu: 2 };
+
+/** Whether audio made on a `have` machine should be fetched again because a `want` machine has remade it. */
+export function betterTier(want: string | null | undefined, have: string | null | undefined): boolean {
+  return (TIER_RANK[want ?? ""] ?? -1) > (TIER_RANK[have ?? ""] ?? 0);
 }
 
 export function preparedUrl(key: string): string {
@@ -87,14 +96,20 @@ export const defaultDeps = (lexicon: () => Promise<PronunciationEntry[]> = async
 });
 
 /** The bytes of a prepared file, from the device's cache or else the Worker, or null when it is not prepared yet. */
-async function preparedBytes(key: string, deps: PreparedDeps, signal?: AbortSignal): Promise<Uint8Array | null> {
+async function preparedBytes(key: string, deps: PreparedDeps, signal?: AbortSignal, tier?: string | null): Promise<Uint8Array | null> {
   const url = preparedUrl(key);
   const cache = await deps.cache();
   const hit = cache ? await cache.match(url).catch(() => undefined) : undefined;
-  if (hit) return new Uint8Array(await hit.arrayBuffer());
+  let reload = false;
+  if (hit) {
+    const bytes = new Uint8Array(await hit.arrayBuffer());
+    // A copy made on a lesser machine is replaced once a better one has remade it.
+    if (!betterTier(tier, parsePrepared(bytes)?.header.tier)) return bytes;
+    reload = true;
+  }
   let response: Response;
   try {
-    response = await deps.fetch(url, { credentials: "same-origin", signal });
+    response = await deps.fetch(url, { credentials: "same-origin", signal, ...(reload ? { cache: "reload" as RequestCache } : {}) });
   } catch {
     return null; // offline, or the Worker could not be reached: the engine reads it instead
   }
@@ -158,9 +173,9 @@ export async function requestPreparation(
   written: string[],
   lexicon: PronunciationEntry[] = [],
   doFetch: typeof fetch = (input, init) => fetch(input, init),
-): Promise<Array<{ key: string; ready: boolean }>> {
+): Promise<Array<{ key: string; ready: boolean; tier?: string | null }>> {
   const utterances = written.map((t) => annotate(t, lexicon));
-  const out: Array<{ key: string; ready: boolean }> = [];
+  const out: Array<{ key: string; ready: boolean; tier?: string | null }> = [];
   for (let i = 0; i < utterances.length; i += PREPARE_BATCH) {
     const response = await doFetch("/api/listen/prepare", {
       method: "POST",
@@ -169,19 +184,24 @@ export async function requestPreparation(
       body: JSON.stringify({ itemId, voice, utterances: utterances.slice(i, i + PREPARE_BATCH) }),
     });
     if (!response.ok) throw new Error(`Preparing audio was refused (HTTP ${response.status})`);
-    out.push(...((await response.json()) as { items: Array<{ key: string; ready: boolean }> }).items);
+    out.push(...((await response.json()) as { items: Array<{ key: string; ready: boolean; tier?: string | null }> }).items);
   }
   return out;
 }
 
 /** Keep a reading's ready paragraphs on the device, two at a time, for listening offline. */
-export async function downloadPrepared(keys: string[], deps: PreparedDeps = defaultDeps(), signal?: AbortSignal): Promise<number> {
+export async function downloadPrepared(
+  items: Array<string | { key: string; tier?: string | null }>,
+  deps: PreparedDeps = defaultDeps(),
+  signal?: AbortSignal,
+): Promise<number> {
+  const wanted = items.map((i) => (typeof i === "string" ? { key: i, tier: null } : i));
   let next = 0;
   let stored = 0;
   const lane = async () => {
-    while (next < keys.length && !signal?.aborted) {
-      const key = keys[next++];
-      if (await preparedBytes(key, deps, signal)) stored += 1;
+    while (next < wanted.length && !signal?.aborted) {
+      const { key, tier } = wanted[next++];
+      if (await preparedBytes(key, deps, signal, tier)) stored += 1;
     }
   };
   await Promise.all([lane(), lane()]);

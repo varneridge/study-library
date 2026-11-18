@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -114,3 +115,74 @@ def test_engine_sends_misaki_the_spoken_form_with_names_as_sounds():
     engine.synthesise("Deng Xiaoping, c. 1975.", "bf_emma")
     sent = [c[1] for c in calls if c[0] == "run"]
     assert sent == ["[Deng](/d\u02c8\u028c\u014b/) [Xiaoping](/\u0283jWp\u02c8\u026a\u014b/), circa 1975."]
+
+
+def _server():
+    import importlib
+
+    return importlib.import_module(KokoroEngine.__module__)
+
+
+class _Timing:
+    def __init__(self, phoneme, start, end):
+        self.phoneme, self.start, self.end = phoneme, start, end
+
+
+class _FakeTokenizer:
+    def phonemize(self, text, lang):
+        return text.strip().lower()
+
+
+class _FakeOnnx:
+    """kokoro-onnx 0.6's shape: a tokenizer, and create_timed taking phonemes."""
+
+    def __init__(self, timed=True):
+        self.tokenizer = _FakeTokenizer()
+        self.calls = []
+        self.timed = timed
+
+    def create_timed(self, phonemes, voice, speed, lang, is_phonemes):
+        self.calls.append((phonemes, is_phonemes))
+        timings = []
+        if self.timed:
+            at = 0.0
+            for ch in phonemes:
+                timings.append(_Timing(ch, at, at + 0.01))
+                at += 0.01
+        return np.zeros(2400, dtype=np.float32), 24000, timings
+
+
+def test_onnx_engine_reads_marked_words_from_their_sounds_with_real_timings():
+    OnnxEngine = _server().OnnxEngine
+
+    fake = _FakeOnnx()
+    engine = OnnxEngine(kokoro_factory=lambda: fake)
+    pcm, tokens = engine.synthesise("[Deng](/d\u02c8\u028c\u014b/) met Mao.", "bf_emma")
+    phonemes, is_phonemes = fake.calls[0]
+    assert is_phonemes and phonemes.startswith("d\u02c8\u028c\u014b met")
+    assert "[" not in phonemes and "/" not in phonemes
+    assert [t["text"] for t in tokens] == ["Deng", "met", "Mao"]
+    assert tokens[0]["start"] == 0.0 and tokens[1]["start"] > tokens[0]["end"]
+
+
+def test_onnx_engine_estimates_timings_when_words_do_not_line_up():
+    OnnxEngine = _server().OnnxEngine
+
+    fake = _FakeOnnx(timed=False)
+    pcm, tokens = OnnxEngine(kokoro_factory=lambda: fake).synthesise("In 1975 they met.", "bf_emma")
+    assert [t["text"] for t in tokens] == ["In", "1975", "they", "met"]
+
+
+def test_engines_describe_themselves_for_health_and_preparation(monkeypatch):
+    server = _server()
+
+    monkeypatch.setattr(server, "_onnx_files", lambda: (Path("kokoro-v1.0.onnx"), Path("voices-v1.0.bin")))
+    assert server.OnnxEngine(kokoro_factory=lambda: None).describe()["tier"] == "cpu"
+    monkeypatch.setattr(server, "_onnx_files", lambda: (Path("kokoro-v1.0.int8.onnx"), Path("voices-v1.0.bin")))
+    assert server.OnnxEngine(kokoro_factory=lambda: None).describe()["tier"] == "basic"
+    monkeypatch.setattr(server, "_torch_on_cuda", lambda: True)
+    assert server.KokoroEngine(pipeline_factory=lambda code: None).describe()["tier"] == "gpu"
+    assert isinstance(server.default_engine(), server.KokoroEngine), "PyTorch on CUDA is preferred"
+    monkeypatch.setattr(server, "_torch_on_cuda", lambda: False)
+    monkeypatch.setenv("TTS_ENGINE", "onnx")
+    assert isinstance(server.default_engine(), server.OnnxEngine)

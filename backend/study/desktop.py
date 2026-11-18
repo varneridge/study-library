@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from study import update
+from study import speech_pack, update
 
 log = logging.getLogger("study.desktop")
 
@@ -280,7 +280,8 @@ def settings_stamp(home: Path) -> tuple:
     """Changes whenever either settings file is created, edited or removed, so
     the supervisor can tell that its children need restarting."""
     stamp = []
-    for path in env_files(home):
+    # The speech pack's marker too, so installing or removing it restarts the speech server.
+    for path in (*env_files(home), speech_pack.folder(home) / "installed.json"):
         try:
             info = path.stat()
             stamp.append((info.st_mtime_ns, info.st_size))
@@ -635,7 +636,13 @@ TTS_APP = "tts.server:app"
 COMMANDS = {
     "processor": ["-m", "study.processor"],
     "tts": ["-m", "uvicorn", TTS_APP, "--host", "127.0.0.1", "--port", str(TTS_PORT)],
+    # Prepares Listen audio ahead of time with the speech server (backend/tts/prepare.py).
+    "prepare": ["-m", "tts.prepare"],
 }
+
+# The speech server is started from the high-quality speech pack when it is
+# installed (study/speech_pack.py), unless it failed to start this session.
+_pack_failed = False
 
 
 def _child_modules(commands: Mapping[str, list[str]]) -> tuple[str, ...]:
@@ -655,11 +662,22 @@ def _child_modules(commands: Mapping[str, list[str]]) -> tuple[str, ...]:
 CHILD_MODULES = _child_modules(COMMANDS)
 
 
+def _command(home: Path, env: Mapping[str, str], name: str) -> tuple[list[str], Path, dict[str, str]]:
+    """The command, folder and environment a child starts with. The speech
+    server comes from the high-quality speech pack when it is installed and
+    has not failed this session; everything else from this install."""
+    if name == "tts" and not _pack_failed and speech_pack.installed(home):
+        return ([str(speech_pack.python_of(home)), *COMMANDS["tts"]], speech_pack.folder(home) / "src" / "backend",
+                speech_pack.pack_environment(home, dict(env)))
+    return [_python(home), *COMMANDS[name]], _workdir(home), dict(env)
+
+
 def _start(home: Path, env: Mapping[str, str], name: str) -> subprocess.Popen:
     home = Path(home)
+    command, cwd, child_env = _command(home, env, name)
     with _log(home, f"{name}.log") as out:
         return subprocess.Popen(
-            [_python(home), *COMMANDS[name]], cwd=_workdir(home), env=dict(env),
+            command, cwd=cwd, env=child_env,
             stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP if WINDOWS else 0,
         )
@@ -669,6 +687,7 @@ def spawn_worker(home: Path, env: Mapping[str, str] | None = None) -> dict[str, 
     """Starts the processor and the speech server, each logging to its own file."""
     env = dict(prepare_environment(home) if env is None else env)
     env["PROCESSOR_STOP_FILE"] = str(_stop_file(home))
+    env["PREPARE_STOP_FILE"] = str(_prepare_stop_file(home))
     return {name: _start(home, env, name) for name in COMMANDS}
 
 
@@ -1450,8 +1469,17 @@ class _Child:
     retry_at: float | None = None
 
 
+def _prepare_stop_file(home: Path) -> Path:
+    """Asks the Listen preparation worker to stop. Its own file, because the
+    processor deletes PROCESSOR_STOP_FILE as soon as it sees it."""
+    return Path(home) / "prepare.stop"
+
+
 def _stop_children(home: Path, children: dict[str, _Child]) -> None:
-    """Lets the processor finish its job, then stops both."""
+    """Lets the processor finish its job, then stops all the children. The
+    preparation worker is asked first: a paragraph it leaves half done is
+    simply handed out again by the Worker."""
+    _prepare_stop_file(home).touch()
     _stop_file(home).touch()
     processor = children["processor"].proc
     try:
@@ -1466,6 +1494,7 @@ def _stop_children(home: Path, children: dict[str, _Child]) -> None:
             except subprocess.TimeoutExpired:
                 child.proc.kill()
     _stop_file(home).unlink(missing_ok=True)
+    _prepare_stop_file(home).unlink(missing_ok=True)
 
 
 def _apply_update(home: Path, children: dict[str, _Child]) -> bool:
@@ -1482,6 +1511,7 @@ def _apply_update(home: Path, children: dict[str, _Child]) -> bool:
 def _child_environment(home: Path) -> dict[str, str]:
     env = prepare_environment(home)
     env["PROCESSOR_STOP_FILE"] = str(_stop_file(home))
+    env["PREPARE_STOP_FILE"] = str(_prepare_stop_file(home))
     return env
 
 
@@ -1499,11 +1529,12 @@ def supervise(home: Path) -> int:
         _spawn_supervisor(home, handover=True)
         return 0
     _stop_file(home).unlink(missing_ok=True)
+    _prepare_stop_file(home).unlink(missing_ok=True)
     stamp = settings_stamp(home)
     env = _child_environment(home)
     now = time.monotonic()
     children = {name: _Child(name, _start(home, env, name), now) for name in COMMANDS}
-    log.info("started the processor and the speech server")
+    log.info("started the processor, the speech server and the Listen preparation worker")
     next_update = now + UPDATE_SECONDS
     while True:
         if settings_stamp(home) != stamp:
@@ -1524,6 +1555,13 @@ def supervise(home: Path) -> int:
                 # exits at once (a missing setting, a taken port) is retried
                 # less and less often, up to every half hour.
                 child.delay = 5.0 if now - child.started >= 60 else min(child.delay * 2, 1800.0)
+                global _pack_failed
+                if child.name == "tts" and not _pack_failed and speech_pack.installed(home) and now - child.started < 60:
+                    # The speech pack's server would not start (a driver or CUDA problem):
+                    # the installer's own speech server takes over for this session.
+                    _pack_failed = True
+                    child.delay = 5.0
+                    log.warning("the high-quality speech pack would not start; using the standard speech server")
                 child.retry_at = now + child.delay
                 log.warning("%s exited with %s; restarting in %.0f s", child.name, child.proc.returncode, child.delay)
             elif now >= child.retry_at:
@@ -1561,6 +1599,8 @@ def _run_connect(home: Path, link: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     if (code := update.route(argv, _notify)) is not None:
+        return code
+    if (code := speech_pack.route(argv, default_home(), _notify)) is not None:
         return code
     parser = argparse.ArgumentParser(prog="python -m study.desktop")
     mode = parser.add_mutually_exclusive_group()

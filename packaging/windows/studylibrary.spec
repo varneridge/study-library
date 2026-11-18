@@ -48,9 +48,17 @@ PACKAGES_TO_COLLECT = [
 # the packaged build fetches its models into the per-user home through slassets.
 # backend/tests/test_windows_desktop.py checks that every study.desktop.CHILD_MODULES
 # entry is covered either here or by PACKAGES_TO_COLLECT.
-REQUIRED_MODULES = ["tts.server"]
+REQUIRED_MODULES = ["tts.server", "tts.prepare"]
 
 datas = [(str(HERE / "manifest.json"), "."), (str(TEMPLATE), ".")]
+# The pronunciation rules' word lists, which tts.pronounce reads at run time.
+datas.append((str(ROOT / "shared" / "pinyin-lists.json"), "shared"))
+# The speech server's own source, which the high-quality speech pack runs in its
+# own Python (study/speech_pack.py), with the same layout as the repository.
+for source in sorted((BACKEND / "tts").glob("*.py")):
+    if not source.name.startswith("test_"):
+        datas.append((str(source), "speech-src/backend/tts"))
+datas.append((str(ROOT / "shared" / "pinyin-lists.json"), "speech-src/shared"))
 binaries = []
 hiddenimports = ["slruntime", "slassets", "numpy._core._exceptions"]
 for module in REQUIRED_MODULES:

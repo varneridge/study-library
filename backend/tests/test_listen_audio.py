@@ -96,3 +96,41 @@ def test_frames_round_trip():
     data, seconds = prepare_one({"key": "k", "text": "one two", "voice": VOICE}, fake_speak, fake_mp3)
     assert data[:4] == b"KTM1" and seconds == 0.2
     assert pack({"a": 1}, b"x")[8:] == b'{"a":1}x'
+
+
+def test_a_processor_only_machine_waits_while_a_graphics_card_machine_is_about(api):
+    prepare(api, ["Fresh."], item="tiers")
+    assert api.listen_claim(8, "gpu") != [], "a gpu machine claims at once, and is now known to be about"
+    prepare(api, ["Another fresh one."], item="tiers2")
+    assert api.listen_claim(8, "cpu") == [], "a cpu machine leaves it for the gpu machine for a few minutes"
+    assert [c["text"] for c in api.listen_claim(8, "gpu")] == ["Another fresh one."]
+
+
+def test_a_graphics_card_machine_remakes_audio_a_processor_made(api):
+    key = prepare(api, ["Made on the processor."], item="up")[0]["key"]
+    assert work_once(api, fake_speak, fake_mp3, tier="cpu") == 1
+    item = prepare(api, ["Made on the processor."], item="up")[0]
+    assert item["ready"] and item["tier"] == "cpu"
+    claimed = api.listen_claim(8, "gpu")
+    assert [c["key"] for c in claimed] == [key], "nothing new is waiting, so the gpu machine remakes it"
+    assert prepare(api, ["Made on the processor."], item="up")[0]["ready"], "the old audio stays playable meanwhile"
+    data, seconds = prepare_one(claimed[0], fake_speak, fake_mp3, "gpu")
+    api.listen_put(key, data, seconds, "gpu")
+    assert prepare(api, ["Made on the processor."], item="up")[0]["tier"] == "gpu"
+    assert api.listen_claim(8, "gpu") == [], "audio from a gpu machine is not remade"
+
+
+def test_audio_is_only_prepared_on_mains_power(api):
+    from tts.prepare import plugged_in
+
+    assert not plugged_in(0) and plugged_in(1) and plugged_in(255), "255, unknown, is a desktop with no battery"
+    prepare(api, ["One.", "Two.", "Three."], item="power")
+    asked = []
+
+    def unplugged_after_one():
+        asked.append(1)
+        return len(asked) == 1
+
+    assert work_once(api, fake_speak, fake_mp3, keep_going=unplugged_after_one) == 3
+    ready = [i["ready"] for i in prepare(api, ["One.", "Two.", "Three."], item="power")]
+    assert ready == [True, False, False], "the batch stopped once the computer was unplugged"

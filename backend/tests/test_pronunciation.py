@@ -82,3 +82,17 @@ def test_marks_from_the_app_keep_their_word_and_take_misaki_symbols():
         "[Xiaoping](/\u0283jWp\u02c8\u026a\u014b/), circa 1969."
     )
     assert prepare_for_misaki("[Chiang](/t\u0283\u02c8a\u014b/)") == "[Chiang](/\u02a7\u02c8a\u014b/)"
+
+
+def test_espeak_parts_keep_marks_and_mark_names_and_split_sentences():
+    from tts.pronounce import espeak_parts, join_sounds, sentences
+
+    parts = espeak_parts("On the [Ussuri](/u\u02d0s/), c. 1969. Deng Xiaoping came.")
+    assert parts[0] == ("On the ", None)
+    assert parts[1] == ("Ussuri", "u\u02d0s")
+    assert ("Deng", "d\u02c8\u028c\u014b") in parts
+    groups = sentences(parts)
+    assert len(groups) == 2
+    upper = lambda t: t.strip().upper()
+    assert join_sounds(groups[0], upper) == "ON THE u\u02d0s, CIRCA 1969."
+    assert join_sounds(groups[1], upper).endswith("CAME.")

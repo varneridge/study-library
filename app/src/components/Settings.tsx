@@ -15,6 +15,7 @@ import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
 import { Pronunciations } from "./Pronunciations";
+import { SpeechState } from "./SpeechState";
 import { useFormDraft, useUnsavedChangesGuard } from "../lib/formDraft";
 import { availableUpdate, currentVersion, INSTALLER_DOWNLOAD_URL, INSTALLER_FILE_NAME, updateHref, type Release } from "../lib/update";
 import { SyncIcon, useSyncView } from "./icons";
@@ -32,6 +33,7 @@ const SECTIONS = [
   { id: "section-pronunciations", label: "Pronunciations" },
   { id: "section-shortcuts", label: "Shortcuts" },
   { id: "section-processor", label: "Background processor" },
+  { id: "section-speech", label: "Speech on this computer" },
   { id: "section-device", label: "On this device" },
   { id: "section-bin", label: "Recently deleted" },
   { id: "section-danger", label: "Start again" },
@@ -688,7 +690,7 @@ export function Settings() {
   }, []);
 
   const isCoarse = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
-  const visibleSections = SECTIONS.filter((s) => !isCoarse || s.id !== "section-shortcuts");
+  const visibleSections = SECTIONS.filter((s) => (!isCoarse || s.id !== "section-shortcuts") && (isDesktop() || s.id !== "section-speech"));
 
   return (
     <div className="page wide">
@@ -750,6 +752,12 @@ export function Settings() {
           <section id="section-processor" className="settings-section settings-card">
             <ProcessorState />
           </section>
+
+          {isDesktop() && (
+            <section id="section-speech" className="settings-section settings-card">
+              <SpeechState />
+            </section>
+          )}
 
           <section id="section-device" className="settings-section settings-card">
             <h2>On this device</h2>

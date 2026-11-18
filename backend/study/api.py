@@ -267,12 +267,13 @@ class Api:
 
     # Prepared Listen audio, used by tts/prepare.py
 
-    def listen_claim(self, limit: int = 8) -> list[dict]:
-        return self._json("POST", "/api/processor/listen/claim", json={"limit": limit})["items"]
+    def listen_claim(self, limit: int = 8, tier: str = "cpu") -> list[dict]:
+        return self._json("POST", "/api/processor/listen/claim", json={"limit": limit, "tier": tier})["items"]
 
-    def listen_put(self, key: str, data: bytes, seconds: float) -> None:
+    def listen_put(self, key: str, data: bytes, seconds: float, tier: str = "cpu") -> None:
         self._request("PUT", f"/api/processor/listen/audio/{key}", data=data,
-                      headers={"Content-Type": "application/x-kokoro-prepared", "X-Listen-Seconds": f"{seconds:.3f}"}).close()
+                      headers={"Content-Type": "application/x-kokoro-prepared", "X-Listen-Seconds": f"{seconds:.3f}",
+                               "X-Listen-Tier": tier}).close()
 
     def listen_fail(self, key: str, error: str) -> bool:
         return self._json("POST", f"/api/processor/listen/audio/{key}/fail", json={"error": error})["final"]

@@ -270,7 +270,7 @@ def test_only_one_process_holds_the_single_instance_lock(tmp_path):
         holder.wait()
 
 
-def test_spawn_worker_starts_both_children_windowless_with_their_own_logs(tmp_path, monkeypatch):
+def test_spawn_worker_starts_every_child_windowless_with_their_own_logs(tmp_path, monkeypatch):
     from study import desktop
 
     home = _home(tmp_path)
@@ -286,6 +286,7 @@ def test_spawn_worker_starts_both_children_windowless_with_their_own_logs(tmp_pa
     assert [args[1:] for args, _ in started] == [
         ["-m", "study.processor"],
         ["-m", "uvicorn", "tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
+        ["-m", "tts.prepare"],
     ]
     for args, kwargs in started:
         assert Path(kwargs["cwd"]) == home / "repo" / "backend"
@@ -342,7 +343,7 @@ def test_the_speech_server_app_imports_from_backend_alone_as_in_the_packaged_bui
 def test_child_modules_name_what_each_child_imports_first():
     from study import desktop
 
-    assert desktop.CHILD_MODULES == ("study.processor", "uvicorn", "tts.server")
+    assert desktop.CHILD_MODULES == ("study.processor", "uvicorn", "tts.server", "tts.prepare")
     assert _uvicorn_app(desktop) == desktop.TTS_APP == "tts.server:app"
 
 
@@ -430,8 +431,9 @@ def test_the_packaged_build_starts_its_supervisor_and_children_from_home(tmp_pat
         [str(exe), "-m", "study.desktop", "--headless"],
         [str(exe), "-m", "study.processor"],
         [str(exe), "-m", "uvicorn", "tts.server:app", "--host", "127.0.0.1", "--port", "8765"],
+        [str(exe), "-m", "tts.prepare"],
     ]
-    assert [Path(kwargs["cwd"]) for _, kwargs in started] == [home, home, home]
+    assert [Path(kwargs["cwd"]) for _, kwargs in started] == [home, home, home, home]
 
 
 @pytest.fixture

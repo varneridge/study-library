@@ -134,7 +134,8 @@ Download "https://github.com/tesseract-ocr/tessdata/raw/main/osd.traineddata" (J
 Step "Kokoro speech model"
 New-Item -ItemType Directory -Force -Path $Kokoro | Out-Null
 $release = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-Download "$release/kokoro-v1.0.int8.onnx" (Join-Path $Kokoro "kokoro-v1.0.int8.onnx")
+# The full-precision model (about 310 MB), as the installer uses: the int8 one sounds worse.
+Download "$release/kokoro-v1.0.onnx" (Join-Path $Kokoro "kokoro-v1.0.onnx")
 Download "$release/voices-v1.0.bin" (Join-Path $Kokoro "voices-v1.0.bin")
 
 Step "Shortcuts"

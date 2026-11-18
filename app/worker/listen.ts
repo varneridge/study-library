@@ -24,6 +24,15 @@ const MAX_ATTEMPTS = 3;
 /** Larger than any 400-character paragraph at 48 kbps, so anything bigger is a mistake. */
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 const MAGIC = [0x4b, 0x54, 0x4d, 0x31]; // "KTM1"
+/** Kinds of machine, best first. A "basic" one (the compressed model) never prepares. */
+const TIERS = ["gpu", "cpu"] as const;
+type Tier = (typeof TIERS)[number];
+/** A processor-only machine leaves new paragraphs this long for a machine with a graphics card. */
+const CPU_WAIT_MINUTES = 3;
+/** A machine with a graphics card counts as present for this long after its last claim. */
+const GPU_PRESENT_SECONDS = 5 * 60;
+/** Audio made without a graphics card is remade for readings asked for within this many days. */
+const UPGRADE_DAYS = 7;
 
 const VOICE = /^[ab][fm]_[a-z]+$/;
 
@@ -57,11 +66,15 @@ listen.post("/prepare", async (c) => {
          requested_at = ${NOW}, item_id = excluded.item_id, position = excluded.position,
          attempts = CASE WHEN status = 'failed' THEN 0 ELSE attempts END,
          status = CASE WHEN status = 'failed' THEN 'queued' ELSE status END
-       RETURNING key, status`,
+       RETURNING key, status, tier`,
     ).bind(keys[i], voice, text, itemId, i),
   );
-  const results = await c.env.DB.batch<{ key: string; status: string }>(statements);
-  const items = results.map((r, i) => ({ key: keys[i], ready: r.results?.[0]?.status === "done" }));
+  const results = await c.env.DB.batch<{ key: string; status: string; tier: string | null }>(statements);
+  const items = results.map((r, i) => {
+    const row = r.results?.[0];
+    const ready = row?.status === "done" || row?.status === "upgrading";
+    return { key: keys[i], ready, tier: ready ? (row?.tier ?? null) : null };
+  });
   return c.json({ items });
 });
 
@@ -84,20 +97,45 @@ listen.get("/audio/:key", async (c) => {
 export const listenProcessor = new Hono<{ Bindings: Env }>();
 listenProcessor.use("*", requireProcessor);
 
-/** Hand out the next paragraphs: the reading asked for most recently, from its start. */
+/**
+ * Hand out the next paragraphs: the reading asked for most recently, from its
+ * start. A machine says what kind it is. One with a graphics card ("gpu") gets
+ * new paragraphs at once and, when none are waiting, remakes audio a
+ * processor-only machine made. A processor-only one ("cpu") gets a paragraph
+ * only once it has waited a few minutes, or at once when no machine with a
+ * graphics card has claimed lately, so the laptop stays quiet while the
+ * desktop is on but readings are still prepared when it is not.
+ */
 listenProcessor.post("/claim", async (c) => {
-  const body = await c.req.json<{ limit?: number }>().catch(() => ({}) as { limit?: number });
+  const body = await c.req.json<{ limit?: number; tier?: string }>().catch(() => ({}) as { limit?: number; tier?: string });
   const limit = Math.min(Math.max(Number(body.limit) || 8, 1), MAX_CLAIM);
-  const claimed = await c.env.DB.prepare(
-    `UPDATE listen_audio SET status = 'running', claimed_at = ${NOW}, attempts = attempts + 1
-      WHERE key IN (
-        SELECT key FROM listen_audio
-         WHERE status = 'queued'
-            OR (status = 'running' AND claimed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${LEASE_MINUTES} minutes'))
-         ORDER BY requested_at DESC, position
-         LIMIT ?1)
-      RETURNING key, voice, text, requested_at, position`,
-  ).bind(limit).all<{ key: string; voice: string; text: string; requested_at: string; position: number }>();
+  const tier: Tier = (TIERS as readonly string[]).includes(String(body.tier)) ? (body.tier as Tier) : "cpu";
+  const lease = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${LEASE_MINUTES} minutes')`;
+  let waitClause = "";
+  if (tier === "gpu") {
+    await c.env.DB.prepare(
+      `INSERT INTO counters (name, value) VALUES ('listen_gpu_seen', CAST(strftime('%s', 'now') AS INTEGER))
+       ON CONFLICT (name) DO UPDATE SET value = excluded.value`,
+    ).run();
+  } else {
+    const seen = await c.env.DB.prepare("SELECT value FROM counters WHERE name = 'listen_gpu_seen'").first<{ value: number }>();
+    const gpuPresent = !!seen && Date.now() / 1000 - seen.value < GPU_PRESENT_SECONDS;
+    if (gpuPresent) waitClause = `AND requested_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${CPU_WAIT_MINUTES} minutes')`;
+  }
+  const claim = (where: string, status: string) =>
+    c.env.DB.prepare(
+      `UPDATE listen_audio SET status = '${status}', claimed_at = ${NOW}, attempts = attempts + 1
+        WHERE key IN (SELECT key FROM listen_audio WHERE ${where} ORDER BY requested_at DESC, position LIMIT ?1)
+        RETURNING key, voice, text, requested_at, position`,
+    ).bind(limit).all<{ key: string; voice: string; text: string; requested_at: string; position: number }>();
+  let claimed = await claim(`(status = 'queued' ${waitClause}) OR (status = 'running' AND claimed_at < ${lease})`, "running");
+  if (tier === "gpu" && (claimed.results ?? []).length === 0) {
+    claimed = await claim(
+      `(status = 'done' AND tier IN ('cpu', 'basic') AND requested_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-${UPGRADE_DAYS} days'))
+        OR (status = 'upgrading' AND claimed_at < ${lease})`,
+      "upgrading",
+    );
+  }
   const rows = (claimed.results ?? []).sort((a, b) => (a.requested_at === b.requested_at ? a.position - b.position : a.requested_at < b.requested_at ? 1 : -1));
   return c.json({ items: rows.map(({ key, voice, text }) => ({ key, voice, text })) });
 });
@@ -112,18 +150,25 @@ listenProcessor.put("/audio/:key", async (c) => {
     return c.json({ error: "Not a prepared audio file." }, 400);
   }
   const seconds = Number(c.req.header("x-listen-seconds")) || null;
+  const tierHeader = c.req.header("x-listen-tier");
+  const tier = tierHeader === "gpu" || tierHeader === "cpu" || tierHeader === "basic" ? tierHeader : null;
   await c.env.BUCKET.put(objectKey(key), bytes, { httpMetadata: { contentType: "application/x-kokoro-prepared" } });
   await c.env.DB.prepare(
-    `UPDATE listen_audio SET status = 'done', done_at = ${NOW}, bytes = ?2, seconds = ?3, error = NULL WHERE key = ?1`,
-  ).bind(key, bytes.length, seconds).run();
+    `UPDATE listen_audio SET status = 'done', done_at = ${NOW}, bytes = ?2, seconds = ?3, tier = ?4, error = NULL, attempts = 0 WHERE key = ?1`,
+  ).bind(key, bytes.length, seconds, tier).run();
   return c.json({ ok: true });
 });
 
 listenProcessor.post("/audio/:key/fail", async (c) => {
   const key = c.req.param("key");
   const { error } = await c.req.json<{ error?: string }>().catch(() => ({}) as { error?: string });
-  const row = await c.env.DB.prepare("SELECT attempts FROM listen_audio WHERE key = ?1").bind(key).first<{ attempts: number }>();
+  const row = await c.env.DB.prepare("SELECT attempts, status FROM listen_audio WHERE key = ?1").bind(key).first<{ attempts: number; status: string }>();
   if (!row) return c.json({ error: "Nothing was asked for under that key." }, 404);
+  if (row.status === "upgrading") {
+    // Remaking audio failed: the audio already there stays, so it is simply done again.
+    await c.env.DB.prepare("UPDATE listen_audio SET status = 'done', claimed_at = NULL WHERE key = ?1").bind(key).run();
+    return c.json({ final: true });
+  }
   const final = row.attempts >= MAX_ATTEMPTS;
   await c.env.DB.prepare("UPDATE listen_audio SET status = ?2, error = ?3, claimed_at = NULL WHERE key = ?1")
     .bind(key, final ? "failed" : "queued", String(error ?? "").slice(0, 2000)).run();

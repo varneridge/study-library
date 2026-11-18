@@ -16,12 +16,33 @@ reader shows and highlighting is unaffected.
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
-SHARED = Path(__file__).resolve().parents[2] / "shared"
+def _shared_dir() -> Path:
+    """Where shared/pinyin-lists.json is: STUDY_SHARED_DIR when set, else the
+    repository's shared folder (a source checkout, or the speech pack, which
+    copies the same layout), else the copy the packaged build carries beside
+    its modules (packaging/windows/studylibrary.spec)."""
+    if os.environ.get("STUDY_SHARED_DIR"):
+        return Path(os.environ["STUDY_SHARED_DIR"])
+    here = Path(__file__).resolve()
+    candidates = [here.parents[2] / "shared"] if len(here.parents) > 2 else []
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        candidates.append(Path(bundle) / "shared")
+    candidates.append(here.parent / "shared")
+    for folder in candidates:
+        if (folder / "pinyin-lists.json").is_file():
+            return folder
+    return candidates[0] if candidates else here.parent / "shared"
+
+
+SHARED = _shared_dir()
 
 # Raise with PRONUNCIATION_VERSION in spokenText.ts when any rule changes.
 PRONUNCIATION_VERSION = 1
@@ -409,3 +430,78 @@ def prepare_for_misaki(text: str, british: bool = True) -> str:
         last = m.end()
     out.append(_prepare_plain(text[last:], british))
     return "".join(out)
+
+
+# ------------------------------------------------- for espeak-ng engines (ONNX)
+
+_SENTENCE_END = re.compile(r"(?<=[.!?\u2026])\s+")
+
+
+def espeak_parts(text: str) -> list[tuple[str, str | None]]:
+    """A paragraph as (written text, fixed sounds or None) pieces, for an engine
+    that phonemises with espeak-ng itself, as kokoro-onnx does. Marks from the
+    app keep their sounds, which are already espeak-ng's symbols, the text
+    between them is rewritten (spoken_text) and pinyin names are marked here."""
+    parts: list[tuple[str, str | None]] = []
+
+    def plain(stretch: str) -> None:
+        spoken, last = spoken_text(stretch), 0
+        for name in find_pinyin_names(spoken):
+            if name["start"] > last:
+                parts.append((spoken[last : name["start"]], None))
+            parts.append((name["word"], name["phonemes"]))
+            last = name["end"]
+        if last < len(spoken):
+            parts.append((spoken[last:], None))
+
+    last = 0
+    for m in LINK.finditer(text):
+        plain(text[last : m.start()])
+        parts.append((m.group(1), m.group(2)))
+        last = m.end()
+    plain(text[last:])
+    return [p for p in parts if p[0]]
+
+
+def sentences(parts: list[tuple[str, str | None]]) -> list[list[tuple[str, str | None]]]:
+    """The pieces grouped into sentences, splitting plain text where a sentence ends."""
+    out: list[list[tuple[str, str | None]]] = []
+    current: list[tuple[str, str | None]] = []
+    for text, sounds in parts:
+        if sounds is not None:
+            current.append((text, sounds))
+            continue
+        pieces = _SENTENCE_END.split(text)
+        for i, piece in enumerate(pieces):
+            if piece:
+                current.append((piece, None))
+            if i < len(pieces) - 1 and current:
+                out.append(current)
+                current = []
+    if current:
+        out.append(current)
+    return out
+
+
+def join_sounds(sentence: list[tuple[str, str | None]], phonemise) -> str:
+    """One sentence's sounds: plain pieces through `phonemise`, fixed ones as they
+    are, with a piece that touched its neighbour in the text touching it here,
+    as phonemiseMarked in annotate.ts does for the browser."""
+    out = ""
+    for text, sounds in sentence:
+        if sounds is not None:
+            if out and not out.endswith(" ") and (text[:1].isalnum()):
+                out += " " if out[-1:] not in "(\u00ab\u201c\"" else ""
+            out += sounds
+            continue
+        if not text.strip():
+            if out and not out.endswith(" "):
+                out += " "
+            continue
+        said = phonemise(text).strip()
+        if text[:1].isspace() and out and not out.endswith(" "):
+            out += " "
+        out += said
+        if text[-1:].isspace():
+            out += " "
+    return " ".join(out.split())

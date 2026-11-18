@@ -6,15 +6,28 @@
       "url": "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip",
       "sha256": "fa7d4d7e795db0e2503f49f105f46ed5852386f0cfdd819899be3b65ebde24fc",
       "strip_root": true,
-      "prune": ["bin/ffplay.exe", "doc", "presets"],
+      "prune": [
+        "bin/ffplay.exe",
+        "doc",
+        "presets"
+      ],
       "keep": [],
-      "expect": ["bin/ffmpeg.exe", "bin/ffprobe.exe"],
+      "expect": [
+        "bin/ffmpeg.exe",
+        "bin/ffprobe.exe"
+      ],
       "bin_dir": "bin",
       "exe": "ffmpeg.exe",
       "required": true,
-      "check_args": ["-hide_banner", "-version"],
+      "check_args": [
+        "-hide_banner",
+        "-version"
+      ],
       "env_dirs": {},
-      "env_exe": ["FFMPEG_BINARY", "IMAGEIO_FFMPEG_EXE"],
+      "env_exe": [
+        "FFMPEG_BINARY",
+        "IMAGEIO_FFMPEG_EXE"
+      ],
       "app_local_crt": []
     },
     {
@@ -23,15 +36,34 @@
       "url": "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe",
       "sha256": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9",
       "strip_root": false,
-      "prune": ["$PLUGINSDIR", "doc", "*.html", "*.jar", "*.exe"],
-      "keep": ["tesseract.exe"],
-      "expect": ["tesseract.exe", "libtesseract-5.dll", "tessdata/eng.traineddata", "tessdata/osd.traineddata"],
+      "prune": [
+        "$PLUGINSDIR",
+        "doc",
+        "*.html",
+        "*.jar",
+        "*.exe"
+      ],
+      "keep": [
+        "tesseract.exe"
+      ],
+      "expect": [
+        "tesseract.exe",
+        "libtesseract-5.dll",
+        "tessdata/eng.traineddata",
+        "tessdata/osd.traineddata"
+      ],
       "bin_dir": ".",
       "exe": "tesseract.exe",
       "required": true,
-      "check_args": ["--list-langs"],
-      "env_dirs": {"TESSDATA_PREFIX": "tessdata"},
-      "env_exe": ["TESSERACT_CMD"],
+      "check_args": [
+        "--list-langs"
+      ],
+      "env_dirs": {
+        "TESSDATA_PREFIX": "tessdata"
+      },
+      "env_exe": [
+        "TESSERACT_CMD"
+      ],
       "app_local_crt": []
     },
     {
@@ -40,26 +72,84 @@
       "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10040/gs10040w64.exe",
       "sha256": "7e81126cb545e62e7ce9c92b5f11390c76c6321d25b049fdaf9aa6c6fc4eac4f",
       "strip_root": false,
-      "prune": ["$PLUGINSDIR", "doc", "examples", "vcredist_x64.exe", "uninstgs.exe.nsis", "bin/*.lib"],
+      "prune": [
+        "$PLUGINSDIR",
+        "doc",
+        "examples",
+        "vcredist_x64.exe",
+        "uninstgs.exe.nsis",
+        "bin/*.lib"
+      ],
       "keep": [],
-      "expect": ["bin/gswin64c.exe", "bin/gsdll64.dll", "Resource", "lib"],
+      "expect": [
+        "bin/gswin64c.exe",
+        "bin/gsdll64.dll",
+        "Resource",
+        "lib"
+      ],
       "bin_dir": "bin",
       "exe": "gswin64c.exe",
       "required": true,
-      "check_args": ["-q", "-dNODISPLAY", "-dBATCH", "-dNOPAUSE", "-dSAFER", "-c", "quit"],
+      "check_args": [
+        "-q",
+        "-dNODISPLAY",
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dSAFER",
+        "-c",
+        "quit"
+      ],
       "env_dirs": {},
-      "env_exe": ["STUDY_GHOSTSCRIPT"],
-      "app_local_crt": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
+      "env_exe": [
+        "STUDY_GHOSTSCRIPT"
+      ],
+      "app_local_crt": [
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "msvcp140.dll"
+      ]
     },
     {
       "name": "libreoffice",
       "kind": "system",
       "exe": "soffice.exe",
       "required": false,
-      "check_args": ["--version"],
-      "search": ["%ProgramFiles%\\LibreOffice\\program", "%ProgramFiles(x86)%\\LibreOffice\\program"],
+      "check_args": [
+        "--version"
+      ],
+      "search": [
+        "%ProgramFiles%\\LibreOffice\\program",
+        "%ProgramFiles(x86)%\\LibreOffice\\program"
+      ],
       "env_dirs": {},
-      "env_exe": ["STUDY_SOFFICE"]
+      "env_exe": [
+        "STUDY_SOFFICE"
+      ]
+    },
+    {
+      "name": "uv",
+      "kind": "zip",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.5.11/uv-x86_64-pc-windows-msvc.zip",
+      "sha256": "3e8203e6434b45427f20824419f8d8d53f970a76d94ccdcad07f8498fa01a9d0",
+      "strip_root": false,
+      "prune": [
+        "uvx.exe"
+      ],
+      "keep": [],
+      "expect": [
+        "uv.exe"
+      ],
+      "bin_dir": ".",
+      "exe": "uv.exe",
+      "required": false,
+      "check_args": [
+        "--version"
+      ],
+      "env_dirs": {},
+      "env_exe": [
+        "UV_BINARY"
+      ],
+      "app_local_crt": []
     }
   ],
   "assets": [
