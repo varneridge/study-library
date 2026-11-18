@@ -10,7 +10,7 @@ import { openShortcuts, showToast, useTitle, confirmAction } from "../lib/ui";
 import { COLOURS, setSetting, useColourNames } from "../lib/settings";
 import { currentYear, defaultDates, useTermDates, type TermDates } from "../lib/term";
 import { chooseAppearance, useAppearance, type Appearance, chooseAccent, useAccent, useDark, ACCENTS } from "../lib/appearance";
-import { ago, gpuPresent, prioritiseWork, processorQuiet, useProcessorStatus, VISIBLE_WORK, waitingSummary, workRows, type ProcessorStatus, type WorkRow } from "../lib/status";
+import { ago, gpuPresent, prioritiseWork, processorQuiet, refreshProcessorStatus, useProcessorStatus, VISIBLE_WORK, waitingSummary, workRows, type ProcessorStatus, type WorkRow } from "../lib/status";
 import { shortDate } from "../lib/dates";
 import { isDesktop, needsConnecting, setNeedsConnecting, subscribeNeedsConnecting } from "../lib/shell";
 import { DatePicker } from "./DatePicker";
@@ -289,10 +289,20 @@ function MoreToggle({ hidden, expanded, controls, onToggle }: { hidden: number; 
 // scroll inside the panel so a long queue never pushes the rest of the
 // section down the page. Failed work is not listed, and with nothing in hand
 // the panel is left out, since an empty list says nothing worth reading. Work
-// waiting behind what comes next offers Send to top, one request at a time.
+// waiting behind what comes next offers Send to top, one request at a time,
+// and Refresh asks for the list now rather than at the next minute's poll.
 function WorkList({ status }: { status: ProcessorStatus | null }) {
   const [all, setAll] = useState(false);
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      if (!(await refreshProcessorStatus())) showToast("Could not refresh the work in hand. Check you are online.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const rows = useMemo(() => (status ? workRows(status) : []), [status]);
   const sendToTop = async (row: WorkRow) => {
     setSending(true);
@@ -312,7 +322,19 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
   if (status && rows.length === 0) return null;
   return (
     <div className="work-panel">
-      <h3 className="settings-subhead">Work in hand</h3>
+      <div className="work-panel-head">
+        <h3 className="settings-subhead">Work in hand</h3>
+        <button
+          type="button"
+          className="quiet work-refresh"
+          aria-label="Refresh work in hand"
+          aria-busy={refreshing}
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          Refresh
+        </button>
+      </div>
       {!status ? (
         <p className="small muted">Checking what the background computer has in hand…</p>
       ) : (

@@ -5720,6 +5720,7 @@ html.typing .cal-fab { display: none; }
 .settings-subgroup > .settings-subhead:first-child,
 .processor-status > .settings-subhead:first-child,
 .work-panel > .settings-subhead:first-child,
+.work-panel-head > .settings-subhead,
 .appearance-layout > div > .settings-subhead:first-child { margin-top: 0; }
 .settings-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-top: var(--sp-3); }
 
@@ -5819,8 +5820,10 @@ html.typing .cal-fab { display: none; }
 /* Send to top: small and muted, so the rows stay compact on a pointer, with
    the touch rule above keeping it a 44-point target; it lifts onto a hover
    tone of its own, since the panel is already the quiet button's surface. */
-.work-send { flex: none; align-self: center; min-height: 1.5rem; padding: 0 0.4rem; font-size: var(--fs-xs); }
-.work-send:hover:not(:disabled) { background: var(--surface-hover); }
+.work-send, .work-refresh { flex: none; align-self: center; min-height: 1.5rem; padding: 0 0.4rem; font-size: var(--fs-xs); }
+.work-send:hover:not(:disabled), .work-refresh:hover:not(:disabled) { background: var(--surface-hover); }
+/* Work in hand's heading, with Refresh at its far end in the same small, quiet style as Send to top. */
+.work-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
 .more-toggle { margin-top: var(--sp-1); }
 
 /* Parts that fold away: a row that lifts on hover, opening onto the same surface. */

@@ -123,14 +123,27 @@ let latest: ProcessorStatus | null = null;
 const listeners = new Set<(s: ProcessorStatus | null) => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
 
-async function check(): Promise<void> {
-  if (!navigator.onLine || document.visibilityState !== "visible") return;
+// Asks the Worker for the status and tells every list that shows it. False
+// when it could not ask or the answer was an error, such as a lapsed sign-in,
+// in which case the last answer stands rather than reading as an empty queue.
+async function check(): Promise<boolean> {
+  if (!navigator.onLine || document.visibilityState !== "visible") return false;
   try {
-    latest = parseStatus((await (await api("/api/status")).json()) as StatusBody);
+    const response = await api("/api/status");
+    if (!response.ok) return false;
+    latest = parseStatus((await response.json()) as StatusBody);
     listeners.forEach((listener) => listener(latest));
+    return true;
   } catch {
     // Offline or signed out. The last answer stands.
+    return false;
   }
+}
+
+// Asks for the status now rather than at the next minute's poll, as Refresh in
+// Settings does. True when a fresh answer arrived and every list was told.
+export function refreshProcessorStatus(): Promise<boolean> {
+  return check();
 }
 
 export function useProcessorStatus(): ProcessorStatus | null {
