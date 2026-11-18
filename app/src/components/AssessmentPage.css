@@ -978,6 +978,7 @@ button.essay-ws-doc-name:hover {
 
 .essay-ws-preview > .essay-preview-frame {
   height: var(--essay-ws-frame-h);
+  overflow: hidden;
   border-radius: var(--r-md);
   background: var(--surface);
 }
@@ -988,29 +989,9 @@ button.essay-ws-doc-name:hover {
   background: transparent;
 }
 
-/* PDF pages are drawn by PDF.js's PDFViewer inside a single scrollable frame. */
-.essay-pdfjs-frame {
-  position: relative;
-  overflow: hidden;
-}
-
-.essay-pdfjs-container {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-  padding: 0.75rem 1rem;
-}
-
-.essay-pdfjs-container .pdfViewer .page {
-  margin: 0 auto 0.75rem;
-  border: none;
-  box-shadow: 0 0 0 1px var(--rule);
-  background: #fff;
-}
-
-.essay-pdfjs-loading {
-  position: relative;
-  z-index: 1;
+.essay-preview-corner--menu-only {
+  top: 3rem;
+  right: 1rem;
 }
 
 .essay-preview-frame .pdf-slot,

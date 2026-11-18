@@ -805,25 +805,20 @@ function DocumentViewer({ file, onClose }: { file: ViewedDocument | null; onClos
 }
 
 function ViewerPages({ file }: { file: ViewedDocument }) {
-  const [failed, setFailed] = useState(false);
-  const pdf = isPdfDocument(file) && !failed;
+  const pdf = isPdfDocument(file);
 
   return (
     <div className="essay-doc-viewer-body">
       {pdf ? (
         <PdfPages
           url={file.url}
-          zoom={null}
-          fit="width"
           initialPage={file.page ? file.page - 1 : undefined}
           className="essay-doc-frame"
-          onError={() => setFailed(true)}
           fallback={<p className="small muted">Opening {file.title}, which may take a moment for a long file.</p>}
         />
       ) : (
         <p className="small muted">
-          {failed ? "This PDF could not be drawn here" : "Only PDFs can be shown inside the essay"}, so use Open in a
-          new tab to read it in the browser instead.
+          Only PDFs can be shown inside the essay, so use Open in a new tab to read it in the browser instead.
         </p>
       )}
     </div>
@@ -1611,16 +1606,13 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   onExportPdf={exportPdf}
                   onReplace={() => void replaceDocument()}
                   disabled={!hasContent && !storedPdf}
+                  menuOnly={Boolean(storedPdf)}
                 />
-                {/* A stored PDF is drawn page for page by the reader's pages, and while it opens,
-                    or without one, the Word sheet shows in the same viewport at the same zoom. */}
+                {/* A stored PDF uses the outside viewer's built-in zoom and fullscreen controls;
+                    without one, the Word sheet shows in the shared ZoomViewport. */}
                 <PdfPages
                   bytes={storedPdf}
-                  zoom={zoom}
-                  onZoomChange={changeZoom}
-                  onEffectiveScale={setScale}
                   className="essay-preview-frame"
-                  onError={(err) => console.error("Drawing the essay PDF failed", err)}
                   fallback={
                     <ZoomViewport
                       className="essay-preview-frame"

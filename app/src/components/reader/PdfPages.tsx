@@ -1,28 +1,13 @@
-// Outside PDF viewer using Mozilla PDF.js's official PDFViewer component, giving virtualised
-// page rendering, crisp HiDPI canvases, text selection, annotation links and fit-to-width inside
-// a single scrollable frame.
+// Outside PDF viewer powered by @embedpdf/react-pdf-viewer (PDFium WebAssembly), providing
+// built-in zoom, fit-width, fullscreen, search, thumbnails and text selection in one frame.
 
-import * as pdfjs from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
-import { EventBus, PDFLinkService, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
-import "pdfjs-dist/web/pdf_viewer.css";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { stepZoom } from "../../lib/zoom";
-
-// Ensure the worker is configured even if the reader route has not been opened yet.
-if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-}
+import { PDFViewer, ZoomMode, type PDFViewerConfig, type PluginRegistry } from "@embedpdf/react-pdf-viewer";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export interface PdfPagesProps {
   bytes?: Uint8Array | null;
   url?: string | null;
-  zoom: number | null;
-  fit?: "width" | "page";
   initialPage?: number;
-  onZoomChange?(zoom: number | null): void;
-  onEffectiveScale?(scale: number): void;
-  onError?(error: unknown): void;
   className?: string;
   fallback?: ReactNode;
 }
@@ -30,148 +15,75 @@ export interface PdfPagesProps {
 export function PdfPages({
   bytes,
   url,
-  zoom,
-  fit = "width",
   initialPage,
-  onZoomChange,
-  onEffectiveScale,
-  onError,
   className,
   fallback = null,
 }: PdfPagesProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const pdfViewerRef = useRef<PDFViewer | null>(null);
-  const linkServiceRef = useRef<PDFLinkService | null>(null);
-  const zoomRef = useRef(zoom);
-  const fitRef = useRef(fit);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const initialPageRef = useRef(initialPage);
-  const onZoomChangeRef = useRef(onZoomChange);
-  const onEffectiveScaleRef = useRef(onEffectiveScale);
-  const onErrorRef = useRef(onError);
-
-  zoomRef.current = zoom;
-  fitRef.current = fit;
   initialPageRef.current = initialPage;
-  onZoomChangeRef.current = onZoomChange;
-  onEffectiveScaleRef.current = onEffectiveScale;
-  onErrorRef.current = onError;
-
-  const [ready, setReady] = useState(false);
-  const [failed, setFailed] = useState(false);
 
   const data = bytes && bytes.byteLength > 0 ? bytes : null;
-  const link = data ? null : url || null;
 
-  // Initialise the PDF.js PDFViewer once on mount and tear down on unmount.
   useEffect(() => {
-    const container = containerRef.current;
-    const viewerEl = viewerRef.current;
-    if (!container || !viewerEl) return undefined;
-
-    const eventBus = new EventBus();
-    const linkService = new PDFLinkService({ eventBus });
-    const pdfViewer = new PDFViewer({
-      container,
-      viewer: viewerEl,
-      eventBus,
-      linkService,
-      removePageBorders: true,
-    });
-    linkService.setViewer(pdfViewer);
-    pdfViewerRef.current = pdfViewer;
-    linkServiceRef.current = linkService;
-
-    const applyScale = () => {
-      if (!pdfViewer.pagesCount) return;
-      const z = zoomRef.current;
-      pdfViewer.currentScaleValue = z === null ? (fitRef.current === "page" ? "page-fit" : "page-width") : String(z);
-    };
-
-    eventBus.on("pagesinit", () => {
-      applyScale();
-      const target = initialPageRef.current;
-      if (target !== undefined && target > 0 && pdfViewer.pagesCount > 0) {
-        pdfViewer.currentPageNumber = Math.min(target + 1, pdfViewer.pagesCount);
-      }
-      onEffectiveScaleRef.current?.(pdfViewer.currentScale);
-    });
-
-    eventBus.on("scalechanging", (evt: { scale: number }) => {
-      onEffectiveScaleRef.current?.(evt.scale);
-    });
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (zoomRef.current === null && pdfViewer.pagesCount > 0) {
-        applyScale();
-      }
-    });
-    resizeObserver.observe(container);
-
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      if (!onZoomChangeRef.current) return;
-      event.preventDefault();
-      onZoomChangeRef.current(stepZoom(pdfViewer.currentScale, event.deltaY < 0 ? 1 : -1));
-    };
-    container.addEventListener("wheel", onWheel, { passive: false });
-
-    return () => {
-      container.removeEventListener("wheel", onWheel);
-      resizeObserver.disconnect();
-      pdfViewer.cleanup();
-      pdfViewerRef.current = null;
-      linkServiceRef.current = null;
-    };
-  }, []);
-
-  // Load the PDF document whenever bytes or url changes.
-  useEffect(() => {
-    setReady(false);
-    setFailed(false);
-    const pdfViewer = pdfViewerRef.current;
-    if (!data && !link) {
-      pdfViewer?.setDocument(null as unknown as PDFDocumentProxy);
-      linkServiceRef.current?.setDocument(null as unknown as PDFDocumentProxy);
+    if (!data) {
+      setBlobUrl(null);
       return undefined;
     }
-
-    let live = true;
-    const task = pdfjs.getDocument(data ? { data: data.slice() } : { url: link as string });
-    task.promise
-      .then((loaded) => {
-        if (!live) return;
-        pdfViewerRef.current?.setDocument(loaded);
-        linkServiceRef.current?.setDocument(loaded);
-        setReady(true);
-      })
-      .catch((error: unknown) => {
-        if (!live) return;
-        setFailed(true);
-        onErrorRef.current?.(error);
-      });
-
+    const created = URL.createObjectURL(new Blob([data.slice()], { type: "application/pdf" }));
+    setBlobUrl(created);
     return () => {
-      live = false;
-      void task.destroy();
+      URL.revokeObjectURL(created);
     };
-  }, [data, link]);
+  }, [data]);
 
-  // Keep zoom and fit mode in sync when controlled by the parent corner bar.
-  useEffect(() => {
-    const pdfViewer = pdfViewerRef.current;
-    if (!pdfViewer || !pdfViewer.pagesCount) return;
-    pdfViewer.currentScaleValue = zoom === null ? (fit === "page" ? "page-fit" : "page-width") : String(zoom);
-  }, [zoom, fit, ready]);
+  const src = data ? blobUrl : url || null;
 
-  if (failed || (!data && !link)) return <>{fallback}</>;
+  const config = useMemo<PDFViewerConfig | null>(() => {
+    if (!src) return null;
+    return {
+      src,
+      tabBar: "never",
+      disabledCategories: ["annotation", "form", "redaction"],
+      zoom: {
+        defaultZoomLevel: ZoomMode.FitWidth,
+        minZoom: 0.5,
+        maxZoom: 2.5,
+      },
+      theme: {
+        preference: "system",
+        light: {
+          accent: {
+            primary: "#185FA5",
+            primaryHover: "#144E89",
+            primaryActive: "#103F70",
+            primaryLight: "#E6EFF8",
+            primaryForeground: "#FFFFFF",
+          },
+        },
+      },
+    };
+  }, [src]);
+
+  const handleReady = (registry: PluginRegistry) => {
+    const target = initialPageRef.current;
+    if (target === undefined || target <= 0) return;
+    const scrollPlugin = registry.getPlugin("scroll") as
+      | { provides?: () => { scrollToPage?: (opts: { pageNumber: number }) => void } | null }
+      | undefined;
+    scrollPlugin?.provides?.()?.scrollToPage?.({ pageNumber: target + 1 });
+  };
+
+  if (!config) return <>{fallback}</>;
 
   return (
-    <div className={className ? `essay-pdfjs-frame ${className}` : "essay-pdfjs-frame"}>
-      <div ref={containerRef} className="essay-pdfjs-container" tabIndex={0} aria-label="PDF preview">
-        <div ref={viewerRef} className="pdfViewer" />
-      </div>
-      {!ready && <div className="essay-pdfjs-loading">{fallback}</div>}
+    <div className={className}>
+      <PDFViewer
+        key={src}
+        config={config}
+        style={{ width: "100%", height: "100%" }}
+        onReady={handleReady}
+      />
     </div>
   );
 }
