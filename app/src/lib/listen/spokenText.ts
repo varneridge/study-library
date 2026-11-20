@@ -22,7 +22,7 @@
  * prepared audio key (preparedKey.ts), so audio made under old rules is replaced.
  * shared/pronunciation-fixtures.json records it, and both test suites check it.
  */
-export const PRONUNCIATION_VERSION = 1;
+export const PRONUNCIATION_VERSION = 2;
 
 /** Any dash a PDF may put between two numbers: hyphen, non-breaking hyphen, figure, en and em dashes, minus. */
 const ANY_DASH = "[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2212]";
@@ -31,10 +31,10 @@ const TYPESET_DASH = "[\\u2010\\u2011\\u2012\\u2013\\u2014\\u2212]";
 
 const UNITS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 const TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
-const TENS = ["", "", "twenty", "thirty"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 const UNIT_ORDINALS = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth"];
 
-/** A number from 1 to 39 in words: "twenty-three". */
+/** A number from 1 to 99 in words: "fifty-four". */
 export function cardinalWords(n: number): string {
   if (n < 10) return UNITS[n];
   if (n < 20) return TEENS[n - 10];
@@ -99,6 +99,87 @@ function readNumerals(text: string): string {
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * A year from 1100 to 2099 as it is said, or null for any other number:
+ * 1954 "nineteen fifty-four", 1905 "nineteen oh five", 2007 "two thousand and seven".
+ */
+export function yearWords(n: number): string | null {
+  if (!Number.isInteger(n) || n < 1100 || n > 2099) return null;
+  if (n === 2000) return "two thousand";
+  if (n > 2000 && n < 2010) return `two thousand and ${UNITS[n - 2000]}`;
+  const head = cardinalWords(Math.floor(n / 100));
+  const rest = n % 100;
+  if (rest === 0) return `${head} hundred`;
+  return rest < 10 ? `${head} oh ${UNITS[rest]}` : `${head} ${cardinalWords(rest)}`;
+}
+
+// Words after which four digits are a number to count or look up, not a year.
+const NOT_A_YEAR_AFTER = new Set([
+  "about", "almost", "appendix", "approximately", "article", "around", "chapter", "chapters", "figure", "figures",
+  "item", "items", "line", "lines", "nearly", "no", "nos", "note", "notes", "number", "numbers", "page", "pages",
+  "paragraph", "part", "plate", "roughly", "section", "step", "steps", "table", "verse", "volume",
+]);
+
+// Things four digits can count, so that "1500 soldiers" stays a quantity.
+const COUNTED_THINGS = new Set([
+  "casualties", "children", "civilians", "copies", "days", "deaths", "dollars", "euros", "families", "feet", "francs",
+  "houses", "kilometers", "kilometres", "men", "metres", "meters", "miles", "people", "pounds", "prisoners", "ships",
+  "soldiers", "tonnes", "tons", "troops", "victims", "villages", "votes", "women", "words", "workers", "years",
+]);
+
+/** Whether the four digits at text[start, end) stand as a year, judged by the words beside them. */
+function standsAsYear(text: string, start: number, end: number): boolean {
+  const before = /([A-Za-z]+)\s+$/.exec(text.slice(Math.max(0, start - 20), start));
+  if (before && NOT_A_YEAR_AFTER.has(before[1].toLowerCase())) return false;
+  const after = /^\s+([A-Za-z]+)/.exec(text.slice(end, end + 20));
+  return !(after && COUNTED_THINGS.has(after[1].toLowerCase()));
+}
+
+/** A hyphen between digits ("1950-12") is read as "to" by kokoro-js, so a year inside one is left as written. */
+function afterDigitHyphen(lead: string, text: string, offset: number): boolean {
+  return lead === "-" && /\d/.test(text.charAt(offset - 1));
+}
+
+const DAY = "(\\d{1,2})(?:st|nd|rd|th)?";
+const MONTH_NAMES = MONTHS.join("|");
+// What may stand before a day: not a letter, digit, point, comma or hyphen, so "3.14 June" and "14-16 June" are left alone.
+const BEFORE_DAY = "(^|[^\\w.,-])";
+const DAY_RANGE = new RegExp(`${BEFORE_DAY}${DAY}\\s+to\\s+${DAY}\\s+(${MONTH_NAMES})\\b`, "g");
+const DAY_MONTH = new RegExp(`${BEFORE_DAY}${DAY}\\s+(${MONTH_NAMES})\\b`, "g");
+const MONTH_DAY = new RegExp(`\\b(${MONTH_NAMES})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?![\\w%]|[.,]\\d|-\\d|\\s%)`, "g");
+// A decade or a year: not inside a longer number or word, not before a percent sign or a decimal.
+const DECADE = /(^|[^\w.,\u00a3$\u20ac])(\d{3}0)s(?!\w)/g;
+const YEAR = /(^|[^\w.,\u00a3$\u20ac])(\d{4})(?![\w%]|[.,]\d|-\d|\s%)/g;
+
+function validDay(n: number): boolean {
+  return n >= 1 && n <= 31;
+}
+
+/** Dates, decades and years written out as they are said. "May" is a month only beside a day number. */
+function readDates(text: string): string {
+  return text
+    .replace(DAY_RANGE, (whole: string, lead: string, first: string, last: string, month: string) =>
+      validDay(Number(first)) && validDay(Number(last))
+        ? `${lead}the ${ordinalWords(Number(first))} to the ${ordinalWords(Number(last))} of ${month}`
+        : whole)
+    .replace(DAY_MONTH, (whole: string, lead: string, day: string, month: string) =>
+      validDay(Number(day)) ? `${lead}the ${ordinalWords(Number(day))} of ${month}` : whole)
+    .replace(MONTH_DAY, (whole: string, month: string, day: string) =>
+      validDay(Number(day)) ? `${month} the ${ordinalWords(Number(day))}` : whole)
+    .replace(DECADE, (whole: string, lead: string, year: string, offset: number, all: string) => {
+      const words = yearWords(Number(year));
+      const start = offset + lead.length;
+      if (words === null || afterDigitHyphen(lead, all, offset) || !standsAsYear(all, start, start + 4)) return whole;
+      return `${lead}${words.endsWith("y") ? `${words.slice(0, -1)}ies` : `${words}s`}`;
+    })
+    .replace(YEAR, (whole: string, lead: string, year: string, offset: number, all: string) => {
+      const words = yearWords(Number(year));
+      const start = offset + lead.length;
+      if (words === null || afterDigitHyphen(lead, all, offset) || !standsAsYear(all, start, start + 4)) return whole;
+      return `${lead}${words}`;
+    });
+}
 
 type Rule = [RegExp, string | ((...groups: string[]) => string)];
 
@@ -167,5 +248,5 @@ export function spokenText(text: string): string {
   for (const [pattern, replacement] of RULES) {
     out = out.replace(pattern, replacement as (substring: string, ...args: string[]) => string);
   }
-  return readNumerals(out);
+  return readNumerals(readDates(out));
 }

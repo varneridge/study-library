@@ -45,7 +45,7 @@ def _shared_dir() -> Path:
 SHARED = _shared_dir()
 
 # Raise with PRONUNCIATION_VERSION in spokenText.ts when any rule changes.
-PRONUNCIATION_VERSION = 1
+PRONUNCIATION_VERSION = 2
 
 # ---------------------------------------------------------------- spoken text
 
@@ -54,7 +54,7 @@ TYPESET_DASH = "[\u2010\u2011\u2012\u2013\u2014\u2212]"
 
 UNITS = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
 TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
-TENS = ["", "", "twenty", "thirty"]
+TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
 UNIT_ORDINALS = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth"]
 
 
@@ -131,6 +131,103 @@ def _iso_date(m: re.Match) -> str:
     return m.group(0)
 
 
+def year_words(n: int) -> str | None:
+    """A year from 1100 to 2099 as it is said, or None for any other number."""
+    if n < 1100 or n > 2099:
+        return None
+    if n == 2000:
+        return "two thousand"
+    if 2000 < n < 2010:
+        return f"two thousand and {UNITS[n - 2000]}"
+    head = cardinal_words(n // 100)
+    rest = n % 100
+    if rest == 0:
+        return f"{head} hundred"
+    return f"{head} oh {UNITS[rest]}" if rest < 10 else f"{head} {cardinal_words(rest)}"
+
+
+NOT_A_YEAR_AFTER = {
+    "about", "almost", "appendix", "approximately", "article", "around", "chapter", "chapters", "figure", "figures",
+    "item", "items", "line", "lines", "nearly", "no", "nos", "note", "notes", "number", "numbers", "page", "pages",
+    "paragraph", "part", "plate", "roughly", "section", "step", "steps", "table", "verse", "volume",
+}
+COUNTED_THINGS = {
+    "casualties", "children", "civilians", "copies", "days", "deaths", "dollars", "euros", "families", "feet", "francs",
+    "houses", "kilometers", "kilometres", "men", "metres", "meters", "miles", "people", "pounds", "prisoners", "ships",
+    "soldiers", "tonnes", "tons", "troops", "victims", "villages", "votes", "women", "words", "workers", "years",
+}
+
+
+def _stands_as_year(text: str, start: int, end: int) -> bool:
+    before = re.search(r"([A-Za-z]+)\s+$", text[max(0, start - 20) : start])
+    if before and before.group(1).lower() in NOT_A_YEAR_AFTER:
+        return False
+    after = re.match(r"\s+([A-Za-z]+)", text[end : end + 20])
+    return not (after and after.group(1).lower() in COUNTED_THINGS)
+
+
+def _after_digit_hyphen(m: re.Match) -> bool:
+    return m.group(1) == "-" and m.start() > 0 and m.string[m.start() - 1] in "0123456789"
+
+
+def _valid_day(n: int) -> bool:
+    return 1 <= n <= 31
+
+
+_DAY = r"(\d{1,2})(?:st|nd|rd|th)?"
+_MONTH_NAMES = "|".join(MONTHS)
+_BEFORE_DAY = r"(^|[^\w.,-])"
+DAY_RANGE = re.compile(rf"{_BEFORE_DAY}{_DAY}\s+to\s+{_DAY}\s+({_MONTH_NAMES})\b", re.A)
+DAY_MONTH = re.compile(rf"{_BEFORE_DAY}{_DAY}\s+({_MONTH_NAMES})\b", re.A)
+MONTH_DAY = re.compile(rf"\b({_MONTH_NAMES})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?![\w%]|[.,]\d|-\d|\s%)", re.A)
+DECADE = re.compile(r"(^|[^\w.,\u00a3$\u20ac])(\d{3}0)s(?!\w)", re.A)
+YEAR = re.compile(r"(^|[^\w.,\u00a3$\u20ac])(\d{4})(?![\w%]|[.,]\d|-\d|\s%)", re.A)
+
+
+def _day_range(m: re.Match) -> str:
+    lead, first, last, month = m.groups()
+    if _valid_day(int(first)) and _valid_day(int(last)):
+        return f"{lead}the {ordinal_words(int(first))} to the {ordinal_words(int(last))} of {month}"
+    return m.group(0)
+
+
+def _day_month(m: re.Match) -> str:
+    lead, day, month = m.groups()
+    return f"{lead}the {ordinal_words(int(day))} of {month}" if _valid_day(int(day)) else m.group(0)
+
+
+def _month_day(m: re.Match) -> str:
+    month, day = m.groups()
+    return f"{month} the {ordinal_words(int(day))}" if _valid_day(int(day)) else m.group(0)
+
+
+def _decade(m: re.Match) -> str:
+    lead, year = m.groups()
+    words = year_words(int(year))
+    start = m.start() + len(lead)
+    if words is None or _after_digit_hyphen(m) or not _stands_as_year(m.string, start, start + 4):
+        return m.group(0)
+    return f"{lead}{words[:-1]}ies" if words.endswith("y") else f"{lead}{words}s"
+
+
+def _year(m: re.Match) -> str:
+    lead, year = m.groups()
+    words = year_words(int(year))
+    start = m.start() + len(lead)
+    if words is None or _after_digit_hyphen(m) or not _stands_as_year(m.string, start, start + 4):
+        return m.group(0)
+    return f"{lead}{words}"
+
+
+def _read_dates(text: str) -> str:
+    """Dates, decades and years written out as they are said. "May" is a month only beside a day number."""
+    out = DAY_RANGE.sub(_day_range, text)
+    out = DAY_MONTH.sub(_day_month, out)
+    out = MONTH_DAY.sub(_month_day, out)
+    out = DECADE.sub(_decade, out)
+    return YEAR.sub(_year, out)
+
+
 def _short_years(m: re.Match) -> str:
     century, year, end = m.group(1), m.group(2), m.group(3)
     return f"{century}{year} to {end}" if int(end) > int(year) else m.group(0)
@@ -181,7 +278,7 @@ def spoken_text(text: str) -> str:
     out = text
     for pattern, replacement in RULES:
         out = pattern.sub(replacement, out)
-    return NUMERAL.sub(_numeral, out)
+    return NUMERAL.sub(_numeral, _read_dates(out))
 
 
 # --------------------------------------------------------------------- pinyin

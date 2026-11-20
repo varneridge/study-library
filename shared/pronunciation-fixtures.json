@@ -1,42 +1,42 @@
 {
  "about": "Expected spoken forms for the Listen pronunciation rules. app/tests and backend/tests both check against this file, so the browser and the speech server always agree. Pinyin phonemes are in Kokoro's symbols; null means the word is not pinyin. When a rule changes, raise version here, in spokenText.ts and in pronounce.py.",
- "version": 1,
+ "version": 2,
  "spokenText": [
   [
    "from 1975\u20131980",
-   "from 1975 to 1980"
+   "from nineteen seventy-five to nineteen eighty"
   ],
   [
    "from 1975 \u2014 1980",
-   "from 1975 to 1980"
+   "from nineteen seventy-five to nineteen eighty"
   ],
   [
    "in 1950\u201353",
-   "in 1950 to 53"
+   "in nineteen fifty to 53"
   ],
   [
    "in 1950-53",
-   "in 1950 to 53"
+   "in nineteen fifty to 53"
   ],
   [
    "the 1950s\u201360s",
-   "the 1950s to 60s"
+   "the nineteen fifties to 60s"
   ],
   [
    "the 1950s\u20131960s",
-   "the 1950s to 1960s"
+   "the nineteen fifties to nineteen sixties"
   ],
   [
    "Xi (1953\u2013)",
-   "Xi (1953 onwards)"
+   "Xi (nineteen fifty-three onwards)"
   ],
   [
    "from 1949\u2013present",
-   "from 1949 to present"
+   "from nineteen forty-nine to present"
   ],
   [
    "on 2020-05-17 it",
-   "on the seventeenth of May 2020 it"
+   "on the seventeenth of May twenty twenty it"
   ],
   [
    "code 1950-12",
@@ -44,11 +44,11 @@
   ],
   [
    "c. 1945",
-   "circa 1945"
+   "circa nineteen forty-five"
   ],
   [
    "ca. 1945",
-   "circa 1945"
+   "circa nineteen forty-five"
   ],
   [
    "pp. 12\u201315",
@@ -64,7 +64,7 @@
   ],
   [
    "Mao (d. 1976)",
-   "Mao (died 1976)"
+   "Mao (died nineteen seventy-six)"
   ],
   [
    "vol. 2, ch. 3, n. 14",
@@ -160,7 +160,87 @@
   ],
   [
    "Brezhnev and Gorbachev pursued detente, perestroika and glasnost in 1985, etc.",
-   "Brezhnev and Gorbachev pursued detente, perestroika and glasnost in 1985, etc."
+   "Brezhnev and Gorbachev pursued detente, perestroika and glasnost in nineteen eighty-five, etc."
+  ],
+  [
+   "in 1954",
+   "in nineteen fifty-four"
+  ],
+  [
+   "in 1900",
+   "in nineteen hundred"
+  ],
+  [
+   "in 1905",
+   "in nineteen oh five"
+  ],
+  [
+   "in 2000",
+   "in two thousand"
+  ],
+  [
+   "in 2007",
+   "in two thousand and seven"
+  ],
+  [
+   "in 2015",
+   "in twenty fifteen"
+  ],
+  [
+   "in the 1950s",
+   "in the nineteen fifties"
+  ],
+  [
+   "14 June",
+   "the fourteenth of June"
+  ],
+  [
+   "June 14",
+   "June the fourteenth"
+  ],
+  [
+   "16 to 18 August",
+   "the sixteenth to the eighteenth of August"
+  ],
+  [
+   "16th to 18th August",
+   "the sixteenth to the eighteenth of August"
+  ],
+  [
+   "14 June 1954",
+   "the fourteenth of June nineteen fifty-four"
+  ],
+  [
+   "in May 1954",
+   "in May nineteen fifty-four"
+  ],
+  [
+   "in May",
+   "in May"
+  ],
+  [
+   "1500 soldiers",
+   "1500 soldiers"
+  ],
+  [
+   "p. 1954",
+   "page 1954"
+  ],
+  [
+   "page 1954",
+   "page 1954"
+  ],
+  [
+   "1,954",
+   "1,954"
+  ],
+  [
+   "1954.5",
+   "1954.5"
+  ],
+  [
+   "1954%",
+   "1954%"
   ]
  ],
  "pinyinPhonemes": [
