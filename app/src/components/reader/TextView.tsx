@@ -8,19 +8,20 @@ import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { atOf, fracOf, rangesFor, rectsFor, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
 import { caretAt, pressing, pressInside, SETTLE_NOW, settleDelay, whenReleased } from "../../lib/selection";
-import { selectionKey, usableRect } from "../../lib/highlightSelect";
+import { selectionKey, unionRect, type EdgesLike } from "../../lib/highlightSelect";
 import { paragraphStartFor } from "../../lib/listen/script";
+import { TAB_SHOWN_EVENT } from "../../lib/shell";
 
 // The selection bar the reader shows over a selection.
 const SELECTION_BAR = "[data-selection-bar]";
 
-// The last line box of a range, which is where the selection ends on screen.
-function lastLineRect(range: Range): DOMRect | undefined {
-  if (typeof range.getClientRects !== "function") return undefined;
-  return Array.from(range.getClientRects()).reverse().find((r) => usableRect(r));
+// The box round every usable line box of a range, which is where the selection sits on screen.
+function selectionBox(range: Range): EdgesLike | null {
+  if (typeof range.getClientRects !== "function") return null;
+  return unionRect(Array.from(range.getClientRects()));
 }
 
-export interface TextSelection { page: number; rects: number[][]; text: string; x: number; y: number }
+export interface TextSelection { page: number; rects: number[][]; text: string; box: EdgesLike }
 
 interface Mark { start: number; end: number; kind: "hl" | "find"; id?: string; colour?: string }
 
@@ -335,6 +336,8 @@ export function TextView({
   // Where the reader itself last put the text, to tell its own scrolling
   // apart from yours.
   const ours = useRef<number | null>(null);
+  // The place last reported, which a tab brought back to the front returns to.
+  const lastSpot = useRef<Spot | null>(null);
 
   // The top of a character on screen.
   const topOfChar = (node: Node, char: number) => {
@@ -454,7 +457,9 @@ export function TextView({
       const atTop = { page: Number(hit.el.dataset.p), at: Number(hit.el.dataset.o) + hit.char };
       const place = listenMode ? (paragraphStartFor(reflowed.blocks, atTop) ?? atTop) : atTop;
       const page = pageById.get(place.page);
-      onSpot({ page: place.page, at: place.at, frac: page ? Math.round(fracOf(page, place.at) * 1000) / 1000 : 0 });
+      const spot = { page: place.page, at: place.at, frac: page ? Math.round(fracOf(page, place.at) * 1000) / 1000 : 0 };
+      lastSpot.current = spot;
+      onSpot(spot);
     };
     const onScroll = () => { if (!frame) frame = requestAnimationFrame(read); };
     g.scroller.addEventListener("scroll", onScroll, { passive: true });
@@ -468,6 +473,9 @@ export function TextView({
     let last = root.current.offsetHeight;
     const observer = new ResizeObserver(() => {
       const height = root.current?.offsetHeight ?? 0;
+      // A tab hidden with display: none has no height, and moving the text by
+      // the geometry of nothing would lose the place.
+      if (height === 0) return;
       if (Math.abs(height - last) < 1) return;
       last = height;
       const a = anchor.current;
@@ -480,6 +488,20 @@ export function TextView({
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The tab's pane is hidden with display: none, which can reset this scroll
+  // box (TabBar leaves it alone, since it is marked data-own-place), so the
+  // place last reported is put back once the pane is shown and laid out again.
+  // The pane is an ancestor of the article, so the events are heard on window.
+  useEffect(() => {
+    const mine = (e: Event) => e.target instanceof Node && Boolean(root.current && e.target.contains(root.current));
+    const shown = (e: Event) => {
+      if (mine(e) && lastSpot.current) goToSpot(lastSpot.current);
+    };
+    window.addEventListener(TAB_SHOWN_EVENT, shown);
+    return () => window.removeEventListener(TAB_SHOWN_EVENT, shown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageById]);
 
   // Selecting text offers the highlight colours, as on the pages. The handler
   // is read through a ref, so a new onSelect from each render of the reader
@@ -519,10 +541,9 @@ export function TextView({
       if (!rects.length) return report(null);
       // Text that is not laid out yet has no box on screen. Waiting for the
       // next change keeps the bar where it is rather than sending it to a corner.
-      const whole = range.getBoundingClientRect();
-      const box = usableRect(whole) ? whole : lastLineRect(range);
+      const box = selectionBox(range);
       if (!box) return;
-      report({ page: a.page, rects: mergeRects(rects), text: sel.toString().replace(/\s+/g, " ").trim(), x: box.right, y: box.bottom });
+      report({ page: a.page, rects: mergeRects(rects), text: sel.toString().replace(/\s+/g, " ").trim(), box });
     };
     const later = (ms: number) => { clearTimeout(timer); timer = setTimeout(check, ms); };
     const onChange = () => later(settleDelay());

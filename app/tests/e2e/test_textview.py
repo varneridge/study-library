@@ -76,6 +76,32 @@ def article():
 
 pdf = article()
 
+
+def check_bar_clears_selection(page, label):
+    """Selects two paragraphs and checks that the selection bar covers none of their lines."""
+    page.evaluate("""() => {
+      const paras = [...document.querySelectorAll('.tv-body p:not(.note)')];
+      const first = paras[0].querySelector('[data-o]');
+      const runs = paras[1].querySelectorAll('[data-o]');
+      const last = runs[runs.length - 1];
+      const r = document.createRange();
+      r.setStart(first.firstChild, 0);
+      r.setEnd(last.firstChild, last.firstChild.length);
+      const sel = document.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }""")
+    expect(page.locator("[data-selection-bar]")).to_be_visible(timeout=5000)
+    page.wait_for_timeout(300)
+    found = page.evaluate("""() => {
+      const bar = document.querySelector('[data-selection-bar]').getBoundingClientRect();
+      const lines = [...document.getSelection().getRangeAt(0).getClientRects()].filter(x => x.width > 1 && x.height > 1);
+      const hits = lines.filter(x => !(x.right <= bar.left || x.left >= bar.right || x.bottom <= bar.top || x.top >= bar.bottom));
+      return { lines: lines.length, hits: hits.length };
+    }""")
+    print(label, "selection bar over", found["hits"], "of", found["lines"], "lines")
+    assert found["lines"] >= 3 and found["hits"] == 0, (label, found)
+    page.evaluate("document.getSelection().removeAllRanges()")
+    page.wait_for_timeout(300)
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     desk = browser.new_page(viewport={"width": 1280, "height": 900})
@@ -136,6 +162,9 @@ with sync_playwright() as p:
     print("highlight saved:", saved)
     phone.screenshot(path=f"{shots}-2-highlight.png")
 
+    # The selection bar clears every line of a selection that runs over several.
+    check_bar_clears_selection(phone, "phone:")
+
     # Bigger text.
     before = phone.evaluate("parseFloat(getComputedStyle(document.querySelector('.text-view')).fontSize)")
     phone.get_by_role("button", name="Appearance").click()
@@ -185,6 +214,7 @@ with sync_playwright() as p:
     desk.get_by_role("group", name="Layout").get_by_role("button", name="Text").click()
     expect(desk.locator(".text-view")).to_be_visible()
     desk.keyboard.press("Escape")
+    check_bar_clears_selection(desk, "laptop:")
     desk.screenshot(path=f"{shots}-3-desktop.png")
     print("page errors:", errors[:5])
     assert not errors

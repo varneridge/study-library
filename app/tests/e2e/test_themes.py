@@ -47,6 +47,9 @@ with sync_playwright() as p:
         accent_nums = accent_rgb.replace("rgb(", "").replace(")", "").strip()
         assert accent_nums in chip_ring, f"Expected pressed theme chip box-shadow ring containing accent {accent_nums}, got {chip_ring}"
         assert bg(page, "body") == want["paper"], (name, bg(page, "body"))
+        # Guard: the narrowed swatch rule still sizes the Settings swatches, about 14 px.
+        swatch = page.locator(".theme-pill .theme-swatch").first.bounding_box()
+        assert 12 <= swatch["width"] <= 16 and 12 <= swatch["height"] <= 16, f"Expected a swatch of about 14px, got {swatch}"
         page.screenshot(path=f"{shots}-{key}-1-settings.png")
 
         page.goto(BASE + "/")
@@ -66,6 +69,12 @@ with sync_playwright() as p:
 
         # Text layout too.
         page.get_by_role("button", name="Appearance").click()
+        # Guard: the panel fits without a scroll bar, and each theme button is a 44px target.
+        assert page.locator(".menu-panel.appearance").evaluate("el => el.scrollHeight <= el.clientHeight"), f"{name}: the Appearance panel scrolls"
+        sizes = page.locator(".appearance-themes .theme-swatch").evaluate_all(
+            "els => els.map(e => { const r = e.getBoundingClientRect(); return [r.width, r.height]; })"
+        )
+        assert len(sizes) == 3 and all(w >= 44 and h >= 44 for w, h in sizes), f"Expected three theme buttons of at least 44px, got {sizes}"
         # Guard: standalone tools in appearance menu retain their 1px top border.
         tool_borders = page.evaluate(
             "Array.from(document.querySelectorAll('.menu-panel.appearance .tool:not(.segmented .tool)')).map(el => window.getComputedStyle(el).borderTopWidth)"

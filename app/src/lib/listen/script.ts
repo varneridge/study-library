@@ -34,9 +34,12 @@ export function shownLineText(line: ReflowLine): string {
   return line.hyphen ? line.text.replace(LINE_END_HYPHEN, "") : line.text.replace(/\s+$/, "");
 }
 
+/** Blocks that are never read aloud, nor are they where a reading place snaps to: they are not prose. */
+const UNREAD = new Set<string>(["note", "table", "figure", "break"]);
+
 /**
  * Flatten blocks into script text. Notes are left out, as TextView leaves them
- * out (TextView.tsx:93). Lines join as TextView joins them (TextView.tsx:106):
+ * out (TextView.tsx:93), and so are tables, figures and breaks. Lines join as TextView joins them (TextView.tsx:106):
  * with a space unless the line ends in a hyphen or is glued to the next.
  * Blocks are separated by "\n", which belongs to no piece.
  */
@@ -45,7 +48,7 @@ export function flatten(blocks: ReflowBlock[]): { text: string; pieces: ScriptPi
   const pieces: ScriptPiece[] = [];
   const headings: Array<[number, number]> = [];
   for (const block of blocks) {
-    if (block.kind === "note" || block.kind === "heading" || block.lines.length === 0) continue;
+    if (UNREAD.has(block.kind) || block.kind === "heading" || block.lines.length === 0) continue;
     if (text.length > 0) text += "\n";
     const blockStart = text.length;
     block.lines.forEach((line, i) => {
@@ -233,12 +236,12 @@ export function pageToScriptNearest(script: Pick<ListenScript, "pieces">, point:
 
 /**
  * The start of the paragraph holding a page point, for the reading place, so a
- * reader who comes back starts at a paragraph rather than mid-sentence. Notes
- * are skipped as TextView skips them; null when the point is in no block.
+ * reader who comes back starts at a paragraph rather than mid-sentence. Notes,
+ * tables, figures and breaks are skipped; null when the point is in no block.
  */
 export function paragraphStartFor(blocks: ReflowBlock[], point: PagePoint): PagePoint | null {
   for (const block of blocks) {
-    if (block.kind === "note" || block.lines.length === 0) continue;
+    if (UNREAD.has(block.kind) || block.lines.length === 0) continue;
     const holds = block.lines.some((l) => l.page === point.page && point.at >= l.start && point.at < l.start + Math.max(1, l.text.length));
     if (holds) return { page: block.lines[0].page, at: block.lines[0].start };
   }

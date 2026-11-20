@@ -120,6 +120,30 @@ with sync_playwright() as p:
     print("phone closed straight after switching away:", gone, "->", back)
     assert "Page 3" in (back or "") and abs(line_no(back) - line_no(gone)) <= 1, (gone, back)
 
+    # The desktop window: leave the reading for another tab and come back, and
+    # the place, the size of the pages and the saved place are all as they were.
+    win = browser.new_page(viewport={"width": 1280, "height": 900})
+    win.on("pageerror", lambda e: errors.append(str(e)))
+    win.goto(desk.url + ("&" if "?" in desk.url else "?") + "sl=desktop")
+    win.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"1\"] .textLayer span').length > 3", timeout=20000)
+    win.wait_for_timeout(800)
+    win.evaluate("""() => { const s = [...document.querySelectorAll('.pdf-page[data-page="1"] .textLayer span')].filter(x => x.textContent.trim())[7]; s.scrollIntoView({ block: 'start' }); document.querySelector('.scroller').scrollBy(0, -12); }""")
+    win.wait_for_timeout(1800)
+    spot_script = "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const i = (j.rows.items || []).find(i => i.last_spot); return i ? JSON.stringify([i.last_spot.page, i.last_spot.frac]) : null; }"
+    width_script = "document.querySelector('.pdf-page').getBoundingClientRect().width"
+    placed = win.evaluate(TOP_TEXT)
+    width = win.evaluate(width_script)
+    spot = win.evaluate(spot_script)
+    win.keyboard.press("Control+t")
+    win.wait_for_timeout(800)
+    win.keyboard.press("Control+Tab")
+    win.wait_for_timeout(1500)
+    back = win.evaluate(TOP_TEXT)
+    print("tab switch:", placed, "->", back)
+    assert back == placed, (placed, back)
+    assert abs(win.evaluate(width_script) - width) < 1, "the pages changed size across the switch"
+    assert win.evaluate(spot_script) == spot, "the saved place changed across the switch"
+
     print("page errors:", errors[:5])
     assert not errors
     browser.close()

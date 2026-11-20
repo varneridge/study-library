@@ -171,6 +171,29 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
     assert.ok(!text.includes("footnote"));
   });
 
+  const unread: ReflowBlock[] = [
+    { kind: "para", lines: [{ page: 0, start: 0, text: "Before the table." }] },
+    { kind: "table", lines: [{ page: 0, start: 20, text: "Year" }, { page: 0, start: 25, text: "1914" }] },
+    { kind: "figure", lines: [{ page: 0, start: 40, text: "Figure 1. A map of the front." }] },
+    { kind: "break", lines: [] },
+    { kind: "break", lines: [{ page: 0, start: 60, text: "* * *" }] },
+    { kind: "para", lines: [{ page: 0, start: 70, text: "After the table." }] },
+  ];
+
+  test("listen: flatten skips tables, figures and breaks as it skips notes", () => {
+    const { text, pieces } = flatten(unread);
+    assert.equal(text, "Before the table.\nAfter the table.");
+    assert.equal(pieces.length, 2);
+    assert.ok(!text.includes("1914") && !text.includes("map") && !text.includes("*"));
+  });
+
+  test("listen: the reading place never snaps to a table, figure or break", () => {
+    assert.equal(paragraphStartFor(unread, { page: 0, at: 22 }), null); // inside the table
+    assert.equal(paragraphStartFor(unread, { page: 0, at: 45 }), null); // inside the figure caption
+    assert.equal(paragraphStartFor(unread, { page: 0, at: 61 }), null); // on the break
+    assert.deepEqual(paragraphStartFor(unread, { page: 0, at: 75 }), { page: 0, at: 70 });
+  });
+
   test("listen: script to page mapping across hyphens and page turns", () => {
     const { text, pieces } = flatten(blocks);
     const s = { pieces };

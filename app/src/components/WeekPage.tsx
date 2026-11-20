@@ -607,8 +607,9 @@ export function WeekPage({ id, folder: folderId }: { id: string; folder?: string
             Add document
           </button>
         ) : (
-          // Each reading group has its own Add button, so this one takes the
-          // files as their names say rather than asking what they are first.
+          // The one way to add readings: the files are taken as their names say
+          // rather than asking what they are first, and a reading's menu moves it
+          // to another group afterwards.
           <button
             className="button primary"
             onClick={() => {
@@ -696,10 +697,6 @@ export function WeekPage({ id, folder: folderId }: { id: string; folder?: string
               isLibrary={isLibrary(module)}
               isSyllabus={isSyllabus(week)}
               dropKind={over?.kind ?? null}
-              onAddTo={isDocumentOnly ? undefined : (kind) => {
-                addTargetRef.current = { kind, label: KIND_GROUP[kind].toLowerCase() };
-                picker.current?.click();
-              }}
             />
             {isDocumentOnly && over && !view.readings.length && !view.primaries.length && !view.summaries?.length && (
               <div className="section"><div className="readings empty-target file-target">{`Documents for ${weekCode(week)}`}</div></div>

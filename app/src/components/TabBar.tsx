@@ -16,7 +16,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
 import { sessionLabel, weekCode } from "../lib/modules";
 import { confirmLeave, href, navigate, routeOf, type Route } from "../lib/router";
-import { isFrameless, TAB_HIDDEN_EVENT, windowControls } from "../lib/shell";
+import { isFrameless, TAB_HIDDEN_EVENT, TAB_SHOWN_EVENT, windowControls } from "../lib/shell";
 import {
   activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs, tabLabel,
   type Tab, type TabState,
@@ -43,10 +43,14 @@ type Snapshot = { y: number; boxes: [Element, number, number][] };
 
 // Where the window and every scrolled box inside a pane stand, taken while the
 // pane is still shown, because a box hidden with display: none can lose its place.
+// A box marked data-own-place, with everything inside it, keeps its place itself
+// and is left out, since it is told when its tab is shown again (TAB_SHOWN_EVENT).
 function snapshot(pane: HTMLElement | undefined): Snapshot {
   const boxes: [Element, number, number][] = [];
   if (pane) {
-    const walker = document.createTreeWalker(pane, NodeFilter.SHOW_ELEMENT);
+    const walker = document.createTreeWalker(pane, NodeFilter.SHOW_ELEMENT, {
+      acceptNode: (node) => ((node as Element).hasAttribute("data-own-place") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const box = node as Element;
       if (box.scrollTop || box.scrollLeft) boxes.push([box, box.scrollTop, box.scrollLeft]);
@@ -147,6 +151,8 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
     if (shownBefore.current === state.activeId) return;
     shownBefore.current = state.activeId;
     restore(scrolls.current.get(state.activeId));
+    // Told once the tab is shown and laid out, for a page that keeps its own place.
+    panes.current.get(state.activeId)?.dispatchEvent(new CustomEvent(TAB_SHOWN_EVENT, { bubbles: true, detail: { tab: state.activeId } }));
   }, [state.activeId]);
 
   useEffect(() => {

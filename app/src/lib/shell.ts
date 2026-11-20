@@ -26,6 +26,11 @@ const LIGHT_FALLBACK = "#FCFCFB";
 // can tell whether it was its own tab from event.target.contains(itsElement).
 export const TAB_HIDDEN_EVENT = "sl:tab-hidden";
 
+// Dispatched, bubbling, on a desktop tab's pane just after it is shown again
+// and laid out, so that a page which keeps its own place, as a reading does,
+// can put itself back. It is told apart the same way as TAB_HIDDEN_EVENT.
+export const TAB_SHOWN_EVENT = "sl:tab-shown";
+
 export function detectDesktop(userAgent: string, search: string, remembered: boolean, standalone = false): boolean {
   const mark = new URLSearchParams(search).get(SHELL_PARAM);
   return (

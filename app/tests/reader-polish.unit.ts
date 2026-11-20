@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { anchorScroll, canvasScale, clampZoom, fitScale, largestPage, MAX_CANVAS_PIXELS, stepZoom, ZOOM_MAX, ZOOM_MIN } from "../src/lib/zoom";
 import { COMMENT_MAX, commentWriter, normaliseComment } from "../src/lib/highlightComments";
-import { isDuplicate, isHighlightable, normaliseBody, shortcutFor } from "../src/lib/highlightSelect";
+import { isDuplicate, isHighlightable, normaliseBody, selectionKey, shortcutFor, spaceTogglesAudio, unionRect } from "../src/lib/highlightSelect";
+import { placeSelectionBar } from "../src/components/reader/SelectionBar";
 import { reconcileShape } from "../src/lib/noteShape";
 
 let failed = 0;
@@ -151,6 +152,52 @@ test("selection shortcuts apply only when they should", () => {
   assert.equal(shortcutFor({ key: "h", ctrlKey: true }, false, true), null);
   assert.equal(shortcutFor({ key: "h" }, false, false), null);
   assert.equal(shortcutFor({ key: "Escape" }, true, true), "dismiss");
+});
+
+test("the selection box holds every usable line, not only the last", () => {
+  const lines = [
+    { left: 100, top: 100, right: 400, bottom: 118 },
+    { left: 90, top: 118, right: 410, bottom: 136 },
+    { left: 90, top: 136, right: 250, bottom: 154 },
+    // Text that is not laid out reports a box of zeros, and a broken one, NaN.
+    { left: 0, top: 0, right: 0, bottom: 0 },
+    { left: Number.NaN, top: 0, right: 10, bottom: 10 },
+  ];
+  assert.deepEqual(unionRect(lines), { left: 90, top: 100, right: 410, bottom: 154 });
+  assert.equal(unionRect([]), null);
+  assert.equal(unionRect([lines[3], lines[4]]), null);
+});
+
+test("a selection key changes when any edge of the selection box moves", () => {
+  const base = { page: 1, text: "some words", rects: [[1, 2, 3, 4]], box: { left: 10, top: 20, right: 30, bottom: 40 } };
+  assert.equal(selectionKey(base), selectionKey({ ...base, box: { ...base.box } }));
+  for (const edge of ["left", "top", "right", "bottom"] as const) {
+    assert.notEqual(selectionKey(base), selectionKey({ ...base, box: { ...base.box, [edge]: base.box[edge] + 5 } }), edge);
+  }
+});
+
+test("the selection bar clears a tall selection, above it where there is room and below it where there is not", () => {
+  const bar = { width: 300, height: 40 };
+  const desktop = { width: 1280, height: 800 };
+  const tall = { left: 200, top: 300, right: 700, bottom: 360 };
+  assert.ok(placeSelectionBar(tall, bar, desktop, false).top + bar.height <= tall.top, "above a tall selection");
+  const high = { left: 200, top: 20, right: 700, bottom: 80 };
+  assert.ok(placeSelectionBar(high, bar, desktop, false).top >= high.bottom, "below, when there is no room above");
+  assert.ok(placeSelectionBar(tall, bar, desktop, true).top >= tall.bottom, "below on a touch screen");
+  const phone = placeSelectionBar({ left: 20, top: 400, right: 370, bottom: 460 }, { width: 340, height: 40 }, { width: 390, height: 844 }, false);
+  assert.ok(phone.top + 40 <= 400, "above on a phone");
+  assert.ok(phone.left >= 8 && phone.left + 340 <= 390 - 8, "inside the phone's width");
+});
+
+test("a bare Space toggles the audio, unless it is on a button or a field or carries a modifier", () => {
+  const on = (tagName: string, extra: Record<string, unknown> = {}) => ({ key: " ", target: { tagName }, ...extra });
+  assert.ok(spaceTogglesAudio({ key: " " }));
+  assert.ok(spaceTogglesAudio(on("DIV")));
+  assert.ok(spaceTogglesAudio({ key: "Spacebar", target: { tagName: "BODY" } }));
+  for (const tag of ["BUTTON", "INPUT", "TEXTAREA", "SELECT"]) assert.ok(!spaceTogglesAudio(on(tag)), tag);
+  assert.ok(!spaceTogglesAudio({ key: " ", target: { tagName: "DIV", isContentEditable: true } }));
+  for (const modifier of ["ctrlKey", "metaKey", "altKey", "shiftKey"]) assert.ok(!spaceTogglesAudio(on("DIV", { [modifier]: true })), modifier);
+  assert.ok(!spaceTogglesAudio({ key: "Enter", target: { tagName: "DIV" } }));
 });
 
 for (const [name, fn] of queue) {

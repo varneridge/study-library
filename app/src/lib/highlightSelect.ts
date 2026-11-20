@@ -78,12 +78,25 @@ export function usableRect<T extends EdgesLike>(rect: T | null | undefined): rec
   return right - left > 0 || bottom - top > 0;
 }
 
+// The smallest box holding every usable rectangle, or null when none is usable.
+// The selection bar is placed against this, so that it clears every line of a
+// selection that runs over several, not only the last.
+export function unionRect(rects: Iterable<EdgesLike>): EdgesLike | null {
+  let box: EdgesLike | null = null;
+  for (const rect of rects) {
+    if (!usableRect(rect)) continue;
+    box = box
+      ? { left: Math.min(box.left, rect.left), top: Math.min(box.top, rect.top), right: Math.max(box.right, rect.right), bottom: Math.max(box.bottom, rect.bottom) }
+      : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }
+  return box;
+}
+
 export interface SelectionLike {
   page: number;
   text: string;
   rects: readonly (readonly number[])[];
-  x: number;
-  y: number;
+  box: EdgesLike;
 }
 
 // A key that is equal for two reports of the same selection in the same
@@ -92,5 +105,25 @@ export interface SelectionLike {
 // the reader compares keys and only reports a selection that really changed.
 export function selectionKey(s: SelectionLike): string {
   const rects = s.rects.map((r) => r.map((n) => Math.round(n * 10) / 10).join(",")).join(";");
-  return `${s.page}|${normaliseBody(s.text)}|${rects}|${Math.round(s.x)}|${Math.round(s.y)}`;
+  return `${s.page}|${normaliseBody(s.text)}|${rects}|${Math.round(s.box.left)}|${Math.round(s.box.top)}|${Math.round(s.box.right)}|${Math.round(s.box.bottom)}`;
+}
+
+export interface SpaceKeyLike {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+  target?: unknown;
+}
+
+// Whether a key press is a bare Space that should play or pause the audio: no
+// modifier, and not on a button or a field, where Space already does its own
+// work. The reader stops it there from also scrolling the reading.
+export function spaceTogglesAudio(e: SpaceKeyLike): boolean {
+  if (e.key !== " " && e.key !== "Spacebar") return false;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
+  const target = e.target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+  if (!target) return true;
+  return !(target.isContentEditable || /^(BUTTON|INPUT|TEXTAREA|SELECT)$/.test(target.tagName ?? ""));
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { usableRect } from "../../lib/highlightSelect";
+import { unionRect, usableRect, type EdgesLike } from "../../lib/highlightSelect";
 
 export interface SelectionBarColour {
   value: string;
@@ -7,8 +7,8 @@ export interface SelectionBarColour {
 }
 
 export interface SelectionBarProps {
-  // Viewport rectangle of the selection's final client rect.
-  anchor: DOMRect;
+  // Viewport box round every usable line of the selection.
+  anchor: EdgesLike;
   colours: readonly SelectionBarColour[];
   // The last used colour, persisted by the reader under "highlight-colour".
   current: string;
@@ -113,15 +113,14 @@ function dot(colour: string, size: string): CSSProperties {
   };
 }
 
-// The last line box of the live selection, which follows the text as it
-// scrolls, where the anchor passed in is fixed at the moment of selecting.
+// The box round the live selection's usable line boxes, which follows the text
+// as it scrolls, where the anchor passed in is fixed at the moment of selecting.
 function liveSelectionEdges(): Edges | null {
   const sel = typeof document !== "undefined" ? document.getSelection() : null;
   if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
   const range = sel.getRangeAt(0);
   if (typeof range.getClientRects !== "function") return null;
-  const tail = Array.from(range.getClientRects()).reverse().find((r) => usableRect(r));
-  return tail ? { left: tail.left, top: tail.top, right: tail.right, bottom: tail.bottom } : null;
+  return unionRect(Array.from(range.getClientRects()));
 }
 
 // Whether a press landed on an element's own scroll bar, which scrolls the

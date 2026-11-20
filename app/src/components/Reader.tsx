@@ -26,7 +26,8 @@ import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSele
 import { reconcile } from "../lib/readingNotes";
 import { reconcileShape } from "../lib/noteShape";
 import { commentWriter } from "../lib/highlightComments";
-import { isDuplicate, isHighlightable, shortcutFor } from "../lib/highlightSelect";
+import { isDuplicate, isHighlightable, shortcutFor, spaceTogglesAudio, unionRect, type EdgesLike } from "../lib/highlightSelect";
+import { TAB_HIDDEN_EVENT, TAB_SHOWN_EVENT } from "../lib/shell";
 import { clampZoom, stepZoom } from "../lib/zoom";
 import { SelectionBar } from "./reader/SelectionBar";
 import { db } from "../lib/db";
@@ -56,7 +57,7 @@ const MAX_SCALE = 4;
 // comfortable length on a large screen.
 const MAX_FIT_PX = 900;
 
-interface Selected { page: number; rects: number[][]; text: string; x: number; y: number }
+interface Selected { page: number; rects: number[][]; text: string; box: EdgesLike }
 
 const NO_NEEDLES: Needles = { list: [], separate: false };
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -276,7 +277,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     const element = scroller.current;
     if (!element || sizes.length === 0) return;
     const widest = crop ? crop.width : Math.max(...sizes.map((s) => s.width));
-    const measure = () => setFit(clamp(Math.min((element.clientWidth - 24) / widest, MAX_FIT_PX / widest)));
+    const measure = () => {
+      // A tab hidden with display: none measures nothing, and fitting to that
+      // would shrink the pages to the smallest size until the reading is shown again.
+      if (element.clientWidth === 0) return;
+      setFit(clamp(Math.min((element.clientWidth - 24) / widest, MAX_FIT_PX / widest)));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
@@ -354,6 +360,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const onScroll = useCallback(() => {
     const element = scroller.current;
     const container = pages.current;
+    // A hidden tab has no height, and any place read from it is not the reader's own.
+    if (element && element.clientHeight === 0) return;
     if (element) {
       const room = element.scrollHeight - element.clientHeight;
       setProgress(room > 0 ? Math.min(1, Math.max(0, element.scrollTop / room)) : 0);
@@ -439,6 +447,26 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     };
   }, [saveSpot]);
 
+  // The desktop window hides a tab with display: none and shows it again later.
+  // The place is saved as the tab goes, and in pages it is put back once the tab
+  // is shown and laid out, because TabBar leaves this reading's scroll box to it
+  // (data-own-place). The pane is an ancestor of the reading, so the events are
+  // heard on window and the pane's own is told by what it contains.
+  useEffect(() => {
+    const mine = (e: Event) => e.target instanceof Node && Boolean(scroller.current && e.target.contains(scroller.current));
+    const hidden = (e: Event) => { if (mine(e)) saveSpot(); };
+    const shown = (e: Event) => {
+      if (!mine(e) || !restored.current || layoutRef.current !== "pages" || !spotRef.current) return;
+      goToSpotPages(spotRef.current);
+    };
+    window.addEventListener(TAB_HIDDEN_EVENT, hidden);
+    window.addEventListener(TAB_SHOWN_EVENT, shown);
+    return () => {
+      window.removeEventListener(TAB_HIDDEN_EVENT, hidden);
+      window.removeEventListener(TAB_SHOWN_EVENT, shown);
+    };
+  }, [saveSpot, goToSpotPages]);
+
   // Find in the reading.
   useEffect(() => {
     if (!doc || !finding) return;
@@ -512,14 +540,13 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       const client = Array.from(range.getClientRects()).filter(
         (r) => r.width > 1 && r.height > 1 && r.bottom > box.top && r.top < box.bottom && r.right > box.left && r.left < box.right,
       );
-      if (client.length === 0) return setSelected(null);
-      const last = client[client.length - 1];
+      const around = unionRect(client);
+      if (!around) return setSelected(null);
       setSelected({
         page: index,
         rects: mergeRects(client.map((r) => toPdfRect(r, box, viewport))),
         text: selection.toString().replace(/\s+/g, " ").trim(),
-        x: last.right,
-        y: last.bottom,
+        box: around,
       });
     };
     const onChange = () => {
@@ -594,6 +621,17 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         return;
       }
       if (typing(e)) return;
+      // Space plays and pauses the audio, and the reading must not scroll as well.
+      // Only a reading in view answers, since every open tab keeps its own reader.
+      if (spaceTogglesAudio(e) && listenOpen && listenController && scroller.current?.getClientRects().length) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) {
+          if (listenController.getSnapshot().state === "playing") listenController.pause();
+          else void listenController.play();
+        }
+        return;
+      }
       // While a selection is offered, H highlights it and C highlights it and
       // opens its comment; Escape lets it go.
       const offered = selectedRef.current !== null && tool === "select";
@@ -620,7 +658,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     // Escape cannot keep the highlight tool on.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [changeZoom, openFind, closeFind, finding, goToPage, current, sizes.length, tool, listenOpen]);
+  }, [changeZoom, openFind, closeFind, finding, goToPage, current, sizes.length, tool, listenOpen, listenController]);
 
   const onArticleMount = useCallback((el: HTMLElement | null) => setArticle(el), []);
 
@@ -802,7 +840,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   }, []);
   const onTextSelect = useCallback((sel: TextSelection | null) => {
     if (!sel) { if (layoutRef.current === "text") setSelected(null); return; }
-    setSelected({ page: sel.page, rects: sel.rects, text: sel.text, x: sel.x, y: sel.y });
+    setSelected({ page: sel.page, rects: sel.rects, text: sel.text, box: sel.box });
   }, []);
   const onViewport = useCallback((index: number, viewport: PageViewport | null) => {
     if (viewport) {
@@ -1143,6 +1181,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           // The reading's fixed frame: its size comes from the layout alone,
           // and zoom changes only the pages inside it.
           data-zoom-frame=""
+          // The reading keeps its own place across a change of tab (TabBar).
+          data-own-place=""
           ref={scroller}
           onScroll={onScroll}
           onClick={() => { if (barHidden) setBarHidden(false); }}
@@ -1220,9 +1260,9 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           </div>
         </div>
       ) : (
-        // The selection's last line ends at (x, y); the bar sits just above it.
+        // The bar is placed against the whole selection, above it or below it, so it covers none of its lines.
         <SelectionBar
-          anchor={new DOMRect(selected.x - 1, selected.y - 18, 2, 18)}
+          anchor={selected.box}
           colours={COLOURS.map((c) => ({ value: c.value, label: colourLabel(c.value, names) }))}
           current={toolColour}
           onHighlight={(colour) => void createHighlight(colour)}

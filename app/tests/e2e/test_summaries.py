@@ -1,7 +1,7 @@
 """Version 0.34.0: summaries, week groups and progress.
 
 Verifies:
-1. A file added from the Summaries list's own Add row lists under 'Summaries'.
+1. A file added with 'Add files' and moved to Summaries from its row menu lists under 'Summaries', and no list has an Add row of its own.
 2. Summaries are omitted from the reading count and have no read status / read mark.
 3. Summary menu offers 'Move to Primary readings', 'Move to Secondary readings', and 'Delete summary'.
 4. Reader for summary omits 'Mark as read', 'Copy reference', and offers 'Delete summary'.
@@ -37,15 +37,23 @@ with sync_playwright() as p:
     page.locator("#week-AT1 .week-title").click()
     expect(page.get_by_role("heading", name="AT1")).to_be_visible()
 
-    # 1. Add a file as a Summary from the blank row that ends the Summaries
-    # list, since 'Add files' now takes files as their names say, with no dialog.
+    # 1. The lists have no Add rows of their own; 'Add files' is the one way to
+    # add readings, and takes files as their names say, with no dialog.
+    expect(page.get_by_role("button", name=re.compile(r"^Add (primary|secondary|summar)", re.I))).to_have_count(0)
     with page.expect_file_chooser() as fc_info:
-        page.get_by_role("button", name="Add summaries", exact=True).click()
+        page.get_by_role("button", name="Add files", exact=True).click()
     fc_info.value.set_files(files[0:1])
 
     # Wait for sync and verify summary appears under 'Summaries'
     expect(page.locator(".toast")).to_contain_text("added to AT1")
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).length === 1; }")
+
+    # Move it to Summaries from the row menu.
+    added_row = page.locator(".section[data-drop] li.reading")
+    expect(added_row).to_have_count(1)
+    added_row.get_by_role("button", name="More actions").click()
+    page.locator(".menu-panel").get_by_role("menuitem", name="More...").click()
+    page.locator(".menu-panel").get_by_role("menuitem", name="Move to Summaries").click()
 
     expect(page.locator(".section[data-drop='summary'] .group-label")).to_have_text("Summaries")
     summary_row = page.locator(".section[data-drop='summary'] li.reading")
