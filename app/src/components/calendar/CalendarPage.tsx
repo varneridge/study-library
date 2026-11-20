@@ -28,7 +28,8 @@ import { saveCalendarSettings } from "../../lib/calendarStore";
 import { db } from "../../lib/db";
 import { refreshGoogle, useGcalStatus } from "../../lib/gcal";
 import { navigate, type Route } from "../../lib/router";
-import { typing } from "../../lib/ui";
+import { typing, useCloseOnBack } from "../../lib/ui";
+import { Icon } from "../icons";
 import { AgendaView } from "./AgendaView";
 import { CalendarPanel, CalendarSidebar, type CalendarSidebarProps } from "./CalendarSidebar";
 import { CalendarToolbar } from "./CalendarToolbar";
@@ -91,6 +92,9 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
   const [calendarsOpen, setCalendarsOpen] = useState(false);
   // The day whose summary is open, from the month.
   const [dayOpen, setDayOpen] = useState<ISODate | null>(null);
+  // Back closes these state-held sheets before it leaves the page. The routed event sheet handles Back itself.
+  useCloseOnBack(Boolean(dayOpen) && !route.event, () => setDayOpen(null));
+  useCloseOnBack(calendarsOpen, () => setCalendarsOpen(false));
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
   const toggleSidebar = () => {
     const next = !sidebarOpen;
@@ -256,7 +260,7 @@ export function CalendarPage({ route }: { route: CalendarRoute }) {
 
       {phone && (
         <button type="button" className="cal-fab" aria-label="Add event" onClick={() => addOn(anchor)}>
-          <span aria-hidden="true">+</span>
+          <Icon name="add" size={20} />
         </button>
       )}
       {/* The summary steps aside while an event from it is open, and returns when that closes. */}

@@ -227,8 +227,10 @@ export async function pump(): Promise<void> {
     running += 1;
     void (async () => {
       try {
-        const key = await send(next);
-        await finish(next, key);
+        const run = async () => finish(next, await send(next));
+        // One tab at a time sends a given upload, where Web Locks exist.
+        if ("locks" in navigator) await navigator.locks.request(`upload:${next.id}`, run);
+        else await run();
       } catch (error) {
         cancelledUploadIds.delete(next.id);
         const attempts = next.attempts + 1;
@@ -248,9 +250,13 @@ export async function pump(): Promise<void> {
   }
 }
 
-// Uploads marked as uploading when the page closed go back in the queue.
+// Uploads marked as uploading when the page closed go back in the queue, but
+// not those another tab is still sending, which hold their lock.
 export async function resumeUploads(): Promise<void> {
-  await db.uploads.where("status").equals("uploading").modify({ status: "queued" });
+  const held = new Set<string | undefined>(
+    "locks" in navigator ? ((await navigator.locks.query()).held ?? []).map((l) => l.name) : [],
+  );
+  await db.uploads.where("status").equals("uploading").filter((u) => !held.has(`upload:${u.id}`)).modify({ status: "queued" });
   void pump();
 }
 

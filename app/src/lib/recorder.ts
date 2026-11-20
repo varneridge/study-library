@@ -342,6 +342,11 @@ export async function finishRecording(recordingId: string): Promise<void> {
     return;
   }
   await pumpChunks();
+  // Chunks still on the device mean pumpChunks could not send them, and it marks the recording uploaded once they have gone.
+  if (await db.chunks.where("recording_id").equals(recordingId).count()) {
+    await update("recordings", recordingId, { status: "uploading" });
+    return;
+  }
   await update("recordings", recordingId, { status: "uploaded" });
   forgetOwned(recordingId);
 }

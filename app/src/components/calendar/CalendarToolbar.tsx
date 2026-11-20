@@ -89,7 +89,7 @@ export function CalendarToolbar({
         </div>
         {isPhone
           ? onOpenCalendars && <button type="button" className="button cal-calendars" onClick={onOpenCalendars}>Calendars</button>
-          : !(sidebarOpen && onToggleSidebar) && <button type="button" className="button primary cal-add" onClick={onNewEvent}>+ Add event</button>}
+          : !(sidebarOpen && onToggleSidebar) && <button type="button" className="button primary cal-add" onClick={onNewEvent}><Icon name="add" size={16} /> Add event</button>}
       </div>
     </div>
   );

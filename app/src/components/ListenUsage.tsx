@@ -73,7 +73,7 @@ export function ListenUsage() {
             <dt>{l.label}</dt>
             <dd>
               {l.text}
-              {nearlyFull(l.used, l.cap) && " \u00b7 nearly full"}
+              {nearlyFull(l.used, l.cap) && ", nearly full"}
             </dd>
           </div>
         ))}

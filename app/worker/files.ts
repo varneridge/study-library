@@ -28,7 +28,7 @@ export const EXTENSIONS: Record<string, string> = {
 };
 
 export function contentType(request: Request): string {
-  return (request.headers.get("content-type") ?? "").split(";")[0].trim();
+  return (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
 }
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -53,7 +53,8 @@ export async function storeUpload(env: Env, request: Request, sha: string): Prom
     await request.body.cancel();
     return { key, existed: true };
   }
-  await env.BUCKET.put(key, request.body, { httpMetadata: { contentType: mime } });
+  // R2 refuses the upload when the bytes do not match the claimed hash.
+  await env.BUCKET.put(key, request.body, { sha256: sha, httpMetadata: { contentType: mime } });
   return { key, existed: false };
 }
 

@@ -281,13 +281,14 @@ listenProcessor.post("/audio/:key/fail", async (c) => {
   if (!row) return c.json({ error: "Nothing was asked for under that key." }, 404);
   if (row.status === "upgrading") {
     // Remaking audio failed: the audio already there stays, so it is simply done again.
-    await c.env.DB.prepare("UPDATE listen_audio SET status = 'done', claimed_at = NULL WHERE key = ?1").bind(key).run();
+    await c.env.DB.prepare("UPDATE listen_audio SET status = 'done', claimed_at = NULL WHERE key = ?1 AND status = 'upgrading'").bind(key).run();
     return c.json({ final: true });
   }
   const final = row.attempts >= MAX_ATTEMPTS;
-  await c.env.DB.prepare("UPDATE listen_audio SET status = ?2, error = ?3, claimed_at = NULL WHERE key = ?1")
+  // A report that arrives after the audio was finished or the claim was lost changes nothing and costs nothing.
+  const meta = await c.env.DB.prepare("UPDATE listen_audio SET status = ?2, error = ?3, claimed_at = NULL WHERE key = ?1 AND status = 'running'")
     .bind(key, final ? "failed" : "queued", String(error ?? "").slice(0, 2000)).run();
-  await spend(c.env, ROW_COST);
+  if (meta.meta.changes !== 0) await spend(c.env, ROW_COST);
   return c.json({ final });
 });
 
@@ -377,7 +378,6 @@ listenProcessor.post("/evict", async (c) => {
   ).bind(limit).all<{ key: string; bytes: number | null }>();
   const rows: Array<{ key: string; bytes: number | null }> = old.results ?? [];
   if (rows.length === 0) return c.json({ evicted: 0, bytes: stored });
-  await c.env.BUCKET.delete(rows.map((r) => objectKey(r.key)));
   const freed = rows.reduce((sum, r) => sum + (r.bytes ?? 0), 0);
   const statements = [];
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -385,5 +385,6 @@ listenProcessor.post("/evict", async (c) => {
     statements.push(c.env.DB.prepare(`DELETE FROM listen_audio WHERE key IN (${part.map((_: string, j: number) => `?${j + 1}`).join(", ")})`).bind(...part));
   }
   await c.env.DB.batch([...statements, addTo(c.env, "listen_audio_bytes", -freed), addTo(c.env, writesCounter(), rows.length * ROW_COST)]);
+  await c.env.BUCKET.delete(rows.map((r) => objectKey(r.key)));
   return c.json({ evicted: rows.length, bytes: stored - freed });
 });

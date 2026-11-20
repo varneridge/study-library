@@ -1,3 +1,5 @@
+export const PICTURE_FILENAME = /^[0-9a-f]{64}\.(webp|jpe?g|png)$/;
+
 // Columns each synced table accepts from devices. seq is never accepted:
 // triggers set it. Anything not listed here is ignored.
 
@@ -100,10 +102,8 @@ export function encode(table: TableName, column: string, value: unknown): Value 
   if (value === undefined && table === "prospects" && column === "status") value = "not_started";
   if (value === undefined && column in DEFAULTS) value = DEFAULTS[column];
   if (value === undefined || value === null) return null;
-  if (table === "modules" && column === "image_key") {
-    if (typeof value !== "string" || !/^pictures\/[0-9a-f]{64}\.(webp|jpe?g|png)$/.test(value)) {
-      return null;
-    }
+  if (column === "image_key" && !(typeof value === "string" && value.startsWith("pictures/") && PICTURE_FILENAME.test(value.slice(9)))) {
+    return null;
   }
   if (t.json.includes(column)) return JSON.stringify(value);
   if (t.bool.includes(column)) return value ? 1 : 0;

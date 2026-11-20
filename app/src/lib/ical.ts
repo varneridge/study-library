@@ -394,7 +394,7 @@ export function parseIcal(text: string, window: IcalWindow, localZone?: string):
     if (!raw.recurrenceId) return;
     const entry = replaced.get(raw.uid) ?? { ms: new Set<number>(), dates: new Set<ISODate>() };
     entry.ms.add(stampMs(raw.recurrenceId));
-    entry.dates.add(raw.recurrenceId.date);
+    if (raw.recurrenceId.allDay) entry.dates.add(raw.recurrenceId.date);
     replaced.set(raw.uid, entry);
   });
 

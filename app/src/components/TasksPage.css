@@ -13,7 +13,9 @@
   border-radius: var(--r-sm); color: var(--ink); text-decoration: none;
   font-family: var(--sans); font-size: var(--fs-md); overflow-wrap: anywhere;
 }
-.tasks-list-link:hover { background: var(--surface); }
+@media (hover: hover) {
+  .tasks-list-link:hover { background: var(--surface); }
+}
 .tasks-list-link[aria-current] { background: var(--accent-soft); color: var(--accent); }
 .tasks-list-add { gap: 0.4rem; min-height: 2.75rem; justify-content: flex-start; padding-inline: 0.75rem; }
 
@@ -24,17 +26,17 @@
 .tasks-switch { gap: 0.4rem; min-height: 2.75rem; margin-bottom: 0.75rem; }
 
 .tasks-list-form { display: grid; gap: 0.5rem; flex: 1; min-width: 0; margin-bottom: 0.75rem; }
-.tasks-list-form input[type="text"] { min-height: 2.75rem; font-size: 1rem; }
+.tasks-list-form input[type="text"] { min-height: 2.75rem; font-size: var(--fs-md); }
 .tasks-buttons { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .tasks-buttons .button, .tasks-buttons .quiet { min-height: 2.75rem; }
 
 /* Quick add: a panel on a soft surface, so it reads as one thing. */
 .tasks-add { display: grid; gap: 0.5rem; margin: 1rem 0 1.5rem; padding: 0.75rem; background: var(--surface); border-radius: var(--r-md); }
 .tasks-add-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.tasks-add-row input[type="text"] { flex: 1; min-width: 12rem; min-height: 2.75rem; font-size: 1rem; }
+.tasks-add-row input[type="text"] { flex: 1; min-width: 12rem; min-height: 2.75rem; font-size: var(--fs-md); }
 .tasks-add-row .button { min-height: 2.75rem; }
 .tasks-add-details { display: grid; gap: 0.5rem; }
-.tasks-add-details textarea { font-size: 1rem; }
+.tasks-add-details textarea { font-size: var(--fs-md); }
 .tasks-chip {
   justify-self: start; margin: 0; padding: 0.15rem 0.6rem; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent); font-size: var(--fs-sm);
@@ -43,7 +45,9 @@
 .tasks-list, .tasks-sub { list-style: none; margin: 0; padding: 0; }
 .tasks-sub { margin-left: 2.25rem; }
 .tasks-item { display: flex; align-items: flex-start; gap: 0.25rem; border-radius: var(--r-sm); }
-.tasks-item:hover { background: var(--surface); }
+@media (hover: hover) {
+  .tasks-item:hover { background: var(--surface); }
+}
 .tasks-check { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2.75rem; min-height: 2.75rem; cursor: pointer; }
 .tasks-check input { width: 1.15rem; height: 1.15rem; margin: 0; }
 .tasks-open {
@@ -67,5 +71,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: 2.75rem; padding: 0.4rem 0.75rem;
   border: 0; border-radius: var(--r-sm); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
 }
-.tasks-choice:hover { background: var(--surface); }
+@media (hover: hover) {
+  .tasks-choice:hover { background: var(--surface); }
+}
 .tasks-choice[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }

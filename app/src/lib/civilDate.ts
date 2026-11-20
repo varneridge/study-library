@@ -51,6 +51,10 @@ export function todayLocal(): ISODate {
   return formatISO(year, month, day);
 }
 
+export function todayIso(now = new Date()): ISODate {
+  return formatISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
+}
+
 export function addDays(iso: ISODate, days: number): ISODate {
   const p = parseISO(iso);
   if (!p) return iso;

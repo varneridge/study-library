@@ -8,6 +8,7 @@ import { blockText } from "./notes";
 import { moduleProgress, readCount, type ModuleProgress } from "./progress";
 import { currentYear, defaultDates, isThisWeek, teachingWeek, type TeachingWeek, type TermDates } from "./term";
 import { pending } from "./citations";
+import { fullTitle } from "./titles";
 import type {
   Block,
   FileRow,
@@ -546,4 +547,17 @@ export async function loadRecentSessions(limit = 4): Promise<{ session: SessionR
     if (out.length >= limit) break;
   }
   return out;
+}
+
+// Every reading set in a module's weeks or its tray, together with any already chosen
+// for an essay, found through the week_id and tray_module_id indexes.
+export async function moduleReadings(moduleId: string, chosenIds: string[]): Promise<ItemRow[]> {
+  const weekIds = live(await db.weeks.where("module_id").equals(moduleId).toArray()).map((w) => w.id);
+  const links = live(await db.week_items.where("week_id").anyOf(weekIds).toArray());
+  const ids = new Set([...links.map((wi) => wi.item_id), ...chosenIds]);
+  const tray = await db.items.where("tray_module_id").equals(moduleId).toArray();
+  const linked = await db.items.bulkGet([...ids]);
+  const rows = new Map<string, ItemRow>();
+  for (const item of [...tray, ...linked]) if (item && !item.deleted && item.kind !== "slides") rows.set(item.id, item);
+  return [...rows.values()].sort((a, b) => fullTitle(a).localeCompare(fullTitle(b)));
 }

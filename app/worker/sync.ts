@@ -44,13 +44,15 @@ function statement(env: Env, table: TableName, row: Record<string, unknown>, pat
   const columns = TABLES[table].columns.filter((column) => column === "id" || column === "modified_at" || row[column] !== undefined);
   const values = columns.map((column) => encode(table, column, row[column]));
   const placeholders = columns.map((_, i) => `?${i + 1}`).join(", ");
-  const updates = [...(patch ? patch.filter((column) => columns.includes(column)) : columns.filter((column) => column !== "id")), ...(patch ? ["modified_at"] : [])]
-    .map((column) => `${column} = excluded.${column}`)
-    .join(", ");
+  // A patch only touches the columns it changed, so an older edit to one of
+  // them still applies and the row keeps the newer stamp. A full row is only
+  // written when it is newer.
+  const updates = patch
+    ? [...patch.filter((column) => columns.includes(column)).map((column) => `${column} = excluded.${column}`), `modified_at = max(${table}.modified_at, excluded.modified_at)`].join(", ")
+    : columns.filter((column) => column !== "id").map((column) => `${column} = excluded.${column}`).join(", ");
   return env.DB.prepare(
     `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})
-     ON CONFLICT (id) DO UPDATE SET ${updates}
-     WHERE excluded.modified_at > ${table}.modified_at`,
+     ON CONFLICT (id) DO UPDATE SET ${updates}${patch ? "" : `\n     WHERE excluded.modified_at > ${table}.modified_at`}`,
   ).bind(...values);
 }
 

@@ -1,4 +1,5 @@
 import { TOUCH, type Env } from "./env";
+import { contentType } from "./files";
 
 const CHUNK_TYPES: Record<string, string> = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg" };
 
@@ -8,7 +9,7 @@ export function chunkPrefix(recordingId: string): string {
 
 // Live recordings arrive as numbered chunks. Storing the same chunk twice is harmless.
 export async function storeChunk(env: Env, recordingId: string, index: number, request: Request) {
-  const mime = (request.headers.get("content-type") ?? "").split(";")[0].trim();
+  const mime = contentType(request);
   const extension = CHUNK_TYPES[mime];
   if (!extension) throw new Error(`unsupported chunk type ${mime || "(none)"}`);
   if (!Number.isInteger(index) || index < 0 || index > 99999) throw new Error("bad chunk index");

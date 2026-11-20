@@ -2,8 +2,9 @@
 // to. Kept in its own table so unstarted prospects never clutter active
 // application counts, timelines or the Google Drive folder sync until promoted.
 
+import { addDays, todayIso } from "./civilDate";
 import { db } from "./db";
-import { daysUntil, formatDate, isOpen as isAppOpen, normaliseUrl, stageOf, todayIso, type DeadlineState } from "./jobs";
+import { daysUntil, formatDate, isOpen as isAppOpen, normaliseUrl, stageOf, type DeadlineState } from "./jobs";
 import { commit, newId, update } from "./sync";
 import type { ApplicationRow, FileSlot, ProspectRow } from "./types";
 import { showToast } from "./ui";
@@ -118,25 +119,13 @@ export function checkWords(
 // whereas a date already passed, or none at all, starts again from today.
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function localIso(now: Date): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-export function addDaysIso(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
-
 export const CHECK_INTERVAL_DAYS = 7;
 
 export function checkedNextCheck(current: string | null | undefined, now = new Date()): string {
   if (current && ISO_DATE.test(current) && daysUntil(current, now) >= 0) {
-    return addDaysIso(current, CHECK_INTERVAL_DAYS);
+    return addDays(current, CHECK_INTERVAL_DAYS);
   }
-  return addDaysIso(localIso(now), CHECK_INTERVAL_DAYS);
+  return addDays(todayIso(now), CHECK_INTERVAL_DAYS);
 }
 
 export async function markProspectChecked(prospect: Pick<ProspectRow, "id" | "next_check">): Promise<string> {

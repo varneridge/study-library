@@ -266,7 +266,7 @@
 
 .wp-status[data-status="saved"] .save-status-dot,
 .wp-status[data-status="ready"] .save-status-dot {
-  background: var(--ok, #3a8f5c);
+  background: var(--offer-ink);
 }
 
 .wp-status[data-status="unsaved"] .save-status-dot {

@@ -3,7 +3,7 @@
      Sepia and dark override colours and floating shadows. */
   --measure: 46rem; --measure-prose: 72ch; --wide: 88rem;
   --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
-  --paper: #FCFCFB; --ink: #1D2024; --muted: #60656D; --faint: #8F959C;
+  --paper: #FCFCFB; --ink: #1D2024; --muted: #60656D; --faint: #697076;
   --rule: #E5E6E3; --rule-strong: #D5D7D3;
   --surface: #F4F4F1; --surface-hover: #ECEDE9;
   --card: #FFFFFF; --chrome: #F7F7F5; --reader-bg: #E9EAE7;
@@ -40,7 +40,7 @@
   --accent: #185FA5; --accent-ink: #FFFFFF; --accent-soft: #DFE7F1; --danger: #A33A2A;
   --warn: #8A5A00; --find: #F5DCA0;
   --page: #FFF1E5; --page-ink: #33302E; --page-muted: #66605C; --page-rule: #E3D2C2;
-  --paper: #FBF2E8; --ink: #332E2A; --muted: #6B625B; --faint: #A1968C;
+  --paper: #FBF2E8; --ink: #332E2A; --muted: #6B625B; --faint: #72675D;
   --rule: #EADDCF; --rule-strong: #DDCDBD; --surface: #F5E9DC; --surface-hover: #EFE0D0;
   --card: #FFF9F2; --chrome: #F7ECE0; --reader-bg: #EEDFCF;
   --s0: #185FA5; --s1: #2F5D63; --s2: #7A4E1E; --s3: #6B4E8A; --s4: #66605C; --s5: #990F3D;
@@ -124,7 +124,7 @@
 }
 
 :root[data-accent="slate"] {
-  --accent: #334155; --accent-ink: #FFFFFF; --accent-soft: #F1F5F9;
+  --accent: #334155; --accent-ink: #FFFFFF; --accent-soft: #E2E8F0;
 }
 :root[data-theme="sepia"][data-accent="slate"] {
   --accent: #3D444E; --accent-ink: #FFFFFF; --accent-soft: #EDEFEA;
@@ -2625,7 +2625,7 @@ input[type="date"] { color: var(--ink); }
   html.with-tabs { --bottom-inset: calc(3.6rem + env(safe-area-inset-bottom, 0px)); }
   html.with-tabs.typing { --bottom-inset: 0px; }
   .tab-bar {
-    display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
     background: color-mix(in srgb, var(--paper) 92%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border-top: 1px solid var(--rule); padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -5346,7 +5346,7 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appe
 :root {
   --cal-personal: var(--accent);
   --cal-google: #0D7A70;
-  --cal-deadline: #A33A2A;
+  --cal-deadline: var(--danger);
   --cal-check: #B46200;
   --cal-essay: #7B3E7A;
   --cal-tasks: #4F7A2B;

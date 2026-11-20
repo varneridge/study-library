@@ -141,7 +141,7 @@ export interface BinEntry {
   restore: () => Promise<void>;
 }
 
-const BIN_DAYS = 90;
+export const BIN_DAYS = 90;
 
 export async function loadBin(): Promise<BinEntry[]> {
   const cutoff = new Date(Date.now() - BIN_DAYS * 86_400_000).toISOString();

@@ -43,6 +43,7 @@ import {
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
 import { api, newId } from "../lib/sync";
+import { moduleReadings } from "../lib/library";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
@@ -1024,17 +1025,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   // Module readings
   const refIds = assessment.referenceItemIds.join(",");
   const readings = useLiveQuery(
-    async () => {
-      const weeks = (await db.weeks.where("module_id").equals(module.id).toArray()).filter((w) => !w.deleted);
-      const weekIds = new Set(weeks.map((w) => w.id));
-      const links = (await db.week_items.toArray()).filter((wi) => !wi.deleted && weekIds.has(wi.week_id));
-      const ids = new Set(links.map((wi) => wi.item_id));
-      for (const chosen of assessment.referenceItemIds) ids.add(chosen);
-      const rows = (await db.items.toArray()).filter(
-        (i) => !i.deleted && i.kind !== "slides" && (ids.has(i.id) || i.tray_module_id === module.id),
-      );
-      return rows.sort((a, b) => fullTitle(a).localeCompare(fullTitle(b)));
-    },
+    () => moduleReadings(module.id, assessment.referenceItemIds),
     [module.id, refIds],
     [] as ItemRow[],
   );
@@ -1579,6 +1570,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               moduleId={module.id}
               moduleCode={module.code}
               essayId={essayId}
+              readings={readings}
               uploadFile={uploadSourceFile}
               onOpenPassage={openPassage}
             />

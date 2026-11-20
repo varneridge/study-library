@@ -6,6 +6,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
+import { BIN_DAYS } from "../lib/edits";
 import {
   addApplication, cancelNewApplication, currentStageSince, discardIfBlank,
   inStageWords, isOpen, matches, restoreApplication, saveApplication, saveAppliedDate,
@@ -264,22 +265,23 @@ function ProspectSummaryLine({
   );
 }
 
-function RecentlyDeleted() {
-  const deleted = useLiveQuery(async () =>
-    (await db.applications.toArray())
-      .filter((a) => a.deleted && (a.employer.trim() || a.role.trim()))
-      .sort((a, b) => b.modified_at.localeCompare(a.modified_at)), [], []);
-  if (!deleted.length) return null;
+// A deleted row stays here for BIN_DAYS, as in the Settings bin, and then drops off.
+function RecentlyDeletedList<T extends { id: string; employer: string; modified_at: string }>(
+  { rows, detail, note, restore }: { rows: T[]; detail: (row: T) => string; note: string; restore: (id: string) => Promise<void> },
+) {
+  const cutoff = new Date(Date.now() - BIN_DAYS * 86_400_000).toISOString();
+  const recent = rows.filter((r) => r.modified_at >= cutoff);
+  if (!recent.length) return null;
   return (
     <section className="section jobs-bin">
       <h2>Recently deleted</h2>
-      <p className="small muted">Deleted applications stay here for 90 days.</p>
+      <p className="small muted">{note}</p>
       <ul className="list bin">
-        {deleted.map((app) => (
-          <li key={app.id}>
-            <span className="label">{app.employer}{app.role && <span className="muted">, {app.role}</span>}</span>
-            <span className="count">{shortDate(new Date(app.modified_at))}</span>
-            <button type="button" className="quiet" onClick={async () => { await restoreApplication(app.id); showToast(`${app.employer} restored.`); }}>Restore</button>
+        {recent.map((r) => (
+          <li key={r.id}>
+            <span className="label">{r.employer}{detail(r) && <span className="muted">, {detail(r)}</span>}</span>
+            <span className="count">{shortDate(new Date(r.modified_at))}</span>
+            <button type="button" className="quiet" onClick={async () => { await restore(r.id); showToast(`${r.employer} restored.`); }}>Restore</button>
           </li>
         ))}
       </ul>
@@ -287,27 +289,20 @@ function RecentlyDeleted() {
   );
 }
 
+function RecentlyDeleted() {
+  const deleted = useLiveQuery(async () =>
+    (await db.applications.toArray())
+      .filter((a) => a.deleted && (a.employer.trim() || a.role.trim()))
+      .sort((a, b) => b.modified_at.localeCompare(a.modified_at)), [], []);
+  return <RecentlyDeletedList rows={deleted} detail={(a) => a.role} note="Deleted applications stay here for 90 days." restore={restoreApplication} />;
+}
+
 function RecentlyDeletedProspects() {
   const deleted = useLiveQuery(async () =>
     (await db.prospects.toArray())
       .filter((p) => p.deleted && (p.employer.trim() || p.programme.trim()))
       .sort((a, b) => b.modified_at.localeCompare(a.modified_at)), [], []);
-  if (!deleted.length) return null;
-  return (
-    <section className="section jobs-bin">
-      <h2>Recently deleted</h2>
-      <p className="small muted">Deleted shortlist programmes stay here for 90 days.</p>
-      <ul className="list bin">
-        {deleted.map((p) => (
-          <li key={p.id}>
-            <span className="label">{p.employer}{p.programme && <span className="muted">, {p.programme}</span>}</span>
-            <span className="count">{shortDate(new Date(p.modified_at))}</span>
-            <button type="button" className="quiet" onClick={async () => { await restoreProspect(p.id); showToast(`${p.employer} restored.`); }}>Restore</button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+  return <RecentlyDeletedList rows={deleted} detail={(p) => p.programme} note="Deleted shortlist programmes stay here for 90 days." restore={restoreProspect} />;
 }
 
 export function JobsPage() {
@@ -486,11 +481,11 @@ export function JobsPage() {
         </div>
         <button
           type="button"
-          className="primary"
+          className={activeList === "shortlist" ? "button" : "button primary"}
           onClick={() => void add()}
           disabled={adding}
         >
-          {adding ? "Adding…" : activeList === "shortlist" ? "Add opportunity" : "Add application"}
+          {adding ? "Adding…" : activeList === "shortlist" ? "Add programme" : "Add application"}
         </button>
       </div>
 
@@ -606,7 +601,7 @@ export function JobsPage() {
             <Sheet
               open={true}
               onClose={() => void navigate({ view: "jobs", list: "shortlist" })}
-              title="New shortlist programme"
+              title="Add programme"
               className="new-app-sheet new-prospect-sheet"
               tall
             >

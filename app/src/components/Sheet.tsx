@@ -51,6 +51,9 @@ export function Sheet({
       if (!dialog.open) {
         dialog.showModal();
       }
+      return () => {
+        lastActiveRef.current?.focus?.();
+      };
     } else if (dialog.open) {
       dialog.close();
       lastActiveRef.current?.focus?.();

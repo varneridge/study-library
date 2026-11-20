@@ -240,17 +240,11 @@ processor.post("/files/:id/text", async (c) => {
       );
     }
   }
-  if (thumb_key) {
-    statements.push(
-      c.env.DB.prepare(
-        `UPDATE files SET text_status = 'ready', page_count = ?2, thumb_key = COALESCE(?3, thumb_key), ${TOUCH} WHERE id = ?1`,
-      ).bind(id, page_count, thumb_key),
-    );
-  } else {
-    statements.push(
-      c.env.DB.prepare(`UPDATE files SET text_status = 'ready', page_count = ?2, ${TOUCH} WHERE id = ?1`).bind(id, page_count),
-    );
-  }
+  statements.push(
+    c.env.DB.prepare(
+      `UPDATE files SET text_status = 'ready', page_count = ?2, thumb_key = COALESCE(?3, thumb_key), ${TOUCH} WHERE id = ?1`,
+    ).bind(id, page_count, thumb_key ?? null),
+  );
   await c.env.DB.batch(statements);
   return c.json({ ok: true });
 });
@@ -297,11 +291,21 @@ processor.post("/files/:id/converted", async (c) => {
   const body = await c.req.json<{ sha256: string; r2_key: string; bytes: number; original_name: string }>();
   const pdfId = `${id}:pdf`;
   await c.env.DB.batch([
-    // The insert trigger queues extract_text for the new PDF.
+    // The insert trigger queues extract_text for a new PDF. A second
+    // conversion updates the row instead, which fires no trigger, so the job
+    // is queued here unless one is already waiting.
     c.env.DB.prepare(
-      `INSERT OR IGNORE INTO files (id, sha256, r2_key, mime, bytes, original_name, text_status, modified_at)
-       VALUES (?1, ?2, ?3, 'application/pdf', ?4, ?5, 'pending', ${NOW})`,
+      `INSERT INTO files (id, sha256, r2_key, mime, bytes, original_name, text_status, modified_at)
+       VALUES (?1, ?2, ?3, 'application/pdf', ?4, ?5, 'pending', ${NOW})
+       ON CONFLICT (id) DO UPDATE SET sha256 = excluded.sha256, r2_key = excluded.r2_key, bytes = excluded.bytes,
+              text_status = 'pending', ${TOUCH}`,
     ).bind(pdfId, body.sha256, body.r2_key, body.bytes, body.original_name),
+    c.env.DB.prepare(
+      `INSERT INTO jobs (type, payload)
+       SELECT 'extract_text', json_object('file_id', ?1)
+        WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE type = 'extract_text' AND status IN ('queued', 'running')
+                           AND json_valid(payload) AND json_extract(payload, '$.file_id') = ?1)`,
+    ).bind(pdfId),
     c.env.DB.prepare(
       `UPDATE items SET original_file_id = file_id, file_id = ?2, ${TOUCH} WHERE file_id = ?1 AND deleted = 0`,
     ).bind(id, pdfId),

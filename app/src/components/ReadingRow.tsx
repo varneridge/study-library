@@ -550,7 +550,7 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
     <div className="editor row move-picker">
       {modules.length > 1 && (
         <select aria-label="Module" value={moduleId ?? ""} onChange={(e) => setChosen(e.target.value)} style={{ width: "auto" }}>
-          {modules.map((m) => <option key={m.id} value={m.id}>{m.code}{m.title ? ` ${m.title}` : ""}</option>)}
+          {modules.map((m) => <option key={m.id} value={m.id}>{m.code}{m.title ? `, ${m.title}` : ""}</option>)}
         </select>
       )}
       <select aria-label="Week" value="" onChange={(e) => void go(e.target.value)} style={{ width: "auto" }}>
@@ -558,7 +558,7 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
         {weeks.filter((w) => w.id !== view.link?.week_id).map((w) => <option key={w.id} value={w.id}>{weekCode(w)}{titleAfter(w)}</option>)}
         {(elsewhere || view.link) && <option value="tray">Unsorted</option>}
       </select>
-      <button className="quiet" onClick={onMoved}>Done</button>
+      <button className="quiet" onClick={onMoved}>Cancel</button>
     </div>
   );
 }

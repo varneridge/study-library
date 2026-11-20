@@ -154,9 +154,11 @@ export async function completeTask(task: TaskRow): Promise<void> {
 
 export async function uncompleteTask(task: TaskRow): Promise<void> {
   if (!task.completed_at) return;
-  const was = task.completed_at;
-  await commit(completionChanges([task], null));
-  undoable("Task marked as not done.", () => commit(completionChanges([task], was)));
+  // Reopening a subtask of a done task reopens the task too, so that Clear completed leaves it alone.
+  const parent = task.parent_id ? await db.tasks.get(task.parent_id) : undefined;
+  const reopened = parent && !parent.deleted && parent.completed_at ? [task, parent] : [task];
+  await commit(completionChanges(reopened, null));
+  undoable("Task marked as not done.", () => commit(reopened.flatMap((r) => completionChanges([r], r.completed_at))));
 }
 
 // A task goes with its subtasks, and Undo brings them back.

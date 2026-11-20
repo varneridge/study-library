@@ -9,18 +9,14 @@
 
 import { CALENDAR_SETTINGS_ID, type CalendarSettings, changedColumns, draftColumns, readCalendarSettings, type EventDraft } from "./calendar";
 import { db } from "./db";
-import { insert, update } from "./sync";
+import { deleteRows, withUndo } from "./edits";
+import { insert, newId, update } from "./sync";
 import type { CalendarEventRow } from "./types";
 
 export async function createEvent(draft: EventDraft): Promise<string> {
-  const row: CalendarEventRow = {
-    id: crypto.randomUUID(),
-    modified_at: new Date().toISOString(),
-    deleted: false,
-    ...draftColumns(draft),
-  };
-  await insert("calendar_events", row);
-  return row.id;
+  const id = newId();
+  await insert("calendar_events", { id, ...draftColumns(draft) });
+  return id;
 }
 
 // Sends only the columns that changed. Returns false when nothing had.
@@ -31,8 +27,9 @@ export async function editEvent(row: CalendarEventRow, draft: EventDraft): Promi
   return true;
 }
 
-export async function deleteEvent(id: string): Promise<void> {
-  await update("calendar_events", id, { deleted: true });
+// Deleting is marked as above, and a notice offers Undo, as for a task.
+export async function deleteEvent(row: CalendarEventRow): Promise<void> {
+  await withUndo("Event deleted.", deleteRows([{ table: "calendar_events", row }]));
 }
 
 // Changes part of the calendar's settings and keeps the rest.

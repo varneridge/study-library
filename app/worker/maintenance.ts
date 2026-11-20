@@ -1,5 +1,6 @@
 import { NOW, TOUCH, type Env } from "./env";
 import { TABLE_NAMES } from "./schema";
+import { listChunks } from "./recordings";
 
 // A job is tried this many times. The processor routes use it too.
 export const MAX_ATTEMPTS = 5;
@@ -62,13 +63,20 @@ export async function purge(env: Env): Promise<void> {
         AND NOT EXISTS (SELECT 1 FROM files o WHERE o.thumb_key = f.thumb_key AND o.id <> f.id AND o.deleted = 0)`,
   ).all<{ thumb_key: string }>();
 
+  // Live-recording chunks that were never turned into audio stay in R2 unless they go with the recording.
+  const recordings = await env.DB.prepare(`SELECT id FROM recordings WHERE deleted = 1 AND modified_at < ${cutoff}`).all<{ id: string }>();
+  const chunks: string[] = [];
+  for (const row of recordings.results ?? []) chunks.push(...(await listChunks(env, row.id)));
+
+  // The objects go first, so a failed delete leaves rows that the next purge finds again.
+  for (const row of orphaned.results ?? []) await env.BUCKET.delete(row.r2_key);
+  for (const row of orphanedThumbs.results ?? []) await env.BUCKET.delete(row.thumb_key);
+  for (let i = 0; i < chunks.length; i += 1000) await env.BUCKET.delete(chunks.slice(i, i + 1000));
+
   await env.DB.batch([
-    env.DB.prepare(
-      `DELETE FROM page_text WHERE file_id IN (SELECT id FROM files WHERE deleted = 1 AND modified_at < ${cutoff})`,
-    ),
     ...TABLE_NAMES.map((table) => env.DB.prepare(`DELETE FROM ${table} WHERE deleted = 1 AND modified_at < ${cutoff}`)),
     env.DB.prepare(
-      `DELETE FROM jobs WHERE status = 'done' AND finished_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')`,
+      `DELETE FROM jobs WHERE (status = 'done' OR status = 'failed') AND finished_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')`,
     ),
     // Search text for files and recordings that no longer exist, and orphaned timeline events.
     env.DB.prepare("DELETE FROM page_text WHERE file_id NOT IN (SELECT id FROM files)"),
@@ -76,9 +84,6 @@ export async function purge(env: Env): Promise<void> {
     env.DB.prepare("DELETE FROM application_events WHERE application_id NOT IN (SELECT id FROM applications)"),
   ]);
   await releaseUnusedFiles(env);
-
-  for (const row of orphaned.results ?? []) await env.BUCKET.delete(row.r2_key);
-  for (const row of orphanedThumbs.results ?? []) await env.BUCKET.delete(row.thumb_key);
 }
 
 // Deleting a reading or a recording leaves its file row alone, so restoring

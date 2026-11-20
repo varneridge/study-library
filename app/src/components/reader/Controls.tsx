@@ -237,9 +237,9 @@ export function Appearance({ theme, setTheme, zoom, scale, changeZoom, trim, can
           <div className="appearance-row">
             <span className="appearance-label">Zoom</span>
             <div className="stepper">
-              <button className="tool" aria-label="Smaller" onClick={() => changeZoom(scale / 1.15)}>−</button>
+              <button className="tool" aria-label="Smaller" onClick={() => changeZoom(scale / 1.15)}><Icon name="zoomOut" /></button>
               <span className="zoom-at">{Math.round(scale * 100)}%</span>
-              <button className="tool" aria-label="Larger" onClick={() => changeZoom(scale * 1.15)}>+</button>
+              <button className="tool" aria-label="Larger" onClick={() => changeZoom(scale * 1.15)}><Icon name="zoomIn" /></button>
             </div>
           </div>
           <label className="appearance-row">

@@ -1424,7 +1424,7 @@ button.essay-ws-doc-name:hover {
   }
 }
 
-@media (max-width: 43.99rem) {
+@media (max-width: 44rem) {
   .essay-ws {
     --essay-toolbar-h: 4.25rem;
   }

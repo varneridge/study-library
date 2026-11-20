@@ -10,6 +10,7 @@ import { useEffect, useId, useState } from "react";
 import { type CalEvent, CALENDAR_SOURCES, type CalendarSource } from "../../lib/calendar";
 import { type ISODate, addDays, formatISO, parseISO, todayLocal, weekdayMon0 } from "../../lib/civilDate";
 import type { GcalStatus } from "../../lib/gcal";
+import { Icon } from "../icons";
 import { SOURCE_LABELS } from "./sources";
 
 const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -62,7 +63,7 @@ export function CalendarPanel({ hidden, onToggleSource, gcalStatus, onRefreshGca
         {gcalStatus.error && <p className="cal-notice" role="alert">{gcalStatus.error}</p>}
         <div className="cal-card-actions">
           <button type="button" className="button" disabled={!gcalUrl || gcalStatus.refreshing} onClick={onRefreshGcal}>
-            {gcalStatus.refreshing ? "Syncing..." : "Sync now"}
+            {gcalStatus.refreshing ? "Syncing…" : "Sync now"}
           </button>
         </div>
         <form
@@ -86,7 +87,8 @@ export function CalendarPanel({ hidden, onToggleSource, gcalStatus, onRefreshGca
               placeholder="https://calendar.google.com/calendar/ical/..."
               onChange={(e) => setDraft(e.target.value)}
             />
-            <button type="submit" className="button primary" disabled={!changed}>Save</button>
+            <button type="submit" className="button" disabled={!changed}>Save</button>
+            {changed && <button type="button" className="quiet" onClick={() => setDraft(gcalUrl ?? "")}>Cancel</button>}
           </div>
         </form>
       </section>
@@ -122,7 +124,7 @@ export function CalendarSidebar({ upcomingEvents, onOpenEvent, onNewEvent, ...pa
       || a.event.key.localeCompare(b.event.key));
   return (
     <aside className="cal-sidebar" aria-label="Calendar tools">
-      <button type="button" className="button primary cal-add" onClick={onNewEvent}>+ Add event</button>
+      <button type="button" className="button primary cal-add" onClick={onNewEvent}><Icon name="add" size={16} /> Add event</button>
       <CalendarPanel {...panel} />
       <section className="cal-upcoming" aria-label="Next seven days">
         <h3 className="cal-heading">Next seven days</h3>

@@ -327,7 +327,7 @@ export function TasksPage({ route }: { route: TasksRoute }) {
     showToast("List added.");
     void navigate({ view: "tasks", list: id });
   };
-  const addForm = editing === "add" && <ListForm initial="" label="Add list" onSave={addList} onCancel={() => setEditing(null)} />;
+  const addForm = editing === "add" && <ListForm initial="" label="Add a list" onSave={addList} onCancel={() => setEditing(null)} />;
 
   if (!active) {
     return (
@@ -389,7 +389,7 @@ export function TasksPage({ route }: { route: TasksRoute }) {
             </nav>
             {addForm || (
               <button type="button" className="quiet tasks-list-add" onClick={() => setEditing("add")}>
-                <Icon name="add" size={16} /> Add list
+                <Icon name="add" size={16} /> Add a list
               </button>
             )}
           </aside>

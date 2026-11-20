@@ -22,7 +22,6 @@ import {
   type CustomSource,
   type EssaySource,
 } from "../lib/assessment";
-import { db } from "../lib/db";
 import type { DocxFootnote } from "../lib/docx";
 import {
   ESSAY_SOURCE_CATEGORIES,
@@ -41,6 +40,7 @@ import {
   type SourceLink,
 } from "../lib/essaySources";
 import { newId } from "../lib/sync";
+import { moduleReadings } from "../lib/library";
 import { fullTitle } from "../lib/titles";
 import type { ItemRow } from "../lib/types";
 import { confirmAction, showToast } from "../lib/ui";
@@ -59,6 +59,8 @@ export interface EssaySourcesPanelProps {
   moduleId: string;
   moduleCode?: string;
   essayId?: string;
+  // The module's readings, which the essay page already holds. Left out, the panel finds them itself.
+  readings?: ItemRow[];
   // Stores the file, such as through the reading upload queue, and says where it went.
   uploadFile: (file: File) => Promise<EssaySourceUpload>;
   // Opens the source at the page or passage a reference cites, so that it can be checked.
@@ -197,7 +199,7 @@ function SourceItem({ id, draggable, row, editor }: { id: string; draggable: boo
   );
 }
 
-export function EssaySourcesPanel({ moduleId, moduleCode, essayId, uploadFile, onOpenPassage }: EssaySourcesPanelProps) {
+export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: given, uploadFile, onOpenPassage }: EssaySourcesPanelProps) {
   const data = useModuleAssessment(moduleId, moduleCode, essayId);
   const sources = useMemo(() => essaySourcesOf(data), [data]);
   const links = data.sourceLinks ?? EMPTY_LINKS;
@@ -219,21 +221,12 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, uploadFile, o
   // Every reading set in the module's weeks or its tray, together with any already chosen
   // for the essay, so that the choice sheet can list them and the card can show the chosen.
   const refIds = data.referenceItemIds.join(",");
-  const readings = useLiveQuery(
-    async () => {
-      const weeks = (await db.weeks.where("module_id").equals(moduleId).toArray()).filter((w) => !w.deleted);
-      const weekIds = new Set(weeks.map((w) => w.id));
-      const weekLinks = (await db.week_items.toArray()).filter((wi) => !wi.deleted && weekIds.has(wi.week_id));
-      const ids = new Set(weekLinks.map((wi) => wi.item_id));
-      for (const chosen of data.referenceItemIds) ids.add(chosen);
-      const rows = (await db.items.toArray()).filter(
-        (i) => !i.deleted && i.kind !== "slides" && (ids.has(i.id) || i.tray_module_id === moduleId),
-      );
-      return rows.sort((a, b) => fullTitle(a).localeCompare(fullTitle(b)));
-    },
-    [moduleId, refIds],
+  const found = useLiveQuery(
+    () => (given ? [] : moduleReadings(moduleId, data.referenceItemIds)),
+    [moduleId, refIds, Boolean(given)],
     [] as ItemRow[],
   );
+  const readings = given ?? found;
 
   const chosenReadings = useMemo(() => {
     const chosen = new Set(data.referenceItemIds);

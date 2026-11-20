@@ -41,8 +41,8 @@ const JOB_TARGET_TITLE = `CASE WHEN json_valid(j.payload) THEN COALESCE(
     (SELECT i.title FROM items i WHERE i.file_id = json_extract(j.payload, '$.file_id') AND i.deleted = 0 ORDER BY i.id LIMIT 1),
     (SELECT i.title FROM items i WHERE i.file_id = json_extract(j.payload, '$.file_id') || ':pdf' AND i.deleted = 0 ORDER BY i.id LIMIT 1),
     (SELECT COALESCE(m.code || ', ', '') || COALESCE(NULLIF(s.title, ''),
-              CASE w.term WHEN 'AT' THEN 'Autumn Term' ELSE 'Winter Term' END || ' week ' || w.number || ' '
-              || CASE s.kind WHEN 'lecture' THEN 'lecture' ELSE 'seminar' END)
+              CASE w.term WHEN 'AT' THEN 'Autumn Term' WHEN 'WT' THEN 'Winter Term' ELSE w.term END || ' week ' || w.number || ' '
+              || CASE s.kind WHEN 'seminar' THEN 'seminar' ELSE 'lecture' END)
        FROM recordings r JOIN sessions s ON s.id = r.session_id JOIN weeks w ON w.id = s.week_id
        LEFT JOIN modules m ON m.id = w.module_id
       WHERE r.id = json_extract(j.payload, '$.recording_id')),
@@ -77,7 +77,7 @@ function statusJob(row: Record<string, unknown>): StatusJob {
   );
   const label = [payload.label, payload.title, payload.name].find((v): v is string => typeof v === "string" && v.length > 0);
   return {
-    id: Number(row.id ?? row.job_rowid),
+    id: Number(row.id),
     kind: typeof row.type === "string" && row.type ? row.type : "job",
     status: String(row.status),
     target_id: targetKey ? String(payload[targetKey]) : null,
@@ -101,7 +101,7 @@ app.get("/api/status", async (c) => {
       `SELECT SUM(status = 'queued') AS queued, SUM(status = 'running') AS running, SUM(status = 'failed') AS failed FROM jobs`,
     ),
     c.env.DB.prepare(
-      `SELECT j.rowid AS job_rowid, j.*, ${JOB_TARGET_TITLE} AS target_title
+      `SELECT j.*, ${JOB_TARGET_TITLE} AS target_title
          FROM jobs j WHERE j.status IN ('running', 'queued', 'failed')
         ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
                  CASE WHEN j.status = 'failed' THEN -j.id ELSE 0 END,
@@ -292,9 +292,7 @@ app.post("/api/recordings/:id/transcribe", async (c) => c.json({ ok: await trans
 
 // Looks again at a reading's first pages for its citation.
 app.post("/api/files/:id/identify", async (c) => {
-  await c.env.DB.prepare("INSERT INTO jobs (type, payload, priority) VALUES ('identify', json_object('file_id', ?1), 0)")
-    .bind(c.req.param("id")).run();
-  return c.json({ ok: true });
+  return c.json({ ok: await redoFile(c.env, c.req.param("id"), "identify") });
 });
 
 app.get("/api/search", async (c) => c.json(await search(c.env, c.req.query("q") ?? "", Number(c.req.query("limit")) || 40)));

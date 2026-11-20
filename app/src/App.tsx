@@ -162,7 +162,7 @@ function SyncStatus() {
             {shown.status === "error" && (
               <>
                 {" "}
-                <button type="button" className="button small" onClick={() => void flush().then(() => pull()).catch(() => undefined)}>Try again</button>
+                <button type="button" className="button small" onClick={() => void flush().then(() => pull()).catch(() => undefined)}>Retry</button>
               </>
             )}
           </p>
@@ -183,6 +183,9 @@ function SyncStatus() {
               <p className="small muted" style={{ margin: "0.5rem 0 0" }}>Uploads carry on if you close the app, and resume when you return.</p>
             </>
           )}
+          <p style={{ margin: "0.5rem 0 0", textAlign: "right" }}>
+            <button type="button" className="quiet" onClick={() => setOpen(false)}>Close</button>
+          </p>
         </div>
       )}
     </span>
@@ -240,7 +243,7 @@ function OpenOnDesktop({ route }: { route: Route }) {
       {open && (
         <div className="menu-panel open-desktop-panel" role="menu" aria-label="Open on desktop">
           <a role="menuitem" className="menu-link" href={openInDesktopHref(href(route))} onClick={close}>
-            Open in desktop
+            Open on desktop
           </a>
           <a role="menuitem" className="menu-link" href={INSTALLER_DOWNLOAD_URL} download={INSTALLER_FILE_NAME} onClick={close}>
             Download desktop app

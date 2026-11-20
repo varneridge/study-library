@@ -4,11 +4,11 @@
 // every way in, from the month, the hours, the summary of a day and the buttons
 // alike: a new event starts at 09:00 to 10:00 unless it was started at a time,
 // and unticking All day brings the times back rather than leaving them blank.
-// Delete asks twice, the second press saying "Delete for good", with no dialog
-// on top of a dialog.
+// Delete is at once, with a notice that offers Undo, and leaving with edits not
+// yet saved asks first.
 // An event from Google Calendar is shown to read, and is changed in Google.
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import {
   type CalEvent,
   CATEGORY_LABELS,
@@ -27,7 +27,9 @@ import {
 } from "../../lib/calendar";
 import { type SheetTarget, useSheetTarget } from "../../lib/calendarEvents";
 import { createEvent, deleteEvent, editEvent } from "../../lib/calendarStore";
+import { useUnsavedChangesGuard } from "../../lib/formDraft";
 import type { CalendarEventRow } from "../../lib/types";
+import { showToast } from "../../lib/ui";
 import { DatePicker } from "../DatePicker";
 import { usePhone } from "./hooks";
 import { Sheet } from "./Sheet";
@@ -57,21 +59,17 @@ function Reading({ event, onClose }: { event: CalEvent; onClose: () => void }) {
 
 function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: EventSeed; onClose: () => void }) {
   const phone = usePhone();
-  const [draft, setDraft] = useState<EventDraft>(() => (row ? draftFromRow(row) : withTimes(blankDraft(seed))));
+  const [initial] = useState<EventDraft>(() => (row ? draftFromRow(row) : withTimes(blankDraft(seed))));
+  const [draft, setDraft] = useState<EventDraft>(initial);
   const [error, setError] = useState<DraftError | "save" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const formId = useId();
   const titleErrorId = useId();
   const whenErrorId = useId();
 
-  // Delete asks again for a few seconds, and then lets the question go.
-  useEffect(() => {
-    if (!confirming) return;
-    const timer = window.setTimeout(() => setConfirming(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [confirming]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const { disarm } = useUnsavedChangesGuard(dirty, "event");
 
   const change = (patch: Partial<EventDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -97,6 +95,8 @@ function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: Even
     try {
       if (row) await editEvent(row, draft);
       else await createEvent(draft);
+      disarm();
+      showToast(row ? "Event saved." : "Event added.");
       onClose();
     } catch {
       setError("save");
@@ -106,18 +106,14 @@ function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: Even
 
   const remove = async () => {
     if (!row) return;
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
     setSaving(true);
     try {
-      await deleteEvent(row.id);
+      await deleteEvent(row);
+      disarm();
       onClose();
     } catch {
       setError("save");
       setSaving(false);
-      setConfirming(false);
     }
   };
 
@@ -132,13 +128,12 @@ function Form({ row, seed, onClose }: { row: CalendarEventRow | null; seed: Even
         <>
           {row && (
             <button type="button" className="button danger cal-delete" disabled={saving} onClick={() => void remove()}>
-              {confirming ? "Delete for good" : "Delete"}
+              Delete
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="button" disabled={saving} onClick={onClose}>Cancel</button>
           <button type="submit" form={formId} className="button primary" disabled={saving}>Save</button>
-          <span className="sr-only" aria-live="polite">{confirming ? "Press Delete for good to remove this event." : ""}</span>
         </>
       )}
     >

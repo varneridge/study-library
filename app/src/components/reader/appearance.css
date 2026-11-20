@@ -36,13 +36,13 @@
   border-radius: 50%;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.05rem;
-  border: 1px solid rgba(127, 127, 127, 0.35);
+  border: 1px solid var(--rule-strong);
   transition: box-shadow 120ms ease;
 }
 
 .appearance .theme-swatch.plain .theme-swatch-face { background: #ffffff; color: #1f1f1f; }
-.appearance .theme-swatch.sepia .theme-swatch-face { background: #f4ecd8; color: #5b4636; }
-.appearance .theme-swatch.dark .theme-swatch-face { background: #1e1e1e; color: #e8e8e8; }
+.appearance .theme-swatch.sepia .theme-swatch-face { background: #FFF1E5; color: #33302E; }
+.appearance .theme-swatch.dark .theme-swatch-face { background: #1A1C1F; color: #DADDE1; }
 
 .appearance .theme-swatch[aria-pressed="true"] .theme-swatch-face {
   box-shadow: 0 0 0 2px var(--accent, Highlight);
@@ -50,7 +50,7 @@
 
 .appearance .theme-swatch:focus-visible { outline: none; }
 .appearance .theme-swatch:focus-visible .theme-swatch-face {
-  box-shadow: 0 0 0 2px var(--accent, Highlight), 0 0 0 4px rgba(127, 127, 127, 0.35);
+  box-shadow: 0 0 0 2px var(--accent, Highlight), 0 0 0 4px var(--rule-strong);
 }
 
 .appearance .theme-swatch-name {
@@ -75,8 +75,8 @@
 .appearance label.appearance-row { cursor: pointer; }
 
 .appearance .appearance-view {
-  border-top: 1px solid rgba(127, 127, 127, 0.25);
-  border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
   padding: 0.5rem 0;
   margin-bottom: 0.25rem;
 }
@@ -103,7 +103,7 @@
   width: 2.4rem;
   height: 1.35rem;
   border-radius: 999px;
-  background: rgba(127, 127, 127, 0.35);
+  background: var(--rule-strong);
   position: relative;
   cursor: pointer;
   outline: none;

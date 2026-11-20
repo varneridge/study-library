@@ -3,9 +3,8 @@
 // and served with immutable caching.
 
 import type { Env } from "./env";
-import { serveObject } from "./files";
-
-const PICTURE_FILENAME = /^[0-9a-f]{64}\.(webp|jpe?g|png)$/;
+import { contentType as requestContentType, serveObject } from "./files";
+import { PICTURE_FILENAME } from "./schema";
 const MAX_PICTURE_BYTES = 512 * 1024; // 512 KB
 const ALLOWED_MIME = ["image/webp", "image/jpeg", "image/png"];
 
@@ -23,7 +22,7 @@ export async function storePicture(
     return { key, existed: true };
   }
 
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  const contentType = requestContentType(request);
   if (!ALLOWED_MIME.includes(contentType)) {
     throw new Error(`unsupported picture type ${contentType || "(none)"}`);
   }
