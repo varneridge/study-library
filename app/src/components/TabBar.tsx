@@ -318,6 +318,7 @@ const FALLBACK_TITLES: Record<Route["view"], string> = {
   session: "Session",
   search: "Search",
   settings: "Settings",
+  tasks: "To do",
   calendar: "Calendar",
   jobs: "Job search",
 };

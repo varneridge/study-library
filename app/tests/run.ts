@@ -47,6 +47,7 @@ import { describeDeadline, pickNextDeadline } from "../src/lib/jobsCard";
 import { INSETS_COMPACT, INSETS_REGULAR, parseChrome, dockGeometry, editorQuery, FILE_TAB_COVER, FALLBACK_STATUS_HEIGHT } from "../src/lib/wordcraftChrome";
 import { registerListenTests } from "./test_listen";
 import { registerCalendarTests } from "./calendar";
+import { registerTodoTests } from "./todo";
 import { registerRoutingTests } from "./routing";
 import { runUpdateTests } from "./test_update";
 import { registerSpokenTextTests } from "./test_spoken_text";
@@ -73,6 +74,7 @@ registerSheetRouteTests(test);
 registerJobLogicTests(test);
 registerSafetyTests(test);
 registerCalendarTests(test);
+registerTodoTests(test);
 registerRoutingTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {

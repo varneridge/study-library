@@ -82,6 +82,8 @@ export const TABLES = {
     [],
     ["all_day"],
   ),
+  task_lists: spec(["title", "position"]),
+  tasks: spec(["list_id", "parent_id", "title", "notes", "due_date", "due_time", "completed_at", "position"]),
 } satisfies Record<string, TableSpec>;
 
 export type TableName = keyof typeof TABLES;

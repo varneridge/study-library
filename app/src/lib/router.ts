@@ -19,6 +19,8 @@ export type Route =
   | { view: "settings" }
   // The calendar: the date it is centred on, how it is shown, and the event whose sheet is open.
   | { view: "calendar"; date?: string; mode?: "month" | "week" | "day" | "agenda"; event?: string }
+  // The to-do lists: the list shown and the task whose sheet is open.
+  | { view: "tasks"; list?: string; task?: string }
   // The job search, kept apart from the study library.
   | { view: "jobs"; list?: "applications" | "shortlist"; app?: string; prospect?: string; edit?: boolean; newApp?: boolean; entry?: string; tab?: string };
 
@@ -92,6 +94,12 @@ export function parseRoute(search: string): Route {
       // Only what is present is set, so a parsed route equals the one that was linked.
       return { view, ...(date ? { date } : {}), ...(mode ? { mode } : {}), ...(event ? { event } : {}) };
     }
+    case "tasks": {
+      const list = params.get("list") || undefined;
+      const task = params.get("task") || undefined;
+      // Only what is present is set, so a parsed route equals the one that was linked.
+      return { view, ...(list ? { list } : {}), ...(task ? { task } : {}) };
+    }
     case "jobs": {
       const prospect = params.get("prospect") ?? undefined;
       const list = params.get("list") === "shortlist" || prospect ? "shortlist" : undefined;
@@ -134,6 +142,10 @@ export function href(route: Route): string {
     if (route.date) params.set("date", route.date);
     if (route.mode) params.set("mode", route.mode);
     if (route.event) params.set("event", route.event);
+  }
+  if (route.view === "tasks") {
+    if (route.list) params.set("list", route.list);
+    if (route.task) params.set("task", route.task);
   }
   if (route.view === "jobs") {
     if (route.list === "shortlist") params.set("list", "shortlist");

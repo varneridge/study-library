@@ -276,6 +276,22 @@ export interface CalendarEventRow extends SyncedRow {
   notes: string | null;
 }
 
+export interface TaskListRow extends SyncedRow {
+  title: string;
+  position: string;
+}
+
+export interface TaskRow extends SyncedRow {
+  list_id: string;
+  parent_id: string | null;
+  title: string;
+  notes: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  completed_at: string | null;
+  position: string;
+}
+
 // BlockNote's block format, kept loose so later editor versions still load.
 export interface InlineText {
   type: "text";
@@ -313,6 +329,8 @@ export interface Tables {
   application_events: ApplicationEventRow;
   prospects: ProspectRow;
   calendar_events: CalendarEventRow;
+  task_lists: TaskListRow;
+  tasks: TaskRow;
 }
 
 export type TableName = keyof Tables;
@@ -335,4 +353,6 @@ export const SYNCED_TABLES: TableName[] = [
   "application_events",
   "prospects",
   "calendar_events",
+  "task_lists",
+  "tasks",
 ];

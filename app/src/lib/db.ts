@@ -94,6 +94,8 @@ class StudyDB extends Dexie {
   application_events!: Table<Tables["application_events"], string>;
   prospects!: Table<Tables["prospects"], string>;
   calendar_events!: Table<Tables["calendar_events"], string>;
+  task_lists!: Table<Tables["task_lists"], string>;
+  tasks!: Table<Tables["tasks"], string>;
   gcal_events!: Table<GcalEvent, string>;
   outbox!: Table<OutboxEntry, number>;
   failed!: Table<FailedChange, number>;
@@ -163,6 +165,11 @@ class StudyDB extends Dexie {
     this.version(11).stores({
       folders: "id, week_id",
       week_items: "id, week_id, item_id, folder_id",
+    });
+    // To do lists and tasks, from 0.56.
+    this.version(12).stores({
+      task_lists: "id, position",
+      tasks: "id, list_id, parent_id, due_date, completed_at",
     });
   }
 }
