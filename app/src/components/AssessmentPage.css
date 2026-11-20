@@ -15,7 +15,8 @@
  *                                Word beside it as the page's one filled button (.button.primary)
  *   .essay-ws-splitter           a drag handle between two columns, a separator that the arrow
  *                                keys also move, whose widths are kept in localStorage
- *   .essay-preview-corner        the sticky corner slot, first child of .essay-ws-preview
+ *   .essay-preview-corner        the preview's controls, in the mode bar (in full screen, first
+ *                                child of .essay-ws-preview, held at its top)
  *   .essay-preview-frame         the wrapper of the preview's pages, for a PDF or the sheet
  *   .essay-preview-flow          the same wrapper, which scrolls sideways only when zoomed
  *   .essay-pdf-pages             the stored PDF's pages, drawn by EssayPdfPages
@@ -37,7 +38,7 @@
   width: 100%;
   max-width: none;
   margin-inline: 0;
-  padding: 0.5rem clamp(0.75rem, 1.5vw, 1.5rem) 1.5rem;
+  padding: 0.25rem clamp(0.75rem, 1.5vw, 1.5rem) 1.5rem;
 }
 
 /* The crumbs keep no spacing of their own, because the title row directly below them
@@ -57,7 +58,7 @@
   align-items: center;
   gap: 0.35rem 0.75rem;
   min-width: 0;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.25rem;
   padding: 0;
 }
 
@@ -127,7 +128,7 @@
 
   .section-head.essay-ws-head {
     margin: 0;
-    padding: 1rem 1rem 0.75rem;
+    padding: 0.5rem 1rem 0.5rem;
   }
 }
 
@@ -145,7 +146,7 @@
    yet never takes more than 35% of the workspace, so a narrower window cannot squeeze the
    essay away. The two zero-width tracks hold the splitters. */
 .essay-ws {
-  --essay-toolbar-h: 3.75rem;
+  --essay-toolbar-h: 3.25rem;
   --essay-pane-h: calc(100vh - var(--topbar-h, 0px));
   display: grid;
   --essay-rail-auto: clamp(17rem, 20%, 26rem);
@@ -962,17 +963,21 @@ a.essay-ws-doc-name:hover {
   cursor: pointer;
 }
 
-/* The mode bar sticks under the top bar. It holds the Preview and Plan segmented control at a
-   steady width, and Edit in Word at the far end as a filled button with its pen, which is the
-   one primary action of the page. */
+/* The mode bar is the page's one sticky bar. It sticks under the top bar and holds the Preview
+   and Plan segmented control, the preview's controls while Preview is chosen, and Edit in Word
+   at the far end as the page's one filled button. It has an opaque desk-coloured ground and a
+   hairline beneath it, and the centre has no padding above it, so the pages scroll cleanly
+   under it and never show above or between its controls. */
 .essay-ws-toolbar {
   position: sticky;
   top: var(--topbar-h, 0px);
-  z-index: 5;
+  z-index: 10;
   box-sizing: border-box;
-  height: var(--essay-toolbar-h);
   display: flex;
   align-items: center;
+  min-height: var(--essay-toolbar-h);
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
   background: var(--surface);
 }
 
@@ -980,8 +985,9 @@ a.essay-ws-doc-name:hover {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
 }
 
 .essay-ws-modes > .essay-tabs-track {
@@ -1002,6 +1008,21 @@ a.essay-ws-doc-name:hover {
   flex: none;
   margin-left: auto;
   min-height: 2.25rem;
+}
+
+/* The preview's controls take the free space instead, which leaves Edit in Word beside them. */
+.essay-ws-modes > .essay-preview-corner {
+  flex: none;
+  margin-left: auto;
+}
+
+.essay-ws-modes > .essay-preview-corner + .essay-open-button {
+  margin-left: 0;
+}
+
+.essay-ws-toolbar .essay-corner-bar {
+  box-shadow: none;
+  background: var(--surface-hover);
 }
 
 /* The small screen's pane tabs are the same control, so they take the same radii. */
@@ -1102,20 +1123,6 @@ a.essay-ws-doc-name:hover {
 .essay-preview-frame .pdf-slot,
 .essay-doc-frame .pdf-slot {
   box-shadow: 0 0 0 1px var(--rule);
-}
-
-/* The corner is a bar of its own in the preview's flow, held just under the mode bar on the
-   desk's colour, so that the pages scroll beneath it and no control ever floats over their
-   text. */
-.essay-ws-preview > .essay-preview-corner {
-  position: sticky;
-  top: calc(var(--topbar-h, 0px) + var(--essay-toolbar-h));
-  z-index: 6;
-  box-sizing: border-box;
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.25rem 0.75rem 0.75rem 0;
-  background: var(--surface);
 }
 
 /* The pages' own wrapper is the only thing that can scroll, and only sideways, when the zoom
@@ -1238,8 +1245,17 @@ a.essay-ws-doc-name:hover {
   background: var(--surface);
 }
 
+/* In full screen the mode bar is covered, so the corner is held at the top of the overlay, on
+   the desk's colour, and the pages scroll beneath it. */
 .essay-ws-preview.is-fullscreen > .essay-preview-corner {
+  position: sticky;
   top: 0;
+  z-index: 6;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.25rem 0.75rem 0.75rem 0;
+  background: var(--surface);
 }
 
 /* The place reached from a reference is marked for a moment in the soft
@@ -1455,7 +1471,25 @@ a.essay-ws-doc-name:hover {
 
 @media (max-width: 44rem) {
   .essay-ws {
-    --essay-toolbar-h: 4.25rem;
+    --essay-toolbar-h: 5.5rem;
+  }
+
+  /* The single bar wraps into two rows: Preview and Plan with Edit in Word, and the preview's
+     controls beneath them, so that nothing passes the edge of a 390px screen. */
+  .essay-ws-modes > .essay-tabs-track {
+    flex: 1 1 9rem;
+  }
+
+  .essay-ws-modes > .essay-open-button,
+  .essay-ws-modes > .essay-preview-corner + .essay-open-button {
+    order: 1;
+    margin-left: 0;
+  }
+
+  .essay-ws-modes > .essay-preview-corner {
+    order: 2;
+    max-width: 100%;
+    margin-inline: auto;
   }
 
   .essay-ws-docs li > .button,

@@ -1323,6 +1323,51 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     }
   };
 
+  // Every admin document opens in the normal reader. One uploaded before admin documents had
+  // readings of their own is only a stored key on the essay, so the first time it is opened it
+  // is given the file row and the hidden reading that a new upload gets, under ids made from
+  // its own, so that opening it on two devices makes the same rows rather than two copies.
+  const openAdminDocument = async (doc: AttachmentRef) => {
+    if (doc.r2Key && !(await db.items.get(doc.id))) {
+      const fileId = `${doc.id}:file`;
+      await commit([
+        {
+          table: "files",
+          row: {
+            id: fileId,
+            sha256: /[0-9a-f]{64}/i.exec(doc.r2Key)?.[0].toLowerCase() ?? `legacy:${doc.id}`,
+            r2_key: doc.r2Key,
+            mime: doc.mime,
+            bytes: doc.size,
+            original_name: doc.name,
+            page_count: null,
+            text_status: "pending" as const,
+          },
+        },
+        {
+          table: "items",
+          row: {
+            id: doc.id,
+            kind: "secondary" as const,
+            author: null,
+            title: stripExtension(doc.name),
+            source: null,
+            pages: null,
+            year: null,
+            doc_date: null,
+            file_id: fileId,
+            original_file_id: null,
+            tray_module_id: null,
+            zotero_key: null,
+            last_page: null,
+            read_status: "unread" as const,
+          },
+        },
+      ]);
+    }
+    navigate({ view: "reader", id: doc.id });
+  };
+
   const removeAdminDocument = async (doc: AttachmentRef) => {
     const ok = await confirmAction({
       title: `Remove "${doc.name}"?`,
@@ -1441,6 +1486,23 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     <div className="essay-sheet-zoom" style={{ zoom: scale }}>
       <EssayDocumentSheet doc={assessment.draft} jump={jump} />
     </div>
+  );
+
+  // The preview's controls sit in the mode bar beside Preview and Plan, so that the page has
+  // one sticky bar at its top. Full screen covers the mode bar, so there they move into the
+  // overlay itself.
+  const previewCorner = (
+    <EssayPreviewCorner
+      zoom={zoom}
+      scale={scale}
+      onZoomChange={changeZoom}
+      fullscreen={fullscreen}
+      onToggleFullscreen={toggleFullscreen}
+      onExportDocx={exportDocx}
+      onExportPdf={exportPdf}
+      onReplace={() => void replaceDocument()}
+      disabled={!hasContent && !storedPdf}
+    />
   );
 
   return (
@@ -1626,33 +1688,27 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
                 ) : (
                   <ul className="essay-ws-docs" aria-labelledby="essay-admin-head">
-                    {adminDocuments.map((doc) => {
-                      const openLegacy = doc.r2Key
-                        ? () => setViewing({ title: doc.name, url: `/api/objects/${doc.r2Key}`, mime: doc.mime, name: doc.name })
-                        : null;
-                      return (
+                    {adminDocuments.map((doc) => (
                       <li key={doc.id}>
-                        {openLegacy ? (
-                          <button type="button" className="essay-ws-doc-name" title={`Open ${doc.name}`} onClick={openLegacy}>
-                            {doc.name}
-                          </button>
-                        ) : (
-                          <Link to={{ view: "reader", id: doc.id }} className="essay-ws-doc-name" title={`Open ${doc.name}`}>
-                            {doc.name}
-                          </Link>
-                        )}
+                        <button
+                          type="button"
+                          className="essay-ws-doc-name"
+                          title={`Open ${doc.name}`}
+                          onClick={() => void openAdminDocument(doc)}
+                        >
+                          {doc.name}
+                        </button>
                         <span className="essay-ws-doc-menu" style={{ gridArea: "remove" }}>
                           <Menu
                             label={`Actions for ${doc.name}`}
                             items={[
-                              { label: "Open", onSelect: openLegacy ?? (() => navigate({ view: "reader", id: doc.id })) },
+                              { label: "Open", onSelect: () => void openAdminDocument(doc) },
                               { label: "Remove", danger: true, onSelect: () => void removeAdminDocument(doc) },
                             ]}
                           />
                         </span>
                       </li>
-                      );
-                    })}
+                    ))}
                   </ul>
                 )}
               </div>
@@ -1697,6 +1753,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                     { value: "plan", label: "Plan", id: "essay-view-plan", controls: "essay-centre-plan" },
                   ]}
                 />
+                {centreView === "preview" && !fullscreen && previewCorner}
                 <Link
                   to={wordProcessorRoute}
                   className="button primary essay-open-button"
@@ -1716,17 +1773,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 className={`essay-ws-preview${fullscreen ? " is-fullscreen" : ""}`}
                 ref={attachPreview}
               >
-                <EssayPreviewCorner
-                  zoom={zoom}
-                  scale={scale}
-                  onZoomChange={changeZoom}
-                  fullscreen={fullscreen}
-                  onToggleFullscreen={toggleFullscreen}
-                  onExportDocx={exportDocx}
-                  onExportPdf={exportPdf}
-                  onReplace={() => void replaceDocument()}
-                  disabled={!hasContent && !storedPdf}
-                />
+                {fullscreen && previewCorner}
                 {/* The pages sit in the page's own flow, so the window scrolls through them while
                     the side columns stay put, and a zoom past the column's width scrolls sideways
                     here alone. */}
