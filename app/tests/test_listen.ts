@@ -700,6 +700,7 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
       view.wordTop = 900;
       audio.currentTime = 0.5;
       frames.step();
+      frames.step();
       assert.equal(view.scrolls.length, 0, "no scrolling while the reader is looking elsewhere");
       assert.equal(c.getSnapshot().away, "below");
 
@@ -786,6 +787,7 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
       assert.equal(frames.pending(), 1, "starting it again while it runs changes nothing");
 
       audio.currentTime = 0.5;
+      frames.step();
       frames.step();
       assert.equal(c.getSnapshot().word, 1, "the word at the audio's own time, with no timeupdate");
       assert.equal(frames.pending(), 1, "and the next frame is asked for");
