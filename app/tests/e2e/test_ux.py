@@ -75,11 +75,11 @@ with sync_playwright() as p:
 
     # An unstarted reading gives its pages and reading time on its meta line,
     # which sits inline, so the row is no taller than it is without it.
-    file_ids = [i["file_id"] for i in rows["items"] if i.get("file_id")]
+    file_ids = {i["file_id"] for i in rows["items"] if i.get("file_id")}
     future = (date.today() + timedelta(days=1)).isoformat() + "T00:00:00.000Z"
     page.request.post(BASE + "/api/sync/push", data={"changes": [
-        {"table": "files", "row": {"id": fid, "page_count": 16, "modified_at": future, "deleted": False}, "patch": True}
-        for fid in file_ids
+        {"table": "files", "row": {**f, "page_count": 16, "modified_at": future}, "cols": ["page_count"]}
+        for f in rows["files"] if f["id"] in file_ids
     ]})
     page.reload()
     expect(page.locator(".week-page li.reading").first).to_be_visible()
