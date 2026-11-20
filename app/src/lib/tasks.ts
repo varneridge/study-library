@@ -164,3 +164,44 @@ export async function deleteTask(task: TaskRow): Promise<void> {
   const family = taskFamily(task, await db.tasks.where("list_id").equals(task.list_id).toArray());
   await withUndo("Task deleted.", deleteRows(family.map((row) => ({ table: "tasks" as const, row }))));
 }
+
+export const toggleTask = (task: TaskRow): Promise<void> => (task.completed_at ? uncompleteTask(task) : completeTask(task));
+
+// The task a move up (-1) or down (1) swaps places with. A top-level task
+// passes only over those listed with it, open or done, and a subtask passes
+// over its siblings.
+export function neighbourOf(rows: TaskRow[], task: TaskRow, direction: -1 | 1): TaskRow | undefined {
+  const siblings = rows
+    .filter((r) =>
+      !r.deleted && r.list_id === task.list_id && (r.parent_id ?? null) === (task.parent_id ?? null)
+      && (Boolean(task.parent_id) || Boolean(r.completed_at) === Boolean(task.completed_at)))
+    .sort(byPosition);
+  const index = siblings.findIndex((r) => r.id === task.id);
+  return index < 0 ? undefined : siblings[index + direction];
+}
+
+// Swaps positions with the neighbour and leaves every other key as it is.
+export async function reorderTask(task: TaskRow, direction: -1 | 1): Promise<void> {
+  const rows = await db.tasks.where("list_id").equals(task.list_id).toArray();
+  const current = rows.find((r) => r.id === task.id);
+  const other = current && neighbourOf(rows, current, direction);
+  if (!current || !other) return;
+  await commit([
+    { table: "tasks", row: { id: current.id, position: other.position }, patch: true },
+    { table: "tasks", row: { id: other.id, position: current.position }, patch: true },
+  ]);
+}
+
+// What Clear completed takes: every done task in the list, and the subtasks
+// of a done task, finished or not. Parents come first, so Undo restores them first.
+export function completedRows(rows: TaskRow[], listId: string): TaskRow[] {
+  const live = rows.filter((r) => !r.deleted && r.list_id === listId);
+  const parents = live.filter((r) => !r.parent_id && r.completed_at);
+  const doneIds = new Set(parents.map((r) => r.id));
+  return [...parents, ...live.filter((r) => r.parent_id && (r.completed_at || doneIds.has(r.parent_id)))];
+}
+
+export async function clearCompleted(listId: string): Promise<void> {
+  const rows = completedRows(await db.tasks.where("list_id").equals(listId).toArray(), listId);
+  await withUndo("Completed tasks deleted.", deleteRows(rows.map((row) => ({ table: "tasks" as const, row }))));
+}

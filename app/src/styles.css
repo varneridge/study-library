@@ -5349,15 +5349,16 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appe
   --cal-deadline: #A33A2A;
   --cal-check: #B46200;
   --cal-essay: #7B3E7A;
+  --cal-tasks: #4F7A2B;
   --days: 7;
   --hour-h: 48px;
 }
 :root[data-theme="dark"] {
-  --cal-google: #4DB6AA; --cal-deadline: #E08A7C; --cal-check: #E0A458; --cal-essay: #C79AC6;
+  --cal-google: #4DB6AA; --cal-deadline: #E08A7C; --cal-check: #E0A458; --cal-essay: #C79AC6; --cal-tasks: #9CC47A;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="sepia"]) {
-    --cal-google: #4DB6AA; --cal-deadline: #E08A7C; --cal-check: #E0A458; --cal-essay: #C79AC6;
+    --cal-google: #4DB6AA; --cal-deadline: #E08A7C; --cal-check: #E0A458; --cal-essay: #C79AC6; --cal-tasks: #9CC47A;
   }
 }
 .src-personal { --src: var(--cal-personal); }
@@ -5365,16 +5366,19 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appe
 .src-deadline { --src: var(--cal-deadline); }
 .src-check { --src: var(--cal-check); }
 .src-essay { --src: var(--cal-essay); }
+.src-tasks { --src: var(--cal-tasks); }
 .cal-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--src, var(--cal-personal)); flex: none; }
 
-/* The top bar has three sides now, and the calendar's has no module links, so
+/* The top bar has four sides now, and the calendar's and the to-do lists' have no module links, so
    the switch takes their place on the right, as the job search's does. */
 @media (min-width: 44.01rem) {
-  .calendar-bar > .side-switch { margin-left: auto; }
+  .calendar-bar > .side-switch, .tasks-bar > .side-switch { margin-left: auto; }
 }
 @media (max-width: 44rem) {
-  .topbar .side-switch a { padding-inline: 0.4rem; }
-  .topbar > .brand { font-size: 1rem; padding-inline: 0.25rem; margin-left: -0.25rem; }
+  .topbar { padding-inline: 0.5rem; gap: 0.25rem; }
+  .topbar > .side-switch { margin-left: auto; gap: 1px; }
+  .topbar .side-switch a { padding-inline: 0.3rem; font-size: var(--fs-xs); }
+  .topbar > .brand { font-size: 0.9375rem; padding-inline: 0.2rem; margin-left: -0.2rem; letter-spacing: -0.02em; }
 }
 @media (max-width: 24rem) {
   /* On the narrowest phones the switch already names the side you are on, so the brand steps aside. */

@@ -43,6 +43,8 @@ const openingEssay = <PageLoading label="Opening the word processor" />;
 const JobsPage = lazy(() => import("./components/JobsPage").then((m) => ({ default: m.JobsPage })));
 // The calendar is the third part of the app, loaded when first opened.
 const CalendarPage = lazy(() => import("./components/calendar/CalendarPage").then((m) => ({ default: m.CalendarPage })));
+// The to-do lists are the fourth, loaded when first opened.
+const TasksPage = lazy(() => import("./components/TasksPage").then((m) => ({ default: m.TasksPage })));
 
 export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
@@ -307,7 +309,8 @@ function TabBar({ route }: { route: Route }) {
     document.documentElement.classList.add("with-tabs");
     return () => document.documentElement.classList.remove("with-tabs");
   }, []);
-  const section = route.view === "calendar" || route.view === "search" || route.view === "settings" ? route.view : "home";
+  // The to-do lists are reached from the top bar's switch, so no tab is lit for them.
+  const section = route.view === "calendar" || route.view === "search" || route.view === "settings" || route.view === "tasks" ? route.view : "home";
   const tabs: { key: string; to: Route; label: string; icon: IconName }[] = [
     { key: "home", to: { view: "home" }, label: "Home", icon: "home" },
     { key: "calendar", to: { view: "calendar" }, label: "Calendar", icon: "calendar" },
@@ -450,21 +453,22 @@ function useTypingClass() {
 }
 
 
-// Study Library, the calendar and the job search share one top bar. The brand
+// Study Library, the calendar, the to-do lists and the job search share one top bar. The brand
 // names the side you are on and leads to its home, the switch moves between
-// the three sides, and the sync indicator, Search and Settings sit in the same
+// the four sides, and the sync indicator, Search and Settings sit in the same
 // place on all of them.
-type Side = "study" | "calendar" | "jobs";
+type Side = "study" | "calendar" | "tasks" | "jobs";
 
 function sideOf(route: Route): Side {
-  return route.view === "jobs" ? "jobs" : route.view === "calendar" ? "calendar" : "study";
+  return route.view === "jobs" ? "jobs" : route.view === "calendar" ? "calendar" : route.view === "tasks" ? "tasks" : "study";
 }
 
 function SideSwitch({ side }: { side: Side }) {
   return (
-    <nav className="side-switch" aria-label="Study, calendar or job search">
+    <nav className="side-switch" aria-label="Study, calendar, to do or job search">
       <Link to={{ view: "home" }} className="side-study" currentSide={side === "study"}>Study</Link>
       <Link to={{ view: "calendar" }} className="to-calendar" currentSide={side === "calendar"}>Calendar</Link>
+      <Link to={{ view: "tasks" }} className="to-tasks" currentSide={side === "tasks"}>To do</Link>
       <Link to={{ view: "jobs" }} className="to-jobs" currentSide={side === "jobs"}>
         <span className="wide-only">Job search</span><span className="narrow-only">Jobs</span>
       </Link>
@@ -478,12 +482,14 @@ function TopBar({ route, hidden }: { route: Route; hidden: boolean }) {
   const side = sideOf(route);
   const desktop = isDesktop();
   return (
-    <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : ""}`} hidden={hidden}>
+    <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : side === "tasks" ? " tasks-bar wide" : ""}`} hidden={hidden}>
       {side === "jobs"
         ? <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
         : side === "calendar"
           ? <Link to={{ view: "calendar" }} className="brand" current={true}>Calendar</Link>
-          : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
+          : side === "tasks"
+            ? <Link to={{ view: "tasks" }} className="brand" current={true}>To do</Link>
+            : <Link to={{ view: "home" }} className="brand" current={route.view === "home"}>Study Library</Link>}
       {side === "study" && (
         <div className="navs">
           <ModuleLinks route={route} />
@@ -518,6 +524,7 @@ function pageKey(route: Route): string {
   switch (route.view) {
     case "across":
     case "calendar":
+    case "tasks":
     case "jobs":
       return route.view;
     case "reader":
@@ -530,7 +537,7 @@ function pageKey(route: Route): string {
   }
 }
 
-const failureLabels: Partial<Record<Route["view"], string>> = { reader: "reading", essay: "word processor", jobs: "job search", calendar: "calendar" };
+const failureLabels: Partial<Record<Route["view"], string>> = { reader: "reading", essay: "word processor", jobs: "job search", calendar: "calendar", tasks: "to do list" };
 
 function Page({ route }: { route: Route }) {
   switch (route.view) {
@@ -548,6 +555,7 @@ function Page({ route }: { route: Route }) {
     case "essay": return <Suspense fallback={openingEssay}><WordProcessor id={route.id} essayId={route.essay} q={route.q} /></Suspense>;
     case "jobs": return <Suspense fallback={<PageLoading label="Opening the job search" wide />}><JobsPage /></Suspense>;
     case "calendar": return <Suspense fallback={<PageLoading label="Opening the calendar" wide />}><CalendarPage route={route} /></Suspense>;
+    case "tasks": return <Suspense fallback={<PageLoading label="Opening the to do lists" wide />}><TasksPage route={route} /></Suspense>;
   }
 }
 
@@ -691,7 +699,7 @@ export function App() {
       <Overlays />
       {/* Go to, opened anywhere with Ctrl K as the shortcuts list says. */}
       <Palette />
-      {route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && <DropAnywhere route={route} />}
+      {route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && route.view !== "tasks" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>
   );

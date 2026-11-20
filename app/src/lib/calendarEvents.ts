@@ -13,6 +13,7 @@ import {
   buildModuleKeyEvent,
   buildPersonalEvent,
   buildProspectEvent,
+  buildTaskEvent,
   overlaps,
 } from "./calendar";
 import { type ISODate, addDays } from "./civilDate";
@@ -23,18 +24,20 @@ import type { CalendarEventRow } from "./types";
 // A hidden source is not read at all.
 export async function loadCalendarEvents(from: ISODate, to: ISODate, hidden: readonly CalendarSource[]): Promise<CalEvent[]> {
   const shown = (source: CalendarSource) => !hidden.includes(source);
-  const [personal, google, applications, prospects, modules] = await Promise.all([
+  const [personal, google, applications, prospects, modules, tasks] = await Promise.all([
     shown("personal") ? db.calendar_events.where("start_date").belowOrEqual(to).toArray() : [],
     shown("google") ? db.gcal_events.where("start_date").belowOrEqual(to).toArray() : [],
     shown("deadline") ? db.applications.toArray() : [],
     shown("check") ? db.prospects.where("next_check").between(from, addDays(to, 1), true, false).toArray() : [],
     shown("essay") ? db.modules.toArray() : [],
+    shown("tasks") ? db.tasks.where("due_date").between(from, addDays(to, 1), true, false).toArray() : [],
   ]);
   const events: (CalEvent | null)[] = [
     ...personal.map(buildPersonalEvent),
     ...google.map(buildGcalEvent),
     ...applications.map(buildApplicationEvent),
     ...prospects.map(buildProspectEvent),
+    ...tasks.map(buildTaskEvent),
     ...modules.flatMap((m) => (Array.isArray(m.key_dates) ? m.key_dates : []).map((k) => buildModuleKeyEvent(m, k))),
   ];
   return events.filter((e): e is CalEvent => e !== null && overlaps(e, from, to));

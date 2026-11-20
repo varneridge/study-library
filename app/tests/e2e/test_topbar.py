@@ -133,6 +133,7 @@ TOOLS_ORDER = [
     ".sync-indicator",
     ".side-switch .side-study",
     ".side-switch .to-calendar",
+    ".side-switch .to-tasks",
     ".side-switch .to-jobs",
     ".open-desktop-btn",
     ".topbar-tools a[title^='Search']",

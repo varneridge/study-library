@@ -15,12 +15,12 @@ import {
 } from "./civilDate";
 import type { GcalEvent } from "./db";
 import type { Route } from "./router";
-import type { ApplicationRow, CalendarEventRow, EventCategory, KeyDate, ModuleRow, ProspectRow } from "./types";
+import type { ApplicationRow, CalendarEventRow, EventCategory, KeyDate, ModuleRow, ProspectRow, TaskRow } from "./types";
 
 export type { EventCategory };
 
-export type CalendarSource = "google" | "deadline" | "check" | "essay" | "personal";
-export const CALENDAR_SOURCES: readonly CalendarSource[] = ["personal", "google", "deadline", "check", "essay"];
+export type CalendarSource = "google" | "deadline" | "check" | "essay" | "personal" | "tasks";
+export const CALENDAR_SOURCES: readonly CalendarSource[] = ["personal", "google", "deadline", "check", "essay", "tasks"];
 
 export const EVENT_CATEGORIES: readonly EventCategory[] = ["appointment", "lecture", "reminder", "other"];
 
@@ -30,7 +30,7 @@ export type CalendarMode = "month" | "week" | "day" | "agenda";
 export type HHMM = string;
 
 export interface CalEvent {
-  // Unique across sources: p:, g:, d:, c: or e: followed by the source's id.
+  // Unique across sources: p:, g:, d:, c:, e: or t: followed by the source's id.
   key: string;
   source: CalendarSource;
   title: string;
@@ -349,6 +349,23 @@ export function buildProspectEvent(row: ProspectRow): CalEvent | null {
   };
 }
 
+// An open task with a due date. A due time makes it a short timed event, and
+// without one it lasts the day. Pressing it opens the task on the to-do page.
+export function buildTaskEvent(row: TaskRow): CalEvent | null {
+  if (row.deleted || row.completed_at || !row.due_date) return null;
+  const when = normalise(row.due_date, null, row.due_time, row.due_time, !row.due_time);
+  if (!when) return null;
+  return {
+    key: `t:${row.id}`,
+    source: "tasks",
+    title: row.title?.trim() || "Untitled task",
+    ...when,
+    notes: row.notes ?? null,
+    to: { view: "tasks", list: row.list_id, task: row.id },
+    editable: false,
+  };
+}
+
 export function buildModuleKeyEvent(module: ModuleRow, keyDate: KeyDate): CalEvent | null {
   if (module.deleted) return null;
   const when = normalise(keyDate.date, null, null, null, true);
@@ -424,6 +441,7 @@ export const SOURCE_LABELS: Record<CalendarSource, string> = {
   deadline: "Job deadlines",
   check: "Job checks",
   essay: "Essay deadlines",
+  tasks: "To do",
 };
 
 export const SOURCE_BADGES: Record<CalendarSource, string> = {
@@ -432,6 +450,7 @@ export const SOURCE_BADGES: Record<CalendarSource, string> = {
   deadline: "Deadline",
   check: "Check",
   essay: "Essay",
+  tasks: "To do",
 };
 
 export const CATEGORY_LABELS: Record<EventCategory, string> = {

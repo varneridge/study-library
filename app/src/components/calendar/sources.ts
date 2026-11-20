@@ -11,6 +11,7 @@ export const SOURCE_LABELS: Record<CalendarSource, string> = {
   deadline: "Job deadlines",
   check: "Job checks",
   essay: "Essay deadlines",
+  tasks: "To do",
 };
 
 // "Seminar, Monday 16 November 2026, 10:00 to 11:00, Personal"
