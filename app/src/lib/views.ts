@@ -2,12 +2,13 @@
 // compact rows, normal rows with a larger picture, icons, or large icons.
 // Each week, section and shelf remembers its own choice, on every device.
 
+import type { IconName } from "../components/icons";
 import type { ReadingView } from "./library";
 import { isVideoMime } from "./video";
 
 export type ReadingViewMode = "compact" | "normal" | "icons" | "large";
 
-export const VIEW_MODES: readonly { value: ReadingViewMode; label: string; icon: string }[] = [
+export const VIEW_MODES: readonly { value: ReadingViewMode; label: string; icon: IconName }[] = [
   { value: "compact", label: "Compact", icon: "viewCompact" },
   { value: "normal", label: "Normal", icon: "viewNormal" },
   { value: "icons", label: "Icons", icon: "viewIcons" },

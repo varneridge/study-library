@@ -41,17 +41,27 @@ html.sl-desktop.sl-bare #main {
   transform: translateZ(0);
 }
 
+/* The top bar is hidden over a reading rather than taken away, and its own
+   display would otherwise win over the attribute. */
+.topbar[hidden] {
+  display: none;
+}
+
 /* A pane adds no box of its own, so each page lays out as it did before tabs. */
 .sl-pane {
   display: contents;
 }
 
 .sl-tabs {
+  /* The strip has a tint of its own, a little off the page, so that the tab in
+     front, which takes the page's own colour, reads as joined to the page. */
+  --sl-strip-bg: color-mix(in srgb, currentColor 5%, var(--sl-shell-bg, Canvas));
   display: flex;
   align-items: center;
   gap: 0.25rem;
   height: var(--sl-tabs-h);
   padding: 0 0.5rem;
+  background: var(--sl-strip-bg);
   color: inherit;
   user-select: none;
 }
@@ -114,30 +124,55 @@ html.sl-desktop.sl-bare .sl-tabs {
 
 .sl-tabs-list {
   display: flex;
-  align-items: center;
-  gap: 0.25rem;
+  align-items: flex-end;
+  gap: 0;
   flex: 0 1 auto;
   min-width: 0;
   height: 100%;
+  /* A little room at each end, so that the first and last tab's edge is never cut off by the scroll box. */
+  padding-inline: 2px;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-/* Each tab is a pill on the paper rather than a cell of a grey strip, so the
-   one in front is lifted onto the surface colour and the rest stay quiet.
-   Every tab takes the same width whatever its title, as Chrome's do, and the
-   explicit width is what the strip measures, so the row only shrinks, and
-   shrinks every tab by the same amount, once the window runs out of room. */
+/* The ends fade only while there are more tabs beyond them. */
+.sl-tabs-list[data-fade="start"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem);
+}
+
+.sl-tabs-list[data-fade="end"] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+  mask-image: linear-gradient(to left, transparent, #000 1.5rem);
+}
+
+.sl-tabs-list[data-fade="both"] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+}
+
+/* Each tab stands on the strip's lower edge, so the one in front, which takes
+   the page's own colour and an accent line along its top, runs into the page
+   beneath it and the rest stay quiet. Every tab takes the same width whatever
+   its title, as Chrome's do, and the explicit width is what the strip measures,
+   so the row only shrinks, and shrinks every tab by the same amount, once the
+   window runs out of room. It can shrink as far as the width of its icon. */
 .sl-tab {
+  position: relative;
   display: flex;
   align-items: center;
   flex: 0 1 var(--sl-tab-w, 15rem);
   width: var(--sl-tab-w, 15rem);
-  min-width: 5.5rem;
-  height: calc(var(--sl-tabs-h) - 0.5rem);
-  border-radius: 0.5rem;
+  min-width: 3rem;
+  height: calc(var(--sl-tabs-h) - 0.375rem);
+  border-radius: 0.5rem 0.5rem 0 0;
   color: color-mix(in srgb, currentColor 70%, transparent);
   transition: background-color 120ms ease, color 120ms ease;
+}
+
+/* The pinned tab is as wide as its icon, so it cannot be a container, which would measure it as empty. */
+.sl-tab:not(.is-pinned) {
+  container-type: inline-size;
 }
 
 .sl-tab.is-pinned {
@@ -151,11 +186,28 @@ html.sl-desktop.sl-bare .sl-tabs {
 }
 
 .sl-tab.is-active {
-  background: var(--surface, color-mix(in srgb, currentColor 5%, var(--sl-shell-bg, Canvas)));
+  background: var(--paper, var(--sl-shell-bg, Canvas));
   color: inherit;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, currentColor 12%, transparent),
-    0 1px 2px color-mix(in srgb, currentColor 8%, transparent);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* A hairline sets each tab off from the one before it, and is hidden beside
+   the tab in front and the one under the pointer, which are drawn as shapes. */
+.sl-tab::before {
+  content: "";
+  position: absolute;
+  inset-block: 30%;
+  left: 0;
+  width: 1px;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.sl-tab:first-child::before,
+.sl-tab:is(.is-active, :hover)::before,
+.sl-tab:is(.is-active, :hover) + .sl-tab::before {
+  opacity: 0;
 }
 
 .sl-tab-title {
@@ -179,6 +231,10 @@ html.sl-desktop.sl-bare .sl-tabs {
 
 .sl-tab.is-pinned .sl-tab-title {
   padding: 0 0.6rem;
+}
+
+.sl-tab-title > .icon {
+  flex: none;
 }
 
 .sl-tab-label {
@@ -209,6 +265,21 @@ html.sl-desktop.sl-bare .sl-tabs {
    and Zotero, so that a row of tabs reads as titles rather than as buttons. */
 .sl-tab:not(.is-active):not(:hover) .sl-tab-close {
   opacity: 0;
+}
+
+/* A crowded tab gives up its padding, and its close button unless it is in front, to keep its icon whole. */
+@container (max-width: 5.5rem) {
+  .sl-tab-title {
+    padding: 0 0 0 0.375rem;
+  }
+
+  .sl-tab-close {
+    margin-right: 0.1rem;
+  }
+
+  .sl-tab:not(.is-active) .sl-tab-close {
+    display: none;
+  }
 }
 
 .sl-tab-new {
@@ -269,6 +340,7 @@ html.sl-desktop.sl-bare .sl-tabs {
 
 @media (prefers-reduced-motion: reduce) {
   .sl-tab,
+  .sl-tab::before,
   .sl-history-button,
   .sl-window-button {
     transition: none;
@@ -293,7 +365,7 @@ html.sl-desktop.sl-wco .sl-tabs {
   top: env(titlebar-area-y, 0);
   left: env(titlebar-area-x, 0);
   width: env(titlebar-area-width, 100%);
-  background: var(--sl-shell-bg, Canvas);
+  background: var(--sl-strip-bg);
   border-bottom: 0;
   app-region: drag;
   -webkit-app-region: drag;

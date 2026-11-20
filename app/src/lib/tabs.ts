@@ -1,4 +1,4 @@
-﻿// The desktop window's tabs as plain data: what is open, which is in front,
+// The desktop window's tabs as plain data: what is open, which is in front,
 // which stay mounted and what was closed recently enough to bring back. Each
 // change returns a new state, or the same one when nothing changes, so the
 // rules can be tested without a window and a caller can tell a no-op apart.
@@ -92,6 +92,27 @@ export function tabLabel(code: string | null | undefined, place: string | null |
   const within = place?.trim() || null;
   if (module && within) return `${module} (${within})`;
   return module ?? within;
+}
+
+// The kind of page a tab shows, which chooses the icon drawn beside its title.
+// The names are the icons' own, so the strip reads the same in every theme, and
+// a page that has no kind of its own yet, or a view this version does not know,
+// is drawn as a menu rather than as nothing.
+export type TabKind = "home" | "menu" | "reading" | "notes" | "calendar" | "job" | "todo" | "search" | "settings";
+
+export function tabKind(view: string): TabKind {
+  switch (view) {
+    case "home": return "home";
+    case "reader": return "reading";
+    case "session":
+    case "essay": return "notes";
+    case "calendar": return "calendar";
+    case "jobs": return "job";
+    case "tasks": return "todo";
+    case "search": return "search";
+    case "settings": return "settings";
+    default: return "menu";
+  }
 }
 
 // The tabs kept mounted: the one in front and those most recently in front before it.

@@ -18,10 +18,11 @@ import { sessionLabel, weekCode } from "../lib/modules";
 import { confirmLeave, href, navigate, routeOf, type Route } from "../lib/router";
 import { isFrameless, TAB_HIDDEN_EVENT, TAB_SHOWN_EVENT, windowControls } from "../lib/shell";
 import {
-  activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs, tabLabel,
+  activate, activeTab, closeTab, followRoute, initialTabs, mountedTabIds, openTab, reopenTab, restoreTabs, tabKind, tabLabel,
   type Tab, type TabState,
 } from "../lib/tabs";
 import type { SessionRow, WeekRow } from "../lib/types";
+import { hasOpenOverlay } from "../lib/ui";
 import { Icon } from "./icons";
 import "./TabBar.css";
 
@@ -64,6 +65,38 @@ function restore(saved: Snapshot | undefined): void {
     if (box.isConnected) box.scrollTo(left, top);
   }
   window.scrollTo(0, saved?.y ?? 0);
+}
+
+// The field that had the cursor when its tab was put away, and where the cursor
+// stood in it, so that typing can go on when the tab comes back.
+type Held = { element: HTMLElement; start: number | null; end: number | null };
+
+function isField(element: HTMLElement): boolean {
+  return element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName);
+}
+
+function holdFocus(element: HTMLElement): Held {
+  try {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      return { element, start: element.selectionStart, end: element.selectionEnd };
+    }
+  } catch {
+    // An input of a kind that has no cursor, such as a number, throws on asking.
+  }
+  return { element, start: null, end: null };
+}
+
+// Given back once the tab is shown and laid out, and never over a dialog that
+// opened in the meantime. A page built on ProseMirror puts its own caret back on focus.
+function resumeFocus(held: Held | undefined, pane: HTMLElement | undefined): void {
+  if (!held || !pane?.contains(held.element) || hasOpenOverlay()) return;
+  held.element.focus({ preventScroll: true });
+  if (held.start === null || held.end === null) return;
+  try {
+    (held.element as HTMLInputElement).setSelectionRange(held.start, held.end);
+  } catch {
+    // Left where focus put it.
+  }
 }
 
 function readStore(): string | null {
@@ -111,6 +144,9 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
   const panes = useRef(new Map<string, HTMLElement>());
   const scrolls = useRef(new Map<string, Snapshot>());
   const routes = useRef(new Map<string, Route>());
+  // The last field to take the cursor in each pane, and the one put away with its tab.
+  const fields = useRef(new Map<string, HTMLElement>());
+  const held = useRef(new Map<string, Held>());
 
   const commands = useMemo<TabCommands>(() => {
     const commit = (next: TabState) => {
@@ -119,11 +155,16 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
       if (next.activeId !== current.activeId) {
         const pane = panes.current.get(current.activeId);
         scrolls.current.set(current.activeId, snapshot(pane));
+        const field = fields.current.get(current.activeId);
+        if (field && pane?.contains(field)) held.current.set(current.activeId, holdFocus(field));
+        else held.current.delete(current.activeId);
         pane?.dispatchEvent(new CustomEvent(TAB_HIDDEN_EVENT, { bubbles: true, detail: { tab: current.activeId } }));
       }
       // A tab that is no longer mounted starts afresh at the top when it returns.
       const kept = new Set(mountedTabIds(next));
-      for (const id of [...scrolls.current.keys()]) if (!kept.has(id)) scrolls.current.delete(id);
+      for (const map of [scrolls.current, fields.current, held.current]) {
+        for (const id of [...map.keys()]) if (!kept.has(id)) map.delete(id);
+      }
       live.current = next;
       setState(next);
       const target = activeTab(next).href;
@@ -152,8 +193,30 @@ export function useDesktopTabs(route: Route, enabled: boolean) {
     shownBefore.current = state.activeId;
     restore(scrolls.current.get(state.activeId));
     // Told once the tab is shown and laid out, for a page that keeps its own place.
-    panes.current.get(state.activeId)?.dispatchEvent(new CustomEvent(TAB_SHOWN_EVENT, { bubbles: true, detail: { tab: state.activeId } }));
+    const pane = panes.current.get(state.activeId);
+    pane?.dispatchEvent(new CustomEvent(TAB_SHOWN_EVENT, { bubbles: true, detail: { tab: state.activeId } }));
+    resumeFocus(held.current.get(state.activeId), pane);
+    held.current.delete(state.activeId);
   }, [state.activeId]);
+
+  // Which field in each pane had the cursor last. A tab clicked with the mouse
+  // takes focus itself, so the field is remembered as it is entered, and a
+  // button entered after it means the cursor was no longer in a field.
+  useEffect(() => {
+    if (!enabled) return;
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      for (const [id, pane] of panes.current) {
+        if (!pane.contains(target)) continue;
+        if (isField(target)) fields.current.set(id, target);
+        else fields.current.delete(id);
+        return;
+      }
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [enabled]);
 
   useEffect(() => {
     if (enabled) writeStore(state);
@@ -320,18 +383,30 @@ async function nameFor(route: Route): Promise<string | null> {
   }
 }
 
+// The titles found so far, by address, so that a tab drawn again, or one whose
+// page comes back to an address it showed before, never shows the kind of page
+// in place of its name while the lookup runs. The oldest are dropped past a limit.
+const TITLE_LIMIT = 200;
+const knownTitles = new Map<string, string>();
+
 // A tab is named for what it shows, from the library on this device, and
-// falls back to the kind of page while that is still being looked up.
+// falls back to the kind of page only when nothing has been found for it yet.
 function useTabTitle(route: Route): string {
   const key = href(route);
   const named = useLiveQuery(() => nameFor(route), [key]);
-  return named ?? FALLBACK_TITLES[route.view];
+  if (named) {
+    knownTitles.delete(key);
+    knownTitles.set(key, named);
+    if (knownTitles.size > TITLE_LIMIT) knownTitles.delete(knownTitles.keys().next().value as string);
+  }
+  return named ?? knownTitles.get(key) ?? FALLBACK_TITLES[route.view];
 }
 
 function TabItem({ tab, onSelect, onClose, onKeyDown }: {
   tab: TabView; onSelect: () => void; onClose: () => void; onKeyDown: (event: React.KeyboardEvent) => void;
 }) {
   const title = useTabTitle(tab.route);
+  const kind = tabKind(tab.route.view);
   const homeTitle = title === "Home" ? "Home" : `Home: ${title}`;
   // The middle button closes a tab, as in a browser, and is kept from
   // starting the page's autoscroll when it is pressed.
@@ -339,6 +414,7 @@ function TabItem({ tab, onSelect, onClose, onKeyDown }: {
     <div
       role="none"
       className={`sl-tab${tab.active ? " is-active" : ""}${tab.pinned ? " is-pinned" : ""}`}
+      data-kind={kind}
       onMouseDown={(event) => {
         if (event.button === 1) event.preventDefault();
       }}
@@ -358,8 +434,9 @@ function TabItem({ tab, onSelect, onClose, onKeyDown }: {
         onClick={onSelect}
         onKeyDown={onKeyDown}
       >
+        <Icon name={kind} size={16} />
         {tab.pinned
-          ? <><Icon name="home" size={16} /><span className="sr-only">{homeTitle}</span></>
+          ? <span className="sr-only">{homeTitle}</span>
           : <span className="sl-tab-label">{title}</span>}
       </button>
       {!tab.pinned && (
@@ -502,10 +579,44 @@ function useMaximised(frameless: boolean): [boolean, () => void] {
   return [maximised, toggle];
 }
 
+// How far the strip's edge fades, which TabBar.css draws as 1.5rem, so a tab
+// brought into view is scrolled clear of the fade and not left half faded.
+const FADE_PX = 24;
+
 export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: TabCommands }) {
   const frameless = isFrameless();
   const [maximised, toggleMaximised] = useMaximised(frameless);
   const list = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState<"start" | "end" | "both" | undefined>();
+  const activeId = tabs.find((tab) => tab.active)?.id;
+  // The tab in front is always scrolled into view when the row overflows.
+  useEffect(() => {
+    const box = list.current;
+    const tab = box?.querySelector<HTMLElement>(".sl-tab.is-active");
+    if (!box || !tab) return;
+    const inner = tab.getBoundingClientRect();
+    const outer = box.getBoundingClientRect();
+    if (inner.left < outer.left + FADE_PX) box.scrollLeft -= outer.left + FADE_PX - inner.left;
+    else if (inner.right > outer.right - FADE_PX) box.scrollLeft += inner.right - (outer.right - FADE_PX);
+  }, [activeId, tabs.length]);
+  // The edges fade only on a side that has more tabs beyond it.
+  useEffect(() => {
+    const box = list.current;
+    if (!box) return;
+    const measure = () => {
+      const start = box.scrollLeft > 1;
+      const end = box.scrollLeft + box.clientWidth < box.scrollWidth - 1;
+      setFade(start && end ? "both" : start ? "start" : end ? "end" : undefined);
+    };
+    measure();
+    box.addEventListener("scroll", measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => {
+      box.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, [tabs.length]);
   const select = (tab: TabView) => {
     // Pressing Home while it is already in front takes it back to the home page.
     if (tab.pinned && tab.active) void navigate({ view: "home" });
@@ -535,7 +646,7 @@ export function DesktopTabBar({ tabs, commands }: { tabs: TabView[]; commands: T
   return (
     <div className={`sl-tabs${frameless ? " is-frameless" : ""}`}>
       <HistoryButtons />
-      <div className="sl-tabs-list" role="tablist" aria-label="Open tabs" ref={list}>
+      <div className="sl-tabs-list" role="tablist" aria-label="Open tabs" ref={list} data-fade={fade}>
         {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 // First among the app's own modules, so that the desktop mark is read from the
 // address before any module that loads the router has a chance to rewrite it.
 import { followShellColour, followWindowControls, isDesktop, setNeedsConnecting } from "./lib/shell";
@@ -275,11 +275,15 @@ function ModuleLinks({ route }: { route: Route }) {
     }
     return null;
   }, [route]);
+  // The last module found is kept until the next one is, so that moving between
+  // two tabs never switches the highlight off for the moment the lookup takes.
+  const lastModule = useRef<string | null>(null);
+  if (lookedUpModule !== undefined) lastModule.current = lookedUpModule;
   const currentModule =
     route.view === "module" || route.view === "assessment"
       ? route.id
       : route.view === "week" || route.view === "session"
-        ? lookedUpModule
+        ? lastModule.current
         : null;
   // The home page lists every module itself, so the bar does not repeat them there.
   if (modules.length < 2 || route.view === "home") return null;
@@ -468,11 +472,13 @@ function SideSwitch({ side }: { side: Side }) {
   );
 }
 
-function TopBar({ route }: { route: Route }) {
+// Over a reading or an essay the bar is hidden rather than taken away, so it
+// keeps its state and is already drawn when the next page comes back.
+function TopBar({ route, hidden }: { route: Route; hidden: boolean }) {
   const side = sideOf(route);
   const desktop = isDesktop();
   return (
-    <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : ""}`}>
+    <header className={`topbar${side === "jobs" ? " jobs-bar wide" : side === "calendar" ? " calendar-bar wide" : ""}`} hidden={hidden}>
       {side === "jobs"
         ? <Link to={{ view: "jobs" }} className="brand" current={true}>Job search</Link>
         : side === "calendar"
@@ -547,7 +553,9 @@ function Page({ route }: { route: Route }) {
 
 // One page with its loading and error boundaries. The Suspense boundary stays
 // mounted, so a page change waits on the old page rather than a blank one.
-function PageSlot({ route }: { route: Route }) {
+// It is memoised, since each tab keeps the same route object between renders, so
+// a switch of tab redraws only the two panes that changed and not every one kept mounted.
+const PageSlot = memo(function PageSlot({ route }: { route: Route }) {
   return (
     <Suspense fallback={<PageLoading label="Opening the page" wide />}>
       <ErrorBoundary key={pageKey(route)} label={failureLabels[route.view]}>
@@ -555,7 +563,7 @@ function PageSlot({ route }: { route: Route }) {
       </ErrorBoundary>
     </Suspense>
   );
-}
+});
 
 export function App() {
   const current = useRoute();
@@ -600,7 +608,8 @@ export function App() {
       root.classList.remove("sl-desktop", "sl-bare");
     };
   }, [desktop]);
-  useEffect(() => {
+  // Applied before the browser paints, so that a reading never draws one frame in the layout of a page with a top bar.
+  useLayoutEffect(() => {
     if (desktop) document.documentElement.classList.toggle("sl-bare", bare);
   }, [desktop, bare]);
 
@@ -641,7 +650,7 @@ export function App() {
   // whether the tabs sit beneath the bar or up in the title bar.
   useLayoutEffect(() => {
     const bar = document.querySelector<HTMLElement>(".topbar");
-    if (!bar) return;
+    if (!bar || bare) return;
     const strip = document.querySelector<HTMLElement>(".sl-tabs");
     const update = () => {
       document.documentElement.style.setProperty("--topbar-h", `${bar.offsetHeight + (strip?.offsetHeight ?? 0)}px`);
@@ -651,7 +660,7 @@ export function App() {
     ro.observe(bar);
     if (strip) ro.observe(strip);
     return () => ro.disconnect();
-  }, [route.view]);
+  }, [route.view, bare]);
 
   // Every child keeps its place whatever the view, so a change of page never
   // remounts the top bar, the overlays or the recorder. In the desktop window
@@ -665,7 +674,7 @@ export function App() {
       {!bare && <a className="skip" href="#main">Skip to content</a>}
       <div className={desktop ? "sl-chrome" : undefined}>
         {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
-        {!bare && <TopBar route={route} />}
+        <TopBar route={route} hidden={bare} />
       </div>
       {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}

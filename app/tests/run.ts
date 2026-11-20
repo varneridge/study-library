@@ -1374,7 +1374,7 @@ test("the date card has no quick chips and a Clear date button apart from Cancel
 test("one top bar serves both sides, with the switch between them", () => {
   const source = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.equal((source.match(/<header className=/g) ?? []).length, 1, "there should be one top bar");
-  assert.equal((source.match(/<TopBar route=\{route\} \/>/g) ?? []).length, 1, "both sides should use TopBar");
+  assert.equal((source.match(/<TopBar route=\{route\}[^>]*\/>/g) ?? []).length, 1, "both sides should use TopBar");
   assert.ok(!source.includes("Back to Study Library"), "the old way back from the job search remains");
 });
 

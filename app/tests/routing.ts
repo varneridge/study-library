@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { href, parseRoute, type Route } from "../src/lib/router";
+import { tabKind, type TabKind } from "../src/lib/tabs";
 
 export function registerRoutingTests(test: (name: string, fn: () => void) => void): void {
 
@@ -63,6 +64,23 @@ test("other fields never leak into a calendar link", () => {
   const route = { view: "calendar", date: "2026-11-16", term: "AT", q: "x", essay: "e", app: "a1" } as unknown as Route;
   assert.equal(href(route), "/?v=calendar&date=2026-11-16");
 });
+
+  test("each page opens in a tab of its own kind, and anything unknown is a menu", () => {
+    const kinds: Record<string, TabKind> = {
+      home: "home", module: "menu", week: "menu", across: "menu", assessment: "menu", reader: "reading",
+      session: "notes", essay: "notes", calendar: "calendar", jobs: "job", tasks: "todo", search: "search", settings: "settings",
+    };
+    for (const [view, kind] of Object.entries(kinds)) assert.equal(tabKind(view), kind, view);
+    // All nine kinds are in use, so no icon is drawn for nothing.
+    assert.equal(new Set(Object.values(kinds)).size, 9);
+    for (const view of ["", "elsewhere", "Reader", "reader "]) assert.equal(tabKind(view), "menu", view);
+  });
+
+  test("a parsed route's view always has a kind", () => {
+    for (const search of ["", "?v=module&id=m1", "?v=week&id=w1", "?v=reader&id=i1", "?v=calendar", "?v=jobs", "?v=settings", "?v=search"]) {
+      assert.ok(tabKind(parseRoute(search).view), search);
+    }
+  });
 
   test("the existing routes are untouched", () => {
     assert.deepEqual(parseRoute(""), { view: "home" });

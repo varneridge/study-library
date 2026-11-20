@@ -450,13 +450,13 @@ export function VideoReader({ data, q }: { data: ReaderData; q?: string }) {
                 : `${hit + 1} of ${totalMatches}`}
           </span>
           <IconButton
-            icon="prev"
+            icon="up"
             label="Previous match"
             disabled={totalMatches === 0}
             onClick={() => setHit((h) => (h - 1 + totalMatches) % totalMatches)}
           />
           <IconButton
-            icon="next"
+            icon="down"
             label="Next match"
             disabled={totalMatches === 0}
             onClick={() => setHit((h) => (h + 1) % totalMatches)}

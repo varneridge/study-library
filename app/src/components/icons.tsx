@@ -8,7 +8,10 @@ import { syncView, type SyncView } from "../lib/syncStatus";
 // The outline every cloud-shaped sync symbol shares, so they read as one family.
 const cloud = <path d="M5.5 14.5h9a3 3 0 0 0 .4-5.97A4.5 4.5 0 0 0 6.2 7.2 3.5 3.5 0 0 0 5.5 14.5Z" />;
 
-const paths: Record<string, React.ReactNode> = {
+// The plus is drawn once and answers to two names, because the add tiles call it "add".
+const plus = <path d="M10 4.5v11M4.5 10h11" />;
+
+const paths = {
   back: <path d="M12.5 4.5 7 10l5.5 5.5" />,
   // For the phone's tab bar.
   home: <path d="M3.5 9.25 10 3.75l6.5 5.5v7h-4.25v-4.5h-4.5v4.5H3.5z" />,
@@ -30,7 +33,8 @@ const paths: Record<string, React.ReactNode> = {
   more: <><circle cx="4.5" cy="10" r="0.9" fill="currentColor" /><circle cx="10" cy="10" r="0.9" fill="currentColor" /><circle cx="15.5" cy="10" r="0.9" fill="currentColor" /></>,
   notes: <><path d="M5 2.75h7l3 3v11.5H5Z" /><path d="M12 2.75v3h3M7.5 9.5h5M7.5 12h5M7.5 14.5h3" /></>,
   caret: <path d="m6.5 8.5 3.5 3.5 3.5-3.5" />,
-  plus: <path d="M10 4.5v11M4.5 10h11" />,
+  plus,
+  add: plus,
   undo: <><path d="M3.5 8.5 7 5M3.5 8.5 7 12" /><path d="M3.5 8.5h7a5 5 0 0 1 5 5v1" /></>,
   redo: <><path d="m16.5 8.5-3.5-3.5M16.5 8.5 13 12" /><path d="M16.5 8.5h-7a5 5 0 0 0-5 5v1" /></>,
   // Two columns of dots, the usual sign that a row can be picked up, and three lines for reordering.
@@ -67,7 +71,16 @@ const paths: Record<string, React.ReactNode> = {
   syncPaused: <>{cloud}<path d="M8.75 9.25v3.5M11.25 9.25v3.5" /></>,
   syncOffline: <>{cloud}<path d="m3.5 3.5 13 13" /></>,
   warning: <><path d="M10 3.25 17.25 16H2.75L10 3.25Z" /><path d="M10 8.25v3.75" /><circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none" /></>,
-};
+  // The kinds of page a desktop tab can show (see tabKind in lib/tabs), a calendar
+  // page, an open book, a briefcase, a list of ticks and a list of dots, and the
+  // slide deck on a week's card.
+  calendar: <><rect x="3" y="4.25" width="14" height="12.5" /><path d="M3 8h14M7 2.75v3M13 2.75v3" /></>,
+  reading: <><path d="M10 5.5C8.5 4.25 6 3.75 3.5 4v11c2.5-.25 5 .25 6.5 1.5 1.5-1.25 4-1.75 6.5-1.5V4c-2.5-.25-5 .25-6.5 1.5Z" /><path d="M10 5.5v11" /></>,
+  job: <><rect x="2.75" y="6.25" width="14.5" height="9.5" /><path d="M7.25 6.25v-2h5.5v2M2.75 10.5h14.5" /></>,
+  todo: <path d="m3.5 5 1.25 1.25 2-2.25M3.5 10l1.25 1.25 2-2.25M3.5 15l1.25 1.25 2-2.25M10 5.25h6.5M10 10.25h6.5M10 15.25h6.5" />,
+  menu: <><circle cx="4.5" cy="5.5" r="0.9" fill="currentColor" /><circle cx="4.5" cy="10" r="0.9" fill="currentColor" /><circle cx="4.5" cy="14.5" r="0.9" fill="currentColor" /><path d="M8 5.5h8.5M8 10h8.5M8 14.5h8.5" /></>,
+  slides: <><rect x="2.75" y="4.25" width="14.5" height="9.5" /><path d="M10 13.75v3M6.5 16.75h7" /></>,
+} satisfies Record<string, React.ReactNode>;
 
 
 export type IconName = keyof typeof paths;
