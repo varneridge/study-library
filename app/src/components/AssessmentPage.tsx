@@ -7,7 +7,7 @@
 // becomes a drawer, and below 900px one pane shows at a time, chosen by tabs. On the module
 // page it is a card under Course materials & assessments, opened like a week.
 
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { DndContext, DragOverlay, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
@@ -53,9 +53,13 @@ import { NotesLoading } from "./ErrorBoundary";
 import { clampEssayZoom, EssayPreviewCorner } from "./EssayPreviewCorner";
 import { EssayPdfPages, useCtrlWheelZoom, useEssayFitScale } from "./EssayPreviewPages";
 import { EssaySourcesPanel, type EssaySourceUpload } from "./EssaySourcesPanel";
+import { Icon } from "./icons";
 import { Menu } from "./Menu";
 import { PdfPages } from "./reader/PdfPages";
 import { Sheet } from "./Sheet";
+// The splitters borrow the session page's hairline, which turns to the accent when pointed at.
+// Its sheet comes first, so that the essay's own rules can adjust it.
+import "./SplitHandle.css";
 import "./AssessmentPage.css";
 
 const NoteEditor = lazy(() => import("./NoteEditor"));
@@ -838,6 +842,111 @@ function ViewerPages({ file }: { file: ViewedDocument }) {
   );
 }
 
+// The widths of the two side columns in pixels, kept on this device so that they stay as set
+// across reloads. A column that has never been dragged is null and keeps its automatic width.
+const COLUMNS_KEY = "essay-columns";
+const COLUMN_LIMITS = { rail: { min: 224, max: 520 }, aside: { min: 256, max: 640 } } as const;
+// The essay between the columns never gets narrower than a page can sensibly be read.
+const CENTRE_MIN_WIDTH = 360;
+const COLUMN_STEP = 16;
+
+type Column = keyof typeof COLUMN_LIMITS;
+type ColumnWidths = Record<Column, number | null>;
+
+const clampColumn = (column: Column, width: number): number =>
+  Math.round(Math.min(COLUMN_LIMITS[column].max, Math.max(COLUMN_LIMITS[column].min, width)));
+
+function readColumns(): ColumnWidths {
+  try {
+    const stored = JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? "{}") as { rail?: unknown; aside?: unknown };
+    const pick = (column: Column, value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) ? clampColumn(column, value) : null;
+    return { rail: pick("rail", stored.rail), aside: pick("aside", stored.aside) };
+  } catch {
+    return { rail: null, aside: null };
+  }
+}
+
+// The drag handle on the edge between a side column and the essay. It is moved with a pointer
+// or with the left and right arrows, sent to either limit with Home and End, and put back to
+// the automatic width with a double click.
+function ColumnSplitter({
+  column,
+  label,
+  controls,
+  width,
+  limits,
+  fromPointer,
+  onChange,
+  onReset,
+}: {
+  column: Column;
+  label: string;
+  controls: string;
+  width: number;
+  limits: () => { min: number; max: number };
+  fromPointer: (clientX: number) => number;
+  onChange: (width: number) => void;
+  onReset: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const pointer = useRef<number | null>(null);
+  // The right column grows as its edge moves left, so its arrows are the other way about.
+  const grow = column === "rail" ? 1 : -1;
+  const { min, max } = limits();
+
+  const release = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointer.current !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    pointer.current = null;
+    setDragging(false);
+  };
+
+  return (
+    <div
+      className={`split-handle essay-ws-splitter${dragging ? " dragging" : ""}`}
+      data-column={column}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-controls={controls}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.min(max, Math.max(min, Math.round(width)))}
+      tabIndex={0}
+      title="Drag to resize. Double-click to reset."
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        // Stopping the default keeps the drag from selecting text as the pointer passes over it.
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        pointer.current = event.pointerId;
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (pointer.current === event.pointerId) onChange(fromPointer(event.clientX));
+      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={() => {
+        pointer.current = null;
+        setDragging(false);
+      }}
+      onKeyDown={(event) => {
+        let next: number | null = null;
+        if (event.key === "ArrowRight") next = width + COLUMN_STEP * grow;
+        else if (event.key === "ArrowLeft") next = width - COLUMN_STEP * grow;
+        else if (event.key === "Home") next = min;
+        else if (event.key === "End") next = max;
+        if (next === null) return;
+        event.preventDefault();
+        onChange(next);
+      }}
+      onDoubleClick={onReset}
+    />
+  );
+}
+
 export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }) {
   const module = useSuspendingLiveQuery(async () => {
     const found = await db.modules.get(id);
@@ -896,6 +1005,65 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   // The scale the pages are drawn at, which is also the percentage the corner reports.
   const scale = useEssayFitScale(previewEl, zoom);
   const sensors = useDragSensors();
+
+  // The side columns' widths, with the workspace they divide and the widths they are drawn at,
+  // which the handles report while a column is still at its automatic width.
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState<ColumnWidths>(readColumns);
+  const [drawn, setDrawn] = useState<ColumnWidths>({ rail: 0, aside: 0 });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLUMNS_KEY, JSON.stringify(columns));
+    } catch {
+      /* A full or blocked store only loses the widths. */
+    }
+  }, [columns]);
+
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current;
+    if (!workspace) return undefined;
+    const measure = () => {
+      const rail = workspace.querySelector<HTMLElement>(".essay-ws-rail")?.offsetWidth ?? 0;
+      const aside = workspace.querySelector<HTMLElement>(".essay-ws-aside")?.offsetWidth ?? 0;
+      setDrawn((now) => (now.rail === rail && now.aside === aside ? now : { rail, aside }));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, [columns]);
+
+  // A column stops short of the point where the essay between the columns would be squeezed.
+  // The right column only takes width from the essay where it is a column, from 1280px.
+  const columnLimits = (column: Column) => {
+    const total = workspaceRef.current?.getBoundingClientRect().width ?? 0;
+    const asideShown = window.matchMedia?.("(min-width: 1280px)").matches ?? true;
+    const other = (column === "rail" ? (asideShown ? columns.aside ?? drawn.aside : 0) : columns.rail ?? drawn.rail) ?? 0;
+    const { min, max } = COLUMN_LIMITS[column];
+    return { min, max: Math.max(min, Math.min(max, total - other - CENTRE_MIN_WIDTH)) };
+  };
+
+  const setColumn = (column: Column, width: number) => {
+    const { min, max } = columnLimits(column);
+    const next = Math.round(Math.min(max, Math.max(min, width)));
+    setColumns((now) => (now[column] === next ? now : { ...now, [column]: next }));
+  };
+
+  const columnFromPointer = (column: Column) => (clientX: number) => {
+    const box = workspaceRef.current?.getBoundingClientRect();
+    if (!box) return columns[column] ?? drawn[column] ?? COLUMN_LIMITS[column].min;
+    return column === "rail" ? clientX - box.left : box.right - clientX;
+  };
+
+  const columnStyle: CSSProperties = {
+    ...(columns.rail !== null ? { "--essay-rail-w": `${columns.rail}px` } : {}),
+    ...(columns.aside !== null ? { "--essay-aside-w": `${columns.aside}px` } : {}),
+  } as CSSProperties;
 
   useEffect(() => {
     if (!typingQuestion.current) setQuestion(assessment.title);
@@ -1351,6 +1519,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
           className="title-input essay-title-input"
           type="text"
           value={question}
+          title={question || undefined}
           placeholder="Essay title or question as set"
           aria-label="Essay question"
           onChange={(e) => setQuestion(e.target.value)}
@@ -1414,7 +1583,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         onDragEnd={handleDragEnd}
         onDragCancel={() => setDragId(null)}
       >
-        <div className="essay-ws" data-pane={pane}>
+        <div className="essay-ws" data-pane={pane} ref={workspaceRef} style={columnStyle}>
           {/* Left rail: the brief, the essay's own papers and its sources */}
           <DropZone list="sources" id="essay-pane-rail" className="essay-ws-rail">
             <section className="essay-ws-card" aria-labelledby="essay-brief-head">
@@ -1576,12 +1745,22 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             />
           </DropZone>
 
+          <ColumnSplitter
+            column="rail"
+            label="Resize the brief and sources column"
+            controls="essay-pane-rail"
+            width={columns.rail ?? drawn.rail ?? COLUMN_LIMITS.rail.min}
+            limits={() => columnLimits("rail")}
+            fromPointer={columnFromPointer("rail")}
+            onChange={(width) => setColumn("rail", width)}
+            onReset={() => setColumns((now) => ({ ...now, rail: null }))}
+          />
+
           {/* Centre: the essay itself */}
           <DropZone list="draft" id="essay-pane-centre" className="essay-ws-centre">
             <div className="essay-ws-toolbar">
-              {/* Preview, Plan and Edit in Word are three equal segments of one control across the
-                  column, so the way into Word reads as the essay's third mode rather than as a
-                  separate call to action. */}
+              {/* Preview and Plan are one segmented control, and Edit in Word is the page's one
+                  filled button beside it, so that the way into Word is the first thing seen. */}
               <div className="essay-ws-modes">
                 <SegmentedTabs
                   label="Essay view"
@@ -1594,9 +1773,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 />
                 <Link
                   to={wordProcessorRoute}
-                  className="essay-ws-mode essay-open-button"
+                  className="button primary essay-open-button"
                   title="Open the draft in the word processor"
                 >
+                  <Icon name="highlight" size={16} />
                   Edit in Word
                 </Link>
               </div>
@@ -1643,6 +1823,17 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               </div>
             )}
           </DropZone>
+
+          <ColumnSplitter
+            column="aside"
+            label="Resize the references and contents column"
+            controls="essay-pane-aside"
+            width={columns.aside ?? drawn.aside ?? COLUMN_LIMITS.aside.min}
+            limits={() => columnLimits("aside")}
+            fromPointer={columnFromPointer("aside")}
+            onChange={(width) => setColumn("aside", width)}
+            onReset={() => setColumns((now) => ({ ...now, aside: null }))}
+          />
 
           {/* Right column: references and contents, a drawer below 1280px */}
           <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and contents">

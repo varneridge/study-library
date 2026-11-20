@@ -125,10 +125,10 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
         "sticky": ["sticky", "sticky", "sticky"],
     }, panes
 
-    # Preview, Plan and Edit in Word are three equal rectangles across the centre column, and
-    # none of them is a filled button.
-    segments = page.locator(".essay-ws-modes [role=tab], .essay-ws-modes > .essay-ws-mode")
-    expect(segments).to_have_text(["Preview", "Plan", "Edit in Word"])
+    # Preview and Plan are two equal tabs in the segmented control, and Edit in Word is
+    # the page's prominent primary button beside them.
+    segments = page.locator(".essay-ws-modes [role=tab]")
+    expect(segments).to_have_text(["Preview", "Plan"])
     sizes = segments.evaluate_all(
         "nodes => nodes.map((n) => { const r = n.getBoundingClientRect(); return [r.width, r.height]; })"
     )
@@ -136,7 +136,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     heights = [height for _, height in sizes]
     assert max(widths) - min(widths) <= 1, sizes
     assert max(heights) - min(heights) <= 0.5, sizes
-    assert page.locator(".essay-ws-modes .button.primary").count() == 0
+    expect(page.locator(".essay-ws-modes .button.primary")).to_have_text("Edit in Word")
 
     # The preview flows in the window: no frame inside it scrolls vertically, so the whole
     # essay is scrolled by the page itself while the side columns stay in view.
