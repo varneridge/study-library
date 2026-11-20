@@ -38,6 +38,7 @@ import base64
 import csv
 import hmac
 import http.server
+import inspect
 import json
 import logging
 import logging.handlers
@@ -172,6 +173,20 @@ HTTOPRIGHT = 14
 HTBOTTOM = 15
 HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
+# The taskbar identity of this app. Without its own AppUserModelID, Windows files the
+# window under pythonw.exe or Edge, so the taskbar shows their icon and a pin made
+# from it opens the wrong program. The icon file is looked for beside this module.
+APP_USER_MODEL_ID = "StudyLibrary.Desktop"
+ICON_FILES = ("study-library.ico", "icon.ico")
+WM_SETICON = 0x0080
+ICON_SMALL = 0
+ICON_BIG = 1
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x00000010
+SM_CXICON = 11
+SM_CYICON = 12
+SM_CXSMICON = 49
+SM_CYSMICON = 50
 # The window procedure of each frameless window, kept here because Windows
 # holds only its address, and a callback that Python collects would crash it.
 _FRAME_HOOKS: dict[int, Any] = {}
@@ -1453,8 +1468,11 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
         colour = TITLE_BAR_COLOUR
     shown = threading.Event()
     frame: list[int] = []
+    icon = _icon_path()
     stop_links: Callable[[], None] | None = None
     try:
+        # Before the window exists, because Windows reads the identity when the taskbar button is made.
+        _set_app_user_model_id()
         api = WindowApi()
         # text_select is off by default, whereupon pywebview injects
         # body { user-select: none }, which the reader's text layer inherits,
@@ -1470,6 +1488,11 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
             if hwnd:
                 frame.append(hwnd)
                 api._hwnd = hwnd  # noqa: SLF001 - kept private so the page cannot see it
+                if icon is not None:
+                    try:
+                        _set_window_icon(hwnd, icon)
+                    except (OSError, AttributeError):
+                        log.warning("could not set the window icon", exc_info=True)
 
         window.events.shown += shown.set
         window.events.shown += adopt
@@ -1492,14 +1515,75 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
             except OSError as error:
                 log.warning("could not listen for open links, so each one opens a window of its own: %s", error)
         log.info("opening the frameless window through pywebview %s", getattr(webview, "__version__", "unknown"))
+        options: dict[str, Any] = {}
+        try:
+            # Only some pywebview versions and backends take an icon, which is passed where they do.
+            if icon is not None and "icon" in inspect.signature(webview.start).parameters:
+                options["icon"] = str(icon)
+        except (TypeError, ValueError):
+            pass
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(Path(home) / "webview"),
-                      user_agent=webview_user_agent(os.environ))
+                      user_agent=webview_user_agent(os.environ), **options)
     except Exception:  # noqa: BLE001 - any failure before the window shows falls back to Edge
         log.exception("the frameless window could not run")
     finally:
         if stop_links is not None:
             stop_links()
     return shown.is_set()
+
+
+def _icon_path() -> Path | None:
+    """The window's icon, which sits beside this module as study-library.ico,
+    or icon.ico, or None when neither is there, so that a build without the
+    file keeps the window exactly as it was."""
+    for name in ICON_FILES:
+        path = Path(__file__).with_name(name)
+        if path.is_file():
+            return path
+    return None
+
+
+def _set_app_user_model_id() -> bool:
+    """Gives this process Study Library's own AppUserModelID, so that Windows
+    groups and pins the taskbar button under it rather than under Python or
+    Edge. It must run before the window is created. False, leaving the
+    identity as it was, when this is not Windows or Windows refuses."""
+    try:
+        import ctypes
+
+        shell32 = ctypes.windll.shell32
+        shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [ctypes.c_wchar_p]
+        shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
+        result = shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except (OSError, AttributeError) as error:
+        log.warning("could not set the taskbar identity: %s", error)
+        return False
+    if result:
+        log.warning("Windows refused the taskbar identity with %#x", result & 0xFFFFFFFF)
+    return not result
+
+
+def _set_window_icon(hwnd: int, icon_path: Path) -> bool:
+    """Gives the window the large icon of the taskbar and Alt+Tab and the small
+    icon of its corner, each loaded from the .ico at the size Windows asks for,
+    which is sharper than scaling one. False when the file cannot be loaded."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32")
+    user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                  wintypes.UINT]
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.SendMessageW.restype = wintypes.LPARAM
+    done = False
+    for kind, width, height in ((ICON_BIG, SM_CXICON, SM_CYICON), (ICON_SMALL, SM_CXSMICON, SM_CYSMICON)):
+        icon = user32.LoadImageW(None, str(icon_path), IMAGE_ICON, user32.GetSystemMetrics(width),
+                                 user32.GetSystemMetrics(height), LR_LOADFROMFILE)
+        if icon:
+            user32.SendMessageW(hwnd, WM_SETICON, kind, icon)
+            done = True
+    return done
 
 
 def _spawn_supervisor(home: Path, handover: bool) -> None:

@@ -450,11 +450,17 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
   const ragged = shortShare > 0.35;
 
   const FOOTNOTE_MARKER = /^\d{1,3}(?:\.|\s)\s*[A-Z"'\u201c(]/;
-  const SECTION_NUM = /^(?:[IVXLCDM]+\.?|\d{1,2}\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+|Introduction|Conclusion|Epilogue|Preface|Foreword)\b/i;
+  const SECTION_NUM = /^(?:[IVXLCDM]+\.?|\d{1,2}(?:\.\d{1,2})*\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+|Introduction|Conclusion|Epilogue|Preface|Foreword)\b/i;
 
   // Tables are found before paragraphs, so their rows are never joined into
   // prose, nor hidden as notes when they are set small.
   const { tableAt, inTable } = findTables(lines, body);
+
+  // Each page's usual letter height, for telling a heading from its neighbours
+  // on a scan, where the sizes of whole documents are guessed and drift.
+  const pageSizes: number[] = [];
+  for (let p = 0; p < raw.length; p += 1) pageSizes[p] = median(lines.filter((l) => l.page === p).map((l) => l.size));
+  const lineIndex = new Map(lines.map((l, i) => [l, i]));
 
   let open: Block | null = null; // the paragraph being built
   let lastPara: Line | null = null;
@@ -496,15 +502,25 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
 
     // Detect section headings: isolation + heading signal.
     const completed = !lastPara || ends(lastPara);
-    const isolated = !lastPara || lastPara.page !== line.page || (lastPara.y - line.y > line.size * 1.35);
+    // The space above the line against the page's usual line spacing, and the
+    // line's height against the page's usual line height.
+    const leading = leadings[line.page] ?? body * 1.3;
+    const prevLine = lines[(lineIndex.get(line) ?? 0) - 1];
+    const spaced = !prevLine || prevLine.page !== line.page || prevLine.y - line.y > leading * 1.45;
+    const taller = line.size > (pageSizes[line.page] || body) * 1.15;
+    const isolated = !lastPara || lastPara.page !== line.page || (lastPara.y - line.y > line.size * 1.35) || (ocrDoc && spaced);
     const shortLine = t.length < 120 && !/[,;]$/.test(t);
     const centred = Math.abs((line.x0 + line.x1) / 2 - (line.colLeft + line.colRight) / 2) < line.size * 2 && (line.x1 - line.x0 < (line.colRight - line.colLeft) * 0.75);
     const allCaps = t.length >= 4 && t === t.toUpperCase() && /[A-Z]/.test(t);
-    const titleWithoutNum = t.replace(/^(?:[IVXLCDM]+\.?|\d{1,2}\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+)\s*/i, "");
+    const titleWithoutNum = t.replace(/^(?:[IVXLCDM]+\.?|\d{1,2}(?:\.\d{1,2})*\.?|Chapter\s+\d+|Part\s+\d+|Section\s+\d+)\s*/i, "");
     const isSectionHeading = SECTION_NUM.test(t) && (!/[.?!]$/.test(titleWithoutNum) || titleWithoutNum.length === 0);
-    const isHeading = !line.aside && !isNote && shortLine && completed && isolated && (
-      line.size > body * (ocrDoc ? 1.22 : 1.15) || centred || allCaps || isSectionHeading
-    );
+    // On a scan, where centring and sizes are only as good as the OCR, a
+    // centred or capitalised line needs the extra space above it to count, and
+    // a line a little taller than its page's text counts when it is spaced too.
+    const signal = ocrDoc
+      ? isSectionHeading || line.size > body * 1.22 || (taller && spaced) || ((centred || allCaps) && spaced)
+      : line.size > body * 1.15 || centred || allCaps || isSectionHeading;
+    const isHeading = !line.aside && !isNote && shortLine && completed && isolated && signal;
 
     let kind: Block["kind"] = line.aside ? "para" : isHeading ? "heading" : isNote ? "note" : "para";
 
@@ -565,7 +581,7 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
         const indentThreshold = ocrDoc ? localBaseline + line.size * 1.1 : line.colLeft + line.size * 0.85;
         const indent = line.x0 > indentThreshold && line.x0 < line.colLeft + line.size * 4;
         const short = lastPara.x1 < lastPara.colRight - line.size * 2.5;
-        const wideGap = samePage && gap > line.size * 1.75;
+        const wideGap = samePage && gap > (ocrDoc ? leading * 1.45 : line.size * 1.75);
         const newColumn = samePage && gap < 0;
         const isList = LIST_ITEM.test(t);
         breakHere = samePage
@@ -577,7 +593,6 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
       // A wide blank space between two finished paragraphs in the same column
       // is a deliberate break, as between scenes or sections of prose. The space
       // above a figure's caption is the picture's, not a break.
-      const leading = leadings[line.page] ?? body * 1.3;
       const blank = open && lastPara && lastPara.page === line.page && !lastPara.aside && !line.aside
         && Math.abs(line.colLeft - lastPara.colLeft) < body * 2 && ends(lastPara)
         && lastPara.y - line.y > leading * 2.75 && !FIGURE_CAPTION.test(t);
@@ -590,13 +605,13 @@ export async function reflow(doc: PDFDocumentProxy): Promise<Reflowed> {
   }
 
   if (ocrDoc) glueSplitWords(blocks);
-  markFigures(blocks, lines, leadings, raw.map((r) => r.height), body);
+  markFigures(blocks, lines, leadings, raw.map((r) => r.height), body, raw.map((r) => r.ocr));
   mergeTablesAcrossPages(blocks);
 
   const words = Math.round(chars / 6);
   // A scan with no text layer, or a page of figures, cannot be read as text.
   const usable = words > 80 * Math.min(doc.numPages, 3) / 3;
-  return { blocks: blocks.filter((b) => b.kind === "break" || b.lines.some((l) => l.text.trim())), pages, words, usable };
+  return { blocks: blocks.filter((b) => b.kind === "break" || Boolean(b.figure) || b.lines.some((l) => l.text.trim())), pages, words, usable };
 }
 
 // One cell of a table row as a line of its own, keeping its place in the page's text.
@@ -692,7 +707,7 @@ function mergeTablesAcrossPages(blocks: Block[]): void {
 // A short caption such as "Figure 2" with a wide space above it on its page
 // names a picture in that space. The caption becomes a figure, with the box
 // the picture fills. Captions are often set small, so a short note can be one too.
-function markFigures(blocks: Block[], lines: Line[], leadings: number[], heights: number[], body: number): void {
+function markFigures(blocks: Block[], lines: Line[], leadings: number[], heights: number[], body: number, ocrPages: boolean[]): void {
   const index = new Map(lines.map((l, i) => [l, i]));
   for (const block of blocks) {
     if (!["para", "heading", "note"].includes(block.kind) || block.lines.length < 1 || block.lines.length > 3) continue;
@@ -711,6 +726,71 @@ function markFigures(blocks: Block[], lines: Line[], leadings: number[], heights
       box: [first.colLeft, first.y + first.size * 1.4, first.colRight, prevY - first.size * 0.6],
     };
   }
+
+  // A scan has no caption to find for a picture without one, but the picture
+  // leaves a gap with no text in the body column. A gap taller than four lines
+  // between two lines of running text is a figure, with that gap as its box.
+  // The space under a heading is left alone, as a chapter opening leaves one.
+  const kinds = new Map<Line, Block["kind"]>();
+  for (const block of blocks) for (const l of block.lines) kinds.set(l, block.kind);
+  const gaps: { above: Line; below: Line }[] = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    const above = lines[i - 1], below = lines[i];
+    if (!ocrPages[below.page] || above.page !== below.page || above.aside || below.aside) continue;
+    const belowKind = kinds.get(below);
+    if (kinds.get(above) !== "para" || (belowKind !== "para" && belowKind !== "heading")) continue;
+    if (Math.abs(above.colLeft - below.colLeft) > body * 2) continue;
+    if (above.y - below.y <= (leadings[below.page] ?? body * 1.3) * 5) continue;
+    gaps.push({ above, below });
+  }
+  for (const { above, below } of gaps) {
+    let at = blocks.findIndex((b) => b.lines.includes(below));
+    if (at < 0) continue;
+    const owner = blocks[at];
+    const cut = owner.lines.indexOf(below);
+    // A paragraph that runs on across the gap is split where the picture sits.
+    if (cut > 0) {
+      blocks.splice(at + 1, 0, { ...owner, lines: owner.lines.slice(cut) });
+      owner.lines = owner.lines.slice(0, cut);
+      at += 1;
+    }
+    blocks.splice(at, 0, {
+      kind: "figure",
+      lines: [],
+      figure: { page: below.page, box: [below.colLeft, below.y + below.size, below.colRight, above.y - above.size * 0.3] },
+    });
+    // The blank space that would have been a break between paragraphs is the picture's.
+    if (blocks[at - 1]?.kind === "break" && !blocks[at - 1].lines.length) blocks.splice(at - 1, 1);
+  }
+}
+
+// Where a table sits on its page, or on each page it runs over, so it can be
+// shown as a crop of the page like a figure.
+export function tableBoxes(block: Block): FigureBox[] {
+  const byPage = new Map<number, Line[]>();
+  for (const cell of block.rows?.flat() ?? []) byPage.set(cell.page, [...(byPage.get(cell.page) ?? []), cell]);
+  const pad = 3;
+  return [...byPage].sort((a, b) => a[0] - b[0]).map(([page, cells]) => ({
+    page,
+    box: [
+      Math.max(0, Math.min(...cells.map((c) => c.x0)) - pad),
+      Math.min(...cells.map((c) => c.y - c.size * 0.3)) - pad,
+      Math.max(...cells.map((c) => c.x1)) + pad,
+      Math.max(...cells.map((c) => c.y + c.size * 0.9)) + pad,
+    ],
+  }));
+}
+
+// The headings found in the text, for a Contents list when the PDF has no outline of its own.
+export interface ReflowHeading { title: string; page: number; level: 2 | 3 }
+export function headingsOf(blocks: Block[]): ReflowHeading[] {
+  const out: ReflowHeading[] = [];
+  for (const block of blocks) {
+    if (block.kind !== "heading" || !block.lines.length) continue;
+    const title = block.lines.map((l) => l.text.replace(/\s+/g, " ").trim()).join(" ").trim();
+    if (title) out.push({ title, page: block.lines[0].page, level: block.level === 3 ? 3 : 2 });
+  }
+  return out;
 }
 
 // The rectangles on a page covered by part of its text, for saving a highlight.

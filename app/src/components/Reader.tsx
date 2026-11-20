@@ -21,7 +21,7 @@ import { IconButton } from "./icons";
 import { defaultTab } from "../lib/outline";
 import { Sidebar, type Tab } from "./reader/Sidebar";
 import { TextView, type TextSelection } from "./reader/TextView";
-import { offsetAtPoint, rectsFor, reflow, type Reflowed } from "../lib/reflow";
+import { headingsOf, offsetAtPoint, rectsFor, reflow, type Reflowed } from "../lib/reflow";
 import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSelection } from "../lib/selection";
 import { reconcile } from "../lib/readingNotes";
 import { reconcileShape } from "../lib/noteShape";
@@ -236,7 +236,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         void textColumn(loaded).then((c) => { if (!cancelled) setColumn(c); }).catch(() => undefined);
         void outline(loaded, { cancelled: () => cancelled }).then((h) => {
           if (!cancelled) {
-            setHeadings(h);
+            // A PDF with no outline of its own keeps the Contents built from its text, if that is ready first.
+            setHeadings((prev) => (h.length ? h : prev));
             setTabState((prev) => defaultTab(prev, h.length, touchedTab.current));
           }
         });
@@ -261,7 +262,16 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   useEffect(() => {
     if ((layout !== "text" && !listenOpen) || !doc || reflowed || reflowing) return;
     setReflowing(true);
-    void reflow(doc).then((r) => { setReflowed(r); setReflowing(false); }).catch(() => setReflowing(false));
+    void reflow(doc).then((r) => {
+      setReflowed(r);
+      setReflowing(false);
+      // A PDF with no outline of its own gets its Contents from the headings found in the text.
+      const found: Heading[] = headingsOf(r.blocks).map((h) => ({ title: h.title, page: h.page, depth: h.level - 2 }));
+      if (found.length) {
+        setHeadings((prev) => (prev.length ? prev : found));
+        setTabState((prev) => defaultTab(prev, found.length, touchedTab.current));
+      }
+    }).catch(() => setReflowing(false));
   }, [layout, doc, reflowed, reflowing, listenOpen]);
   const textReady = layout === "text" && reflowed?.usable;
   textRef.current = Boolean(textReady);

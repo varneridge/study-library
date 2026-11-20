@@ -113,3 +113,16 @@ def test_frameless_window_turns_the_spelling_menu_on_once_a_page_has_loaded(monk
     for handler in made["window"].events.loaded.handlers * 2:
         handler()
     assert calls == [made["window"]]
+
+
+def test_icon_path_finds_the_icon_beside_the_module(monkeypatch, tmp_path):
+    monkeypatch.setattr(desktop, "__file__", str(tmp_path / "desktop.py"))
+    # Without either file the window keeps the icon it had.
+    assert desktop._icon_path() is None
+
+    (tmp_path / "icon.ico").write_bytes(b"")
+    assert desktop._icon_path() == tmp_path / "icon.ico"
+
+    # study-library.ico is the one the app ships, so it wins over the fallback name.
+    (tmp_path / "study-library.ico").write_bytes(b"")
+    assert desktop._icon_path() == tmp_path / "study-library.ico"

@@ -5,7 +5,7 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { mergeRects } from "./pages";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import { atOf, fracOf, rangesFor, rectsFor, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
+import { atOf, fracOf, rangesFor, rectsFor, tableBoxes, type Block, type FigureBox, type Line, type Reflowed } from "../../lib/reflow";
 import type { HighlightRow, Spot } from "../../lib/types";
 import { caretAt, pressing, pressInside, SETTLE_NOW, settleDelay, whenReleased } from "../../lib/selection";
 import { selectionKey, unionRect, type EdgesLike } from "../../lib/highlightSelect";
@@ -209,24 +209,33 @@ const Body = memo(function Body({
         }
         if (block.kind === "table" && block.rows?.length) {
           const [head, ...rest] = block.rows;
+          // The table is shown as a crop of its page, as a figure is. Its text
+          // stays in the page inside a disclosure, so that find and copy still
+          // reach it. Without the PDF there is no picture, so the text is open.
           return (
-            <div key={bi} className="tv-table-wrap">
-              <table className="tv-table">
-                <thead><tr>{head.map((c, ci) => <th key={ci}>{cell(c, ci === 0)}</th>)}</tr></thead>
-                {rest.length > 0 && (
-                  <tbody>
-                    {rest.map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci}>{cell(c, ci === 0)}</td>)}</tr>)}
-                  </tbody>
-                )}
-              </table>
-            </div>
+            <figure key={bi} className="tv-figure">
+              {doc && tableBoxes(block).map((box, ti) => <FigureCrop key={ti} doc={doc} figure={box} />)}
+              <details open={!doc}>
+                <summary className="tv-figcaption">Table text</summary>
+                <div className="tv-table-wrap">
+                  <table className="tv-table">
+                    <thead><tr>{head.map((c, ci) => <th key={ci}>{cell(c, ci === 0)}</th>)}</tr></thead>
+                    {rest.length > 0 && (
+                      <tbody>
+                        {rest.map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci}>{cell(c, ci === 0)}</td>)}</tr>)}
+                      </tbody>
+                    )}
+                  </table>
+                </div>
+              </details>
+            </figure>
           );
         }
         if (block.kind === "figure") {
           return (
             <figure key={bi} className="tv-figure">
               {doc && block.figure && <FigureCrop doc={doc} figure={block.figure} />}
-              <figcaption className="tv-figcaption">{inline(block.lines)}</figcaption>
+              {block.lines.length > 0 && <figcaption className="tv-figcaption">{inline(block.lines)}</figcaption>}
             </figure>
           );
         }
@@ -572,7 +581,8 @@ export function TextView({
     const marks = root.current.querySelectorAll<HTMLElement>(`mark.find-hit[data-p="${currentHit.page}"]`);
     root.current.querySelectorAll(".find-hit.current").forEach((m) => m.classList.remove("current"));
     const mark = marks[Math.min(currentHit.n, marks.length - 1)];
-    if (mark) { mark.classList.add("current"); mark.scrollIntoView({ block: "center" }); }
+    // A match in a table's text sits in a closed disclosure, which is opened to show it.
+    if (mark) { mark.closest("details")?.setAttribute("open", ""); mark.classList.add("current"); mark.scrollIntoView({ block: "center" }); }
   }, [currentHit, marksByPage]);
 
   const minutes = Math.max(1, Math.round(reflowed.words / 230));

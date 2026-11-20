@@ -67,6 +67,11 @@ def article():
                     page.insert_text((x + pymupdf.get_text_length(line, fontsize=10.5) + 1, y - 4), "1", fontsize=6.5)
                 y += 14
             y += 4
+        if n == 2:
+            # A table under the last paragraphs: shown as a crop of the page, its text kept in a disclosure.
+            for r, row in enumerate([("Year", "Event", "Region"), ("1946", "Long Telegram", "Moscow"), ("1947", "Truman Doctrine", "Greece"), ("1948", "Marshall Plan", "Europe")]):
+                for x, cell in zip((60, 220, 400), row):
+                    page.insert_text((x, 330 + r * 16), cell, fontsize=10.5)
         page.insert_text((60, 760), f"{n + 1} On this point see the essays collected in the volume cited above, pp. {10 + n}-{20 + n}.", fontsize=7.5)
         page.insert_text((300, 800), str(101 + n), fontsize=8)
     path = FILES / "(AT1) Containment.pdf"
@@ -142,6 +147,17 @@ with sync_playwright() as p:
     assert "On this point see the essays" not in text
     assert "will to shape" in text, "the footnote number should not break the sentence"
     assert "Diplomatic History" not in text and "101" not in text.split("Choosing")[0]
+    # The table is a page crop, with its text in a disclosure that starts closed.
+    expect(body.locator("figure.tv-figure canvas.tv-figure-canvas")).to_have_count(1)
+    details = body.locator("figure.tv-figure details")
+    expect(details).to_have_count(1)
+    assert details.evaluate("d => d.open") is False, "table text should start closed"
+    assert details.locator("summary").inner_text() == "Table text"
+    table_text = details.locator("table").text_content()
+    assert "Truman Doctrine" in table_text and "Marshall Plan" in table_text, table_text
+    details.locator("summary").click()
+    expect(details.locator("table")).to_be_visible()
+    details.locator("summary").click()
     width = phone.evaluate("document.querySelector('.text-view').scrollWidth <= document.documentElement.clientWidth")
     assert width, "text wider than the screen"
     phone.screenshot(path=f"{shots}-1-phone.png")
