@@ -179,9 +179,9 @@ with sync_playwright() as p:
     expect(menu).not_to_contain_text("Video")
     expect(menu).not_to_contain_text("Audio")
     # A scroll the person starts closes the menu instead of leaving it behind.
-    assert page.evaluate("() => { const p = document.querySelector('.session-notes'); return p.scrollHeight > p.clientHeight; }")
+    assert page.evaluate("() => document.scrollingElement.scrollHeight > window.innerHeight")
     page.wait_for_timeout(700)
-    page.evaluate("() => { document.querySelector('.session-notes').scrollTop = 0; }")
+    page.evaluate("() => { window.scrollTo(0, 0); }")
     expect(menu).to_have_count(0)
     print("note menu closed on scroll")
 

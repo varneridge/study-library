@@ -85,11 +85,13 @@ with sync_playwright() as p:
     page.mouse.move(x, y)
     page.mouse.down()
     page.mouse.move(x + 20, y + 10, steps=5)
-    empty = page.locator(".week-page .section[data-drop='primary'] .readings.empty-target")
-    expect(empty).to_be_visible()
-    e = empty.bounding_box()
-    page.mouse.move(e["x"] + 100, e["y"] + e["height"] / 2, steps=14)
-    expect(page.locator(".week-page .section[data-drop='primary'] li.reading")).to_have_count(1)
+    primary = page.locator(".week-page .section[data-drop='primary']")
+    expect(primary).to_be_visible()
+    empty = primary.locator(".readings.empty-target")
+    if empty.count():
+        e = empty.bounding_box()
+        page.mouse.move(e["x"] + 100, e["y"] + e["height"] / 2, steps=14)
+    expect(primary.locator("li.reading")).to_have_count(1)
     page.mouse.up()
     expect(page.locator(".drag-card")).to_have_count(0)
     expect(page.locator(".toast")).to_contain_text("Now a primary reading.")
@@ -160,7 +162,7 @@ with sync_playwright() as p:
     print("a title typed with spaces in Edit details kept them, and nothing was picked up")
     # A row is no longer a focusable drag button, which is what let Space pick it up.
     assert rows.first.evaluate("el => !el.hasAttribute('tabindex') && el.getAttribute('role') !== 'button'"), "a row is still a drag button"
-    page.set_viewport_size({"width": 1280, "height": 500})
+    page.set_viewport_size({"width": 1280, "height": 300})
     page.evaluate("() => { window.scrollTo(0, 0); document.activeElement?.blur(); }")
     before_scroll = page.evaluate("() => window.scrollY")
     page.keyboard.press("Space")

@@ -464,7 +464,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       if (source !== document && !(source instanceof Node && source.contains(root))) return;
       if (!document.querySelector(".bn-toolbar, .bn-suggestion-menu")) return;
       container.current?.querySelector(".ProseMirror")?.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: false, cancelable: true }),
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
       );
     };
     const root = container.current;
