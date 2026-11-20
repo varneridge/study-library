@@ -19,7 +19,6 @@ import {
 import type { ApplicationEventRow, ApplicationRow, ProspectRow } from "../lib/types";
 import { showToast, typing, useNarrow, useTitle } from "../lib/ui";
 import { Icon } from "./icons";
-import { AddTile } from "./AddTile";
 import { shortDate } from "../lib/dates";
 import { DateField, Deadline, OrderButton, SlotMark, StageButton, TextField } from "./jobs/Controls";
 import { NextCheck, ProspectLinkCell, ProspectOrderButton, ProspectStatusButton } from "./jobs/ProspectControls";
@@ -485,6 +484,14 @@ export function JobsPage() {
             </a>
           </div>
         </div>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => void add()}
+          disabled={adding}
+        >
+          {adding ? "Adding…" : activeList === "shortlist" ? "Add opportunity" : "Add application"}
+        </button>
       </div>
 
       {activeList === "shortlist" ? (
@@ -594,15 +601,6 @@ export function JobsPage() {
               </table>
             </div>
           )}
-
-          <AddTile
-            as="div"
-            variant="row"
-            label={adding ? "Adding…" : "New programme"}
-            announce="Add to shortlist"
-            onAdd={() => void add()}
-            disabled={adding}
-          />
 
           {jobRoute?.newApp && (
             <Sheet
@@ -723,15 +721,6 @@ export function JobsPage() {
               </table>
             </div>
           )}
-
-          <AddTile
-            as="div"
-            variant="row"
-            label={adding ? "Adding…" : "New application"}
-            announce="Add application"
-            onAdd={() => void add()}
-            disabled={adding}
-          />
 
           {jobRoute?.newApp && (
             <Sheet

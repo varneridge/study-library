@@ -2550,7 +2550,7 @@ select.stage-chip:focus { outline: 2px solid var(--accent); outline-offset: 1px;
 /* Touch screens, and the card layout on a phone: every control in the job
    search is at least 44 pixels, as Apple's guidelines ask. */
 @media (pointer: coarse), (max-width: 60rem) {
-  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button, .date-picker-trigger, .settings-nav-item, .prospect-sheet-link, .prospect-link-go { min-height: 2.75rem; }
+  .jobs .tool, .jobs .quiet, .jobs .date-show, .jobs .button, .jobs .primary, .date-picker-trigger, .settings-nav-item, .prospect-sheet-link, .prospect-link-go { min-height: 2.75rem; }
   .settings-nav-item { display: inline-flex; align-items: center; }
   .jobs .quiet { display: inline-flex; align-items: center; }
   .jobs .slot, .jobs .details-toggle, .jobs .card-enlarge { width: 2.75rem; height: 2.75rem; }
