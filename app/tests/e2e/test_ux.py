@@ -73,6 +73,17 @@ with sync_playwright() as p:
     expect(page.locator(".week-crumbs .this-week-tag")).to_have_text("This week")
     print("week page dates:", page.locator(".week-crumbs .week-when").inner_text())
 
+    # An unstarted reading gives its pages and reading time on its meta line,
+    # which sits inline, so the row is no taller than it is without it.
+    row = page.locator(".week-page li.reading").first
+    expect(row.locator(".reading-meta .state.progress")).to_have_text(re.compile(r"^\d+ pp?, \d+ min$"), timeout=20000)
+    with_meta = row.bounding_box()["height"]
+    row.locator(".reading-meta").evaluate("el => { el.style.display = 'none'; }")
+    without_meta = row.bounding_box()["height"]
+    row.locator(".reading-meta").evaluate("el => { el.style.display = ''; }")
+    assert with_meta <= without_meta + 1, (with_meta, without_meta)
+    print("an unstarted reading shows its pages and minutes without a taller row:", row.locator(".reading-meta .state.progress").inner_text())
+
     # A highlight shows on the reading's row.
     page.locator(".week-page li.reading a.name").first.click()
     page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 5", timeout=20000)
@@ -88,6 +99,7 @@ with sync_playwright() as p:
     expect(page.locator(".hl").first).to_be_visible()
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     expect(page.locator(".week-page li.reading .state.progress").first).to_contain_text("1 highlight")
+    expect(page.locator(".week-page li.reading .state.progress").first).to_contain_text(re.compile(r"\d+ min"))
     print("a reading with a highlight says so on its row")
 
     # The home page's module card has only code and title, keeping cards smaller.

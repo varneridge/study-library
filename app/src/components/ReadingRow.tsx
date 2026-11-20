@@ -12,7 +12,7 @@ import { fullTitle, shortTitle, titleParts, chicagoBibliography } from "../lib/t
 import { cancelUploadsForItem, mimeFor, onUploadProgress, pump, queueUpload, retryUpload, sha256, uncancelUpload, uploadProgress } from "../lib/uploads";
 import { deleteItem, moduleOfItem, withUndo } from "../lib/edits";
 import { moveToTray, moveToWeek, nudge, placeInWeek } from "../lib/moves";
-import { citable } from "../lib/progress";
+import { citable, minutesLeft, readingMinutes } from "../lib/progress";
 import { deleteLabel, KIND_LABEL, KIND_TITLE_LABEL, KIND_GROUP } from "../lib/kinds";
 import { confirmAction, showToast, useCloseOnBack, useOnline } from "../lib/ui";
 import { useProcessorStatus, waitingText } from "../lib/status";
@@ -88,7 +88,12 @@ function Progress({ view }: { view: ReadingView }) {
     async () => (await db.highlights.where("item_id").equals(item.id).toArray()).filter((h) => !h.deleted).length,
     [item.id], 0,
   );
-  const page = item.last_page ? `p. ${item.last_page + 1}${file?.page_count ? ` of ${file.page_count}` : ""}` : null;
+  const pages = file?.page_count;
+  const total = readingMinutes(pages);
+  // Started: where you are and the time left. Not started: the size of it.
+  const page = item.last_page
+    ? `p. ${item.last_page + 1}${pages ? ` of ${pages}, ${minutesLeft(pages, item.last_page, total)} min left` : ""}`
+    : pages ? `${pages} ${pages === 1 ? "p" : "pp"}, ${total} min` : null;
   const marks = highlights ? `${highlights} ${highlights === 1 ? "highlight" : "highlights"}` : null;
   if (!page && !marks) return null;
   return <span className="state progress">{[page, marks].filter(Boolean).join(", ")}</span>;

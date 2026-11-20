@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { counts, citable, readCount, moduleProgress, progressWords } from "../src/lib/progress";
+import { counts, citable, readCount, moduleProgress, progressWords, readingMinutes, minutesLeft } from "../src/lib/progress";
 import { KIND_ORDER, KIND_LABEL, KIND_GROUP, KIND_GROUP_ORDER, KIND_DELETE_LABEL, deleteLabel, KIND_NOUN, KIND_TOAST_DELETED } from "../src/lib/kinds";
 import type { ItemRow, WeekRow } from "../src/lib/types";
 import type { TeachingWeek, TermDates } from "../src/lib/term";
@@ -215,5 +215,26 @@ export function registerProgressTests(test: (name: string, fn: () => void) => vo
     const p7 = moduleProgress([{ week: at4Week, items: [] }], nowAT4);
     assert.equal(p7.state, "week");
     assert.equal(progressWords(p7, dates), "AT4: no readings");
+  });
+
+  test("readingMinutes uses words when known, else 350 words a page at 230 a minute, never under a minute", () => {
+    assert.equal(readingMinutes(0), 0);
+    assert.equal(readingMinutes(null), 0);
+    assert.equal(readingMinutes(undefined), 0);
+    assert.equal(readingMinutes(1), 2);
+    assert.equal(readingMinutes(10), 15);
+    assert.equal(readingMinutes(10, 2300), 10);
+    assert.equal(readingMinutes(10, 100), 1);
+    assert.equal(readingMinutes(10, 0), 15);
+  });
+
+  test("minutesLeft scales the total by the pages still to read, counting the current page", () => {
+    assert.equal(minutesLeft(10, 0, 15), 15);
+    assert.equal(minutesLeft(10, 5, 15), 8);
+    assert.equal(minutesLeft(10, 9, 15), 2);
+    assert.equal(minutesLeft(1, 0, 2), 2);
+    assert.equal(minutesLeft(100, 99, 5), 1);
+    assert.equal(minutesLeft(10, 10, 15), 0);
+    assert.equal(minutesLeft(0, 0, 0), 0);
   });
 }

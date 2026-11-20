@@ -133,7 +133,7 @@ export function Popover({ highlight, at, names, onClose, onWrite }: {
 }
 
 // Always an input, as in Zotero: type a page and press Enter.
-export function PageJump({ current, total, onGo }: { current: number; total: number; onGo: (page: number) => void }) {
+export function PageJump({ current, total, left, onGo }: { current: number; total: number; left: number; onGo: (page: number) => void }) {
   const [value, setValue] = useState(String(current + 1));
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (!editing) setValue(String(current + 1)); }, [current, editing]);
@@ -143,10 +143,11 @@ export function PageJump({ current, total, onGo }: { current: number; total: num
     if (Number.isFinite(n) && n >= 1) onGo(Math.min(total, Math.round(n)) - 1);
     else setValue(String(current + 1));
   };
+  const hint = left > 0 ? `Go to page, about ${left} min left` : "Go to page";
   return (
-    <span className="pages-at">
+    <span className="pages-at" title={hint}>
       <input
-        type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="go" value={value} aria-label="Go to page" title="Go to page"
+        type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="go" value={value} aria-label="Go to page" title={hint}
         onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
         onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ""))}
         onBlur={go}

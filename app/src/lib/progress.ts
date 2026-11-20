@@ -92,3 +92,21 @@ export function progressWords(progress: ModuleProgress, dates?: TermDates): stri
 
   return `${code}: ${countStr}`;
 }
+
+// Reading time, at the pace and page size the text view already uses.
+const WORDS_PER_PAGE = 350;
+const WORDS_PER_MINUTE = 230;
+
+// Whole minutes to read a document: from its word count when that is known,
+// otherwise from its pages. Nothing to read gives 0; anything else, at least 1.
+export function readingMinutes(pageCount: number | null | undefined, words?: number | null): number {
+  const total = words && words > 0 ? words : (pageCount ?? 0) * WORDS_PER_PAGE;
+  return total > 0 ? Math.max(1, Math.round(total / WORDS_PER_MINUTE)) : 0;
+}
+
+// Minutes left from a 0-based page onwards, counting that page as still to read.
+export function minutesLeft(pageCount: number, lastPage: number, totalMinutes: number): number {
+  const pagesLeft = Math.min(pageCount, pageCount - lastPage);
+  if (pageCount <= 0 || pagesLeft <= 0) return 0;
+  return Math.max(1, Math.round((totalMinutes * pagesLeft) / pageCount));
+}

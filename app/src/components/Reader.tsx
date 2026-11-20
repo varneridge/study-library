@@ -33,7 +33,7 @@ import { SelectionBar } from "./reader/SelectionBar";
 import { db } from "../lib/db";
 import type { NoteEditorHandle } from "./NoteEditor";
 import { chooseAppearance, useTheme } from "../lib/appearance";
-import { citable } from "../lib/progress";
+import { citable, minutesLeft, readingMinutes } from "../lib/progress";
 import { deleteLabel } from "../lib/kinds";
 import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, toPdfRect, type Crop, type Size, type Theme } from "./reader/pages";
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
@@ -1069,7 +1069,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
             <IconButton icon="down" label="Next page" shortcut="→" disabled={current >= sizes.length - 1} onClick={() => goToPage(Math.min(sizes.length - 1, current + 1))} />
           </div>
         )}
-        {!narrow && sizes.length > 0 && <PageJump current={current} total={sizes.length} onGo={goToPage} />}
+        {!narrow && sizes.length > 0 && <PageJump current={current} total={sizes.length} left={minutesLeft(sizes.length, current, readingMinutes(sizes.length))} onGo={goToPage} />}
         {!narrow && (
           <div className="group tools">
             <IconButton icon="highlight" label="Highlight text" shortcut="H" pressed={tool === "highlight"} onClick={() => setTool(tool === "highlight" ? "select" : "highlight")} />
