@@ -14,14 +14,11 @@ import { Link } from "../App";
 import { navigate } from "../lib/router";
 import {
   assessmentNotesKey,
-  deleteDraftSnapshot,
   deleteModuleEssay,
   downloadDocxFile,
   formatChicagoFootnote,
   importAssessmentDocxFile,
   renameModuleEssay,
-  restoreDraftSnapshot,
-  saveDraftSnapshot,
   saveModuleAssessment,
   useModuleAssessment,
   type CustomSource,
@@ -169,7 +166,6 @@ interface ViewedDocument {
 const isPdfDocument = (file: ViewedDocument): boolean =>
   file.mime === "application/pdf" || /\.pdf$/i.test(file.name ?? file.url);
 
-type SaveState = "saved" | "saving" | "error";
 
 // Which pane shows below 900px; between 900px and 1280px "aside" means the drawer is open.
 type Pane = "rail" | "centre" | "aside";
@@ -900,24 +896,14 @@ export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }
 
 function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: string }) {
   const assessment = useModuleAssessment(module.id, module.code, essayId);
-  const [saveState, setSaveState] = useState<SaveState>("saved");
-  const inflightSaves = useRef(0);
-  const failedSave = useRef(false);
-  // Every field save goes through here so the status beside the title stays truthful. A counter
-  // holds the status at "Saving" while any save is running, and a failure is remembered until the
-  // last overlapping save settles, so a later success cannot report "Saved" over a lost change.
+  // Every field save goes through here, and a failure is reported in a toast, because the Saved
+  // indicator that once showed it is gone.
   const save = async (patch: Parameters<typeof saveModuleAssessment>[1]) => {
-    if (inflightSaves.current === 0) failedSave.current = false;
-    inflightSaves.current += 1;
-    setSaveState("saving");
     try {
       await saveModuleAssessment(module.id, patch, { moduleCode: module.code, essayId });
     } catch (err) {
       console.error("Saving the essay failed", err);
-      failedSave.current = true;
-    } finally {
-      inflightSaves.current -= 1;
-      if (inflightSaves.current === 0) setSaveState(failedSave.current ? "error" : "saved");
+      showToast("The essay could not be saved. Your latest change may be lost.");
     }
   };
 
@@ -1047,9 +1033,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
   const [editingTarget, setEditingTarget] = useState(false);
 
-  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
-  const [snapshotName, setSnapshotName] = useState("");
-  const [savingSnapshot, setSavingSnapshot] = useState(false);
   const importer = useRef<HTMLInputElement>(null);
   const adminInput = useRef<HTMLInputElement>(null);
 
@@ -1058,15 +1041,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const effectiveWords = effectiveWordCount(counts, assessment.draft, includeFootnotes);
   const due = assessment.dueDate ? countdown(assessment.dueDate) : null;
   const hasContent = hasDocxBytes(assessment) || counts.body + counts.quotes + counts.footnotes > 0;
-  const unsavedTitle = question.trim() !== (assessment.title ?? "").trim();
-  const saveLabel = unsavedTitle
-    ? "Unsaved"
-    : saveState === "saving"
-      ? "Saving…"
-      : saveState === "error"
-        ? "Not saved"
-        : "Saved";
-  const saveStatus = unsavedTitle ? "unsaved" : saveState;
   const adminDocuments = assessment.adminDocuments ?? [];
   // Read by reference, so that the preview parses the PDF again only when the stored bytes change.
   const pdfField = storedField(assessment, "pdf");
@@ -1090,7 +1064,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     if (hasContent) {
       const ok = await confirmAction({
         title: "Replace the Word document?",
-        body: "The current draft will be replaced by the file you choose. Save a snapshot first if you may want it back.",
+        body: "The current draft will be replaced by the file you choose.",
         confirm: "Choose file",
       });
       if (!ok) return;
@@ -1196,7 +1170,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const handleDeleteFootnote = async (fnId: string) => {
     const ok = await confirmAction({
       title: "Delete this reference?",
-      body: "The footnote is removed from the draft together with its marker in the text. Save a snapshot first if you may want it back.",
+      body: "The footnote is removed from the draft together with its marker in the text.",
       confirm: "Delete reference",
       danger: true,
     });
@@ -1421,18 +1395,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     );
   };
 
-  const saveSnapshot = async () => {
-    if (savingSnapshot) return;
-    setSavingSnapshot(true);
-    try {
-      await saveDraftSnapshot(module.id, snapshotName, module.code, essayId);
-      setSnapshotName("");
-      showToast("Snapshot saved.");
-    } finally {
-      setSavingSnapshot(false);
-    }
-  };
-
   const handleDeleteAssessment = async () => {
     const ok = await confirmAction({
       title: `Delete "${assessment.title || "Essay"}"?`,
@@ -1507,51 +1469,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
   return (
     <div className="page wide essay-page essay-ws-page">
-      <div className="section-head essay-head essay-ws-head">
-        <input
-          className="title-input essay-title-input"
-          type="text"
-          value={question}
-          title={question || undefined}
-          placeholder="Essay title or question as set"
-          aria-label="Essay question"
-          onChange={(e) => setQuestion(e.target.value)}
-          onBlur={(e) => void save({ title: e.target.value.trim() })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-        />
-        {/* The breadcrumb row is gone, so the way back to the module lives in this menu beside the title. */}
-        <span className="essay-ws-head-menu">
-          <Menu
-            label="Essay actions"
-            items={[
-              { label: `Back to ${module.code || "the module"}`, onSelect: () => navigate({ view: "module", id: module.id }) },
-              { label: "Edit in Word", onSelect: () => navigate(wordProcessorRoute) },
-              { label: "Delete essay", danger: true, onSelect: () => void handleDeleteAssessment() },
-            ]}
-          />
-        </span>
-        <span className="spacer" />
-        <span className="save-status" data-status={saveStatus} role="status" aria-live="polite">
-          <span className="save-status-dot" aria-hidden="true" />
-          {saveLabel}
-        </span>
-        {/* The References toggle shows only between 900px and 1280px, where the right column is a drawer. */}
-        <button
-          type="button"
-          className="button small essay-ws-drawer-toggle"
-          aria-expanded={pane === "aside"}
-          aria-controls="essay-pane-aside"
-          onClick={() => setPane((current) => (current === "aside" ? "centre" : "aside"))}
-        >
-          References{orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}
-        </button>
-        <button type="button" className="button small" onClick={() => setSnapshotsOpen(true)}>
-          Snapshots{assessment.previousDrafts.length > 0 ? ` (${assessment.previousDrafts.length})` : ""}
-        </button>
-      </div>
-
       <SegmentedTabs
         className="essay-ws-tabs"
         label="Essay workspace"
@@ -1579,6 +1496,47 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         <div className="essay-ws" data-pane={pane} ref={workspaceRef} style={columnStyle}>
           {/* Left rail: the brief, the essay's own papers and its sources */}
           <DropZone list="sources" id="essay-pane-rail" className="essay-ws-rail">
+            <div className="essay-ws-rail-head">
+              <div className="essay-ws-rail-title">
+                <textarea
+                  className="title-input essay-title-input"
+                  rows={1}
+                  value={question}
+                  title={question || undefined}
+                  placeholder="Essay title or question as set"
+                  aria-label="Essay question"
+                  onChange={(e) => setQuestion(e.target.value.replace(/\s*\n+\s*/g, " "))}
+                  onBlur={(e) => void save({ title: e.target.value.trim() })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                />
+                {/* The breadcrumb row is gone, so the way back to the module lives in this menu beside the title. */}
+                <span className="essay-ws-head-menu">
+                  <Menu
+                    label="Essay actions"
+                    items={[
+                      { label: `Back to ${module.code || "the module"}`, onSelect: () => navigate({ view: "module", id: module.id }) },
+                      { label: "Edit in Word", onSelect: () => navigate(wordProcessorRoute) },
+                      { label: "Delete essay", danger: true, onSelect: () => void handleDeleteAssessment() },
+                    ]}
+                  />
+                </span>
+              </div>
+              {/* The References toggle shows only between 900px and 1280px, where the right column is a drawer. */}
+              <button
+                type="button"
+                className="button small essay-ws-drawer-toggle"
+                aria-expanded={pane === "aside"}
+                aria-controls="essay-pane-aside"
+                onClick={() => setPane((current) => (current === "aside" ? "centre" : "aside"))}
+              >
+                References{orderedFootnotes.length ? ` (${orderedFootnotes.length})` : ""}
+              </button>
+            </div>
             <section className="essay-ws-card" aria-labelledby="essay-brief-head">
               <h2 id="essay-brief-head" className="essay-ws-card-title">Brief</h2>
               <div className="essay-ws-brief-count">
@@ -1863,93 +1821,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
       {/* Uploaded sources, opened inside the essay */}
       <DocumentViewer file={viewing} onClose={() => setViewing(null)} />
-
-      {/* Revision snapshots */}
-      <Sheet
-        open={snapshotsOpen}
-        onClose={() => setSnapshotsOpen(false)}
-        title="Revision snapshots"
-        subtitle="Save named snapshots before major revisions to preserve your work and compare changes."
-        footer={<button type="button" className="button primary" onClick={() => setSnapshotsOpen(false)}>Done</button>}
-      >
-        <div className="essay-snapshot-form">
-          <input
-            type="text"
-            aria-label="Snapshot name"
-            placeholder="First full draft, pre-supervision feedback..."
-            value={snapshotName}
-            enterKeyHint="done"
-            onChange={(e) => setSnapshotName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void saveSnapshot();
-            }}
-          />
-          <button
-            type="button"
-            className="button primary"
-            disabled={savingSnapshot}
-            onClick={() => void saveSnapshot()}
-          >
-            {savingSnapshot ? "Saving..." : "Save snapshot"}
-          </button>
-        </div>
-
-        {assessment.previousDrafts.length > 0 ? (
-          <ul className="essay-snapshot-list" style={{ marginTop: "1rem" }}>
-            {assessment.previousDrafts.map((snap) => (
-              <li key={snap.id}>
-                <span className="name">
-                  <strong>{snap.name}</strong>
-                  <span className="when">
-                    {snap.word_count.toLocaleString("en-GB")} {snap.word_count === 1 ? "word" : "words"},{" "}
-                    {shortDate(new Date(snap.created_at))},{" "}
-                    {new Date(snap.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </span>
-                <Menu
-                  label={`Actions for ${snap.name}`}
-                  items={[
-                    {
-                      label: "Restore snapshot",
-                      onSelect: async () => {
-                        const ok = await confirmAction({
-                          title: `Restore "${snap.name}"?`,
-                          body: "This replaces the current draft. Save a snapshot first if you wish to keep current changes.",
-                          confirm: "Restore snapshot",
-                        });
-                        if (!ok) return;
-                        await restoreDraftSnapshot(module.id, snap.id, module.code, essayId);
-                        showToast(`"${snap.name}" restored.`);
-                      },
-                    },
-                    {
-                      label: "Download .docx",
-                      onSelect: () => downloadDocxFile(snap.doc, snap.name),
-                    },
-                    {
-                      label: "Delete snapshot",
-                      danger: true,
-                      onSelect: async () => {
-                        const ok = await confirmAction({
-                          title: `Delete "${snap.name}"?`,
-                          body: "The snapshot cannot be retrieved once deleted. The current draft is not affected.",
-                          confirm: "Delete snapshot",
-                          danger: true,
-                        });
-                        if (!ok) return;
-                        await deleteDraftSnapshot(module.id, snap.id, module.code, essayId);
-                        showToast("Snapshot deleted.");
-                      },
-                    },
-                  ]}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="small muted" style={{ marginTop: "1rem" }}>No snapshots saved yet.</p>
-        )}
-      </Sheet>
 
       <input
         ref={importer}

@@ -1814,7 +1814,7 @@ kbd {
    Each speaker keeps one colour, used only for their name and rule. */
 .s0 { --who: var(--s0); } .s1 { --who: var(--s1); } .s2 { --who: var(--s2); } .s3 { --who: var(--s3); } .s4 { --who: var(--s4); } .s5 { --who: var(--s5); }
 .moodle-transcript { margin-top: 0.75rem; border-top: 1px solid var(--rule); }
-.t-head { position: sticky; top: 3.1rem; z-index: 3; background: var(--paper); padding: 0.75rem 0 0.6rem; border-bottom: 1px solid var(--rule); }
+.t-head { position: sticky; top: var(--topbar-h, 3.25rem); z-index: 3; background: var(--paper); padding: 0.75rem 0 0.6rem; border-bottom: 1px solid var(--rule); }
 .t-meta { margin: 0 0 0.5rem; font-variant-numeric: tabular-nums; }
 .t-speakers { list-style: none; margin: 0 0 0.6rem; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; }
 .t-speakers li { display: flex; align-items: center; gap: 0.45rem; font-size: var(--fs-sm); }
@@ -1837,7 +1837,7 @@ kbd {
 .t-fold:hover { color: var(--ink); border-color: var(--faint); }
 .recording.imported .section-head .count { margin-left: -0.5rem; }
 /* Speech-to-text transcripts read as paragraphs, with a time at the start of each. */
-@media (max-width: 34rem) { .t-head { top: 5.2rem; } .t-tools input[type="search"] { width: 100%; } }
+@media (max-width: 34rem) { .t-head { top: var(--topbar-h, 3.25rem); } .t-tools input[type="search"] { width: 100%; } }
 
 /* Details found in a PDF: a quiet flag on the row, and a side-by-side check. */
 .found { flex: none; align-self: center; }

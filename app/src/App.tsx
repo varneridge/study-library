@@ -683,10 +683,15 @@ export function App() {
   return (
     <>
       {!bare && <a className="skip" href="#main">Skip to content</a>}
-      <div className={desktop ? "sl-chrome" : undefined}>
-        {desktop && <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />}
-        <TopBar route={route} hidden={bare} />
-      </div>
+      {(() => {
+        const bar = <TopBar route={route} hidden={bare} />;
+        return desktop ? (
+          <div className="sl-chrome">
+            <DesktopTabBar tabs={tabs.tabs} commands={tabs.commands} />
+            {bar}
+          </div>
+        ) : bar;
+      })()}
       {!bare && <UpdateBanner />}
       {!bare && <ExpiredBanner />}
       <main id="main" tabIndex={bare ? undefined : -1}>

@@ -153,12 +153,21 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     assert flow == {"overflowY": "hidden", "fitsItsContent": True}, flow
     print("the essay page has three flush columns, three equal mode segments and a preview that flows in the window")
 
-    # The essay's two views are the Preview and Plan tabs, the references are the right-hand
-    # column, and snapshots open from the button in the title row.
+    # The essay's two views are the Preview and Plan tabs and the references are the right-hand
+    # column. The title and its menu head the left column, directly above the Brief, with no
+    # full-width title row above the three columns and no Saved indicator or Snapshots button.
     for tab in ["Preview", "Plan"]:
         expect(page.get_by_role("tab", name=tab, exact=True)).to_be_visible()
     expect(page.get_by_role("heading", name=re.compile(r"^References \(\d+\)$"))).to_be_visible()
-    expect(page.get_by_role("button", name=re.compile(r"^Snapshots"))).to_be_visible()
+    expect(page.locator(".essay-ws-head")).to_have_count(0)
+    expect(page.get_by_role("button", name=re.compile(r"^Snapshots"))).to_have_count(0)
+    expect(page.locator(".save-status")).to_have_count(0)
+    title_box = page.get_by_label("Essay question").bounding_box()
+    brief_box = page.get_by_role("heading", name="Brief", exact=True).bounding_box()
+    rail_box = page.locator("#essay-pane-rail").bounding_box()
+    assert page.locator("#essay-pane-rail").get_by_label("Essay question").count() == 1
+    assert rail_box["y"] <= title_box["y"] < brief_box["y"], (rail_box, title_box, brief_box)
+    assert title_box["x"] + title_box["width"] <= rail_box["x"] + rail_box["width"] + 1, (rail_box, title_box)
     question = "How far was Germany responsible for the outbreak of war in 1914?"
     page.get_by_label("Essay question").fill(question)
     expect(page.locator(".essay-ws-brief-count")).to_contain_text("0 words of 2,500")

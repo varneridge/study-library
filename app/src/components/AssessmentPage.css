@@ -6,11 +6,12 @@
  * column can be dragged at its inner edge. The essay's pages sit in the
  * page's own flow, so the window scrolls through them while the side columns and the mode bar
  * stay in view, and each page is fitted to the width of its column by EssayPreviewPages.
- * Between 900px and 1280px the right column becomes a drawer opened from the title row, and
+ * Between 900px and 1280px the right column becomes a drawer opened from the left column's head, and
  * below 900px the three panes share the space, chosen by the tabs above them.
  *
  * Class contract, beyond the classes the page already uses:
- *   .essay-ws-head-menu          wrapper for the ••• menu placed directly beside the title
+ *   .essay-ws-rail-head          the title and its ••• menu (.essay-ws-head-menu), the first thing in the
+ *                                left column, above the Brief
  *   .essay-ws-modes              the mode bar: the Preview and Plan segmented control, with Edit in
  *                                Word beside it as the page's one filled button (.button.primary)
  *   .essay-ws-splitter           a drag handle between two columns, a separator that the arrow
@@ -50,27 +51,27 @@
   line-height: 1.4;
 }
 
-/* The title row holds the title with its ••• menu directly beside it, and the spacer then
-   pushes the save status and the snapshots button to the far end of the same line. */
-.section-head.essay-ws-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.75rem;
+/* The title and its ••• menu head the left column, directly above the Brief, so that the three
+   columns begin straight beneath the top bar. The title is a field that wraps inside the
+   column's width and grows with its words, set in the display face like the other page titles. */
+.essay-ws-rail-head {
+  display: grid;
+  gap: 0.5rem;
   min-width: 0;
-  margin: 0 0 0.25rem;
-  padding: 0;
 }
 
-/* The title field is only as wide as its words, so that the menu sits beside the text
-   rather than at the end of an empty field, and it is set in the display face like the
-   other page titles. Browsers without field-sizing fall back to the field's natural width,
-   which still keeps the menu close to the title. */
-:root .essay-ws-head input.essay-title-input[type="text"] {
-  flex: 0 1 auto;
-  width: auto;
-  max-width: min(46rem, 100%);
-  min-width: 6ch;
+.essay-ws-rail-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+:root .essay-ws-rail-head textarea.essay-title-input {
+  flex: 1 1 0;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   field-sizing: content;
   margin: 0 0 0 -0.4rem;
@@ -81,20 +82,22 @@
   box-shadow: none;
   color: var(--ink);
   font-family: var(--display);
-  font-size: var(--fs-2xl);
+  font-size: var(--fs-xl);
   font-weight: 560;
   font-variation-settings: "opsz" 72;
   letter-spacing: -0.018em;
-  line-height: 1.15;
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  resize: none;
 }
 
 /* The field shows that it can be typed in only when it is pointed at or typed in. */
-:root .essay-ws-head input.essay-title-input[type="text"]:hover {
+:root .essay-ws-rail-head textarea.essay-title-input:hover {
   background: var(--surface);
 }
 
-:root .essay-ws-head input.essay-title-input[type="text"]:focus {
+:root .essay-ws-rail-head textarea.essay-title-input:focus {
   background: var(--card);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
@@ -105,30 +108,14 @@
   align-items: center;
 }
 
-.essay-ws-head > .spacer {
-  flex: 1 1 auto;
-  min-width: 0.5rem;
+.essay-ws-rail-head > .button {
+  justify-self: start;
 }
 
-.essay-ws-head .save-status,
-.essay-ws-head > .button {
-  flex: none;
-}
-
-.essay-ws-head .save-status {
-  margin-left: 0.25rem;
-}
-
-/* From 900px the panes run to the workspace's edges, so the page keeps no padding of its own
-   and the title row takes the panes' inset instead. */
+/* From 900px the panes run to the workspace's edges, so the page keeps no padding of its own. */
 @media (min-width: 900px) {
   .page.wide.essay-page.essay-ws-page {
     padding: 0;
-  }
-
-  .section-head.essay-ws-head {
-    margin: 0;
-    padding: 0.5rem 1rem 0.5rem;
   }
 }
 
@@ -1508,23 +1495,6 @@ a.essay-ws-doc-name:hover {
 
   .essay-ws-source-title {
     padding-block: 0.55rem;
-  }
-}
-
-/* On a narrow phone the title row may wrap, so that a long question is not squeezed beside
-   the save status. */
-@media (max-width: 599.98px) {
-  :root .essay-ws-head input.essay-title-input[type="text"] {
-    flex: 1 1 0;
-    max-width: none;
-  }
-
-  .essay-ws-head > .spacer {
-    display: none;
-  }
-
-  .essay-ws-head .save-status {
-    margin-left: 0;
   }
 }
 
