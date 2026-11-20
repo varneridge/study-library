@@ -27,6 +27,12 @@ def setup_library(page):
     expect(page.get_by_role("heading", name="HY335")).to_be_visible()
 
 
+def open_palette(page):
+    """Go to opens with Ctrl+K on a laptop and a phone alike, since the top bar
+    no longer carries a button for it."""
+    page.keyboard.press("Control+k")
+
+
 def check_overlay_back(page, is_phone: bool):
     setup_library(page)
 
@@ -35,10 +41,7 @@ def check_overlay_back(page, is_phone: bool):
     # ---------------------------------------------------------
 
     # 1a. Close palette with Escape or Close button
-    if is_phone:
-        page.locator(".goto-button").click()
-    else:
-        page.keyboard.press("Control+k")
+    open_palette(page)
     palette = page.locator("dialog.palette")
     expect(palette).to_be_visible()
     if is_phone:
@@ -53,10 +56,7 @@ def check_overlay_back(page, is_phone: bool):
     expect(page.get_by_role("heading", name="HY335")).to_be_visible()
 
     # 1b. Close palette with tap outside
-    if is_phone:
-        page.locator(".goto-button").click()
-    else:
-        page.keyboard.press("Control+k")
+    open_palette(page)
     expect(palette).to_be_visible()
     page.mouse.click(10, 10)
     expect(palette).to_be_hidden()
@@ -67,10 +67,7 @@ def check_overlay_back(page, is_phone: bool):
     expect(page.get_by_role("heading", name="HY335")).to_be_visible()
 
     # 1c. Close palette with Back
-    if is_phone:
-        page.locator(".goto-button").click()
-    else:
-        page.keyboard.press("Control+k")
+    open_palette(page)
     expect(palette).to_be_visible()
     page.go_back()
     expect(palette).to_be_hidden()

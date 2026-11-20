@@ -41,7 +41,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{shots}-3-module.png")
 
     page.locator(".week").nth(0).locator(".week-title").click()
-    expect(page.get_by_text("Primary readings")).to_be_visible()
+    expect(page.get_by_text("Primary readings", exact=True)).to_be_visible()
     page.get_by_role("heading", name="AT1", exact=True).click()
     page.locator("input[type=text]").first.fill("Introductory Session")
     page.keyboard.press("Enter")
@@ -64,27 +64,29 @@ with sync_playwright() as p:
     expect(page.locator(".hl").first).to_be_visible()
     # A highlight is made in one step and leaves nothing open, so writing about
     # it starts from the highlight itself: clicking it opens its panel, and
-    # Write a note about this puts the cursor in the notes, beneath its quotation.
+    # Write a note about this opens the notes with the cursor in the comment
+    # field of its quotation's card. The comment belongs to the highlight, so
+    # it is saved on the highlight's row rather than as a block of the notes.
     mark = page.locator(".pdf-page .hl").first.bounding_box()
     page.mouse.click(mark["x"] + mark["width"] / 2, mark["y"] + mark["height"] / 2)
     page.get_by_role("button", name="Write a note about this").click()
-    page.wait_for_timeout(700)
+    # The notes may still be loading, so typing waits for the cursor to arrive.
+    expect(page.locator(".reading-notes").get_by_label("Comment on this highlight").first).to_be_focused(timeout=10000)
     page.keyboard.type("Sets up the Cold War frame")
     page.screenshot(path=f"{shots}-5-highlight.png")
-    server = until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const h = (j.rows.highlights || [])[0]; const note = (j.rows.note_blocks || []).find(b => !b.deleted && JSON.stringify(b.content).includes('Sets up the Cold War frame')); const quote = (j.rows.note_blocks || []).find(b => !b.deleted && b.type === 'highlight'); return h && note && quote ? h : null; }")
-    print("highlight synced, quoted in the notes with the note beneath:", server["page"], server["rects"], server["body"][:40])
+    server = until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); const h = (j.rows.highlights || []).find(x => !x.deleted && (x.comment || '').includes('Sets up the Cold War frame')); const quote = h && (j.rows.note_blocks || []).find(b => !b.deleted && b.type === 'highlight' && b.highlight_id === h.id); return quote ? h : null; }")
+    print("highlight synced, quoted in the notes with its comment:", server["page"], server["rects"], server["body"][:40])
 
     page_colour(page, "Sepia")
     page.get_by_role("tab", name="Notes").click()
     page.screenshot(path=f"{shots}-6-sepia.png")
-    page.locator(".read-toggle").click()
-    expect(page.get_by_role("button", name="Read. Mark as unread")).to_have_attribute("aria-pressed", "true")
+    # The reader has no read toggle any more, so Back leads straight to the
+    # week the reading lives in, which still carries the session renamed above.
     page.get_by_role("button", name="Back to the week").first.click()
-    page.wait_for_timeout(800)
+    expect(page.locator(".week-page")).to_be_visible()
+    expect(page.get_by_role("heading", name="Introductory Session")).to_be_visible()
     print("after back url:", page.url)
-    print("marks:", page.locator(".reading .mark").evaluate_all("els => els.map(e => e.className)"))
     page.screenshot(path=f"{shots}-6b-back.png")
-    expect(page.locator(".reading .mark.read")).to_have_count(1)
 
     # A second device sees the same data after syncing.
     other = browser.new_page(viewport={"width": 390, "height": 844})

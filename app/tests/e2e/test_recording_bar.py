@@ -11,7 +11,7 @@ files = sorted(str(p) for p in (HERE / "files").glob("*.pdf"))
 shots = str(HERE / "shots" / "recording-bar")
 
 
-from helpers import until
+from helpers import add_session, until
 
 
 def seconds(text):
@@ -32,9 +32,12 @@ with sync_playwright() as p:
     page.locator("input[type=file][accept^='.pdf,.epub']").first.set_input_files(files[:1])
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 1; }", 40)
     week_url = page.url
+    # A new week has no sessions: a lecture, then the seminar the phone records in later.
+    add_session(page, "lecture")
+    add_session(page, "seminar")
 
     # Start recording in the lecture. On its own page there is no bar.
-    page.locator("section.session").first.locator(".session-title a").click()
+    page.locator(".week-session-card").first.locator("a.wsc-body").click()
     page.get_by_role("button", name="Record", exact=True).click()
     expect(page.get_by_role("button", name="Stop recording")).to_be_visible()
     expect(page.locator(".rec-pill")).to_have_count(0)
@@ -77,9 +80,7 @@ with sync_playwright() as p:
     expect(bar).to_contain_text("Recording")
     print("pause held the clock at", held, "seconds")
 
-    # Notices sit above the bar.
     page.get_by_role("button", name="Back to the week").first.click()
-    page.locator("li.reading .mark").first.click()
 
     # The name takes you back to the session's notes.
     bar.locator(".rec-where").click()
@@ -103,7 +104,7 @@ with sync_playwright() as p:
     phone.goto(BASE + "/")
     phone.locator(".module-row").first.click()
     phone.locator("#week-AT1 .week-title").click()
-    phone.locator("section.session").first.locator(".session-title a").click()
+    phone.locator(".week-session-card").first.locator("a.wsc-body").click()
     phone.get_by_role("button", name="Record", exact=True).click()
     phone.get_by_role("link", name="Study Library").click()
     expect(phone.locator(".rec-pill")).to_be_visible()
@@ -154,7 +155,7 @@ with sync_playwright() as p:
     # recording rather than queueing prepare_audio with 0 chunks.
     phone.locator(".module-row").first.click()
     phone.locator("#week-AT1 .week-title").click()
-    phone.locator("section.session").nth(1).locator(".session-title a").click()
+    phone.locator(".week-session-card").nth(1).locator("a.wsc-body").click()
     phone.get_by_role("button", name="Record", exact=True).click()
     reload_id = until(
         phone,
@@ -190,7 +191,7 @@ with sync_playwright() as p:
     second.goto(BASE + "/")
     second.locator(".module-row").first.click()
     second.locator("#week-AT1 .week-title").click()
-    second.locator("section.session").nth(1).locator(".session-title a").click()
+    second.locator(".week-session-card").nth(1).locator("a.wsc-body").click()
     expect(second.locator("section.recording")).to_contain_text("Recording")
     second.get_by_role("button", name="More actions for this recording").click()
     second.get_by_role("menuitem", name="Finish recording").click()

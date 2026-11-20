@@ -1,6 +1,6 @@
-"""Version 0.22: dragging slides between a week's sessions, moving a reading
-to another module, the processor's status, and a stale device not undoing
-a name found on the server."""
+"""Version 0.22: slide decks named for their session, moving a deck and a
+reading to another module, the processor's status, and a stale device not
+undoing a name found on the server. A session holds one deck."""
 import glob, re, sys, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -12,15 +12,20 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "slides-modules")
 
 
-from helpers import drag, drop_files, until
+from helpers import add_session, drop_files, until
+
+
+LECTURE = ".week-page .week-session-card[data-label='Lecture']"
+SEMINAR = ".week-page .week-session-card[data-label='Seminar']"
 
 
 def server(page):
     return page.evaluate("async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows")
 
 
-def session_titles(page, n):
-    return page.locator("section.session").nth(n).locator("li.reading .name").evaluate_all("els => els.map(e => e.textContent)")
+def has_deck(title):
+    """A script that is true once a live reading of that title is on the server."""
+    return f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).some(i => i.title === {title!r} && !i.deleted); }}"
 
 
 with sync_playwright() as p:
@@ -38,65 +43,47 @@ with sync_playwright() as p:
         page.get_by_label("Title").fill(title)
         page.get_by_role("button", name="Create module").click()
         expect(page.get_by_role("heading", name=code, exact=True)).to_be_visible()
+
+    # HY319 AT5 gets a lecture now, so a deck moved there later has a lecture to join.
+    page.locator("#week-AT5 .week-title").click()
+    add_session(page, "lecture")
     page.locator(".modules-nav a", has_text="HY335").click()
     page.locator("#week-AT1 .week-title").click()
 
-    # Three slide decks on the lecture.
-    lecture = ".week-page section.session"
-    drop_files(page, lecture, files)
-    expect(page.locator("section.session").first.locator("li.reading")).to_have_count(3)
-    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.week_items || []).filter(l => l.session_id).length === 3; }", 40)
-    print("three decks on the lecture:", session_titles(page, 0))
-    # Slides are named for their place, and numbered within a session.
-    lecture_names = ["HY335 AT1 Lecture slides", "HY335 AT1 Lecture slides 2", "HY335 AT1 Lecture slides 3"]
-    assert sorted(session_titles(page, 0)) == lecture_names, session_titles(page, 0)
-    # A deck downloads under its own name, not its file's.
+    # A new week has no sessions, so a lecture and a seminar are added, and a
+    # deck is dropped on each card.
+    add_session(page, "lecture")
+    add_session(page, "seminar")
+    drop_files(page, LECTURE, files[:1])
+    expect(page.locator(".toast")).to_contain_text("Slides added for Lecture")
+    drop_files(page, SEMINAR, files[1:2])
+    expect(page.locator(".toast")).to_contain_text("Slides added for Seminar")
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.week_items || []).filter(l => l.session_id && !l.deleted).length === 2; }", 40)
+    # Slides are named for their place, and the card shows the name.
+    until(page, has_deck("HY335 AT1 Lecture slides"))
+    until(page, has_deck("HY335 AT1 Seminar slides"))
+    expect(page.locator(LECTURE).locator(".wsc-chip")).to_contain_text("HY335 AT1 Lecture slides")
+    expect(page.locator(SEMINAR).locator(".wsc-chip")).to_contain_text("HY335 AT1 Seminar slides")
+    page.screenshot(path=f"{shots}-1-decks.png")
+
+    # The deck shows on its session page, and downloads under its own name, not its file's.
+    page.locator(LECTURE).locator("a.wsc-body").click()
+    deck_row = page.locator(".session-side .slides-row li.reading")
+    expect(deck_row).to_have_count(1)
     with page.expect_download() as got:
-        page.locator("section.session").first.locator("li.reading").first.get_by_role("button", name="More actions").click()
+        deck_row.get_by_role("button", name="More actions").click()
         page.get_by_role("menuitem", name="Download file").click()
     saved = got.value.suggested_filename
     assert saved.startswith("HY335 AT1 Lecture slides") and saved.endswith(".pdf"), saved
-    print("decks named for their place and numbered, and one downloads as", saved)
+    print("a deck on each session, named for its place, and the lecture's downloads as", saved)
 
-    # Reorder within the lecture by dragging.
-    before = session_titles(page, 0)
-    rows = page.locator("section.session").first.locator("li.reading")
-    drag(page, rows.nth(2), rows.nth(0), dy=-8)
-    after = session_titles(page, 0)
-    assert after[0] == before[2], (before, after)
-    page.reload()
-    expect(page.locator("section.session").first.locator("li.reading .name").first).to_have_text(before[2])
-    print("slides reordered within the lecture, and the order holds after a reload")
-
-    # Drag one into the seminar, whose slide list is empty until a drag starts.
-    rows = page.locator("section.session").first.locator("li.reading")
-    moving = session_titles(page, 0)[1]
-    seminar_head = page.locator("section.session").nth(1).locator(".session-head")
-    a = rows.nth(1).bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
-    target = page.locator("section.session").nth(1).locator("ul.readings.empty-target")
-    expect(target).to_be_visible()
-    page.screenshot(path=f"{shots}-1-empty-target.png")
-    b = target.bounding_box()
-    page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, steps=14)
-    expect(page.locator("section.session").nth(1).locator(".readings")).to_have_class(re.compile(r"over"))
-    page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
-    expect(page.locator(".toast")).to_contain_text("Slides moved to the seminar")
-    # The name the app gave the deck follows it to the seminar.
-    assert session_titles(page, 1) == ["HY335 AT1 Seminar slides"], (moving, session_titles(page, 1))
-    seminar_id = page.locator("section.session").nth(1).get_attribute("data-session")
-    until(page, f"async () => {{ const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.week_items || []).filter(l => !l.deleted && l.session_id === '{seminar_id}').length === 1; }}")
-    page.locator(".toast").get_by_role("button", name="Undo").click()
-    expect(page.locator("section.session").first.locator("li.reading")).to_have_count(3)
-    # Undo puts its old name back too.
-    end = time.time() + 10
-    while sorted(session_titles(page, 0)) != lecture_names and time.time() < end:
-        time.sleep(0.2)
-    assert sorted(session_titles(page, 0)) == lecture_names and moving in session_titles(page, 0), (moving, session_titles(page, 0))
-    print("slides dragged into the empty seminar, renamed for it, then undone with the old name back")
+    # Slide canvas has role="img" with an accessible label.
+    slide_canvas = page.locator(".slide-box canvas[role='img']")
+    expect(slide_canvas).to_be_visible()
+    expect(slide_canvas).to_have_attribute("aria-label", re.compile(r"^Slide 1 of \d+$"))
+    # The session page has no link to its week, so Back returns there.
+    page.go_back()
+    expect(page.locator(LECTURE)).to_be_visible()
 
     # A deck from before this version still carries its file's name. On a
     # device's first sync it takes its place's name, once; a name you typed is left alone.
@@ -106,7 +93,7 @@ with sync_playwright() as p:
       return d && d.file_id && (j.rows.files || []).some(f => f.id === d.file_id && f.original_name); }""", 40)
     rows = server(page)
     deck = next(i for i in rows["items"] if i["title"] == "HY335 AT1 Lecture slides" and not i["deleted"])
-    named = next(i for i in rows["items"] if i["title"] == "HY335 AT1 Lecture slides 2" and not i["deleted"])
+    named = next(i for i in rows["items"] if i["title"] == "HY335 AT1 Seminar slides" and not i["deleted"])
     file_name = next(f for f in rows["files"] if f["id"] == deck["file_id"])["original_name"]
     stem = file_name.rsplit(".", 1)[0]
     # Later than the decks' own times, to the millisecond, so last-write-wins keeps these.
@@ -132,23 +119,18 @@ with sync_playwright() as p:
     print("on a new device, a deck still named for its file took its place's name, and one named by hand kept its name")
 
     # Moving a deck to another module's week gives it that place's name.
-    third = page.locator("section.session").first.locator("li.reading").filter(has=page.locator(".name", has_text=re.compile(r"^HY335 AT1 Lecture slides 3$")))
-    expect(third).to_have_count(1)
-    third.get_by_role("button", name="More actions").click()
+    expect(page.locator(LECTURE)).to_be_visible()
+    page.locator(LECTURE).locator("a.wsc-body").click()
+    deck_row = page.locator(".session-side .slides-row li.reading")
+    expect(deck_row.locator(".name")).to_contain_text("HY335 AT1 Lecture slides")
+    deck_row.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Move to another week or module").click()
     picker = page.locator(".move-picker")
     picker.get_by_label("Module").select_option(label="HY319 Napoleon and Europe")
     picker.get_by_label("Week").select_option(label="AT5")
     expect(page.locator(".toast")).to_contain_text("Moved to HY319 AT5")
-    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.items || []).some(i => i.title === 'HY319 AT5 Lecture slides' && !i.deleted); }")
+    until(page, has_deck("HY319 AT5 Lecture slides"))
     print("a deck moved to HY319 AT5 took the name HY319 AT5 Lecture slides")
-
-    # Slide canvas has role="img" with an accessible label
-    page.locator("section.session").first.locator(".session-title a").click()
-    slide_canvas = page.locator(".slide-box canvas[role='img']")
-    expect(slide_canvas).to_be_visible()
-    expect(slide_canvas).to_have_attribute("aria-label", "Slide 1 of 3")
-    page.locator(".crumbs a").nth(1).click()
 
     # A reading moves to another module, into one of its weeks.
     page.locator(".modules-nav a", has_text="HY335").click()

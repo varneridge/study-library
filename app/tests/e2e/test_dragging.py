@@ -11,7 +11,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "dragging")
 
 
-from helpers import drag, drop_files, until
+from helpers import add_session, drag, drop_files, grab_point, open_module, until
 
 
 def titles(page):
@@ -39,45 +39,40 @@ with sync_playwright() as p:
     expect(page.locator(".toast")).to_contain_text("2 files added to AT1")
     print("files dropped on the week's readings:", titles(page))
 
-    # Files dropped on a session become its slides.
-    drop_files(page, ".week-page section.session", files[1:2], release=False)
+    # Files dropped on a session become its slides. A new week has no
+    # sessions, so a lecture is added for the file to land on.
+    add_session(page, "lecture")
+    drop_files(page, ".week-page .week-session-card", files[1:2], release=False)
     expect(page.locator(".drop-banner")).to_contain_text("Drop to add slides to Lecture")
-    expect(page.locator("section.session.drop-over")).to_have_count(1)
-    drop_files(page, ".week-page section.session", files[1:2])
-    expect(page.locator("section.session").first.locator("li.reading")).to_have_count(1)
+    expect(page.locator(".week-session-card.drop-over")).to_have_count(1)
+    drop_files(page, ".week-page .week-session-card", files[1:2])
+    expect(page.locator(".toast")).to_contain_text("Slides added for Lecture")
     print("a file dropped on the lecture became its slides")
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length === 3; }", 40)
 
-    # Reorder by dragging.
+    # Reorder by dragging the first reading down onto the second.
     before = titles(page)[:2]
     rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
-    drag(page, rows.nth(1), rows.nth(0), dy=-8)
+    drag(page, rows.nth(0), rows.nth(1), dy=-8)
+    expect(page.locator(".week-page li.reading .name")).to_have_text(before[::-1])
     after = titles(page)[:2]
     print("reordered:", before, "->", after)
-    assert after == before[::-1], after
     page.reload()
     expect(page.locator(".week-page li.reading").first).to_be_visible()
     assert titles(page)[:2] == after, titles(page)
     print("the new order survives a reload")
 
-    # While dragging, a grid of weeks appears. Drop on AT3 to move there.
+    # A reading moves to another week from its menu, since the week page no
+    # longer shows a grid of weeks while dragging.
     rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
     moving = rows.nth(0).locator(".name").inner_text()
-    a = rows.nth(0).bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
-    page.mouse.down()
-    page.mouse.move(a["x"] + 80, a["y"] + 40, steps=5)
-    expect(page.locator(".move-dock")).to_be_visible()
-    page.screenshot(path=f"{shots}-2-dock.png")
-    target = page.locator(".move-dock .dock-grid .target").nth(2)
-    t = target.bounding_box()
-    page.mouse.move(t["x"] + t["width"] / 2, t["y"] + t["height"] / 2, steps=14)
-    expect(target).to_have_class(re.compile(r"over"))
-    page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
+    rows.nth(0).get_by_role("button", name="More actions").click()
+    page.get_by_role("menuitem", name="Move to another week or module").click()
+    page.locator(".move-picker").get_by_label("Week").select_option(label="AT3")
     expect(page.locator(".toast")).to_contain_text("Moved to AT3")
     expect(page.locator(".week-page .section[data-drop='readings'] li.reading")).to_have_count(1)
-    print("dragged to AT3:", moving)
+    page.screenshot(path=f"{shots}-2-moved.png")
+    print("moved to AT3:", moving)
 
     # Undo puts it back.
     page.locator(".toast").get_by_role("button", name="Undo").click()
@@ -86,10 +81,10 @@ with sync_playwright() as p:
 
     # Dragging into the empty Primary sources list makes it a primary source.
     rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
-    a = rows.nth(0).bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
+    x, y = grab_point(rows.nth(0))
+    page.mouse.move(x, y)
     page.mouse.down()
-    page.mouse.move(a["x"] + 80, a["y"] + 30, steps=5)
+    page.mouse.move(x + 20, y + 10, steps=5)
     empty = page.locator(".week-page .section[data-drop='primary'] .readings.empty-target")
     expect(empty).to_be_visible()
     e = empty.bounding_box()
@@ -102,12 +97,11 @@ with sync_playwright() as p:
     page.screenshot(path=f"{shots}-3-primary.png", full_page=True)
     print("dragged into primary sources")
 
-    # The keyboard can move a reading too: Space, an arrow, Space.
     rows = page.locator(".week-page .section[data-drop='readings'] li.reading")
     expect(rows).to_have_count(1)
 
     # Module page: drag a reading from AT1 onto AT5, and one to Unsorted.
-    page.locator(".crumbs a").first.click()
+    open_module(page, "HY335")
     expect(page.locator(".week-card")).to_have_count(22)
     expect(page.locator("#week-AT1")).to_be_visible()
     page.screenshot(path=f"{shots}-4-module.png")
@@ -131,7 +125,7 @@ with sync_playwright() as p:
     sheet.get_by_role("button", name="Add").click()
     expect(page.locator(".toast")).to_contain_text("added to HY335, WT2")
     page.locator(".toast").get_by_role("button", name="Show me").click()
-    expect(page.locator(".crumbs")).to_contain_text("WT2")
+    expect(page.locator(".week-page h1")).to_contain_text("WT2")
     expect(page.locator(".week-page li.reading")).to_have_count(1)
     print("home-page drop asked where, then added to WT2")
 
@@ -143,24 +137,25 @@ with sync_playwright() as p:
     expect(palette.locator("li[aria-selected='true']")).to_contain_text("HY335 AT5")
     page.screenshot(path=f"{shots}-6-palette.png")
     page.keyboard.press("Enter")
-    expect(page.locator(".crumbs")).to_contain_text("AT5")
+    expect(page.locator(".week-page h1")).to_contain_text("AT5")
     print("Ctrl K went straight to AT5")
 
-    # No dragging by keyboard. A space typed in Edit details stays in the
-    # title, Space after clicking a row scrolls the page, and the menu's Move
-    # up and Move down move readings on a laptop as on a phone.
+    # No picking up by keyboard. A space typed in Edit details stays in the
+    # title, Space after clicking a row scrolls the page, and with Reorganise
+    # on, a reading's handle moves it one place for each arrow key.
     # Still on AT5, where Ctrl K went.
     rows = page.locator(".week-page li.reading")
     expect(rows.first).to_be_visible()
     rows.first.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Edit details").click()
-    editor = page.locator(".week-page form.editor")
+    # Edit details opens as a dialog in front of the page, not inside the row.
+    editor = page.locator("dialog.editor-dialog[open] form.editor")
     title_field = editor.get_by_label("Title", exact=True)
     title_field.fill("")
     title_field.press_sequentially("A title with spaces in it")
     expect(title_field).to_have_value("A title with spaces in it")
     expect(page.locator(".move-dock")).to_have_count(0)
-    editor.get_by_role("button", name="Save").click()
+    editor.get_by_role("button", name="Save", exact=True).click()
     expect(page.locator(".week-page li.reading .name", has_text="A title with spaces in it")).to_have_count(1)
     print("a title typed with spaces in Edit details kept them, and nothing was picked up")
     # A row is no longer a focusable drag button, which is what let Space pick it up.
@@ -176,21 +171,17 @@ with sync_playwright() as p:
     print("rows are not drag buttons, and Space scrolls the page")
     order = rows.locator(".name").all_text_contents()
     if len(order) >= 2:
-        rows.first.get_by_role("button", name="More actions").click()
-        page.get_by_role("menuitem", name="Move down").click()
+        page.get_by_role("button", name="Reorganise").click()
+        rows.first.locator(".drag-handle").press("ArrowDown")
         expect(rows.first.locator(".name")).to_have_text(order[1])
-        rows.nth(1).get_by_role("button", name="More actions").click()
-        page.get_by_role("menuitem", name="Move up").click()
+        rows.nth(1).locator(".drag-handle").press("ArrowUp")
         expect(rows.first.locator(".name")).to_have_text(order[0])
+        page.get_by_role("button", name="Done").click()
+        print("with Reorganise on, a reading's handle moves it with the arrow keys")
     else:
-        # One reading here: both are offered on a laptop, and say there is nowhere to go.
-        rows.first.get_by_role("button", name="More actions").click()
-        page.get_by_role("menuitem", name="Move up").click()
-        expect(page.locator(".toast")).to_contain_text("Already at the top.")
-        rows.first.get_by_role("button", name="More actions").click()
-        page.get_by_role("menuitem", name="Move down").click()
-        expect(page.locator(".toast")).to_contain_text("Already at the foot.")
-    print("Move up and Move down are in the menu on a laptop, and work")
+        # One reading has nothing to be put in order, so Reorganise is not offered.
+        expect(page.get_by_role("button", name="Reorganise")).to_have_count(0)
+        print("one reading here, so Reorganise is not offered")
 
     # Phone: the dock and the sheet fit the screen.
     phone = browser.new_page(viewport={"width": 390, "height": 844})

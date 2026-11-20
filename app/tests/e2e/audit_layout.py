@@ -362,7 +362,7 @@ def create_files():
         doc.save(tv_path)
 
 
-from helpers import until
+from helpers import add_session, until
 
 
 def seed_database(browser):
@@ -390,8 +390,12 @@ def seed_database(browser):
     readings = [str(FILES / f) for f in os.listdir(FILES) if f.endswith(".pdf") and f.startswith("(AT")]
     page.locator(".week-page input[type=file][multiple]").first.set_input_files(readings)
 
+    # A new week has no sessions, so the lecture and the seminar are added.
+    add_session(page, "lecture")
+    add_session(page, "seminar")
+
     # Upload slides to first lecture session
-    lecture = page.locator("section.session").first
+    lecture = page.locator(".week-session-card").first
     if lecture.get_by_role("button", name="Add slides").count():
         with page.expect_file_chooser() as chooser:
             lecture.get_by_role("button", name="Add slides").click()
@@ -400,7 +404,7 @@ def seed_database(browser):
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).length >= 3; }")
 
     # Add lecture notes and transcript
-    page.locator("section.session").first.locator(".session-title a").click()
+    page.locator(".week-session-card").first.locator("a.wsc-body").click()
     page.locator(".session-notes .bn-editor").click()
     for line in [
         "The lecture addressed the historiographical shift from nation-state centric perspectives to transnational mobility patterns.",
@@ -440,9 +444,10 @@ def seed_database(browser):
     page.keyboard.press("Enter")
     page.wait_for_timeout(500)
 
-    # Add key dates
+    # Add key dates, on the module page, since adding a section opened the new section's page.
     today = date.today()
-    page.locator(".crumbs a").first.click()
+    page.goto(BASE + "/")
+    page.locator(".module-row", has_text="HY300").click()
     page.get_by_role("button", name="Add a date").click()
     page.get_by_label("What").fill("First proposal and preliminary bibliography draft submission")
     pick_date(page, page.get_by_role("button", name="Key date"), (today + timedelta(days=4)).isoformat())
@@ -510,11 +515,11 @@ def run_audit():
 
         # Get week URL
         p_temp.locator("#week-AT1 .week-title").click()
-        p_temp.wait_for_selector("section.session")
+        p_temp.wait_for_selector(".week-session-card")
         week_url = p_temp.url
 
         # Get session URL
-        p_temp.locator("section.session").first.locator(".session-title a").click()
+        p_temp.locator(".week-session-card").first.locator("a.wsc-body").click()
         p_temp.wait_for_selector(".session-notes")
         session_url = p_temp.url
 
@@ -746,16 +751,19 @@ def audit_behaviours(browser):
             "screenshot": f"app/tests/e2e/shots/audit/{shot_path.name}"
         })
 
-    # Rule 3: Focus returns to opening button when dialog/menu closes
+    # Rule 3: Focus returns to opening button when dialog/menu closes. Go to has
+    # no button now and opens with Ctrl K, so it should hand focus back to
+    # whatever had it when the shortcut was pressed, here the first module.
     p.goto(BASE + "/")
     p.wait_for_selector(".module-row")
-    goto_btn = p.locator("button.goto-button")
-    goto_btn.click()
+    trigger = p.locator("a.module-row").first
+    trigger.focus()
+    p.keyboard.press("Control+k")
     p.wait_for_selector("dialog.palette[open]")
     p.locator("dialog.palette button:has-text('Close')").click()
     p.wait_for_timeout(300)
-    focused_is_goto = p.evaluate("document.activeElement.classList.contains('goto-button')")
-    if not focused_is_goto:
+    focused_is_trigger = trigger.evaluate("el => el === document.activeElement")
+    if not focused_is_trigger:
         shot_idx += 1
         shot_path = OUT / f"behaviour_focus_lost_on_close_{shot_idx}.png"
         p.screenshot(path=str(shot_path))

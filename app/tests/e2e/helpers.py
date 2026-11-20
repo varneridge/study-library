@@ -27,18 +27,67 @@ def page_colour(page, name):
     page.keyboard.press("Escape")
 
 
-def drag(page, source, target, dy=0):
-    """Picks up with the mouse, moves past the threshold, then drops."""
+def open_module(page, code):
+    """Opens a module from the home page, which lists every module however
+    many there are, since the top bar's module links cannot be relied on."""
+    page.get_by_role("link", name="Study Library").click()
+    page.locator(".module-row", has_text=code).first.click()
+    expect(page.get_by_role("heading", name=code, exact=True)).to_be_visible()
+
+
+def grab_point(source, low=False):
+    """Finds a point on the element that is not a link, button or field, so
+    that a press there is plainly on the row itself. With low, the point is
+    sought near the row's lower edge first, for drag() below."""
     source.scroll_into_view_if_needed()
-    a = source.bounding_box()
-    page.mouse.move(a["x"] + 60, a["y"] + a["height"] / 2)
+    heights = [0.9, 0.8, 0.7, 0.5] if low else [0.5, 0.2, 0.8, 0.08, 0.92]
+    point = source.evaluate("""(el, heights) => {
+      const r = el.getBoundingClientRect();
+      const controls = 'a, button, input, select, textarea, [role=button], [contenteditable=true]';
+      for (const fy of heights) {
+        for (let x = r.left + 4; x < r.right - 4; x += 6) {
+          const y = r.top + r.height * fy;
+          const hit = document.elementFromPoint(x, y);
+          if (hit && el.contains(hit) && !hit.closest(controls)) return [x, y];
+        }
+      }
+      return null;
+    }""", heights)
+    assert point, "no part of the element is free of controls to pick it up by"
+    return point
+
+
+def drag(page, source, target, dy=0):
+    """Picks a row up with the mouse, steers the dragged card onto the target,
+    then drops. dnd-kit judges a drop by where the dragged card is rather than
+    by the pointer, and picking a row up redraws the lists around it (an empty
+    list shows a place to drop), which moves the rows down after the pointer
+    was put down. Aiming the pointer at the target then lands the card that
+    much lower, on the row being dragged, and nothing moves. So the card is
+    aimed instead, measured once the rows have moved, and the pointer is kept
+    on the target row so that its own list, not a neighbouring one, takes the
+    drop. Dragging down onto the last row works for any such shift, because
+    a card that ends up lower still lands nearest that row."""
+    x, y = grab_point(source, low=True)
+    page.mouse.move(x, y)
     page.mouse.down()
-    page.mouse.move(a["x"] + 70, a["y"] + a["height"] / 2 + 8, steps=4)
+    x, y = x + 10, y + 8
+    page.mouse.move(x, y, steps=4)
+    card = page.locator(".drag-card")
+    expect(card).to_have_count(1)
+    # A target below the fold is brought into view first, as before, since the
+    # pointer is clamped to its box and the card is measured after the scroll.
     target.scroll_into_view_if_needed()
     b = target.bounding_box()
-    page.mouse.move(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2 + dy, steps=14)
+    # The card sits in dnd-kit's positioned overlay, whose box is what the drop is judged by.
+    cx, cy = card.evaluate("el => { const r = el.parentElement.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }")
+    to_x = x + b["x"] + b["width"] / 2 - cx
+    to_y = y + b["y"] + b["height"] / 2 + dy - cy
+    to_x = min(max(to_x, b["x"] + 4), b["x"] + b["width"] - 4)
+    to_y = min(max(to_y, b["y"] + 4), b["y"] + b["height"] - 4)
+    page.mouse.move(to_x, to_y, steps=14)
     page.mouse.up()
-    expect(page.locator(".drag-card")).to_have_count(0)
+    expect(card).to_have_count(0)
 
 
 def drop_files(page, selector, paths, release=True):
@@ -66,6 +115,19 @@ def add_files(page, paths, week=None):
     expect(add).to_be_enabled()
     add.click()
     expect(sheet).to_have_count(0)
+
+
+def add_session(page, kind):
+    """Adds a lecture or a seminar to the week page that is open, from the
+    blank row at the end of its sessions, since a new week starts with none.
+    Each one is added after those already there, and is waited for as a card."""
+    button = page.get_by_role("button", name="Add a session to this week", exact=True)
+    button.wait_for()
+    cards = page.locator(".week-session-card")
+    count = cards.count()
+    button.click()
+    page.get_by_role("group", name="Add a session to this week").get_by_role("button", name=f"Add {kind}", exact=True).click()
+    expect(cards).to_have_count(count + 1)
 
 
 def pick_date(page, trigger, iso):

@@ -11,7 +11,7 @@ SOURCE = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "fixtures" / "moodle
 shots = str(HERE / "shots" / "transcripts")
 
 
-from helpers import until
+from helpers import add_session, until
 
 
 def process():
@@ -35,7 +35,9 @@ with sync_playwright() as p:
     page.get_by_label("Title").fill("Migration and Social Policy")
     page.get_by_role("button", name="Create module").click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("section.session").first.locator(".session-title a").click()
+    # A new week has no sessions, so the lecture is added here.
+    add_session(page, "lecture")
+    page.locator(".week-session-card").first.locator("a.wsc-body").click()
 
     # Add the file Moodle gives you.
     page.locator("input[type=file][accept^='.txt']").set_input_files(str(SOURCE))

@@ -1,7 +1,7 @@
 """Version 0.34.0: summaries, week groups and progress.
 
 Verifies:
-1. Summaries list under their own 'Summaries' section on the week page.
+1. A file added from the Summaries list's own Add row lists under 'Summaries'.
 2. Summaries are omitted from the reading count and have no read status / read mark.
 3. Summary menu offers 'Move to Primary readings', 'Move to Secondary readings', and 'Delete summary'.
 4. Reader for summary omits 'Mark as read', 'Copy reference', and offers 'Delete summary'.
@@ -37,11 +37,10 @@ with sync_playwright() as p:
     page.locator("#week-AT1 .week-title").click()
     expect(page.get_by_role("heading", name="AT1")).to_be_visible()
 
-    # 1. Add a file as a Summary via 'Add files' dialog
-    page.get_by_role("button", name="Add files").click()
-    expect(page.get_by_role("dialog", name="Add files to this week")).to_be_visible()
+    # 1. Add a file as a Summary from the blank row that ends the Summaries
+    # list, since 'Add files' now takes files as their names say, with no dialog.
     with page.expect_file_chooser() as fc_info:
-        page.get_by_role("button", name="Summaries").click()
+        page.get_by_role("button", name="Add summaries", exact=True).click()
     fc_info.value.set_files(files[0:1])
 
     # Wait for sync and verify summary appears under 'Summaries'
@@ -58,11 +57,13 @@ with sync_playwright() as p:
     # Check menu items for summary
     summary_row.get_by_role("button", name="More actions").click()
     menu = page.locator(".menu-panel")
-    expect(menu.get_by_role("menuitem", name="Move to Primary readings")).to_be_visible()
-    expect(menu.get_by_role("menuitem", name="Move to Secondary readings")).to_be_visible()
     expect(menu.get_by_role("menuitem", name="Delete summary")).to_be_visible()
     # Mark as read is not in menu
     expect(menu.get_by_role("menuitem", name="Mark as read")).to_have_count(0)
+    menu.get_by_role("menuitem", name="More...").click()
+    expect(menu.get_by_role("menuitem", name="Move to Primary readings")).to_be_visible()
+    expect(menu.get_by_role("menuitem", name="Move to Secondary readings")).to_be_visible()
+    page.keyboard.press("Escape")
     page.keyboard.press("Escape")
 
     # 3. Open summary in reader
@@ -86,31 +87,33 @@ with sync_playwright() as p:
     # 4. Move summary to Secondary readings via row menu
     summary_row = page.locator(".section[data-drop='summary'] li.reading")
     summary_row.get_by_role("button", name="More actions").click()
+    page.locator(".menu-panel").get_by_role("menuitem", name="More...").click()
     page.locator(".menu-panel").get_by_role("menuitem", name="Move to Secondary readings").click()
 
-    expect(page.locator(".toast")).to_contain_text("Now a secondary reading.")
-    # Now it should be in secondary section with a read mark
-    secondary_row = page.locator(".section[data-drop='readings'] li.reading")
+    # Now it should leave Summaries and appear in readings
+    expect(page.locator(".section[data-drop='summary'] li.reading")).to_have_count(0)
+    secondary_row = page.locator("[data-drop='readings'] li.reading")
     expect(secondary_row).to_have_count(1)
-    expect(secondary_row.locator("button[role=checkbox]")).to_be_visible()
 
     # And menu should now offer 'Move to Summaries'
     secondary_row.get_by_role("button", name="More actions").click()
     sec_menu = page.locator(".menu-panel")
+    sec_menu.get_by_role("menuitem", name="More...").click()
     expect(sec_menu.get_by_role("menuitem", name="Move to Summaries")).to_be_visible()
-    expect(sec_menu.get_by_role("menuitem", name="Mark as read")).to_be_visible()
+    page.keyboard.press("Escape")
     page.keyboard.press("Escape")
 
     # 5. Move back to summary
     secondary_row.get_by_role("button", name="More actions").click()
+    page.locator(".menu-panel").get_by_role("menuitem", name="More...").click()
     page.locator(".menu-panel").get_by_role("menuitem", name="Move to Summaries").click()
-    expect(page.locator(".toast")).to_contain_text("Now a summary.")
+    expect(page.locator(".section[data-drop='summary'] li.reading")).to_have_count(1)
 
-    # 6. Verify module card has code and title
+    # 6. Verify module row has code and title
     page.goto(BASE + "/")
-    card = page.locator(".module-card", has_text="HY226")
-    expect(card.locator(".code")).to_have_text("HY226")
-    expect(card.locator(".title")).to_have_text("The Great War")
+    card = page.locator(".module-row", has_text="HY226")
+    expect(card).to_contain_text("HY226")
+    expect(card).to_contain_text("The Great War")
 
     assert not errors, f"Page errors: {errors}"
     print("test_summaries passed successfully")

@@ -12,7 +12,7 @@ shots = str(HERE / "shots" / "citations")
 FILES = HERE / "files-citations"
 
 
-from helpers import until
+from helpers import open_module, until
 
 
 def process():
@@ -110,7 +110,7 @@ with sync_playwright() as p:
     expect(page.locator(".week-page li.reading", has_text="The Sino-Soviet Split")).to_be_visible()
 
     # The module page gathers them for one check.
-    page.locator(".crumbs a").first.click()
+    open_module(page, "HY206")
     page.get_by_role("button", name="Details found for 1 reading").click()
     dialog = page.locator("dialog.review-citations[open]")
     expect(dialog).to_contain_text("The American Conception of National Security")
@@ -127,9 +127,12 @@ with sync_playwright() as p:
     row = page.locator(".week-page li.reading", has_text="Schlesinger")
     row.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Edit details").click()
-    expect(row.locator(".provenance")).to_contain_text("Filled in from the JSTOR cover page")
+    # Edit details opens as a dialog in front of the page, not inside the row.
+    editor = page.locator("dialog.editor-dialog[open]")
+    expect(editor.locator(".provenance")).to_contain_text("Filled in from the JSTOR cover page")
     page.screenshot(path=f"{shots}-3-editor.png")
-    row.get_by_role("button", name="Put back the old details").click()
+    editor.get_by_role("button", name="Put back the old details").click()
+    expect(editor).to_have_count(0)
     expect(page.locator(".week-page li.reading", has_text="scan_0034")).to_be_visible()
     print("put back the old details")
 

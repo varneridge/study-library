@@ -62,8 +62,10 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as p:
     assert first["pages"], first
     print("OCR read both photos, including the one taken sideways")
 
-    # Settings reads every scan again, asking first.
+    # Settings reads every scan again, asking first. The button sits in the
+    # Maintenance part of Processor and speech, which is folded until opened.
     page.goto(BASE + "/?v=settings")
+    page.locator("#processor-maintenance").get_by_role("button", name="Maintenance").click()
     page.get_by_role("button", name="Read every scan again").click()
     expect(page.locator("dialog[open]")).to_contain_text("rebuilt from their pages")
     page.locator("dialog[open]").get_by_role("button", name="Read every scan again").click()

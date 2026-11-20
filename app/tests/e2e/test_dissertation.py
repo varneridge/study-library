@@ -2,7 +2,7 @@
 of weeks, each with its readings and its own notes; supervision meetings
 with notes and recordings; key dates counting down on the home page; files
 named for a section going to it; and a taught module changed into one."""
-import glob, shutil, sys, tempfile, time
+import glob, re, shutil, sys, tempfile, time
 from datetime import date, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -12,7 +12,7 @@ BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 
 
-from helpers import add_files, pick_date, until
+from helpers import add_files, open_module, pick_date, until
 
 
 ROWS = "async () => (await (await fetch('/api/sync/pull?since=0')).json()).rows"
@@ -54,11 +54,14 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.get_by_label("Section name").fill("Primary sources")
     page.keyboard.press("Enter")
     expect(page.get_by_role("heading", name="Primary sources")).to_be_visible()
-    expect(page.locator(".crumbs")).to_contain_text("HY300 / Primary sources")
-    page.get_by_role("button", name="More actions for this section").click()
-    page.get_by_role("menuitem", name="Move up").click()
-    page.locator(".crumbs a").first.click()
+    expect(page).to_have_title(re.compile(r"HY300 Primary sources"))
+    # Sections are put in order on the module page: Reorganise shows each
+    # card's handle, and its arrow keys move the section one place.
+    open_module(page, "HY300")
+    page.get_by_role("button", name="Reorganise").click()
+    page.get_by_role("button", name="Drag Primary sources to reorder").press("ArrowUp")
     expect(page.locator(".week .week-code")).to_have_text(["Primary sources", "Chapter 2"])
+    page.get_by_role("button", name="Done").click()
     print("sections renamed, added and moved:", page.locator(".week .week-code").all_inner_texts())
 
     # A section's page: its readings, its own notes, and its meetings.
@@ -78,17 +81,18 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     expect(page.get_by_role("heading", name=f"Supervision, {today.day} {months[today.month - 1]}")).to_be_visible()
     expect(page.get_by_role("button", name="Record", exact=True)).to_be_visible()
-    expect(page.locator(".crumbs")).to_contain_text("Chapter 2")
+    expect(page).to_have_title(re.compile(r"HY300 Chapter 2 "))
     until(page, f"async () => (((await ({ROWS})()).sessions) || []).some(s => s.kind === 'supervision')")
     print("a supervision meeting: notes, recording and transcripts, as a lecture has")
 
     # Key dates, on the module page, counting down on the home page.
-    page.locator(".crumbs a").first.click()
+    open_module(page, "HY300")
     page.get_by_role("button", name="Add a date").click()
     page.get_by_label("What").fill("Chapter 2 draft")
     pick_date(page, page.get_by_role("button", name="Key date"), (today + timedelta(days=5)).isoformat())
     page.get_by_role("button", name="Add", exact=True).click()
-    expect(page.locator(".key-date-list li")).to_contain_text("in 5 days")
+    # The list ends in the New date tile, which is a row of its own.
+    expect(page.locator(".key-date-list li:not(.add-tile)")).to_contain_text("in 5 days")
     page.goto(BASE + "/")
     expect(page.locator(".module-card", has_text="HY300")).to_contain_text("HY300")
     expect(page.locator(".module-card", has_text="HY300")).to_contain_text("Dissertation: the Monroe Doctrine")
@@ -98,7 +102,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(ahead.locator(".kd-days")).to_have_text("5")
     assert "soon" in (ahead.get_attribute("class") or "")
     # A dissertation has no weeks, so This week leaves it out.
-    expect(page.locator(".across-module", has_text="HY300")).to_have_count(0)
+    expect(page.locator(".across-week-grid .week-card", has_text="HY300")).to_have_count(0)
     page.screenshot(path=str(HERE / "shots" / "dissertation-1-home.png"))
     print("key dates count down on the home card and This week; This week leaves the dissertation out")
 
@@ -138,14 +142,15 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     page.locator("#week-AT1 .week-title").click()
     page.locator(".week-page input[type=file][multiple]").first.set_input_files(files[:1])
     expect(page.locator(".week-page li.reading")).to_have_count(1)
-    page.locator(".crumbs a").first.click()
+    open_module(page, "HY301")
     page.get_by_role("button", name="Edit module").click()
     page.get_by_role("button", name="Change to a dissertation").click()
     page.locator("dialog[open]").get_by_role("button", name="Change to a dissertation").click()
     expect(page.locator(".toast")).to_contain_text("with 1 section from its weeks")
     expect(page.locator(".jump")).to_have_count(0)
     expect(page.locator(".week .week-code")).to_have_text(["AT1"])
-    expect(page.locator(".week li.reading, .week .count").first).to_be_visible()
+    # A card counts its readings in its meta line rather than listing them.
+    expect(page.locator(".week .week-card-dates")).to_have_text("1 reading")
     print("a taught module changed to a dissertation: AT1 kept as a section, empty weeks gone")
 
     # The phone shows a section as it shows a week.

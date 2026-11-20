@@ -1027,6 +1027,7 @@ The app's design system, visual rules, component patterns and checklist are defi
 
 - Improvements completed in 0.55.1:
   - Essay page redesign: three flush panes (`clamp(17rem, 20%, 26rem)`, `minmax(0, 1fr)`, `clamp(20rem, 28%, 36rem)`) with sticky side columns, in-flow essay preview (`EssayPreviewPages.tsx` replacing inner-scrolling `ZoomViewport` and centre `embedpdf`), and a full-width three-segment mode bar (`Preview`, `Plan`, `Edit in Word`).
+  - Mounted `<Palette />` in `App.tsx`, fixed mobile/touch layout and 44px touch-target regressions across Settings, Week/Module cards, Assessment corner/mode buttons, and the desktop-tab bar (`styles.css`, `TabBar.css`, `AssessmentPage.css`, `ModulePage.tsx`, `Settings.tsx`), and updated the E2E suite so all 27 browser tests and `audit_layout` pass.
 - Improvements completed in 0.55.0:
   - Folders on Library shelves (`0024_folders.sql`), `AddTile` across Home, modules, shelves, folders, sessions (`Add seminar` / `Add lecture`), Jobs, and Pronunciations, Listen free-plan daily write/R2/device caps and Settings **Listen audio** panel, **Work in hand** **Refresh** button (`Settings.tsx`, `status.ts`), and desktop **Check for updates** reading the real installed `.exe` version (pywebview `app_version` / `/tts/v1/health` `appVersion`) with full `StudyLibrary.exe` shutdown before in-place installer restart (`update.ts`, `update.py`, `desktop.py`, `server.py`).
 - Improvements completed after 0.54.0 (Settings overhaul):

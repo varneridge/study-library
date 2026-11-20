@@ -1,5 +1,7 @@
-"""Version 0.27: the phone. A tab bar for the main places that steps aside
-for the keyboard, a slim top bar with Go to, 44-point targets, fields that
+"""Version 0.27: the phone. A tab bar for the main places (Home, Calendar,
+Search and Settings) that steps aside
+for the keyboard, a slim top bar with the sync indicator and the switch
+between Study, Calendar and Jobs, 44-point targets, fields that
 never make iOS zoom, menus and confirmations as sheets, nothing that needs
 hover, swiping between weeks, and an installable app."""
 import glob, json, sys, time
@@ -56,33 +58,44 @@ with sync_playwright() as p:
     # The tab bar: four labelled places, Home lit, at the foot of the screen.
     bar = phone.locator(".tab-bar")
     expect(bar).to_be_visible()
-    assert bar.locator(".tab").all_inner_texts() == ["Home", "This week", "Search", "Settings"], bar.locator(".tab").all_inner_texts()
+    assert bar.locator(".tab").all_inner_texts() == ["Home", "Calendar", "Search", "Settings"], bar.locator(".tab").all_inner_texts()
     expect(bar.locator(".tab.on")).to_have_text("Home")
     box = bar.bounding_box()
     assert abs(box["y"] + box["height"] - 844) < 1, box
     for tab in bar.locator(".tab").all():
         b = tab.bounding_box()
         assert b["height"] >= 44 and b["width"] >= 44, b
-    # The top bar keeps the brand, Go to and Jobs; the module links go.
+    # The top bar keeps the brand, the sync indicator and the switch between
+    # the sides; the module links and the tools give way to the tab bar.
     expect(phone.locator(".topbar .navs")).to_be_hidden()
-    expect(phone.locator(".topbar .goto-button")).to_be_visible()
+    expect(phone.locator(".topbar .topbar-tools")).to_be_hidden()
+    expect(phone.locator(".topbar .sync")).to_be_visible()
+    expect(phone.locator(".topbar .side-switch")).to_be_visible()
     expect(phone.locator(".topbar a.to-jobs")).to_be_visible()
     # Nothing sits behind the tab bar: the page leaves room for it.
     pad = phone.evaluate("parseFloat(getComputedStyle(document.querySelector('#main')).paddingBottom)")
     assert pad >= box["height"] - 1, (pad, box)
     phone.screenshot(path=f"{shots}-1-home.png")
-    print("tab bar: Home, This week, Search, Settings; top bar slimmed to brand, Go to and Jobs")
+    print("tab bar: Home, Calendar, Search, Settings; top bar slimmed to brand, sync and the side switch")
 
     # Each tab goes to its place and lights up; pages inside a section keep Home lit.
-    bar.get_by_text("This week").tap()
-    expect(phone.get_by_role("heading", name="This week")).to_be_visible()
-    expect(bar.locator(".tab.on")).to_have_text("This week")
+    bar.get_by_text("Calendar").tap()
+    expect(phone.get_by_role("region", name="Calendar")).to_be_visible()
+    expect(bar.locator(".tab.on")).to_have_text("Calendar")
     bar.get_by_text("Search").tap()
     expect(bar.locator(".tab.on")).to_have_text("Search")
     # The keyboard waits for a tap on the field, as in iOS's own search.
     expect(phone.get_by_label("Search", exact=True)).not_to_be_focused()
     bar.get_by_text("Settings").tap()
     expect(phone.get_by_role("heading", name="Settings")).to_be_visible()
+    # Settings is no wider than the phone once the work in hand has loaded,
+    # since a page that is wider stretches the layout viewport and carries the
+    # tab bar below the foot of the screen.
+    phone.wait_for_function("!document.querySelector('.work-panel') || document.querySelector('.work-list')", timeout=15000)
+    overflow = phone.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    assert overflow <= 0, f"Settings is {overflow}px wider than the screen"
+    settings_bar = bar.bounding_box()
+    assert abs(settings_bar["y"] + settings_bar["height"] - 844) < 1, settings_bar
     bar.get_by_text("Home").tap()
     phone.locator(".module-row").first.tap()
     expect(bar.locator(".tab.on")).to_have_text("Home")
@@ -117,17 +130,18 @@ with sync_playwright() as p:
     print("menus rise from the foot of the screen, with Cancel, and close on a tap outside")
 
     # Swipe left for the next week, right to come back.
+    # The week's code is in its title now, as the line above it no longer names the week.
     swipe(phone, -160)
-    expect(phone.locator(".crumbs")).to_contain_text("AT2")
+    expect(phone.locator(".week-page h1")).to_contain_text("AT2")
     swipe(phone, 160)
-    expect(phone.locator(".crumbs")).to_contain_text("AT1")
+    expect(phone.locator(".week-page h1")).to_contain_text("AT1")
     # A mostly vertical drag is a scroll, not a swipe.
     phone.evaluate("""() => { const el = document.querySelector('.week-page h1');
       const at = (x, y) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
       el.dispatchEvent(new TouchEvent('touchstart', { touches: [at(200, 500)], changedTouches: [at(200, 500)], bubbles: true }));
       el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [at(120, 300)], bubbles: true })); }""")
     phone.wait_for_timeout(400)
-    expect(phone.locator(".crumbs")).to_contain_text("AT1")
+    expect(phone.locator(".week-page h1")).to_contain_text("AT1")
     print("swiping moves between weeks; a vertical drag does not")
 
     # The reader's toolbar: every control a full target, its page box 16px.
@@ -177,8 +191,13 @@ with sync_playwright() as p:
     assert saved.strip().endswith((".", "?", "!")) and len(saved) > len(rough) + 10, saved
     print("highlighting by finger: colours docked at the foot, Whole sentence widened", repr(rough), "to", repr(saved[:60] + "..."))
 
-    # Highlight popover on phone is a sheet with dialog semantics, focus management and Escape dismissal
+    # A highlight is made in one step and leaves nothing open; tapping it opens
+    # its popover, which on a phone is a sheet with dialog semantics, focus
+    # management and Escape dismissal.
     sheet = phone.locator(".highlight-sheet[role='dialog']")
+    expect(sheet).to_have_count(0)
+    phone.wait_for_selector(".text-view mark.hl-text")
+    phone.locator(".text-view mark.hl-text").first.tap()
     expect(sheet).to_be_visible()
     expect(sheet).to_have_attribute("aria-modal", "true")
     expect(sheet).to_have_attribute("aria-label", "Highlight")
@@ -199,9 +218,11 @@ with sync_playwright() as p:
     assert focused_is_mark, "Focus should return to the highlight mark after Escape"
     print("mobile highlight popover: sheet with dialog semantics, focus moved in and back, closed with Escape")
 
-    # Go to from the top bar, closed with one tap of Cancel or the backdrop.
+    # Go to opens with its shortcut, as no control in the top bar opens it now,
+    # and Escape closes it.
     phone.goto(BASE + "/")
-    phone.locator(".topbar .goto-button").tap()
+    expect(phone.locator(".module-row").first).to_be_visible(timeout=20000)
+    phone.keyboard.press("ControlOrMeta+k")
     expect(phone.locator("dialog.palette[open]")).to_have_count(1)
     phone.keyboard.press("Escape")
     expect(phone.locator("dialog.palette[open]")).to_have_count(0)

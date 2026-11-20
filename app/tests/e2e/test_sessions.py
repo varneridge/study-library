@@ -10,7 +10,7 @@ shots = str(HERE / "shots" / "sessions")
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))[:2]
 BACKEND = str(HERE.parents[2] / "backend")
 
-from helpers import add_files, until
+from helpers import add_files, add_session, until
 
 def process():
     env = {**os.environ, "STUDY_URL": BASE, "PROCESSOR_KEY": "local-processor-key",
@@ -38,6 +38,8 @@ with sync_playwright() as p:
 
     # Seminar questions
     page.locator(".week").nth(0).locator(".week-title").click()
+    # A new week has no sessions, so the lecture is added here.
+    add_session(page, "lecture")
 
     page.get_by_role("link", name="Chen, J. (2001) ‘Introduction’, in Mao’s China and the Cold War, pp. 1-16").click()
     page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 3", timeout=20000)
@@ -64,10 +66,11 @@ with sync_playwright() as p:
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
 
     # Session mode with a live recording, from the week page it is already on.
-    page.locator(".session").nth(0).locator(".session-title a").click()
+    page.locator(".week-session-card").nth(0).locator("a.wsc-body").click()
 
-    # Session title can be edited from the keyboard
-    session_title = page.locator("h1.editable")
+    # Session title can be edited from the keyboard. The week page's own title
+    # is an h1.editable too, so the heading is looked for on the session page.
+    session_title = page.locator(".session-page h1.editable")
     expect(session_title).to_be_visible()
     session_title.focus()
     page.keyboard.press("Enter")
@@ -86,6 +89,14 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Stop recording").click()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.recordings || []).some(r => r.status === 'uploaded'); }", 40)
     print("recording uploaded")
+    process()
+    # Preparing the audio leaves it ready to transcribe; transcribing waits to be
+    # asked for, since it costs money, so it is asked for here.
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.recordings || []).some(r => r.status === 'prepared'); }", 40)
+    page.reload()
+    page.get_by_role("button", name=re.compile(r"^Transcribe \(")).click()
+    expect(page.locator(".toast")).to_contain_text("Transcription started.")
+    until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.recordings || []).some(r => r.status === 'transcribing'); }", 40)
     process()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.recordings || []).some(r => r.status === 'done'); }", 40)
     page.reload()
@@ -116,7 +127,7 @@ with sync_playwright() as p:
     other.goto(BASE + "/")
     other.locator(".module-row", has_text="HY319").click()
     other.locator(".week").nth(0).locator(".week-title").click()
-    other.get_by_role("link", name=re.compile("Lecture", re.I)).first.click()
+    other.locator(".week-session-card", has_text=re.compile("Lecture", re.I)).first.locator("a.wsc-body").click()
     expect(other.get_by_text("Mao saw the superpowers as the First World.")).to_be_visible(timeout=15000)
     other.screenshot(path=f"{shots}-5-phone-week.png", full_page=True)
     print("second device sees the lecture notes")

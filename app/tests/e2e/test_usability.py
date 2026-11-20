@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
+from helpers import add_session
+
 HERE = Path(__file__).resolve().parent
 (HERE / "shots").mkdir(exist_ok=True)
 BASE = sys.argv[1]
@@ -34,9 +36,17 @@ with sync_playwright() as p:
     expect(page.locator(".reader")).to_be_visible()
     print("Opens the reading")
 
-    # A session opens from the week across modules.
+    # A session opens from the week across modules. Each module's week is a
+    # card there, as in test_notes_access.py, and the week's session cards
+    # open their notes. A week that test_sessions.py left without a session
+    # is given a seminar from the blank row at the end of its sessions.
     page.goto(BASE + "/?v=across&term=AT&n=1")
-    page.locator(".across-session a").first.click()
+    page.locator(".across-week-grid .week-card .week-title").first.click()
+    expect(page.locator(".week-page")).to_be_visible()
+    page.get_by_role("button", name="Add a session to this week", exact=True).wait_for()
+    if not page.locator(".week-session-card").count():
+        add_session(page, "seminar")
+    page.locator(".week-session-card a.wsc-body").first.click()
     expect(page.locator(".session-page")).to_be_visible()
     page.screenshot(path=f"{shots}-2-session.png", full_page=True)
     print("a session opens from the week across modules")

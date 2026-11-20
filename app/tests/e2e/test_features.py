@@ -1,9 +1,9 @@
 """Version 0.4: find in a reading, search, recently opened, the reader's
 themes and contents, recordings, the notes menus, and the week views.
 
-Run after test_sessions.py, which leaves the module, readings, highlights,
-notes and recording this test uses."""
-import io, re, sys, time
+It runs test_sessions.py first, which leaves the module, readings,
+highlights, notes and recording this test uses."""
+import io, re, subprocess, sys, time
 from pathlib import Path
 import fitz
 from PIL import Image
@@ -42,6 +42,10 @@ def figure_pdf() -> Path:
 
 
 
+# Without test_sessions.py's fixtures there is no HY319 and no Chen to find,
+# and the result depends on whichever suite last left its data behind.
+subprocess.run([sys.executable, str(HERE / "test_sessions.py"), BASE], cwd=HERE, check=True)
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page(viewport={"width": 1280, "height": 900})
@@ -54,10 +58,12 @@ with sync_playwright() as p:
     page.keyboard.press("Control+k")
     palette = page.locator("dialog.palette")
     expect(palette).to_be_visible()
-    chen = palette.locator("li", has_text="Chen")
+    # With nothing typed, the modules' weeks fill the list, so a few letters find the reading.
+    page.keyboard.type("chen")
+    chen = palette.locator("li", has_text="Chen").first
     expect(chen).to_be_visible()
     expect(chen.locator(".where")).to_have_text("HY319 AT1")
-    print("recently opened in Palette lists readings")
+    print("Go to finds a reading by a few letters of its name")
 
     # Find inside a reading. Open Chen directly from the palette.
     chen.click()
@@ -139,7 +145,7 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.locator(".module-row", has_text="HY319").click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("section.session").first.locator(".session-title a").click()
+    page.locator(".week-session-card").first.locator("a.wsc-body").click()
     page.get_by_role("group", name="Playback speed").get_by_role("button", name="1.5×").click()
     until(page, "document.querySelector('audio').playbackRate === 1.5")
     page.get_by_role("button", name="Read the transcript").click()
@@ -147,7 +153,8 @@ with sync_playwright() as p:
     page.evaluate("() => { const a = document.querySelector('audio'); a.muted = true; a.currentTime = 0.5; return a.play(); }")
     page.get_by_role("button", name="Forward 15 seconds").click()
     page.evaluate("document.querySelector('audio').pause()")
-    expect(page.locator(".session-side .side-readings")).to_be_visible()
+    # The readings beside the notes come in one group for each kind.
+    expect(page.locator(".session-side .side-readings").first).to_be_visible()
     page.screenshot(path=f"{shots}-6-session.png", full_page=True)
     print("speed, skip and the transcript work; readings beside the notes")
 
@@ -171,14 +178,18 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     expect(editor.locator("a", has_text="Chen (2001)").last).to_be_visible()
     print("@ cites a reading as a link")
+    text_x = page.evaluate("document.querySelector('.session-notes .bn-block-content').getBoundingClientRect().left - document.querySelector('.session-notes').getBoundingClientRect().left")
+    print("notes start", round(text_x), "px from the column edge")
+    assert text_x < 12, text_x
 
     # A PDF with a contents list and a picture: contents panel and dark mode.
-    page.locator(".crumbs a").nth(1).click()
-    expect(page.locator(".week-nav")).to_be_visible()
+    # The session page has no link to its week, so Back returns there.
+    page.go_back()
+    expect(page.locator(".week-page")).to_be_visible()
     page.wait_for_timeout(500)
     page.locator("body").click(position={"x": 5, "y": 300})
     page.keyboard.press("]")
-    expect(page.locator(".crumbs")).to_contain_text("AT2")
+    expect(page.locator(".week-page h1")).to_contain_text("AT2")
     page.locator("input[type=file][accept^='.pdf,.epub']").first.set_input_files(str(figure_pdf()))
     expect(page.locator("li.reading", has_text="Westad").first).to_be_visible()
     until(page, "async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.files || []).some(f => (f.original_name || '').includes('Westad')); }", 40)
@@ -205,7 +216,7 @@ with sync_playwright() as p:
     # Week across modules remembers the week chosen.
     page.goto(BASE + "/?v=across")
     page.get_by_role("group", name="Choose a week").get_by_role("button", name="1", exact=True).first.click()
-    expect(page.locator(".across-session").first).to_be_visible()
+    expect(page.locator(".across-week-grid .week-card").first).to_be_visible()
     page.screenshot(path=f"{shots}-10-across.png", full_page=True)
     page.get_by_role("group", name="Choose a week").get_by_role("button", name="3", exact=True).last.click()
     # Opened again, it shows this week while term runs;
@@ -231,7 +242,8 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.wait_for_selector(".module-row", timeout=15000)
     page.keyboard.press("Control+k")
-    page.locator("dialog.palette li", has_text="Chen").click()
+    page.keyboard.type("chen")
+    page.locator("dialog.palette li", has_text="Chen").filter(has_not_text="Search everything").first.click()
     page.wait_for_function("document.querySelectorAll('.pdf-page .textLayer span').length > 3", timeout=15000)
     page.get_by_role("tab", name="Pages").click()
     expect(page.locator(".thumb")).to_have_count(3)
@@ -269,12 +281,19 @@ with sync_playwright() as p:
     expect(page.locator("dialog.shortcuts[open]")).to_have_count(0)
     print("keyboard shortcuts dialog works")
 
-    # Pictures in notes: paste one, resize it, and see it on the week page.
+    # Pictures in notes: paste one, resize it, and see it again on reopening.
+    # Session notes leave pictures out (lib/noteRules.ts: only "general" notes
+    # take them, and only they upload a pasted file), so the picture goes in a
+    # dissertation section's own notes, which are general notes.
     page.goto(BASE + "/")
-    page.locator(".module-row", has_text="HY319").click()
-    page.locator("#week-AT1 .week-title").click()
-    page.locator("section.session").first.locator(".session-title a").click()
-    editor = page.locator(".session-notes .bn-editor")
+    page.get_by_role("button", name="Add a module").click()
+    page.get_by_role("button", name="Dissertation", exact=True).click()
+    page.get_by_label("Code").fill("HY399")
+    page.get_by_label("Title").fill("Dissertation: pictures in notes")
+    page.get_by_role("button", name="Create module").click()
+    expect(page.get_by_role("heading", name="HY399", exact=True)).to_be_visible()
+    page.locator(".week").first.locator(".week-title").click()
+    editor = page.locator(".section-notes .bn-editor")
     editor.click()
     page.keyboard.press("Control+End")
     page.keyboard.press("Enter")
@@ -284,7 +303,7 @@ with sync_playwright() as p:
     page.evaluate("""(bytes) => {
       const file = new File([new Uint8Array(bytes)], 'map.png', { type: 'image/png' });
       const data = new DataTransfer(); data.items.add(file);
-      document.querySelector('.session-notes .bn-editor').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      document.querySelector('.section-notes .bn-editor').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
     }""", list(buffer.getvalue()))
     image = editor.locator("img[src^='/api/objects/files/']")
     expect(image).to_be_visible(timeout=15000)
@@ -296,21 +315,20 @@ with sync_playwright() as p:
     page.mouse.down()
     page.mouse.move(box["x"] - 150, box["y"] + box["height"] / 2, steps=8)
     page.mouse.up()
+    # The resized picture saved in the section's own note, not any picture an earlier run left.
     width = until(page, """async () => {
       const j = await (await fetch('/api/sync/pull?since=0')).json();
-      const b = (j.rows.note_blocks || []).find(r => !r.deleted && r.type === 'image' && r.content.props.previewWidth);
+      const notes = new Set((j.rows.notes || []).filter(n => n.week_id && !n.deleted).map(n => n.id));
+      const b = (j.rows.note_blocks || []).find(r => !r.deleted && r.type === 'image' && notes.has(r.note_id) && r.content.props.previewWidth);
       return b ? b.content.props.previewWidth : null;
     }""")
     print("picture pasted into notes, resized to", width, "px and saved")
-    text_x = page.evaluate("document.querySelector('.session-notes .bn-block-content').getBoundingClientRect().left - document.querySelector('.session-notes').getBoundingClientRect().left")
-    print("notes start", round(text_x), "px from the column edge")
-    assert text_x < 12, text_x
     page.screenshot(path=f"{shots}-20-picture.png", full_page=True)
-    page.locator(".crumbs a").nth(1).click()
-    expect(page.locator("section.session h2 a").first).to_be_visible()
-    page.locator("section.session h2 a").first.click()
-    expect(page.locator(".session-notes .bn-editor img[src^='/api/objects/files/']")).to_be_visible()
-    print("the session notes show the picture")
+    page.go_back()
+    expect(page.locator(".week .week-title").first).to_be_visible()
+    page.locator(".week .week-title").first.click()
+    expect(page.locator(".section-notes .bn-editor img[src^='/api/objects/files/']")).to_be_visible()
+    print("the section's notes show the picture again")
 
     # Light mode, chosen in Settings, on a device set to dark.
     dark = browser.new_page(viewport={"width": 1280, "height": 900}, color_scheme="dark")
@@ -343,7 +361,8 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.wait_for_selector(".module-row", timeout=15000)
     page.keyboard.press("Control+k")
-    page.locator("dialog.palette li", has_text="Chen").click()
+    page.keyboard.type("chen")
+    page.locator("dialog.palette li", has_text="Chen").filter(has_not_text="Search everything").first.click()
     page.get_by_role("tab", name="Notes").click()
     expect(page.locator(".reading-notes .quote-tag", has_text="Evidence").first).to_be_visible(timeout=10000)
     print("colour names sync and show in the reader")
@@ -352,8 +371,9 @@ with sync_playwright() as p:
     phone = browser.new_page(viewport={"width": 390, "height": 844})
     phone.goto(BASE + "/")
     phone.wait_for_selector(".module-row", timeout=15000)
-    phone.locator(".topbar .goto-button").click()
-    phone.locator("dialog.palette li", has_text="Westad").first.click()
+    phone.keyboard.press("Control+k")
+    phone.keyboard.type("westad")
+    phone.locator("dialog.palette li", has_text="Westad").filter(has_not_text="Search everything").first.click()
     # Phones open readings as text; this part is about the pages.
     phone.get_by_role("button", name="Show the pages").click()
     phone.wait_for_selector(".pdf-page canvas")

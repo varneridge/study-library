@@ -10,7 +10,7 @@ files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 shots = str(HERE / "shots" / "editing")
 
 
-from helpers import until
+from helpers import add_session, open_module, until
 
 
 def server_rows(page, table):
@@ -31,15 +31,6 @@ def reading_menu(page, text):
 
 
 
-def open_module(page, code):
-    """The top bar lists the modules except on the home page, which lists them itself."""
-    bar = page.locator(".modules-nav").get_by_role("link", name=code)
-    if bar.count() and bar.is_visible():
-        bar.click()
-    else:
-        page.locator(".module-row", has_text=code).first.click()
-
-
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page(viewport={"width": 1200, "height": 900})
@@ -56,8 +47,9 @@ with sync_playwright() as p:
     expect(page.locator(".modules-nav a")).to_have_count(2)
     expect(page.locator(".modules-nav a[aria-current=page]")).to_have_text("HY206")
     page.get_by_role("link", name="Study Library").click()
-    page.get_by_role("button", name="Change order").click()
-    page.get_by_role("button", name="Move HY206 up").click()
+    # Reorganise shows each card's handle, and its arrow keys move the module one place.
+    page.get_by_role("button", name="Reorganise").click()
+    page.get_by_role("button", name="Drag HY206 to reorder").press("ArrowUp")
     expect(page.locator(".module-row .code").first).to_have_text("HY206")
     page.screenshot(path=f"{shots}-1-order.png")
     page.get_by_role("button", name="Done").click()
@@ -71,12 +63,13 @@ with sync_playwright() as p:
     page.get_by_role("group", name="Reading weeks").get_by_role("button", name="2", exact=True).first.click()
     expect(page.get_by_role("group", name="Reading weeks").get_by_role("button", name="2", exact=True).first).to_have_attribute("aria-pressed", "true")
     page.screenshot(path=f"{shots}-2-module-settings.png", full_page=True)
-    page.get_by_role("button", name="Save").click()
+    page.get_by_role("button", name="Save changes", exact=True).click()
     expect(page.get_by_text("China and the World since 1949")).to_be_visible()
     page.get_by_text("About this module").click()
     expect(page.get_by_text("Assessed by essay.")).to_be_visible()
     page.locator("#week-AT2 .week-title").click()
-    expect(page.locator("section.session")).to_have_count(0)
+    expect(page.locator(".week-page h1")).to_have_text("AT2 reading week")
+    expect(page.locator(".week-session-card")).to_have_count(0)
     page.get_by_role("button", name="More actions for this week").click()
     page.keyboard.press("ArrowDown")
     expect(page.locator(".menu-panel button[role='menuitem']").first).to_be_focused()
@@ -84,20 +77,20 @@ with sync_playwright() as p:
     expect(page.locator(".menu-panel button[role='menuitem']").nth(1)).to_be_focused()
     expect(page.locator(".menu-panel button[role='menuitem']").nth(1)).to_have_text("Make this a teaching week")
     page.keyboard.press("Enter")
-    expect(page.locator("section.session")).to_have_count(2)
+    expect(page.locator(".week-page h1")).to_have_text("AT2")
     print("module edited, reading week toggled")
 
     # Keyboard: [ goes back a week.
     expect(page.locator(".menu-panel")).to_have_count(0)
     expect(page.locator(".week-nav a[title*='Previous week']")).to_be_visible()
     page.keyboard.press("[")
-    expect(page.locator(".crumbs")).to_contain_text("AT1")
+    expect(page.locator(".week-page h1")).to_contain_text("AT1")
     expect(page.locator(".week-nav a[title*='Next week']")).to_be_visible()
     page.keyboard.press("]")
-    expect(page.locator(".crumbs")).to_contain_text("AT2")
+    expect(page.locator(".week-page h1")).to_contain_text("AT2")
     expect(page.locator(".week-nav a[title*='Previous week']")).to_be_visible()
     page.keyboard.press("[")
-    expect(page.locator(".crumbs")).to_contain_text("AT1")
+    expect(page.locator(".week-page h1")).to_contain_text("AT1")
 
     # Add files to AT1.
     file_input = page.locator("input[type=file][accept^='.pdf,.epub']").first
@@ -109,10 +102,11 @@ with sync_playwright() as p:
 
     # Remove from week sends a reading to Unsorted.
     reading_menu(page, "Kirby")
+    page.get_by_role("menuitem", name="More...", exact=True).click()
     page.get_by_role("menuitem", name="Remove from this week").click()
     expect(page.locator("li.reading")).to_have_count(2)
     expect(page.locator(".toast")).to_contain_text("Unsorted")
-    page.locator(".crumbs a").first.click()
+    open_module(page, "HY335")
     expect(page.get_by_role("heading", name="Unsorted")).to_be_visible()
     page.screenshot(path=f"{shots}-3-unsorted.png")
     print("removed reading went to Unsorted")
@@ -149,20 +143,24 @@ with sync_playwright() as p:
     page.keyboard.press("Enter")
     expect(page.locator(".week-page h1")).to_contain_text("Sino-Soviet Relations")
 
+    # A new week has no sessions, so a lecture and a seminar are added first.
+    add_session(page, "lecture")
+    add_session(page, "seminar")
     page.get_by_role("button", name="More actions for Seminar").click()
     page.get_by_role("menuitem", name="Rename").click()
     rename_input = page.locator("input[aria-label='Session name']")
     expect(rename_input).to_be_visible()
     rename_input.fill("Class: Mao and the Three Worlds")
     page.keyboard.press("Enter")
-    expect(page.get_by_role("heading", name="Class: Mao and the Three Worlds")).to_be_visible()
+    expect(page.locator(".week-session-card .wsc-title")).to_have_text("Class: Mao and the Three Worlds")
 
     page.get_by_role("button", name="More actions for this week").click()
-    page.get_by_role("menuitem", name="Add a combined session").click()
-    expect(page.locator("section.session")).to_have_count(3)
-    page.get_by_role("button", name="More actions for Session").click()
+    # The week's menu adds a seminar or a lecture, as the blank row does.
+    page.get_by_role("menuitem", name="Add a seminar").click()
+    expect(page.locator(".week-session-card")).to_have_count(3)
+    page.get_by_role("button", name="More actions for Seminar").click()
     page.get_by_role("menuitem", name="Delete session").click()
-    expect(page.locator("section.session")).to_have_count(2)
+    expect(page.locator(".week-session-card")).to_have_count(2)
     page.screenshot(path=f"{shots}-7-week.png", full_page=True)
     print("sessions and questions edited")
 

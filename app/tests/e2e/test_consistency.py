@@ -11,7 +11,7 @@ BASE = sys.argv[1]
 files = sorted(glob.glob(str(HERE / "files" / "*.pdf")))
 
 
-from helpers import add_files, until
+from helpers import add_files, add_session, until
 
 
 def menu_items(page, scope):
@@ -39,7 +39,10 @@ with sync_playwright() as p:
     page.goto(BASE + "/")
     page.locator(".module-row").first.click()
     page.locator("#week-AT1 .week-title").click()
-    page.locator("section.session").first.locator(".session-title a").click()
+    # A new week has no sessions: the lecture, then the seminar it goes on to.
+    add_session(page, "lecture")
+    add_session(page, "seminar")
+    page.locator(".week-session-card").first.locator("a.wsc-body").click()
     expect(page.get_by_role("heading", name="Lecture")).to_be_visible()
     page.locator("input[type=file][multiple][accept='.pdf,.pptx,.ppt,image/*,.heic,.heif']").set_input_files(files[2:3])
     expect(page.locator(".toast")).to_contain_text("Slides added.")
@@ -98,9 +101,9 @@ with sync_playwright() as p:
     week_reading = page.locator("li.reading").first
     expect(week_reading).to_be_visible()
     assert "Edit details" in menu_items(page, week_reading), "week page"
-    page.goto(BASE + "/?v=across&term=AT&n=1")
-    assert "Edit details" in menu_items(page, page.locator("main")), "week across modules"
-    print("readings have their menu on the week page and Week across modules too")
+    # Week across modules shows each module's week as a card, without its
+    # readings, so there is no reading menu there to compare.
+    print("readings have their menu on the week page")
 
     assert not errors, errors
     print("ok")

@@ -103,7 +103,7 @@ def check_minimum_gaps(page):
     """Assert no two neighbouring items in top bar are less than 4px apart."""
     res = page.evaluate("""() => {
         const bar = document.querySelector('.topbar');
-        const items = Array.from(bar.querySelectorAll('.brand, .topbar-sep, .modules-nav a, .topbar-across, .side-switch, .topbar-btn'))
+        const items = Array.from(bar.querySelectorAll('.brand, .topbar-sep, .modules-nav, .topbar-across, .side-switch, .topbar-btn'))
             .filter(el => el.offsetParent !== null);
         items.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
 
@@ -125,20 +125,32 @@ def check_minimum_gaps(page):
     assert res["ok"], f"Gap less than 4px found: {res['violations']}"
 
 
-def check_tab_order(page, expected_count):
-    """Tab from the skip link visits items strictly from left to right."""
+# The controls every side's bar ends with, in the order focus reaches them.
+# Focus follows the markup, which puts the sync indicator before the switch.
+# On a wider screen TabBar.css moves the indicator after the switch, so there
+# Tab reaches it before the switch although it is drawn after it.
+TOOLS_ORDER = [
+    ".sync-indicator",
+    ".side-switch .side-study",
+    ".side-switch .to-calendar",
+    ".side-switch .to-jobs",
+    ".open-desktop-btn",
+    ".topbar-tools a[title^='Search']",
+    ".topbar-tools a[title='Settings']",
+]
+
+
+def check_tab_order(page, expected):
+    """Tab from the skip link visits exactly these top-bar controls, in this order."""
     page.locator(".skip").focus()
-    last_left = -1
-    for step in range(expected_count):
+    for step, selector in enumerate(expected):
         page.keyboard.press("Tab")
-        left = page.evaluate("""() => {
+        res = page.evaluate("""(selector) => {
             const el = document.activeElement;
-            if (!el || !el.closest('.topbar')) return null;
-            return el.getBoundingClientRect().left;
-        }""")
-        assert left is not None, f"Tab step {step} moved focus outside topbar: activeElement={page.evaluate('document.activeElement.outerHTML')}"
-        assert left > last_left, f"Tab step {step} did not move left to right: left={left}, last_left={last_left}"
-        last_left = left
+            return { inBar: Boolean(el && el.closest('.topbar')), matches: Boolean(el && el.matches(selector)), html: el ? el.outerHTML.slice(0, 160) : null };
+        }""", selector)
+        assert res["inBar"], f"Tab step {step} moved focus outside topbar: activeElement={res['html']}"
+        assert res["matches"], f"Tab step {step} should reach {selector}, reached {res['html']}"
 
 
 def check_pills(page, expected_pill_count, brand_current=False):
@@ -154,9 +166,10 @@ def check_pills(page, expected_pill_count, brand_current=False):
         const brandBg = brand ? getComputedStyle(brand).backgroundColor : null;
         const brandOk = (brandCurrent ? brandAria === 'page' : brandAria === null) && brandBg === 'rgba(0, 0, 0, 0)';
 
-        // The switch's raised side is checked on its own, by check_switch.
+        // The switch's raised side is checked on its own, by check_switch, and
+        // Open on desktop is always a filled button, whichever page is current.
         const controls = Array.from(document.querySelectorAll('.topbar a, .topbar button'))
-            .filter(el => el.offsetParent !== null && !el.closest('.side-switch'));
+            .filter(el => el.offsetParent !== null && !el.closest('.side-switch') && !el.classList.contains('open-desktop-btn'));
         const filled = controls.filter(el => getComputedStyle(el).backgroundColor !== 'rgba(0, 0, 0, 0)');
         const navCurrent = document.querySelectorAll('.topbar [aria-current="page"]:not(.brand)');
         return {
@@ -242,8 +255,8 @@ with sync_playwright() as p:
             check_minimum_gaps(page)
             check_pills(page, expected_pill_count=0, brand_current=True)
             check_switch(page, "study")
-            # Tab order on home: Study Library -> This week -> Study -> Job search -> Go to -> Search -> Settings (7 items)
-            check_tab_order(page, expected_count=7)
+            # Tab order on home: Study Library, then the sync indicator, the switch and the tools.
+            check_tab_order(page, [".brand"] + TOOLS_ORDER)
             settle_and_shoot(page, shots / f"topbar-w{w}-{theme}-home.png")
 
             # --- MODULE PAGE ---
@@ -256,17 +269,19 @@ with sync_playwright() as p:
             check_minimum_gaps(page)
             check_pills(page, expected_pill_count=1, brand_current=False)
             check_switch(page, "study")
-            # Tab order on module: Study Library -> HY116 -> HY240 -> HY300 -> This week -> Study -> Job search -> Go to -> Search -> Settings (10 items)
-            check_tab_order(page, expected_count=10)
+            # Tab order on module: Study Library, the three module links, then the rest as on home.
+            check_tab_order(page, [".brand"] + [f".modules-nav a:nth-child({i})" for i in (1, 2, 3)] + TOOLS_ORDER)
             settle_and_shoot(page, shots / f"topbar-w{w}-{theme}-module.png")
 
             # --- THIS WEEK PAGE ---
-            page.locator(".topbar-across").click()
-            expect(page.locator("h1")).to_have_text(re.compile(r"^(This week|Week (AT|WT)\d+)$"))
-            expect(page.locator(".across-module")).to_have_count(3)
+            # The bar no longer links to This week, so it is opened by its address,
+            # and with no link of its own in the bar nothing there is current.
+            page.goto(BASE + "/?v=across")
+            expect(page.locator("h1")).to_have_text(re.compile(r"^(This week|Week (AT|WT)\d+|Coming up: (AT|WT)\d+)$"))
+            expect(page.locator(".across-week-grid .week-card")).to_have_count(3)
             check_single_line_and_height(page)
             check_alignment(page, is_jobs=False)
-            check_pills(page, expected_pill_count=1, brand_current=False)
+            check_pills(page, expected_pill_count=0, brand_current=False)
 
             # --- SEARCH PAGE ---
             page.locator(".topbar-tools a[title*='Search']").click()
@@ -277,7 +292,7 @@ with sync_playwright() as p:
 
             # --- SETTINGS PAGE ---
             page.locator(".topbar-tools a[title*='Settings']").click()
-            expect(page.locator(".appearance-choice")).to_be_visible()
+            expect(page.get_by_role("group", name="Appearance", exact=True)).to_be_visible()
             check_single_line_and_height(page)
             check_alignment(page, is_jobs=False)
             check_pills(page, expected_pill_count=1, brand_current=False)
@@ -290,8 +305,8 @@ with sync_playwright() as p:
             check_alignment(page, is_jobs=True)
             check_pills(page, expected_pill_count=0, brand_current=True)
             check_switch(page, "jobs")
-            # Tab order on jobs: Job search -> Study -> Job search -> Go to -> Search -> Settings (6 items)
-            check_tab_order(page, expected_count=6)
+            # Tab order on jobs: the Job search brand, then the same controls as on Study's side.
+            check_tab_order(page, [".brand"] + TOOLS_ORDER)
             if w == 1440 and theme == "light":
                 settle_and_shoot(page, shots / "topbar-w1440-light-jobs.png")
             elif w == 1440 and theme == "dark":
@@ -357,21 +372,24 @@ with sync_playwright() as p:
         assert p390.evaluate("document.documentElement.getAttribute('data-theme')") == theme
         expect(p390.locator(".topbar .brand")).to_be_visible()
         expect(p390.locator(".topbar .sync")).to_be_attached()
-        expect(p390.locator(".topbar .goto-button")).to_be_visible()
+        expect(p390.locator(".topbar .side-switch")).to_be_visible()
         expect(p390.locator(".topbar a.to-jobs")).to_be_visible()
         expect(p390.locator(".topbar .navs")).to_be_hidden()
         expect(p390.locator(".topbar .topbar-tools")).to_be_hidden()
         expect(p390.locator(".tab-bar")).to_be_visible()
         expect(p390.locator(".tab-bar .tab.on")).to_have_text("Home")
+        # On a phone the bar reads brand, sync indicator, then the switch, all on screen.
         phone_positions = p390.evaluate("""() => {
             const brand = document.querySelector('.topbar .brand').getBoundingClientRect();
-            const gotoBtn = document.querySelector('.topbar .goto-button').getBoundingClientRect();
+            const sync = document.querySelector('.topbar .sync').getBoundingClientRect();
+            const study = document.querySelector('.topbar .side-switch .side-study').getBoundingClientRect();
             const jobs = document.querySelector('.topbar a.to-jobs').getBoundingClientRect();
             return {
                 brandLeft: brand.left,
-                gotoLeft: gotoBtn.left,
-                jobsLeft: jobs.left,
-                ok: brand.left < 25 && gotoBtn.left > 150 && jobs.left > gotoBtn.right && jobs.right <= 390
+                syncLeft: sync.left,
+                studyLeft: study.left,
+                jobsRight: jobs.right,
+                ok: brand.left < 25 && sync.left > brand.right && study.left > sync.right && jobs.right <= 390
             };
         }""")
         assert phone_positions["ok"], f"Phone bar item positions unexpected: {phone_positions}"
@@ -382,16 +400,15 @@ with sync_playwright() as p:
         p390.locator(".module-row").first.click()
         expect(p390.locator(".week")).to_have_count(22)
         expect(p390.locator(".topbar .brand")).to_be_visible()
-        expect(p390.locator(".topbar .goto-button")).to_be_visible()
+        expect(p390.locator(".topbar .side-switch")).to_be_visible()
         expect(p390.locator(".topbar a.to-jobs")).to_be_visible()
         expect(p390.locator(".topbar .navs")).to_be_hidden()
         expect(p390.locator(".topbar .topbar-tools")).to_be_hidden()
         settle_and_shoot(p390, shots / f"topbar-w390-{theme}-module.png")
 
-        # The job search on a phone keeps the same brand position, Go to and switch.
+        # The job search on a phone keeps the same brand position and switch.
         p390.goto(BASE + "/?v=jobs")
         expect(p390.locator(".topbar .brand")).to_have_text("Job search")
-        expect(p390.locator(".topbar .goto-button")).to_be_visible()
         expect(p390.locator(".topbar .side-switch .side-study")).to_be_visible()
         expect(p390.locator(".topbar .topbar-tools")).to_be_hidden()
         check_switch(p390, "jobs")

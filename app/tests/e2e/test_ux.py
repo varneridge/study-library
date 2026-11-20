@@ -2,7 +2,7 @@
 week dates, highlight counts on readings, the home page's Readings tile,
 Go to closing with one Esc, files added by dropping them on the module page,
 page ranges read as pages, and the job search reachable from a phone's top bar."""
-import glob, sys, time
+import glob, re, sys, time
 from datetime import date, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -59,25 +59,28 @@ with sync_playwright() as p:
 
     # This week, on the module page.
     page.reload()
-    expect(page.locator(".jump button.is-this-week")).to_have_text("AT1")
-    expect(page.locator(".jump button.is-this-week")).to_have_attribute("aria-current", "date")
+    expect(page.locator("#week-AT1")).to_have_class(re.compile(r"\bthis-week\b"))
     expect(page.locator("#week-AT1 .this-week-tag")).to_have_text("This week")
-    expect(page.locator(".jump button.is-reading-week").first).to_have_css("font-style", "italic")
+    expect(page.locator(".week-card.this-week")).to_have_count(1)
+    expect(page.locator(".week-card .week-card-title-reading-week").first).to_have_text("Reading week")
     page.screenshot(path=f"{shots}-2-module.png")
-    print("module page: AT1 marked as this week; reading weeks are italic, not tinted")
+    print("module page: the AT1 card marked as this week; reading weeks say so on their cards")
 
     # The week page says when it runs.
     page.locator("#week-AT1 .week-title").click()
     friday = monday + timedelta(days=4)
-    expect(page.locator(".crumbs .week-when")).to_contain_text("to")
-    expect(page.locator(".crumbs .this-week-tag")).to_have_text("This week")
-    print("week page dates:", page.locator(".crumbs .week-when").inner_text())
+    expect(page.locator(".week-crumbs .week-when")).to_contain_text("to")
+    expect(page.locator(".week-crumbs .this-week-tag")).to_have_text("This week")
+    print("week page dates:", page.locator(".week-crumbs .week-when").inner_text())
 
     # A highlight shows on the reading's row.
     page.locator(".week-page li.reading a.name").first.click()
-    page.wait_for_function("document.querySelectorAll('.textLayer span').length > 5", timeout=20000)
+    page.wait_for_function("document.querySelectorAll('.pdf-page[data-page=\"0\"] .textLayer span').length > 5", timeout=20000)
+    # The selection bar hides while its selection is off the screen, so the
+    # longest line is taken from the first page and brought into view first.
     page.evaluate("""() => {
-      const span = [...document.querySelectorAll('.textLayer span')].sort((a, b) => b.textContent.length - a.textContent.length)[0];
+      const span = [...document.querySelectorAll('.pdf-page[data-page="0"] .textLayer span')].sort((a, b) => b.textContent.length - a.textContent.length)[0];
+      span.scrollIntoView({ block: 'center' });
       const range = document.createRange(); range.selectNodeContents(span);
       const sel = document.getSelection(); sel.removeAllRanges(); sel.addRange(range);
     }""")
@@ -100,11 +103,10 @@ with sync_playwright() as p:
     page.locator(".week-page li.reading a.name").first.click()
     page.wait_for_function("document.querySelectorAll('.textLayer span').length > 5", timeout=20000)
     assert "v=reader" in page.url, page.url
-    page.get_by_role("button", name="Mark as read", exact=True).click()
-    expect(page.get_by_role("button", name="Read. Mark as unread")).to_have_attribute("aria-pressed", "true")
+    # The reader no longer has a Mark as read button, so the reading is opened and left.
     page.locator(".reader-bar").get_by_role("button", name="Back to the week").click()
     page.get_by_role("link", name="Study Library").click()
-    print("home: module card has code and title, reading marked as read")
+    print("home: module card has code and title, and its readings open from there")
 
     # Go to closes with one Esc, even after typing.
     page.keyboard.press("Control+k")

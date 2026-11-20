@@ -100,8 +100,11 @@ with sync_playwright() as p:
     expect(view).to_be_visible(timeout=20000)
     body = view.locator(".tv-body")
     paras = body.locator("p:not(.note)").count()
-    print("paragraphs:", paras, "of", len(PARAS), "| headings:", body.locator("h2").all_inner_texts())
-    assert body.locator("h2").all_inner_texts() == ["Choosing Containment, 1946-47", "The Long Telegram"]
+    print("paragraphs:", paras, "of", len(PARAS), "| headings:", body.locator("h2, h3").all_inner_texts())
+    # The title is a major heading; the smaller section heading beneath it is
+    # a subheading, which the text view sets as an h3.
+    assert body.locator("h2").all_inner_texts() == ["Choosing Containment, 1946-47"]
+    assert body.locator("h3").all_inner_texts() == ["The Long Telegram"]
     assert paras == len(PARAS), paras
     text = body.inner_text()
     assert "Diplomatic History" not in text, "running head left in"
@@ -126,7 +129,8 @@ with sync_playwright() as p:
     }""")
     phone.get_by_role("button", name="Highlight yellow").click()
     expect(body.locator("mark.hl-text")).to_have_count(1)
-    phone.get_by_role("button", name="Done").click()
+    # A highlight is made in one step and leaves no panel open to close.
+    expect(phone.get_by_role("dialog", name="Highlight")).to_have_count(0)
     phone.wait_for_timeout(1500)
     saved = phone.evaluate("async () => { const j = await (await fetch('/api/sync/pull?since=0')).json(); return (j.rows.highlights || []).map(h => [h.page, h.body, h.rects.length]); }")
     print("highlight saved:", saved)
