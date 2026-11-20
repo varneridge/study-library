@@ -266,7 +266,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       setReflowed(r);
       setReflowing(false);
       // A PDF with no outline of its own gets its Contents from the headings found in the text.
-      const found: Heading[] = headingsOf(r.blocks).map((h) => ({ title: h.title, page: h.page, depth: h.level - 2 }));
+      const found: Heading[] = headingsOf(r.blocks).map((h) => ({ title: h.title, page: h.page, level: Math.max(0, h.level - 2) }));
       if (found.length) {
         setHeadings((prev) => (prev.length ? prev : found));
         setTabState((prev) => defaultTab(prev, found.length, touchedTab.current));

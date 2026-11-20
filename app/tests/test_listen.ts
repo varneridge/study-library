@@ -149,7 +149,13 @@ function fakeView() {
  * runs its frames only when `step` is called, so a test can drive the
  * highlight loop one frame at a time and see what is left waiting.
  */
+let framesLock = Promise.resolve();
+
 async function withFrames(run: (frames: { step: () => void; pending: () => number }) => Promise<void>): Promise<void> {
+  const prev = framesLock;
+  let release!: () => void;
+  framesLock = new Promise<void>((r) => { release = r; });
+  await prev;
   const g = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown };
   const saved = { request: g.requestAnimationFrame, cancel: g.cancelAnimationFrame };
   const queue = new Map<number, () => void>();
@@ -173,6 +179,7 @@ async function withFrames(run: (frames: { step: () => void; pending: () => numbe
   } finally {
     g.requestAnimationFrame = saved.request;
     g.cancelAnimationFrame = saved.cancel;
+    release();
   }
 }
 
