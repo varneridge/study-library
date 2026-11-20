@@ -1,8 +1,8 @@
 // Assessment & essay: a module's essay studio, laid out for an LSE history student.
 // The workspace has three flush columns so that the writing stays front and centre: the brief
 // with its admin documents, the module readings and the essay's sources on the left, the
-// essay itself in the centre (the page preview or the plan), and its references and
-// contents on the right. The essay's pages scroll with the window, as one long document,
+// essay itself in the centre (the page preview or the plan), and its references on the
+// right. The essay's pages scroll with the window, as one long document,
 // while the two side columns and the mode bar stay in view. Below 1280px the right column
 // becomes a drawer, and below 900px one pane shows at a time, chosen by tabs. On the module
 // page it is a card under Course materials & assessments, opened like a week.
@@ -42,12 +42,14 @@ import {
   type SourceLink,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
-import { api, newId } from "../lib/sync";
+import { api, commit, newId } from "../lib/sync";
+import { resolveExistingFile } from "../lib/importing";
+import { stripExtension } from "../lib/parse";
 import { moduleReadings } from "../lib/library";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
-import { mimeFor, sha256 } from "../lib/uploads";
+import { mimeFor, queueUpload, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
 import { clampEssayZoom, EssayPreviewCorner } from "./EssayPreviewCorner";
@@ -73,9 +75,6 @@ const JUMP_HIGHLIGHT_MS = 3200;
 // Admin documents and uploaded sources go up in one request, so they are held under the
 // size that would need the upload to be sent in parts.
 const ADMIN_DOCUMENT_LIMIT = 50 * 1024 * 1024;
-// Blocks that are neither headings nor prose, which the contents never names as an
-// introduction or a conclusion because an essay does not open or close on them.
-const NON_PROSE_BLOCKS: readonly string[] = ["blockquote", "bullet", "ordered", "page_break"];
 
 // A stored Word file counts as present once it holds more than a bare header.
 const hasDocxBytes = (assessment: object): boolean => {
@@ -157,7 +156,7 @@ function printEssayPages(pages: HTMLElement, title: string): boolean {
   return true;
 }
 
-// A file opened inside the essay, together with the page a reference cites when it cites one.
+// A source opened inside the essay, together with the page a reference cites when it cites one.
 interface ViewedDocument {
   title: string;
   url: string;
@@ -169,64 +168,6 @@ interface ViewedDocument {
 
 const isPdfDocument = (file: ViewedDocument): boolean =>
   file.mime === "application/pdf" || /\.pdf$/i.test(file.name ?? file.url);
-
-// One line of the contents, where data-level 0 marks the parts every essay has (its title,
-// introduction, body headings and conclusion) and 1 and 2 mark the subheadings below them.
-interface ContentsEntry {
-  key: string;
-  blockId: string;
-  level: 0 | 1 | 2;
-  text: string;
-}
-
-const blockText = (block: DocxBlock): string =>
-  block.runs.map((run) => (run.type === "text" ? run.text ?? "" : "")).join("").trim();
-
-const headingDepth = (block: DocxBlock): number => (block.type === "heading1" ? 1 : block.type === "heading2" ? 2 : 3);
-
-// Builds the contents from the draft. The first paragraph before any heading stands for the
-// introduction and the last paragraph after every heading for the conclusion, unless the
-// writer has already given either a heading of its own, and headings are levelled from the
-// shallowest one used, so that the body's headings always sit at level 0 beside the title.
-function essayContents(blocks: DocxBlock[], title: string): ContentsEntry[] {
-  const written = blocks
-    .map((block, index) => ({ block, index, text: blockText(block) }))
-    .filter((entry) => entry.text);
-  if (!written.length) return [];
-
-  const heading = written.filter((entry) => entry.block.type.startsWith("heading"));
-  const prose = written.filter(
-    (entry) => !entry.block.type.startsWith("heading") && !NON_PROSE_BLOCKS.includes(entry.block.type),
-  );
-  const essayTitle = title.trim();
-  const body = heading.filter((entry) => entry.text.toLowerCase() !== essayTitle.toLowerCase());
-  const top = body.length ? Math.min(...body.map((entry) => headingDepth(entry.block))) : 1;
-  const firstHeading = body.length ? body[0].index : Number.POSITIVE_INFINITY;
-  const lastHeading = body.length ? body[body.length - 1].index : Number.NEGATIVE_INFINITY;
-
-  const lines: (ContentsEntry & { index: number })[] = [];
-  if (essayTitle) lines.push({ key: "title", blockId: written[0].block.id, level: 0, text: essayTitle, index: -1 });
-
-  const intro = body.some((entry) => /^introduction\b/i.test(entry.text))
-    ? undefined
-    : prose.find((entry) => entry.index < firstHeading);
-  if (intro) lines.push({ key: "introduction", blockId: intro.block.id, level: 0, text: "Introduction", index: intro.index });
-
-  for (const entry of body) {
-    const depth = headingDepth(entry.block) - top;
-    const level = depth <= 0 ? 0 : depth === 1 ? 1 : 2;
-    lines.push({ key: entry.block.id, blockId: entry.block.id, level, text: entry.text, index: entry.index });
-  }
-
-  const closing = body.some((entry) => /^conclusions?\b/i.test(entry.text)) ? undefined : prose[prose.length - 1];
-  if (closing && closing.index > lastHeading && closing.block.id !== intro?.block.id) {
-    lines.push({ key: "conclusion", blockId: closing.block.id, level: 0, text: "Conclusion", index: closing.index });
-  }
-
-  return lines
-    .sort((a, b) => a.index - b.index)
-    .map(({ key, blockId, level, text }) => ({ key, blockId, level, text }));
-}
 
 type SaveState = "saved" | "saving" | "error";
 
@@ -252,7 +193,7 @@ interface ResearchItem {
   customSource?: CustomSource;
 }
 
-// Puts an admin document or an uploaded source into storage by the same route as a note's
+// Puts an uploaded source into storage by the same route as a note's
 // picture, and returns its key. Files are stored by their contents, so the same paper is
 // only ever kept once however many essays use it.
 async function uploadEssayFile(file: File, mime: string): Promise<string> {
@@ -793,8 +734,8 @@ function ReferenceRow({
   );
 }
 
-// An admin document or an uploaded source, opened inside the essay just as a reading opens
-// in the reader, so that the brief or a cited page can be checked without leaving the draft.
+// An uploaded source, opened inside the essay just as a reading opens in the reader, so that
+// a cited page can be checked without leaving the draft.
 function DocumentViewer({ file, onClose }: { file: ViewedDocument | null; onClose: () => void }) {
   return (
     <Sheet
@@ -991,7 +932,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [uploadingIds, setUploadingIds] = useState<string[]>([]);
   const [fullscreen, setFullscreen] = useState(false);
   const [viewing, setViewing] = useState<ViewedDocument | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -1241,12 +1181,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return set;
   }, [orderedFootnotes, assessment.draft.footnotes, allResearchItems]);
 
-  // The draft's title, introduction, headings and conclusion, for the contents in the right column.
-  const contents = useMemo(
-    () => essayContents(assessment.draft.blocks, assessment.title ?? ""),
-    [assessment.draft.blocks, assessment.title],
-  );
-
   const handleSaveFootnote = (fnId: string, newText: string) => {
     void save((prev) => ({
       ...prev,
@@ -1344,15 +1278,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     showToast(added ? "Footnote added at the end of the draft." : already);
   };
 
-  // An admin document is listed straight away and gains its storage key once uploaded, which
-  // is how the attachment type marks one still on its way. Rows without a key that this page
-  // is not uploading were cut short, for instance by a reload, and can only be removed.
+  // An admin document is stored as a reading of its own, kept apart from the week boards, so
+  // that the normal readings viewer opens it by the same id the essay lists it under.
   const addAdminDocuments = async (files: File[]) => {
-    if (!files.length) return;
-    if (!navigator.onLine) {
-      showToast("Connect to the internet to add a document.");
-      return;
-    }
     for (const file of files) {
       if (file.size > ADMIN_DOCUMENT_LIMIT) {
         showToast(`${file.name} is over 50 MB.`);
@@ -1364,24 +1292,34 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         size: file.size,
         mime: mimeFor(file) ?? (file.type || "application/octet-stream"),
       };
-      setUploadingIds((ids) => [...ids, ref.id]);
-      await save((prev) => ({ ...prev, adminDocuments: [...(prev.adminDocuments ?? []), ref] }));
-      try {
-        const r2Key = await uploadEssayFile(file, ref.mime);
-        await save((prev) => ({
-          ...prev,
-          adminDocuments: (prev.adminDocuments ?? []).map((d) => (d.id === ref.id ? { ...d, r2Key } : d)),
-        }));
-      } catch (err) {
-        console.error("Uploading the document failed", err);
-        await save((prev) => ({
-          ...prev,
-          adminDocuments: (prev.adminDocuments ?? []).filter((d) => d.id !== ref.id),
-        }));
-        showToast(`Could not upload ${file.name}.`);
-      } finally {
-        setUploadingIds((ids) => ids.filter((x) => x !== ref.id));
+      const sha = await sha256(file);
+      const existing = await resolveExistingFile(sha);
+      const fileId = existing?.fileId ?? newId();
+      await commit([
+        {
+          table: "items",
+          row: {
+            id: ref.id,
+            kind: "secondary" as const,
+            author: null,
+            title: stripExtension(file.name),
+            source: null,
+            pages: null,
+            year: null,
+            doc_date: null,
+            file_id: existing?.fileId ?? null,
+            original_file_id: existing?.originalFileId ?? null,
+            tray_module_id: null,
+            zotero_key: null,
+            last_page: null,
+            read_status: "unread" as const,
+          },
+        },
+      ]);
+      if (!existing) {
+        await queueUpload({ file_id: fileId, item_id: ref.id, name: file.name, mime: ref.mime, sha256: sha, bytes: file.size, blob: file });
       }
+      await save((prev) => ({ ...prev, adminDocuments: [...(prev.adminDocuments ?? []), ref] }));
     }
   };
 
@@ -1398,13 +1336,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
       adminDocuments: (prev.adminDocuments ?? []).filter((d) => d.id !== doc.id),
     }));
     showToast("Document removed.");
-  };
-
-  // An admin document opens in the document viewer, as a reading opens in the reader, once
-  // its upload has finished and it has a stored file to show.
-  const openAdminDocument = (doc: AttachmentRef) => {
-    if (!doc.r2Key) return;
-    setViewing({ title: doc.name, url: `/api/objects/${doc.r2Key}`, mime: doc.mime, name: doc.name });
   };
 
   // Sources uploaded in the Sources card go up by the same route as admin documents, and the
@@ -1695,38 +1626,33 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                   <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
                 ) : (
                   <ul className="essay-ws-docs" aria-labelledby="essay-admin-head">
-                    {adminDocuments.map((doc) => (
+                    {adminDocuments.map((doc) => {
+                      const openLegacy = doc.r2Key
+                        ? () => setViewing({ title: doc.name, url: `/api/objects/${doc.r2Key}`, mime: doc.mime, name: doc.name })
+                        : null;
+                      return (
                       <li key={doc.id}>
-                        {doc.r2Key ? (
-                          <button
-                            type="button"
-                            className="essay-ws-doc-name"
-                            title={`Open ${doc.name}`}
-                            onClick={() => openAdminDocument(doc)}
-                          >
+                        {openLegacy ? (
+                          <button type="button" className="essay-ws-doc-name" title={`Open ${doc.name}`} onClick={openLegacy}>
                             {doc.name}
                           </button>
                         ) : (
-                          <span className="essay-ws-doc-name">{doc.name}</span>
-                        )}
-                        {/* A stored document shows no size, since its name alone identifies it, and a
-                            line appears beneath it only while its upload is unfinished. */}
-                        {!doc.r2Key && (
-                          <span className="small muted">
-                            {uploadingIds.includes(doc.id) ? "Uploading…" : "Upload interrupted"}
-                          </span>
+                          <Link to={{ view: "reader", id: doc.id }} className="essay-ws-doc-name" title={`Open ${doc.name}`}>
+                            {doc.name}
+                          </Link>
                         )}
                         <span className="essay-ws-doc-menu" style={{ gridArea: "remove" }}>
                           <Menu
                             label={`Actions for ${doc.name}`}
                             items={[
-                              ...(doc.r2Key ? [{ label: "Open", onSelect: () => openAdminDocument(doc) }] : []),
+                              { label: "Open", onSelect: openLegacy ?? (() => navigate({ view: "reader", id: doc.id })) },
                               { label: "Remove", danger: true, onSelect: () => void removeAdminDocument(doc) },
                             ]}
                           />
                         </span>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -1826,7 +1752,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
 
           <ColumnSplitter
             column="aside"
-            label="Resize the references and contents column"
+            label="Resize the references column"
             controls="essay-pane-aside"
             width={columns.aside ?? drawn.aside ?? COLUMN_LIMITS.aside.min}
             limits={() => columnLimits("aside")}
@@ -1835,8 +1761,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             onReset={() => setColumns((now) => ({ ...now, aside: null }))}
           />
 
-          {/* Right column: references and contents, a drawer below 1280px */}
-          <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References and contents">
+          {/* Right column: references, a drawer below 1280px */}
+          <aside id="essay-pane-aside" className="essay-ws-aside" aria-label="References">
             <DropZone list="references" className="essay-ws-card essay-ws-refs">
               <div className="essay-ws-card-head">
                 <h2 className="essay-ws-card-title">References ({orderedFootnotes.length})</h2>
@@ -1880,30 +1806,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 </ol>
               )}
             </DropZone>
-
-            <section className="essay-ws-card" aria-labelledby="essay-contents-head">
-              <h2 id="essay-contents-head" className="essay-ws-card-title">Contents</h2>
-              {contents.length === 0 ? (
-                <p className="small muted">
-                  The title, introduction, headings and conclusion of the draft appear here, so that you can move between its parts.
-                </p>
-              ) : (
-                <ul className="essay-ws-outline essay-ws-contents">
-                  {contents.map((entry) => (
-                    <li key={entry.key}>
-                      <button
-                        type="button"
-                        data-level={entry.level}
-                        title={entry.text}
-                        onClick={() => jumpTo({ blockId: entry.blockId })}
-                      >
-                        {entry.text}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
           </aside>
         </div>
 
@@ -1912,7 +1814,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         </DragOverlay>
       </DndContext>
 
-      {/* Admin documents and uploaded sources, opened inside the essay */}
+      {/* Uploaded sources, opened inside the essay */}
       <DocumentViewer file={viewing} onClose={() => setViewing(null)} />
 
       {/* Revision snapshots */}

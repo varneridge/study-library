@@ -1,7 +1,7 @@
 /*
  * The essay workspace, holding every rule the page needs. From 1280px the page is three flush
  * columns that run to the edges of the workspace: the brief and sources on the left and the
- * references and contents on the right, both held in place beneath the top bar and scrolling
+ * references on the right, both held in place beneath the top bar and scrolling
  * inside themselves, with the essay between them on a desk, and the width of each side
  * column can be dragged at its inner edge. The essay's pages sit in the
  * page's own flow, so the window scrolls through them while the side columns and the mode bar
@@ -28,7 +28,6 @@
  *   .essay-ws-source-groups      the list of Primary, Secondary (course), Secondary (outside)
  *   .essay-ws-source-item        one row with its references editor, when open
  *   .essay-ws-source-editor      the page references of one uploaded or hand-added source
- * A Contents entry for the essay title takes data-level="0" so that it reads as the title.
  */
 
 /* The page runs to the edges of the window, so that the three columns can use every pixel of
@@ -186,6 +185,18 @@
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   background: var(--paper);
+}
+
+/* The right column runs to the window's edge, so a scroll bar of its own would sit beside the
+   window's. It still scrolls with the wheel, keyboard or touch, but draws no bar and holds no
+   gutter, which leaves the window's bar as the only one on that edge. */
+.essay-ws-aside {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+
+.essay-ws-aside::-webkit-scrollbar {
+  display: none;
 }
 
 /* The splitters stay in view beside the sticky columns, and their hit area reaches a little
@@ -347,7 +358,7 @@
   overflow-wrap: anywhere;
 }
 
-button.essay-ws-doc-name {
+a.essay-ws-doc-name {
   padding: 0;
   border: 0;
   background: none;
@@ -355,10 +366,11 @@ button.essay-ws-doc-name {
   font: inherit;
   font-size: var(--fs-sm);
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
-button.essay-ws-doc-name:hover {
+a.essay-ws-doc-name:hover {
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
@@ -950,65 +962,6 @@ button.essay-ws-doc-name:hover {
   cursor: pointer;
 }
 
-/* Contents is sized for a title, an introduction, three to five body sections and a
-   conclusion. Every entry wraps rather than being cut short, the list has no scroll of its
-   own because the column already scrolls, and the buttons count their indent inside their
-   width, which keeps the list from scrolling sideways. */
-.essay-ws-outline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0;
-  min-width: 0;
-}
-
-.essay-ws-outline > li {
-  min-width: 0;
-}
-
-.essay-ws-outline button {
-  box-sizing: border-box;
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  padding: 0.2rem 0.4rem;
-  border: none;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--fs-sm);
-  line-height: 1.35;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-wrap: pretty;
-  cursor: pointer;
-}
-
-.essay-ws-outline button:hover {
-  background: var(--surface-hover);
-}
-
-.essay-ws-outline button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.essay-ws-outline button[data-level="0"] {
-  font-weight: 600;
-}
-
-.essay-ws-outline button[data-level="1"] {
-  padding-left: 1.15rem;
-}
-
-.essay-ws-outline button[data-level="2"] {
-  padding-left: 1.9rem;
-  color: var(--muted);
-}
-
 /* The mode bar sticks under the top bar. It holds the Preview and Plan segmented control at a
    steady width, and Edit in Word at the far end as a filled button with its pen, which is the
    one primary action of the page. */
@@ -1285,7 +1238,7 @@ button.essay-ws-doc-name:hover {
   top: 0;
 }
 
-/* The place reached from a reference or the contents is marked for a moment in the soft
+/* The place reached from a reference is marked for a moment in the soft
    accent, the house look for "this one". */
 .essay-sheet-cited,
 .is-jumped {
