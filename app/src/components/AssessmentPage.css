@@ -1093,6 +1093,10 @@ a.essay-ws-doc-name:hover {
   padding: 0;
   gap: 0.75rem;
   background: transparent;
+  border: 0;
+  border-radius: 0;
+  max-height: none;
+  overflow: visible;
 }
 
 .essay-preview-frame .pdf-slot,
