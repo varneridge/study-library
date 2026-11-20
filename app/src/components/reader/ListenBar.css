@@ -154,6 +154,15 @@
   white-space: nowrap;
 }
 
+/* Time heard of the estimated whole, beside the count; the ring carries it for screen readers. */
+.lb-time {
+  padding: 0 0.25rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .lb-divider {
   flex: none;
   width: 1px;
@@ -624,9 +633,10 @@
   }
 }
 
-/* A phone: the paragraph count goes first, then the space between groups narrows. */
+/* A phone: the paragraph count and the time go first, then the space between groups narrows. */
 @media (max-width: 30rem) {
-  .lb-count {
+  .lb-count,
+  .lb-time {
     display: none;
   }
   .lb-divider {

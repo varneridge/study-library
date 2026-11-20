@@ -81,6 +81,8 @@ export interface SynthResult {
   /** Mono PCM in the range [-1, 1]. */
   pcm: Float32Array;
   tokens: TimedToken[];
+  /** The plain text the engine actually read, once spoken forms were written out (annotate.ts), when it differs from the text it was given. */
+  spoken?: string;
   engine: EngineId;
   /** Identifies weights and code that produced the audio, part of the cache key. */
   modelVersion: string;

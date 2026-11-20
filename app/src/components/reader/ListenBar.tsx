@@ -8,7 +8,8 @@
 // spins while audio is being prepared. Short notices (the fallback voice, an
 // error, a first hint) sit in a chip above the capsule rather than in it, and
 // so does Recentre, which appears once the reader has scrolled away from the
-// words being read and brings them, and following, back.
+// words being read and brings them, and following, back. Beside the paragraph
+// count, a label gives the time heard of the estimated whole.
 
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import type { ListenController, ListenSnapshot } from "../../lib/listen/controller";
@@ -48,6 +49,27 @@ export function voiceLabel(id: string, voices: VoiceInfo[]): string {
  */
 export function formatStep(step: number): string {
   return `+${Number(step.toFixed(2))}x`;
+}
+
+/** Seconds as a clock: "12:04", or "1:45:00" from an hour up. */
+export function formatClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * "12:04 of about 1:45:00", or null before the whole can be estimated. The
+ * whole is an estimate, so it is rounded (to the minute from ten minutes up),
+ * and it is never shown as less than the time already heard.
+ */
+export function timeLabel(elapsed: number, total: number | null): string | null {
+  if (total === null) return null;
+  const step = total >= 600 ? 60 : 10;
+  const whole = Math.max(Math.round(total / step) * step, Math.floor(elapsed));
+  return `${formatClock(elapsed)} of about ${formatClock(whole)}`;
 }
 
 interface Notice {
@@ -175,6 +197,7 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
   const ramp = snapshot.ramp;
   const total = Math.max(1, snapshot.totalParagraphs);
   const progress = snapshot.totalParagraphs > 0 ? (snapshot.paragraph + 1) / total : 0;
+  const time = timeLabel(snapshot.elapsedSeconds, snapshot.totalSeconds);
 
   // One button, one handler: a nested button would toggle twice on one click.
   // While a paragraph is being prepared, a press changes nothing (the controller
@@ -393,6 +416,8 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
         />
         <span
           className={`lb-ring${isBuffering || isPreparing ? " lb-ring--busy" : ""}`}
+          role={time ? "group" : undefined}
+          aria-label={time ? `Listening time, ${time}` : undefined}
           style={{ "--lb-progress": `${Math.round(progress * 1000) / 10}%` } as React.CSSProperties}
         >
           <button type="button" className="lb-play" onClick={handleTogglePlay} disabled={isPreparing} aria-label={playLabel} aria-busy={isBuffering || isPreparing}>
@@ -412,6 +437,11 @@ export function ListenBar({ controller, onClose, voices = [] }: ListenBarProps) 
           </span>
           <span className="lb-sr">{`Paragraph ${snapshot.paragraph + 1} of ${snapshot.totalParagraphs}`}</span>
         </span>
+        {time && (
+          <span className="lb-time" aria-hidden="true">
+            {time}
+          </span>
+        )}
 
         <span className="lb-divider" aria-hidden="true" />
 

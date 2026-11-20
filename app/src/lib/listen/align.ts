@@ -174,17 +174,132 @@ function alignUntexted(words: SourceWord[], spans: TimedToken[]): Anchor[] {
   });
 }
 
+/** The shortest word that may anchor the written to the spoken words: shorter ones repeat too often to be trusted. */
+const ANCHOR_MIN_LETTERS = 3;
+
+/** The longest ordered run of written words that are spoken as themselves, as [written, spoken] index pairs. */
+function matchAnchors(written: SourceWord[], spoken: SourceWord[]): Array<[number, number]> {
+  const n = written.length;
+  const m = spoken.length;
+  const width = m + 1;
+  const same = (i: number, j: number) => written[i].norm.length >= ANCHOR_MIN_LETTERS && written[i].norm === spoken[j].norm;
+  // table[i * width + j] is the longest run in written[i..] against spoken[j..].
+  const table = new Uint16Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      table[i * width + j] = same(i, j) ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+    }
+  }
+  const out: Array<[number, number]> = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (same(i, j)) {
+      out.push([i, j]);
+      i += 1;
+      j += 1;
+    } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i += 1;
+    else j += 1;
+  }
+  return out;
+}
+
+/**
+ * Give the written words [a, b) the spoken words [c, d) in proportion to their
+ * spoken length. Every written word gets at least one spoken word, so when
+ * there are more written words than spoken ones some share a spoken word.
+ * Only when no spoken word is left does a written word get an empty range.
+ */
+function mapBlock(written: SourceWord[], spoken: SourceWord[], a: number, b: number, c: number, d: number, out: Array<[number, number]>): void {
+  const n = b - a;
+  const m = d - c;
+  if (n <= 0) return;
+  if (m <= 0) {
+    for (let i = a; i < b; i += 1) out[i] = [c, c];
+    return;
+  }
+  const cumulative = [0];
+  for (let k = c; k < d; k += 1) cumulative.push(cumulative[cumulative.length - 1] + spoken[k].weight);
+  let total = 0;
+  for (let i = a; i < b; i += 1) total += written[i].weight;
+  // bounds[k] is the spoken word, counted from c, where written word k begins.
+  const bounds = [0];
+  let heard = 0;
+  let at = 0;
+  for (let k = 1; k < n; k += 1) {
+    heard += written[a + k - 1].weight;
+    const target = (heard / total) * cumulative[m];
+    while (at < m && Math.abs(cumulative[at + 1] - target) <= Math.abs(cumulative[at] - target)) at += 1;
+    // With spoken words to spare, each written word keeps a word of its own.
+    bounds.push(n <= m ? Math.max(bounds[k - 1] + 1, Math.min(at, m - (n - k))) : at);
+  }
+  bounds.push(m);
+  for (let k = 0; k < n; k += 1) {
+    const first = Math.min(bounds[k], m - 1);
+    out[a + k] = [c + first, c + Math.max(first + 1, bounds[k + 1])];
+  }
+}
+
+/**
+ * For each written word, the spoken words [first, end) that say it. Words
+ * spoken as themselves anchor the mapping, in order and only when they have
+ * three letters or more. What lies between two anchors ("c. 1945" read as
+ * "circa nineteen forty-five") is spread over the spoken words between them by
+ * length. With no anchors at all the whole text is one such stretch.
+ */
+export function mapWords(written: SourceWord[], spoken: SourceWord[]): Array<[number, number]> {
+  const out: Array<[number, number]> = new Array(written.length);
+  let w = 0;
+  let s = 0;
+  for (const [i, j] of matchAnchors(written, spoken)) {
+    mapBlock(written, spoken, w, i, s, j, out);
+    out[i] = [j, j + 1];
+    w = i + 1;
+    s = j + 1;
+  }
+  mapBlock(written, spoken, w, written.length, s, spoken.length, out);
+  return out;
+}
+
 /**
  * Word timings for one utterance. `tokens` are in seconds from the start of
- * the utterance's audio, `duration` is that audio's length in seconds.
+ * the utterance's audio, `duration` is that audio's length in seconds. `spoken`
+ * is the plain text the engine actually read when that differs from `text`
+ * ("1954" written out as "nineteen fifty-four"): the tokens are then aligned to
+ * the spoken words, and each written word takes the span of the spoken words
+ * that say it.
  */
-export function alignWords(text: string, tokens: TimedToken[], duration: number): WordTiming[] {
+export function alignWords(text: string, tokens: TimedToken[], duration: number, spoken?: string): WordTiming[] {
   const words = tokeniseWords(text);
   if (words.length === 0) return [];
   const usable = tokens.filter((t) => Number.isFinite(t.start) && Number.isFinite(t.end) && t.end >= t.start);
   const texted = usable.some((t) => t.text !== null);
-  const anchors = usable.length === 0 ? [] : texted ? alignTexted(words, usable) : alignUntexted(words, usable);
-  return tidy(fillGaps(words, anchors, duration), duration);
+  const spokenWords = spoken && spoken !== text ? tokeniseWords(spoken) : [];
+  if (spokenWords.length === 0) {
+    const anchors = usable.length === 0 ? [] : texted ? alignTexted(words, usable) : alignUntexted(words, usable);
+    return tidy(fillGaps(words, anchors, duration), duration);
+  }
+  const spokenAnchors = usable.length === 0 ? [] : texted ? alignTexted(spokenWords, usable) : alignUntexted(spokenWords, usable);
+  const heard = fillGaps(spokenWords, spokenAnchors, duration);
+  const engine = new Set(spokenAnchors.map((a) => a.word));
+  const mapped = mapWords(words, spokenWords);
+  const anchors: Anchor[] = [];
+  const fromEngine = new Set<number>();
+  mapped.forEach(([first, end], i) => {
+    if (end <= first) return; // nothing was said for it: it is timed from its neighbours
+    let t0 = Infinity;
+    let t1 = -Infinity;
+    let all = true;
+    for (let k = first; k < end; k += 1) {
+      t0 = Math.min(t0, heard[k].t0);
+      t1 = Math.max(t1, heard[k].t1);
+      if (!engine.has(k)) all = false;
+    }
+    anchors.push({ word: i, t0, t1 });
+    if (all) fromEngine.add(i);
+  });
+  const timed = fillGaps(words, anchors, duration).map((w, i): WordTiming => ({ ...w, source: fromEngine.has(i) ? "engine" : "interpolated" }));
+  return tidy(timed, duration);
 }
 
 /**

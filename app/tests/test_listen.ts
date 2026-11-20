@@ -3,7 +3,7 @@
 // rate, durations, modelProbe, workerProtocol) and for the controller's playback
 // behaviour.
 import assert from "node:assert/strict";
-import { alignWords, buildTimeline, timeForOffset, tokeniseWords, wordIndexAt } from "../src/lib/listen/align";
+import { alignWords, buildTimeline, mapWords, timeForOffset, tokeniseWords, wordIndexAt } from "../src/lib/listen/align";
 import { audioFramesOnly, parseMp3 } from "../src/lib/listen/mp3";
 import {
   buildListenScript,
@@ -28,7 +28,8 @@ import { clampRate, formatRate, quantiseRate, rampRate } from "../src/lib/listen
 import { chunkTokens } from "../src/lib/listen/durations";
 import { explainProbes, isNetworkFailure, mirrorUrl, MODEL_HOSTS, probeModel } from "../src/lib/listen/modelProbe";
 import { DEFAULT_VOICE_BASE, loadPlans } from "../src/lib/listen/workerProtocol";
-import { createListenController, seekTimeFor, wordIndexAtTime } from "../src/lib/listen/controller";
+import { createListenController, DEFAULT_CHARS_PER_SECOND, seekTimeFor, wordIndexAtTime } from "../src/lib/listen/controller";
+import { offsetAtPoint, type PageText } from "../src/lib/reflow";
 import { KokoroLoadError } from "../src/lib/listen/browserEngine";
 import { isEngineUnavailable, pickSpeechVoice, type SpeechBackend, type SpeechUtteranceLike } from "../src/lib/listen/speech";
 import type { ListenScript, SynthResult, TtsEngine } from "../src/lib/listen/types";
@@ -141,6 +142,38 @@ function fakeView() {
     dispose() {},
   };
   return v;
+}
+
+/**
+ * requestAnimationFrame and cancelAnimationFrame stood in for by a queue that
+ * runs its frames only when `step` is called, so a test can drive the
+ * highlight loop one frame at a time and see what is left waiting.
+ */
+async function withFrames(run: (frames: { step: () => void; pending: () => number }) => Promise<void>): Promise<void> {
+  const g = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown };
+  const saved = { request: g.requestAnimationFrame, cancel: g.cancelAnimationFrame };
+  const queue = new Map<number, () => void>();
+  let next = 1;
+  g.requestAnimationFrame = (fn: () => void) => {
+    queue.set(next, fn);
+    return next++;
+  };
+  g.cancelAnimationFrame = (id: number) => {
+    queue.delete(id);
+  };
+  try {
+    await run({
+      step: () => {
+        const due = [...queue.values()];
+        queue.clear();
+        for (const fn of due) fn();
+      },
+      pending: () => queue.size,
+    });
+  } finally {
+    g.requestAnimationFrame = saved.request;
+    g.cancelAnimationFrame = saved.cancel;
+  }
 }
 
 const threeParagraphs: ReflowBlock[] = [
@@ -359,6 +392,54 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
     const aligned = alignWords("One two. Three.", tokens, 3);
     assert.ok(aligned.every((w) => w.source === "engine"));
     assert.equal(aligned[2].t0, 1);
+  });
+
+  test("listen: written words are mapped onto the spoken words that say them", () => {
+    const map = (written: string, spoken: string) => mapWords(tokeniseWords(written), tokeniseWords(spoken));
+    // No word is spoken as itself, so the written words share the spoken ones by length.
+    assert.deepEqual(map("c. 1945", "circa nineteen forty-five"), [[0, 1], [1, 3]]);
+    assert.deepEqual(map("1984", "nineteen eighty-four"), [[0, 2]]);
+    // Words spoken as themselves hold their place, and the rest is shared out between them.
+    assert.deepEqual(map("14 June", "the fourteenth of June"), [[0, 3], [3, 4]]);
+    assert.deepEqual(map("Born in 1954 in Leeds", "Born in nineteen fifty-four in Leeds"), [[0, 1], [1, 2], [2, 4], [4, 5], [5, 6]]);
+    // A repeated word is matched in order, so the second "and the" is not taken for the first.
+    assert.deepEqual(map("and the 1950s and the war", "and the nineteen fifties and the war"), [[0, 1], [1, 2], [2, 4], [4, 5], [5, 6], [6, 7]]);
+    // Nothing spoken for a word gives it an empty range; more written words than spoken ones share a spoken word.
+    assert.deepEqual(map("1984", ""), [[0, 0]]);
+    assert.deepEqual(map("a b c", "x"), [[0, 1], [0, 1], [0, 1]]);
+    assert.deepEqual(map("", "nineteen"), []);
+  });
+
+  test("listen: with the words the engine read, a written date or number takes the time of all its spoken words", () => {
+    const spoken = "In nineteen fifty-four it rained";
+    const texted = [
+      { text: "In", start: 0, end: 0.2 },
+      { text: "nineteen", start: 0.2, end: 0.6 },
+      { text: "fifty-four", start: 0.6, end: 1.1 },
+      { text: "it", start: 1.1, end: 1.3 },
+      { text: "rained", start: 1.3, end: 1.8 },
+    ];
+    const check = (aligned: ReturnType<typeof alignWords>) => {
+      assert.equal(aligned.length, 4);
+      assert.deepEqual([aligned[1].t0, aligned[1].t1], [0.2, 1.1], "\"1954\" spans \"nineteen fifty-four\"");
+      assert.deepEqual([aligned[2].t0, aligned[2].t1], [1.1, 1.3]);
+      assert.ok(aligned.every((w) => w.source === "engine"));
+      assert.deepEqual([aligned[1].start, aligned[1].end], [3, 7], "offsets stay those of the written text");
+    };
+    check(alignWords("In 1954 it rained", texted, 1.9, spoken));
+    // The browser engine reports a span for each spoken word and no text.
+    check(alignWords("In 1954 it rained", texted.map((t) => ({ ...t, text: null })), 1.9, spoken));
+    // Written and spoken the same: the spoken text changes nothing.
+    const plain = [
+      { text: "Hello", start: 0, end: 0.5 },
+      { text: "world", start: 0.6, end: 1.1 },
+    ];
+    assert.deepEqual(alignWords("Hello world", plain, 1.2, "Hello world"), alignWords("Hello world", plain, 1.2));
+    // No timings at all: the words are still spread over the whole utterance, each word once.
+    const bare = alignWords("In 1954 it rained", [], 2, spoken);
+    assert.equal(bare.length, 4);
+    assert.equal(bare[0].t0, 0);
+    assert.ok(Math.abs(bare[3].t1 - 2) < 1e-9);
   });
 
   test("listen: a model that cannot be fetched is explained, not reported as a bare failure", async () => {
@@ -597,52 +678,58 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
   });
 
   test("listen: the view follows the spoken word, the reader's own scroll stops it, and Recentre brings it back", async () => {
-    const script = await buildListenScript(threeParagraphs);
-    const { engine } = fakeEngine();
-    const audio = fakeAudio();
-    let clock = 0;
-    const view = fakeView();
-    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
-    c.attachView({ scroller: view.scroller, surface: view.surface });
-    view.wordTop = 500;
-    await c.play();
-    await flush();
-    assert.ok(view.painted.length > 0, "the first word is painted as soon as reading starts");
-    assert.equal(view.scrolls[view.scrolls.length - 1], 300, "a word below the band is brought up to its top (200)");
-    assert.equal(c.getSnapshot().following, true);
+    await withFrames(async (frames) => {
+      const script = await buildListenScript(threeParagraphs);
+      const { engine } = fakeEngine();
+      const audio = fakeAudio();
+      let clock = 0;
+      const view = fakeView();
+      const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
+      c.attachView({ scroller: view.scroller, surface: view.surface });
+      view.wordTop = 500;
+      await c.play();
+      await flush();
+      audio.onplay?.(); // the audio element's play event starts the highlight loop
+      assert.ok(view.painted.length > 0, "the first word is painted as soon as reading starts");
+      assert.equal(view.scrolls[view.scrolls.length - 1], 300, "a word below the band is brought up to its top (200)");
+      assert.equal(c.getSnapshot().following, true);
 
-    view.fire("wheel");
-    assert.equal(c.getSnapshot().following, false);
-    view.scrolls.length = 0;
-    view.wordTop = 900;
-    audio.currentTime = 0.5;
-    audio.ontimeupdate?.();
-    assert.equal(view.scrolls.length, 0, "no scrolling while the reader is looking elsewhere");
-    assert.equal(c.getSnapshot().away, "below");
+      view.fire("wheel");
+      assert.equal(c.getSnapshot().following, false);
+      view.scrolls.length = 0;
+      view.wordTop = 900;
+      audio.currentTime = 0.5;
+      frames.step();
+      assert.equal(view.scrolls.length, 0, "no scrolling while the reader is looking elsewhere");
+      assert.equal(c.getSnapshot().away, "below");
 
-    c.recentre();
-    assert.equal(c.getSnapshot().following, true);
-    assert.equal(c.getSnapshot().away, null);
-    assert.equal(view.scrolls[view.scrolls.length - 1], 700);
+      c.recentre();
+      assert.equal(c.getSnapshot().following, true);
+      assert.equal(c.getSnapshot().away, null);
+      assert.equal(view.scrolls[view.scrolls.length - 1], 700);
+    });
   });
 
   test("listen: following comes back by itself once the reader keeps still with the spoken word in view", async () => {
-    const script = await buildListenScript(threeParagraphs);
-    const { engine } = fakeEngine();
-    const audio = fakeAudio();
-    let clock = 0;
-    const view = fakeView();
-    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
-    c.attachView({ scroller: view.scroller, surface: view.surface });
-    await c.play();
-    await flush();
-    view.fire("touchmove");
-    assert.equal(c.getSnapshot().following, false);
-    clock += 5000;
-    view.wordTop = 250;
-    audio.currentTime = 0.9;
-    audio.ontimeupdate?.();
-    assert.equal(c.getSnapshot().following, true);
+    await withFrames(async (frames) => {
+      const script = await buildListenScript(threeParagraphs);
+      const { engine } = fakeEngine();
+      const audio = fakeAudio();
+      let clock = 0;
+      const view = fakeView();
+      const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null, now: () => clock });
+      c.attachView({ scroller: view.scroller, surface: view.surface });
+      await c.play();
+      await flush();
+      audio.onplay?.(); // the audio element's play event starts the highlight loop
+      view.fire("touchmove");
+      assert.equal(c.getSnapshot().following, false);
+      clock += 5000;
+      view.wordTop = 250;
+      audio.currentTime = 0.9;
+      frames.step();
+      assert.equal(c.getSnapshot().following, true);
+    });
   });
 
   test("listen: a new paragraph no longer snaps to the top of the view (paragraph snapping is gone)", async () => {
@@ -680,5 +767,123 @@ export function registerListenTests(test: (name: string, fn: () => void | Promis
     assert.equal(second.listening(), 0);
     c.attachView({ scroller: first.scroller, surface: first.surface }); // harmless after dispose
     assert.equal(first.listening(), 0);
+  });
+
+  test("listen: the spoken word is painted every frame while the audio plays, and the loop stops on pause, end and dispose", async () => {
+    await withFrames(async (frames) => {
+      const script = await buildListenScript(threeParagraphs);
+      const { engine } = fakeEngine();
+      const audio = fakeAudio();
+      const view = fakeView();
+      const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null });
+      c.attachView({ scroller: view.scroller, surface: view.surface });
+      await c.play();
+      await flush();
+      assert.equal(frames.pending(), 0, "no loop until the audio element reports that it plays");
+      audio.onplay?.();
+      assert.equal(frames.pending(), 1);
+      audio.onplay?.();
+      assert.equal(frames.pending(), 1, "starting it again while it runs changes nothing");
+
+      audio.currentTime = 0.5;
+      frames.step();
+      assert.equal(c.getSnapshot().word, 1, "the word at the audio's own time, with no timeupdate");
+      assert.equal(frames.pending(), 1, "and the next frame is asked for");
+      audio.currentTime = 0.9;
+      audio.ontimeupdate?.();
+      assert.equal(c.getSnapshot().word, 1, "timeupdate no longer paints words");
+      frames.step();
+      assert.equal(c.getSnapshot().word, 2, "the next frame does, within one frame of the seek");
+
+      audio.onpause?.();
+      assert.equal(frames.pending(), 0, "pause stops it");
+      audio.onplay?.();
+      assert.equal(frames.pending(), 1, "play starts it again");
+      audio.onended?.();
+      await flush();
+      assert.equal(frames.pending(), 0, "the end of the audio stops it");
+
+      audio.onplay?.();
+      assert.equal(frames.pending(), 1);
+      c.dispose();
+      assert.equal(frames.pending(), 0, "dispose cancels the frame that was waiting");
+      assert.equal(audio.onplay, null);
+      (audio as { onplay: (() => void) | null }).onplay?.();
+      assert.equal(frames.pending(), 0);
+    });
+  });
+
+  test("listen: the snapshot gives the time heard and an estimate of the whole, which follow the speed", async () => {
+    const script = await buildListenScript(threeParagraphs);
+    const chars = script.utterances.map((u) => u.text.length);
+    const sum = (from: number, to: number) => chars.slice(from, to).reduce((a, b) => a + b, 0);
+    const { engine, requests } = fakeEngine();
+    const audio = fakeAudio();
+    const c = createListenController({ script, engine, audio: audio as unknown as HTMLAudioElement, title: "t", album: "a", speech: null });
+    const near = (a: number | null, b: number) => assert.ok(a !== null && Math.abs(a - b) < 1e-9, `${a} should be ${b}`);
+
+    // Nothing heard or made yet: the default pace.
+    near(c.getSnapshot().elapsedSeconds, 0);
+    near(c.getSnapshot().totalSeconds, sum(0, chars.length) / DEFAULT_CHARS_PER_SECOND);
+
+    // The engine makes one second for each paragraph. Two are made (the one playing and the next), so the rest is estimated at their pace.
+    await c.play();
+    await flush();
+    assert.equal(requests.length, 2);
+    const perChar = 2 / sum(0, 2);
+    const whole = 2 + sum(2, chars.length) * perChar;
+    near(c.getSnapshot().totalSeconds, whole);
+    audio.currentTime = 0.4;
+    near(c.getSnapshot().elapsedSeconds, 0.4);
+
+    // In the second paragraph: the first one's second, and the time into this one.
+    // The third has been made by now, so every paragraph is measured and the whole is exact.
+    audio.onended?.();
+    await flush();
+    assert.equal(requests.length, 3);
+    audio.currentTime = 0.25;
+    near(c.getSnapshot().elapsedSeconds, 1.25);
+    near(c.getSnapshot().totalSeconds, 3);
+
+    // Twice as fast: both halve.
+    c.setRate(2);
+    near(c.getSnapshot().elapsedSeconds, 1.25 / 2);
+    near(c.getSnapshot().totalSeconds, 3 / 2);
+
+    // A script with no text has no estimate.
+    const empty = createListenController({
+      script: { hash: "", text: "", pieces: [], utterances: [] },
+      engine,
+      audio: fakeAudio() as unknown as HTMLAudioElement,
+      title: "t",
+      album: "a",
+      speech: null,
+    });
+    assert.equal(empty.getSnapshot().totalSeconds, null);
+    near(empty.getSnapshot().elapsedSeconds, 0);
+  });
+
+  test("listen: a point on a page gives the start of the word under it, or null when it is on no text", () => {
+    const page: PageText = {
+      page: 0,
+      text: "Hello big world\nSecond line",
+      height: 800,
+      pieces: [
+        { start: 0, end: 15, rect: [100, 700, 250, 712] },
+        { start: 16, end: 27, rect: [100, 680, 210, 692] },
+      ],
+    };
+    assert.equal(offsetAtPoint(page, 175, 705), 6, "inside \"big\" gives the start of \"big\"");
+    assert.equal(offsetAtPoint(page, 101, 705), 0, "the first letter");
+    assert.equal(offsetAtPoint(page, 155, 705), 6, "on the space before \"big\" gives the next word");
+    assert.equal(offsetAtPoint(page, 150, 685), 16 + 0, "a point in the second line is found in its own piece");
+    assert.equal(offsetAtPoint(page, 300, 705), null, "right of the text");
+    assert.equal(offsetAtPoint(page, 175, 750), null, "above the text");
+    assert.equal(offsetAtPoint(page, 175, 696), null, "between two lines");
+    assert.equal(offsetAtPoint({ ...page, pieces: [] }, 175, 705), null, "a page with no text");
+
+    // A word that began in an earlier piece starts there.
+    const split: PageText = { page: 0, text: "Hello world", height: 100, pieces: [{ start: 0, end: 8, rect: [0, 0, 80, 10] }, { start: 8, end: 11, rect: [80, 0, 110, 10] }] };
+    assert.equal(offsetAtPoint(split, 100, 5), 6);
   });
 }

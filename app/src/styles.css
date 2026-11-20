@@ -1244,6 +1244,8 @@ button.plain { border: 0; background: none; padding: 0; color: inherit; cursor: 
 /* pdf.js text layer, adapted from pdf_viewer.css */
 .textLayer { position: absolute; text-align: initial; inset: 0; overflow: clip; opacity: 1; line-height: 1; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 2; }
 .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+/* With Listen open a click on a word reads from it. */
+.pages.is-listening .textLayer :is(span, br) { cursor: pointer; }
 .textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) { z-index: 1; }
 .textLayer span.markedContent { top: 0; height: 0; }
 .textLayer ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }

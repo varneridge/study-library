@@ -3,7 +3,7 @@
 
 import type { SynthResult, TtsEngine, VoiceInfo } from "./types";
 import { DEFAULT_MODEL_HOSTS, DEFAULT_MODEL_IDS, DEFAULT_VOICE_BASE, type KokoroDevice, type LoadOptions, type WorkerRequest, type WorkerResponse } from "./workerProtocol";
-import { annotate } from "./annotate";
+import { annotate, plainText } from "./annotate";
 
 /** The parts of a Worker this engine uses, so tests can pass a fake one. */
 export interface WorkerLike {
@@ -167,6 +167,9 @@ export class BrowserKokoroEngine implements TtsEngine {
     const worker = this.worker;
     if (!worker) throw new Error("the speech worker is not running");
     const id = this.nextId++;
+    // The paragraph as the worker reads it, and the plain words of that, for aligning the highlight (align.ts).
+    const annotated = /\]\(\//.test(text) ? text : annotate(text);
+    const spoken = plainText(annotated);
     return new Promise<SynthResult>((resolve, reject) => {
       const abort = () => {
         if (!this.pending.delete(id)) return;
@@ -177,14 +180,14 @@ export class BrowserKokoroEngine implements TtsEngine {
       this.pending.set(id, {
         resolve: (r) => {
           signal.removeEventListener("abort", abort);
-          resolve(r);
+          resolve({ ...r, spoken });
         },
         reject: (e) => {
           signal.removeEventListener("abort", abort);
           reject(e);
         },
       });
-      worker.postMessage({ type: "synthesise", id, text: /\]\(\//.test(text) ? text : annotate(text), voice });
+      worker.postMessage({ type: "synthesise", id, text: annotated, voice });
     });
   }
 

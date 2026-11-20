@@ -727,6 +727,24 @@ export function rectsFor(page: PageText, start: number, end: number): number[][]
   return out;
 }
 
+// The start of the word at a point on a page, in PDF points, as an offset into
+// the page's text; a point on a space gives the next word, and a point that is
+// on no text gives null. The offset within a piece is spread along its width,
+// as in rectsFor, and a word that began in an earlier piece starts there.
+export function offsetAtPoint(page: PageText, x: number, y: number): number | null {
+  for (const p of page.pieces) {
+    const [x0, y0, x1, y1] = p.rect;
+    if (p.end <= p.start || x < x0 || x > x1 || y < y0 || y > y1) continue;
+    const len = p.end - p.start;
+    let at = p.start + Math.min(len - 1, Math.floor(((x - x0) / (x1 - x0 || 1)) * len));
+    while (at < page.text.length && /\s/.test(page.text[at])) at += 1;
+    if (at >= page.text.length) return null;
+    while (at > 0 && !/\s/.test(page.text[at - 1])) at -= 1;
+    return at;
+  }
+  return null;
+}
+
 // The stretches of a page's text that a highlight's rectangles cover.
 export function rangesFor(page: PageText, rects: number[][]): [number, number][] {
   const out: [number, number][] = [];

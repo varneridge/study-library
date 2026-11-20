@@ -8,7 +8,7 @@
 // paragraphs are downloaded there when Listen opens, so a reading heard once
 // on Wi-Fi plays again offline and with the screen locked.
 
-import { annotate, type PronunciationEntry } from "./annotate";
+import { annotate, plainText, type PronunciationEntry } from "./annotate";
 import { DEVICE_CAP_BYTES } from "./limits";
 import { preparedAudioKey } from "./preparedKey";
 import type { SynthResult, TimedToken, TtsEngine, VoiceInfo } from "./types";
@@ -211,7 +211,7 @@ export class PreparedAudioEngine implements TtsEngine {
     if (parsed && parsed.header.voice === voice) {
       try {
         const pcm = fitDecoded(await this.deps.decode(parsed.mp3, parsed.header.sampleRate), parsed.header.samples);
-        return { sampleRate: parsed.header.sampleRate, pcm, tokens: parsed.header.tokens, engine: this.id, modelVersion: `prepared:${parsed.header.modelVersion}` };
+        return { sampleRate: parsed.header.sampleRate, pcm, tokens: parsed.header.tokens, spoken: plainText(spoken), engine: this.id, modelVersion: `prepared:${parsed.header.modelVersion}` };
       } catch {
         // A file the browser cannot decode is read by the engine instead.
       }

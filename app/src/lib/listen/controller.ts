@@ -23,6 +23,10 @@
 // - Following keeps the spoken word in the middle third of the scroller. The
 //   reader's own scrolling stops it until they press Recentre, tap a word,
 //   skip, or press play.
+// - The spoken word is painted from an animation frame loop that runs only
+//   while the audio plays (it starts on play, and pause, the end of the audio
+//   and dispose stop it), because the media element's timeupdate comes only a
+//   few times a second, which lags and skips words at speed.
 
 import { alignWords, tokeniseWords } from "./align";
 import { type ListenSurface, type PageSpan, type ScreenBox, FollowGate, followDelta, offView } from "./highlight";
@@ -64,6 +68,10 @@ export interface ListenSnapshot {
   /** "speech" when Kokoro could not load and the device's own voice is reading. */
   backend: "kokoro" | "speech";
   bufferedSeconds: number;
+  /** Seconds of speech before the place being heard, at the speed playing now. */
+  elapsedSeconds: number;
+  /** An estimate of the whole script's seconds at the speed playing now, from the seconds per character measured so far; null when the script has no text. */
+  totalSeconds: number | null;
   error: string | null;
   totalUtterances: number;
   paragraph: number;
@@ -120,6 +128,9 @@ interface UtteranceAudio {
 
 /** Less than this far into a paragraph, the resume point is the paragraph before it. */
 const RESUME_BACK_SECONDS = 2;
+
+/** Characters read a second at 1x, until the audio made so far gives a measured figure. */
+export const DEFAULT_CHARS_PER_SECOND = 14.5;
 
 /** Keys that scroll the reading when it has focus; any other key is not the reader moving the page. */
 const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Spacebar"]);
@@ -201,6 +212,11 @@ export function createListenController(deps: {
   let shownSentence: PageSpan[] | null = null;
   let away: "above" | "below" | null = null;
   let awayFrame = 0;
+  let wordFrame = 0;
+  // Seconds at 1x of each utterance whose audio has been made, kept when the audio leaves the cache, to time the reading.
+  const measured = new Map<number, number>();
+  let measuredSeconds = 0;
+  let measuredChars = 0;
 
   const audioCache = new Map<number, UtteranceAudio>();
   const inFlight = new Map<number, { promise: Promise<UtteranceAudio>; ctrl: AbortController }>();
@@ -223,11 +239,37 @@ export function createListenController(deps: {
     }
   }
 
+  /** Seconds at 1x that utterance `idx` takes: as made when its audio exists, else its characters at the pace measured so far. */
+  function secondsOf(idx: number): number {
+    const made = measured.get(idx);
+    if (made !== undefined) return made;
+    const perChar = measuredChars > 0 ? measuredSeconds / measuredChars : 1 / DEFAULT_CHARS_PER_SECOND;
+    return script.utterances[idx].text.length * perChar;
+  }
+
+  /** The reading's time before the place being heard, and the whole reading's, at the speed playing now. */
+  function timing(): { elapsed: number; total: number | null } {
+    let before = 0;
+    let all = 0;
+    let chars = 0;
+    for (let i = 0; i < script.utterances.length; i += 1) {
+      const seconds = secondsOf(i);
+      if (i < currentUtteranceIndex) before += seconds;
+      all += seconds;
+      chars += script.utterances[i].text.length;
+    }
+    const made = audioCache.get(currentUtteranceIndex);
+    const into = made && audio.src === made.url ? audio.currentTime : 0;
+    const r = rate() || 1;
+    return { elapsed: (before + into) / r, total: chars > 0 ? all / r : null };
+  }
+
   function getSnapshot(): ListenSnapshot {
     const utt = script.utterances[currentUtteranceIndex];
     const page = utt ? (scriptToPage(script, utt.start)?.page ?? 0) : 0;
     let buffered = 0;
     for (const [i, data] of audioCache) if (i > currentUtteranceIndex) buffered += data.duration;
+    const { elapsed, total } = timing();
     return {
       state,
       mode,
@@ -240,6 +282,8 @@ export function createListenController(deps: {
       engine: engine.id,
       backend,
       bufferedSeconds: buffered,
+      elapsedSeconds: elapsed,
+      totalSeconds: total,
       error: errorMsg,
       totalUtterances: script.utterances.length,
       paragraph: utt ? utt.paragraph : 0,
@@ -347,7 +391,12 @@ export function createListenController(deps: {
     const promise = (async () => {
       const result = await engine.synthesise(utt.text, requestedVoice, ctrl.signal);
       const duration = result.pcm.length / result.sampleRate;
-      const words = alignWords(utt.text, result.tokens, duration);
+      const words = alignWords(utt.text, result.tokens, duration, result.spoken);
+      if (!measured.has(idx)) {
+        measured.set(idx, duration);
+        measuredSeconds += duration;
+        measuredChars += utt.text.length;
+      }
       const blob = pcmToWav(result.pcm, result.sampleRate);
       const url = URL.createObjectURL(blob);
       const entry: UtteranceAudio = { url, blob, duration, words, pcm: result.pcm };
@@ -681,11 +730,8 @@ export function createListenController(deps: {
     }
   }
 
-  // Audio element listeners
-  audio.ontimeupdate = () => {
-    if (mode === "edition" || backend === "speech") return;
-    tick();
-    if (ramp.enabled && ramp.every === "minute") applyRate();
+  /** Paint the word being spoken at the audio's own time, if it is not the one painted already. */
+  function paintSpokenWord(): void {
     const uttAudio = audioCache.get(currentUtteranceIndex);
     const utt = script.utterances[currentUtteranceIndex];
     if (!uttAudio || !utt || audio.src !== uttAudio.url) return;
@@ -696,9 +742,34 @@ export function createListenController(deps: {
       showWord(currentUtteranceIndex, utt.start + w.start, utt.start + w.end);
       emit();
     }
+  }
+
+  /** Paint every animation frame while the audio plays; starting it again while it runs changes nothing. */
+  function startWordLoop(): void {
+    if (disposed || wordFrame || typeof requestAnimationFrame !== "function") return;
+    wordFrame = requestAnimationFrame(() => {
+      wordFrame = 0;
+      // An edition's one long audio and the device's voice have no utterance audio to follow.
+      if (mode === "edition" || backend === "speech") return;
+      paintSpokenWord();
+      startWordLoop();
+    });
+  }
+
+  function stopWordLoop(): void {
+    if (wordFrame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(wordFrame);
+    wordFrame = 0;
+  }
+
+  // Audio element listeners
+  audio.ontimeupdate = () => {
+    if (mode === "edition" || backend === "speech") return;
+    tick();
+    if (ramp.enabled && ramp.every === "minute") applyRate();
   };
 
   audio.onended = () => {
+    stopWordLoop();
     if (mode === "stream") {
       utteranceFinished(currentUtteranceIndex, token);
     } else {
@@ -709,6 +780,7 @@ export function createListenController(deps: {
   };
 
   audio.onpause = () => {
+    stopWordLoop();
     // A media element fires pause just before ended; that is not the reader pausing.
     if (state === "playing" && !audio.ended) {
       state = "paused";
@@ -718,6 +790,7 @@ export function createListenController(deps: {
   };
 
   audio.onplay = () => {
+    startWordLoop();
     if (state === "paused") {
       state = "playing";
       lastTick = now();
@@ -975,6 +1048,7 @@ export function createListenController(deps: {
     audio.onended = null;
     audio.onpause = null;
     audio.onplay = null;
+    stopWordLoop();
     keepOnly(new Set());
     speech?.synth.cancel();
     if (scroller) unlisten(scroller);

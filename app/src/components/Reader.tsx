@@ -21,7 +21,7 @@ import { IconButton } from "./icons";
 import { defaultTab } from "../lib/outline";
 import { Sidebar, type Tab } from "./reader/Sidebar";
 import { TextView, type TextSelection } from "./reader/TextView";
-import { rectsFor, reflow, type Reflowed } from "../lib/reflow";
+import { offsetAtPoint, rectsFor, reflow, type Reflowed } from "../lib/reflow";
 import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSelection } from "../lib/selection";
 import { reconcile } from "../lib/readingNotes";
 import { reconcileShape } from "../lib/noteShape";
@@ -931,6 +931,14 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
     if (!viewport) return;
     const box = pageEl.getBoundingClientRect();
     const [x, y] = viewport.convertToPdfPoint(event.clientX - box.left, event.clientY - box.top);
+    // With Listen open, a click on a word reads from it; a click on no text goes on to find a highlight.
+    const pageText = listenOpen ? reflowPages.get(index) : undefined;
+    const offset = pageText ? offsetAtPoint(pageText, x, y) : null;
+    if (offset !== null) {
+      setActive(null);
+      handleWordTap({ page: index, at: offset });
+      return;
+    }
     const found = data.highlights.find(
       (h) => h.page === index && h.rects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]),
     );
@@ -1216,7 +1224,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
             </div>
           )}
           {doc && !textReady && (layout === "pages" || (reflowed && !reflowed.usable)) && (
-            <div className="pages" data-zoom-stage="" ref={pages} onClick={onPageClick}>
+            <div className={`pages${listenOpen ? " is-listening" : ""}`} data-zoom-stage="" ref={pages} onClick={onPageClick}>
               {sizes.map((size, index) => (
                 <PageView
                   key={index}

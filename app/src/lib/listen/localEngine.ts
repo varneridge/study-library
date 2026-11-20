@@ -1,6 +1,7 @@
 // The local engine: calls backend/tts/server.py over HTTP (or an HTTPS tunnel).
 // Returns exact token start and end timestamps from Python's KPipeline.
 
+import { annotate, plainText } from "./annotate";
 import type { ListenSettings, SynthResult, TimedToken, TtsEngine, VoiceInfo } from "./types";
 
 const MAGIC = "KTT1";
@@ -101,6 +102,8 @@ export class LocalKokoroEngine implements TtsEngine {
       sampleRate: meta.sampleRate || 24000,
       pcm,
       tokens,
+      // The server writes the spoken forms out itself (pronounce.py); the same rules here give the words it read.
+      spoken: plainText(/\]\(\//.test(text) ? text : annotate(text)),
       engine: "local",
       modelVersion: meta.modelVersion || "kokoro-local",
     };
