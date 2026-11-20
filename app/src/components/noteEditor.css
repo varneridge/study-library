@@ -114,6 +114,30 @@
   transition: top var(--dur-1) var(--ease-out);
 }
 
+/* Pictures follow the page's own colours, so they sit well in light, dark and sepia. */
+.note-editor .bn-visual-media-wrapper {
+  max-width: 100%;
+}
+
+.note-editor .bn-visual-media {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  background: var(--card);
+}
+
+.note-editor .bn-add-file-button {
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--muted);
+}
+
+.note-editor .bn-add-file-button:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .note-editor .bn-formatting-toolbar,
   .note-editor .bn-toggle-button,

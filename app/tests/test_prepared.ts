@@ -113,7 +113,7 @@ export function registerPreparedTests(test: Test): void {
       lexicon: async () => [{ word: "Ussuri", say: "oo-SOO-ree" }],
     };
     await new PreparedAudioEngine(fallback, () => {}, deps).synthesise("On the Ussuri, c. 1969.", "bf_emma", new AbortController().signal);
-    const marked = "On the [Ussuri](/u\u02d0s\u02c8u\u02d0\u0279i\u02d0/), circa 1969.";
+    const marked = "On the [Ussuri](/u\u02d0s\u02c8u\u02d0\u0279i\u02d0/), circa nineteen sixty-nine.";
     assert.deepEqual(seen, [marked]);
     assert.equal(fetched[0], preparedUrl(await preparedAudioKey("bf_emma", marked)));
   });

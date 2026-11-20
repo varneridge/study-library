@@ -38,9 +38,9 @@ export function registerAnnotateTests(test: Test): void {
     const out = annotate("Chiang Kai-shek fled; Mao Zedong held the ussuri, c. 1949.", entries);
     assert.equal(
       out,
-      `[Chiang](/t\u0283${S}a\u014b/) [Kai-shek](/ka\u026a\u0283${S}\u025bk/) fled; [Mao](/${pinyinPhonemes("Mao")}/) [Zedong](/${pinyinPhonemes("Zedong")}/) held the [ussuri](/u\u02d0s${S}u\u02d0\u0279i\u02d0/), circa 1949.`,
+      `[Chiang](/t\u0283${S}a\u014b/) [Kai-shek](/ka\u026a\u0283${S}\u025bk/) fled; [Mao](/${pinyinPhonemes("Mao")}/) [Zedong](/${pinyinPhonemes("Zedong")}/) held the [ussuri](/u\u02d0s${S}u\u02d0\u0279i\u02d0/), circa nineteen forty-nine.`,
     );
-    assert.equal(plainText(out), "Chiang Kai-shek fled; Mao Zedong held the ussuri, circa 1949.");
+    assert.equal(plainText(out), "Chiang Kai-shek fled; Mao Zedong held the ussuri, circa nineteen forty-nine.");
   });
 
   test("annotate: your entry wins over the pinyin rules, and whole words only", () => {

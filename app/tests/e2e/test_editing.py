@@ -164,6 +164,43 @@ with sync_playwright() as p:
     page.screenshot(path=f"{shots}-7-week.png", full_page=True)
     print("sessions and questions edited")
 
+    # Notes take pictures, and a note menu left open never trails behind a scroll.
+    page.locator(".week-session-card .wsc-title").first.click()
+    notes = page.locator(".session-notes [contenteditable='true']").first
+    expect(notes).to_be_visible()
+    expect(notes).to_have_attribute("spellcheck", "true")
+    notes.click()
+    for number in range(40):
+        page.keyboard.type(f"Line {number} of the notes")
+        page.keyboard.press("Enter")
+    page.keyboard.type("/image")
+    menu = page.locator(".bn-suggestion-menu")
+    expect(menu).to_contain_text("Image")
+    expect(menu).not_to_contain_text("Video")
+    expect(menu).not_to_contain_text("Audio")
+    # A scroll the person starts closes the menu instead of leaving it behind.
+    assert page.evaluate("() => { const p = document.querySelector('.session-notes'); return p.scrollHeight > p.clientHeight; }")
+    page.wait_for_timeout(700)
+    page.evaluate("() => { document.querySelector('.session-notes').scrollTop = 0; }")
+    expect(menu).to_have_count(0)
+    print("note menu closed on scroll")
+
+    # A pasted picture is stored and drawn in the notes.
+    page.keyboard.press("Backspace")
+    page.evaluate("""() => {
+        const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+        const data = new DataTransfer();
+        data.items.add(new File([png], 'dot.png', { type: 'image/png' }));
+        const target = document.querySelector(".session-notes [contenteditable='true']");
+        target.focus();
+        target.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }""")
+    picture = page.locator(".session-notes [data-content-type='image'] img").first
+    expect(picture).to_be_visible()
+    until(page, "async () => { const i = document.querySelector(\".session-notes [data-content-type='image'] img\"); return !!i && i.complete && i.naturalWidth > 0; }", 20)
+    page.screenshot(path=f"{shots}-6-note-picture.png")
+    print("picture pasted into the notes")
+
     # Delete a whole module with typed confirmation, then restore it.
     open_module(page, "HY206")
     page.get_by_role("button", name="Edit module").click()

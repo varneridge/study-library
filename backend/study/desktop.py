@@ -981,6 +981,36 @@ def set_access_cookie(window: Any, host: str, token: str) -> bool:
     return bool(added)
 
 
+def allow_spelling_menu(window: Any) -> bool:
+    """Turns WebView2's own context menu back on, which pywebview leaves off
+    unless debugging, so that a right click on a misspelt word offers the
+    spelling corrections (in the language the launcher gave WebView2). Only
+    editable targets keep it: anywhere else the menu is suppressed, as it
+    always was. Runs on the window's own thread, as WebView2 requires. False
+    when the control cannot be reached, which leaves the window as it was."""
+    import System  # pythonnet, which pywebview has loaded by now
+
+    form = window.native
+    control = form.browser.webview
+    enabled: list[bool] = []
+
+    def only_editable(_sender: Any, args: Any) -> None:
+        if not args.ContextMenuTarget.IsEditable:
+            args.Handled = True
+
+    def enable() -> None:
+        try:
+            core = control.CoreWebView2
+            core.Settings.AreDefaultContextMenusEnabled = True
+            core.ContextMenuRequested += only_editable
+            enabled.append(True)
+        except Exception:  # noqa: BLE001 - raised on the UI thread, reported below
+            log.warning("WebView2 refused the spelling menu", exc_info=True)
+
+    form.Invoke(System.Func[System.Type](enable))
+    return bool(enabled)
+
+
 class SignInHandoff:
     """Lets a person sign in to Cloudflare Access in their usual browser, where
     they are usually signed in already, instead of in the window's own profile.
@@ -1444,6 +1474,14 @@ def open_frameless(home: Path, url: str, colour: str = TITLE_BAR_COLOUR,
         window.events.shown += shown.set
         window.events.shown += adopt
         window.events.loaded += SignInHandoff(window, url).on_loaded
+        menu_ready = threading.Event()
+
+        def on_loaded_menu() -> None:
+            # WebView2 exists once a page has loaded; the menu is set up once.
+            if not menu_ready.is_set() and allow_spelling_menu(window):
+                menu_ready.set()
+
+        window.events.loaded += on_loaded_menu
         if navigate is not None:
             def on_link(path: str) -> None:
                 focus_window(frame[0] if frame else None)

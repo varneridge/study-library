@@ -261,8 +261,8 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
           default: PLACEHOLDERS[variant],
         },
       },
-      // Pasted, dropped or chosen pictures are stored, only allowed in general notes.
-      uploadFile: variant === "general" ? async (file: File) => {
+      // Pasted, dropped or chosen pictures are stored, in every kind of note except a reading's.
+      uploadFile: variant !== "reading" ? async (file: File) => {
         try {
           return await uploadImage(file);
         } catch (error) {
@@ -270,6 +270,9 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
           throw error;
         }
       } : undefined,
+      // The editable area is told to check spelling, so the desktop window's
+      // native menu offers corrections for it as it does for any text field.
+      domAttributes: { editor: { spellcheck: "true" } },
       initialContent: live.rows.length ? (live.rows.map((r) => r.content) as any) : undefined,
     },
     [variant],
@@ -444,6 +447,36 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       }
     }
   }, [live, editor, applyRemote]);
+
+  // A floating menu is placed once, from where the text was when it opened, so
+  // when the notes (or a pane around them) scroll under it, it is left behind.
+  // A scroll the person starts closes it; the small scroll that keeps the caret
+  // in view while typing, which follows an input, does not.
+  useEffect(() => {
+    let typedAt = 0;
+    const onInput = () => {
+      typedAt = performance.now();
+    };
+    const onScroll = (e: Event) => {
+      const root = container.current;
+      const source = e.target;
+      if (!root || performance.now() - typedAt < 600) return;
+      if (source !== document && !(source instanceof Node && source.contains(root))) return;
+      if (!document.querySelector(".bn-toolbar, .bn-suggestion-menu")) return;
+      container.current?.querySelector(".ProseMirror")?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: false, cancelable: true }),
+      );
+    };
+    const root = container.current;
+    root?.addEventListener("beforeinput", onInput, true);
+    root?.addEventListener("keydown", onInput, true);
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    return () => {
+      root?.removeEventListener("beforeinput", onInput, true);
+      root?.removeEventListener("keydown", onInput, true);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, []);
 
   // The editable area has no name of its own, so give it one.
   useEffect(() => {

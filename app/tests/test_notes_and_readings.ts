@@ -109,10 +109,10 @@ export function registerNotesAndReadingsTests(test: (name: string, fn: () => voi
     assert.equal(noteVariant({ question_id: "q" }), "general");
   });
 
-  test("noteRules: session notes slash menu has exactly the 9 allowed options", () => {
-    const expected = ["bullet_list", "divider", "numbered_list", "paragraph", "quote", "table", "toggle_heading", "toggle_heading_2", "toggle_heading_3"].sort();
+  test("noteRules: session notes slash menu has the 10 allowed options including image", () => {
+    const expected = ["bullet_list", "divider", "image", "numbered_list", "paragraph", "quote", "table", "toggle_heading", "toggle_heading_2", "toggle_heading_3"].sort();
     assert.deepEqual([...SLASH_KEYS.session].sort(), expected);
-    for (const key of ["heading", "heading_2", "heading_3", "image", "check_list", "code_block"]) {
+    for (const key of ["heading", "heading_2", "heading_3", "check_list", "code_block"]) {
       assert.equal(SLASH_KEYS.session.has(key), false);
     }
     assert.equal(SLASH_KEYS.general.has("image"), true);
@@ -122,7 +122,7 @@ export function registerNotesAndReadingsTests(test: (name: string, fn: () => voi
     assert.deepEqual([...SLASH_KEYS.reading].sort(), ["bullet_list", "numbered_list", "paragraph"]);
     assert.deepEqual([...BLOCK_TYPES.reading].sort(), ["bulletListItem", "highlight", "numberedListItem", "paragraph"]);
     assert.equal(BLOCK_TYPES.session.has("heading"), true);
-    assert.equal(BLOCK_TYPES.session.has("image"), false);
+    assert.equal(BLOCK_TYPES.session.has("image"), true);
   });
 
   test("noteRules: makes headings collapsible and at most level 3", () => {

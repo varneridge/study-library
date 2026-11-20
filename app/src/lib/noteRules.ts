@@ -3,10 +3,10 @@
 // formatting toolbar and the clean-up after pasting all read one source.
 //
 // Session notes:  collapsible headings 1 to 3, quote, numbered and bullet lists,
-//                 divider, table and normal text.
+//                 divider, table, pictures and normal text.
 // Reading notes:  normal text, bullet and numbered lists, with bold, italic and
 //                 underline. No headings, one font size.
-// Other notes:    as session notes, with pictures as well.
+// Other notes:    the same as session notes.
 // Quotations (the "highlight" block) are inserted by the app, never from a
 // menu, so every kind of note keeps them.
 
@@ -20,20 +20,20 @@ export function noteVariant(target: object): NoteVariant {
 
 const SESSION_SLASH = [
   "toggle_heading", "toggle_heading_2", "toggle_heading_3",
-  "quote", "numbered_list", "bullet_list", "paragraph", "table", "divider",
+  "quote", "numbered_list", "bullet_list", "paragraph", "table", "divider", "image",
 ] as const;
 
 export const SLASH_KEYS: Record<NoteVariant, ReadonlySet<string>> = {
   session: new Set(SESSION_SLASH),
-  general: new Set([...SESSION_SLASH, "image"]),
+  general: new Set(SESSION_SLASH),
   reading: new Set(["paragraph", "bullet_list", "numbered_list"]),
 };
 
-const SESSION_TYPES = ["paragraph", "heading", "quote", "numberedListItem", "bulletListItem", "divider", "table", "highlight"] as const;
+const SESSION_TYPES = ["paragraph", "heading", "quote", "numberedListItem", "bulletListItem", "divider", "table", "highlight", "image"] as const;
 
 export const BLOCK_TYPES: Record<NoteVariant, ReadonlySet<string>> = {
   session: new Set(SESSION_TYPES),
-  general: new Set([...SESSION_TYPES, "image"]),
+  general: new Set(SESSION_TYPES),
   reading: new Set(["paragraph", "bulletListItem", "numberedListItem", "highlight"]),
 };
 
@@ -170,7 +170,7 @@ export const HEADING_TITLES: Record<"toggle_heading" | "toggle_heading_2" | "tog
 };
 
 export const PLACEHOLDERS: Record<NoteVariant, string> = {
-  session: "Write here. Type / for headings, lists and tables, or @ to cite a reading.",
+  session: "Write here. Type / for headings, lists, tables and pictures, or @ to cite a reading.",
   general: "Write here. Type / for headings, lists and pictures, or @ to cite a reading.",
   reading: "Write here. Type / for a list, or @ to cite a reading.",
 };
