@@ -324,13 +324,6 @@ html.sl-desktop .topbar-btn {
   pointer-events: none;
 }
 
-/* Align the top bar to the same measure as .page so Study Library never sits
-   farther inward than the content below it on wide monitors. */
-.topbar,
-.topbar.wide {
-  --bar-max: min(94vw, 88rem);
-}
-
 /* The top bar on a wider screen. The brand and the module links hold the
    left, and the switch, the sync indicator and the tools gather as one group
    on the right of every side, with the switch's automatic margin taking up
@@ -528,4 +521,13 @@ html.sl-desktop .topbar-btn {
 
 .page-title-group > .menu {
   flex: none;
+}
+
+/* Between a phone and a laptop the touch sizes already apply, so the pill
+   keeps only its glyph and chevron. Its words leave the layout entirely,
+   since the button's own aria-label already names it for screen readers. */
+@media (min-width: 44.01rem) and (max-width: 48rem) {
+  .topbar .topbar-btn.open-desktop-btn > span:not(.open-desktop-chevron) {
+    display: none;
+  }
 }

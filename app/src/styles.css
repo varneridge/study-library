@@ -730,9 +730,14 @@ label.field { display: block; margin-bottom: 0.9rem; }
   font-size: var(--fs-xs);
   color: var(--muted);
 }
+/* A section's code is its whole name, so the code may give way with an
+   ellipsis, as the dates beside it do, rather than run off a narrow card. */
 .week-card-code {
-  flex: none;
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--sans);
   font-weight: 600;
   color: var(--muted);
@@ -1442,10 +1447,12 @@ div.field > span { display: block; font-size: var(--fs-sm); color: var(--muted);
   justify-content: space-between;
   gap: 0.5rem;
 }
+/* On a touch screen every reorder handle is a 44-point target, since the
+   handle is the only thing in an arranging row that moves it. */
 @media (pointer: coarse) {
   .drag-handle {
-    min-width: 2.25rem;
-    min-height: 2.25rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 }
 
@@ -4509,8 +4516,12 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   opacity: 0.82;
   background: var(--surface);
 }
+/* The head wraps, so that when a long employer and the stage tag cannot
+   share a line the tag moves beneath it, since the inherited overflow-wrap:
+   anywhere would otherwise let the employer shrink to a single letter. */
 .app-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
@@ -5209,6 +5220,11 @@ a.wsc-chip:hover { color: var(--ink); }
   transition: color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
 }
 .wsc-add-chip:hover { color: var(--accent); border-color: var(--accent); }
+/* On a touch screen the chips that act, a link to the recording or slides and
+   the Add chip, are 44-point targets, while a chip that only reports stays compact. */
+@media (pointer: coarse), (max-width: 48rem) {
+  a.wsc-chip, .wsc-add-chip { min-height: 2.75rem; }
+}
 /* The card's menu and reorder handle sit in its corner, out of the way until the card is in hand. */
 .wsc-drag { position: absolute; top: 0.6rem; right: 2.5rem; opacity: 0; transition: opacity var(--dur-1) var(--ease-out); }
 .wsc-menu { position: absolute; top: 0.6rem; right: 0.6rem; opacity: 0; transition: opacity var(--dur-1) var(--ease-out); }
@@ -5315,9 +5331,10 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appe
 .drag-handle:focus-visible,
 .drag-handle:focus:not(:active) { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent); }
 /* A section card's handle is drawn small to fit its meta line, but a finger
-   still needs a full-sized target to start a drag from it. */
+   still needs a 44-point target to start a drag from it; the negative margins
+   leave it taking only the line's own 1.25rem, so the card keeps its height. */
 @media (pointer: coarse) {
-  .week-card-meta .drag-handle { width: 2.25rem; height: 2.25rem; min-width: 2.25rem; min-height: 2.25rem; margin-block: -0.5rem; }
+  .week-card-meta .drag-handle { width: 2.75rem; height: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; margin-block: -0.75rem; }
 }
 /* ==========================================================================
    Calendar. The third side of the app, in the same paper, ink and rules.
@@ -5742,6 +5759,11 @@ html.typing .cal-fab { display: none; }
   transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
 }
 .theme-pill:hover, .accent-btn:hover { background: var(--surface-hover); }
+/* On a touch screen the pills are 44-point targets; this follows the compact
+   height above, which would otherwise win over the earlier touch rule. */
+@media (pointer: coarse), (max-width: 48rem) {
+  .theme-pill, .accent-btn { min-height: 2.75rem; }
+}
 .theme-pill[aria-pressed="true"], .accent-btn.is-active {
   background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent);
 }
@@ -5782,9 +5804,16 @@ html.typing .cal-fab { display: none; }
 .term-dates .field { margin: 0; }
 .term-dates .date-picker-trigger { min-width: 11rem; min-height: 2.25rem; background: var(--surface); border-color: transparent; }
 .term-dates .date-picker-trigger:hover:not(:disabled) { background: var(--surface-hover); border-color: transparent; }
+/* On a touch screen the term dates take the 44-point height every date
+   picker has there, since the compact height above is the more specific rule. */
+@media (pointer: coarse), (max-width: 60rem) {
+  .term-dates .date-picker-trigger { min-height: 2.75rem; }
+}
 
 /* Processor and speech: the background computer's state, with its work in hand beside it. */
-.processor-layout { display: grid; gap: var(--sp-6); margin-top: var(--sp-5); }
+/* One column whose minimum is zero, as the wide layout's two are, so a long
+   title in Work in hand ellipsises instead of widening Settings past a phone's screen. */
+.processor-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); margin-top: var(--sp-5); }
 @media (min-width: 64rem) {
   .processor-layout { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: var(--sp-8); align-items: start; }
 }

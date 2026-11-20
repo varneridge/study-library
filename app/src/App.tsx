@@ -21,6 +21,7 @@ import { db } from "./lib/db";
 import { byPosition } from "./lib/keys";
 import { openShortcuts, typing, useCloseOnBack } from "./lib/ui";
 import { Overlays } from "./components/Overlays";
+import { Palette } from "./components/Palette";
 import { DropAnywhere } from "./components/DropAnywhere";
 import { RecorderPill } from "./components/RecorderPill";
 import { PageLoading } from "./components/ErrorBoundary";
@@ -224,6 +225,8 @@ function OpenOnDesktop({ route }: { route: Route }) {
       <button
         type="button"
         className="topbar-btn open-desktop-btn"
+        // The name holds where the words are hidden, between a phone and a laptop.
+        aria-label="Open on desktop"
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
@@ -677,6 +680,8 @@ export function App() {
       </main>
       {!bare && route.view !== "jobs" && <TabBar route={route} />}
       <Overlays />
+      {/* Go to, opened anywhere with Ctrl K as the shortcuts list says. */}
+      <Palette />
       {route.view !== "essay" && route.view !== "jobs" && route.view !== "calendar" && <DropAnywhere route={route} />}
       <RecorderPill route={route} />
     </>

@@ -221,6 +221,10 @@ export function WeekCard({
   // The count takes the dates' place when there is one, so that every card
   // keeps to a single meta line and no card is taller than the rest.
   const metaText = summary ?? (!isSec ? weekDatesText(week.term, week.number, dates) : "");
+  // The title as the card names it, shown in full on hover where three lines cut it short.
+  const titleText = isSec
+    ? week.title || (isLibrary(module) ? `Shelf ${week.number}` : `Section ${week.number}`)
+    : week.title || (week.is_reading_week ? "Reading week" : code);
 
   const onPickCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -313,11 +317,11 @@ export function WeekCard({
       </div>
       <input ref={coverPickerRef} type="file" hidden accept="image/*" onChange={onPickCover} />
 
-      <div className="week-card-body">
+      <div className="week-card-body" title={renaming ? undefined : titleText}>
         {moduleCode && (
           <div className="week-card-module">
             <span className="week-card-module-code">{module.code}</span>
-            {module.title && <span className="week-card-module-title">{module.title}</span>}
+            {module.title && <span className="week-card-module-title" title={module.title}>{module.title}</span>}
           </div>
         )}
         <div className="week-card-meta">
@@ -333,7 +337,7 @@ export function WeekCard({
               <Icon name="reorder" size={16} />
             </button>
           )}
-          <span className="week-code week-card-code">{code}</span>
+          <span className="week-code week-card-code" title={code}>{code}</span>
           {metaText && <span className="week-card-dates">{metaText}</span>}
         </div>
 
@@ -357,11 +361,9 @@ export function WeekCard({
           />
         ) : (
           <Link to={{ view: "week", id: week.id }} className="week-title week-card-title-link">
-            {isSec ? (
-              week.title || (isLibrary(module) ? `Shelf ${week.number}` : `Section ${week.number}`)
-            ) : (
-              week.title || (week.is_reading_week ? <span className="reading-weeks week-card-title-reading-week">Reading week</span> : code)
-            )}
+            {!isSec && !week.title && week.is_reading_week
+              ? <span className="reading-weeks week-card-title-reading-week">Reading week</span>
+              : titleText}
           </Link>
         )}
       </div>

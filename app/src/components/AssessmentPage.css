@@ -1409,22 +1409,24 @@ button.essay-ws-doc-name:hover {
   }
 }
 
-/* On a phone every control is at least 44 points, so the compact row actions, the corner
-   bar and the Add choices all grow to that size while keeping their quiet look. */
-@media (max-width: 43.99rem) {
-  .essay-ws {
-    --essay-toolbar-h: 4.25rem;
-  }
-
+/* On a touch screen or phone every control is at least 44 points, so the compact row actions,
+   the corner bar and the Add choices all grow to that size while keeping their quiet look. */
+@media (pointer: coarse), (max-width: 48rem) {
   .essay-ws-modes .essay-tab-btn,
   .essay-ws-modes > .essay-ws-mode {
-    height: 2.75rem;
+    min-height: 2.75rem;
     line-height: 2.75rem;
   }
 
   .essay-corner-button {
     min-width: 2.75rem;
     height: 2.75rem;
+  }
+}
+
+@media (max-width: 43.99rem) {
+  .essay-ws {
+    --essay-toolbar-h: 4.25rem;
   }
 
   .essay-ws-docs li > .button,

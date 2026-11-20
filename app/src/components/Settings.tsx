@@ -348,7 +348,7 @@ function WorkList({ status }: { status: ProcessorStatus | null }) {
                 <span className={`work-when is-${row.state}`}>{row.when}</span>
                 <span className="work-body">
                   <span className="work-task">{row.task}</span>
-                  {row.title && <span className="work-title">{row.title}</span>}
+                  {row.title && <span className="work-title" title={row.title}>{row.title}</span>}
                   {row.progress && <span className="work-progress">{row.progress}</span>}
                 </span>
                 {row.state === "later" && (
