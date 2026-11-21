@@ -1268,7 +1268,7 @@ a.quiet { text-decoration: none; }
 .note-editor .bn-container,
 .note-editor .bn-container[data-color-scheme] {
   --bn-font-family: var(--sans);
-  --bn-colors-editor-background: var(--paper);
+  --bn-colors-editor-background: transparent;
   --bn-colors-editor-text: var(--ink);
   --bn-colors-menu-background: var(--paper);
   --bn-colors-menu-text: var(--ink);
@@ -1293,6 +1293,16 @@ a.quiet { text-decoration: none; }
 .note-editor .bn-editor { padding-inline: 1.75rem 0.5rem; font-family: var(--serif); line-height: 1.6; }
 @media (min-width: 48rem) { .page .note-editor .bn-editor { padding-inline: 0; } }
 .note-editor .bn-editor[contenteditable="true"] { min-height: 8rem; }
+/* The writable area takes the colour of the page or column around it, with no edge of its own. */
+.note-editor .bn-container,
+.note-editor .bn-container[data-color-scheme],
+.note-editor .bn-editor,
+.note-editor .bn-editor[contenteditable="true"] { background: transparent; border: 0; box-shadow: none; outline: 0; }
+
+/* While you write, the top bar and the heading above the notes fade, and return with the pointer. */
+.topbar, .session-head { transition: opacity var(--dur-3) var(--ease-out); }
+:root.typing .topbar:not(:hover):not(:focus-within), :root.typing .session-head:not(:hover):not(:focus-within) { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .topbar, .session-head { transition: none; } }
 .note-highlight { border-left: 3px solid; padding: 0.15rem 0 0.15rem 0.75rem; width: 100%; }
 .note-highlight .quote { display: block; font-family: var(--serif); }
 .note-highlight a { font-family: var(--sans); font-size: var(--fs-xs); color: var(--muted); }
@@ -1348,6 +1358,26 @@ ol.questions a:hover { text-decoration: underline; text-underline-offset: 0.18em
 .search-filters { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; margin-top: 0.75rem; font-size: var(--fs-sm); }
 .search-filters .tool { padding: 0.2rem 0.6rem; }
 .search-help { margin: 0.5rem 0 0; }
+/* A new tab's recent modules: Home's cards in one row, holding as many as the
+   width of the page allows and leaving the rest out rather than wrapping, so the
+   search field sits at the same height whatever the modules are called. The
+   container query reads the page's own width, so the desktop window's side
+   panes and a phone are judged alike. */
+.recent-modules { container-type: inline-size; margin-bottom: 1.25rem; }
+.recent-modules .module-grid { grid-template-columns: repeat(var(--recent-count, 2), minmax(0, 1fr)); gap: 0.75rem; margin: 0; }
+.recent-modules .module-card:nth-child(n + 3) { display: none; }
+@container (min-width: 34rem) {
+  .recent-modules .module-grid { --recent-count: 3; }
+  .recent-modules .module-card:nth-child(3) { display: flex; }
+}
+@container (min-width: 48rem) {
+  .recent-modules .module-grid { --recent-count: 4; }
+  .recent-modules .module-card:nth-child(4) { display: flex; }
+}
+@container (min-width: 62rem) {
+  .recent-modules .module-grid { --recent-count: 5; }
+  .recent-modules .module-card:nth-child(5) { display: flex; }
+}
 .hit-head { display: flex; gap: 1rem; align-items: baseline; justify-content: space-between; }
 .hit-title { font-family: var(--serif); }
 .where { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }

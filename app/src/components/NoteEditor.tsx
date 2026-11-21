@@ -30,7 +30,9 @@ import {
 } from "../lib/noteRules";
 import { colourLabel, useColourNames } from "../lib/settings";
 import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
-import { href, navigate } from "../lib/router";
+import { href, navigate, parseRoute, type Route } from "../lib/router";
+import { isDesktop } from "../lib/shell";
+import { openInNewTab } from "../App";
 import { fullTitle, shortTitle } from "../lib/titles";
 import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib/types";
 import { formattingToolbarFor } from "./NoteToolbars";
@@ -478,6 +480,38 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     };
   }, []);
 
+  // While you write, the chrome above the page fades so that nothing competes with the text.
+  // It returns as soon as the pointer moves, a key such as Escape is pressed, or focus leaves.
+  // A short editor, such as a seminar answer, and a reading's own notes have no such chrome.
+  useEffect(() => {
+    const root = container.current;
+    const html = document.documentElement;
+    if (!root || compact || variant === "reading") return;
+    const stop = () => {
+      html.classList.remove("typing");
+      window.removeEventListener("pointermove", onMove, true);
+    };
+    // A pointer event with no movement is the browser repeating the last position after a scroll.
+    const onMove = (e: PointerEvent) => {
+      if (e.movementX || e.movementY) stop();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return stop();
+      if ((e.target as HTMLElement | null)?.closest?.("textarea, input")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.length !== 1 && !["Backspace", "Delete", "Enter"].includes(e.key)) return;
+      html.classList.add("typing");
+      window.addEventListener("pointermove", onMove, true);
+    };
+    root.addEventListener("keydown", onKey, true);
+    root.addEventListener("focusout", stop);
+    return () => {
+      root.removeEventListener("keydown", onKey, true);
+      root.removeEventListener("focusout", stop);
+      stop();
+    };
+  }, [compact, variant]);
+
   // The editable area has no name of its own, so give it one.
   useEffect(() => {
     const area = container.current?.querySelector(".bn-editor, [contenteditable='true']");
@@ -586,6 +620,31 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     return () => el.removeEventListener("keydown", handleKeyDown, true);
   }, [editor, variant]);
 
+  // A reading cited with @, or the reading a quotation came from, opens in a new tab
+  // in front in the desktop window, with the notes left open behind it. The editor
+  // follows a link itself as the button comes up, before any click, so the press is
+  // kept from it from the moment it goes down. Anywhere else, and for any other
+  // link, nothing here takes part and the editor handles the press as before.
+  const readingLinkAt = (e: React.MouseEvent<HTMLDivElement>): Route | null => {
+    if (!isDesktop() || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null;
+    const link = (e.target as HTMLElement).closest("a[href]");
+    if (!(link instanceof HTMLAnchorElement)) return null;
+    const url = new URL(link.href);
+    if (url.origin !== location.origin || url.pathname !== "/") return null;
+    const to = parseRoute(url.search);
+    return to.view === "reader" ? to : null;
+  };
+  const holdReadingLink = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (readingLinkAt(e)) e.stopPropagation();
+  };
+  const openReadingLink = (e: React.MouseEvent<HTMLDivElement>) => {
+    const to = readingLinkAt(e);
+    if (!to) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!openInNewTab(to)) void navigate(to);
+  };
+
   // Clicking empty space below notes allows typing at the end.
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
@@ -672,6 +731,8 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
       data-variant={variant}
       className={`note-editor${compact ? " compact" : ""}`}
       aria-label={label}
+      onMouseDownCapture={holdReadingLink}
+      onClickCapture={openReadingLink}
       onClick={handleContainerClick}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {

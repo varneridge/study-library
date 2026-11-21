@@ -10,8 +10,8 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { DndContext, DragOverlay, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
-import { Link } from "../App";
-import { navigate } from "../lib/router";
+import { Link, openInNewTab } from "../App";
+import { navigate, type Route } from "../lib/router";
 import {
   assessmentNotesKey,
   deleteModuleEssay,
@@ -101,6 +101,12 @@ const pdfBytesOf = (stored: unknown): Uint8Array | null => {
 };
 
 const safeFileName = (name: string): string => name.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Essay";
+
+// A reading opened from the essay comes up in a new tab in front in the desktop window,
+// so that the draft stays open behind it, and is followed in place anywhere else.
+const openReading = (to: Route): void => {
+  if (!openInNewTab(to)) void navigate(to);
+};
 
 function downloadBytes(bytes: Uint8Array, name: string, type: string) {
   // The Blob is given a copy, so that the stored bytes are never detached or shared with it.
@@ -721,7 +727,7 @@ function ReferenceRow({
           label={`Actions for footnote ${number}`}
           items={[
             { label: "Show where it is cited", onSelect: showCitation },
-            ...(readingId ? [{ label: "Open reading", onSelect: () => navigate({ view: "reader", id: readingId }) }] : []),
+            ...(readingId ? [{ label: "Open reading", onSelect: () => openReading({ view: "reader", id: readingId }) }] : []),
             { label: "Delete reference", danger: true, onSelect: () => onDelete(footnoteId) },
           ]}
         />
@@ -1339,7 +1345,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         },
       ]);
     }
-    navigate({ view: "reader", id: doc.id });
+    openReading({ view: "reader", id: doc.id });
   };
 
   const removeAdminDocument = async (doc: AttachmentRef) => {

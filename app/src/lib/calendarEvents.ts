@@ -9,6 +9,7 @@ import {
   type CalEvent,
   type CalendarSource,
   buildApplicationEvent,
+  buildAssessmentDeadlineEvent,
   buildGcalEvent,
   buildModuleKeyEvent,
   buildPersonalEvent,
@@ -24,14 +25,18 @@ import type { CalendarEventRow } from "./types";
 // A hidden source is not read at all.
 export async function loadCalendarEvents(from: ISODate, to: ISODate, hidden: readonly CalendarSource[]): Promise<CalEvent[]> {
   const shown = (source: CalendarSource) => !hidden.includes(source);
-  const [personal, google, applications, prospects, modules, tasks] = await Promise.all([
+  const [personal, google, applications, prospects, modules, tasks, essays] = await Promise.all([
     shown("personal") ? db.calendar_events.where("start_date").belowOrEqual(to).toArray() : [],
     shown("google") ? db.gcal_events.where("start_date").belowOrEqual(to).toArray() : [],
     shown("deadline") ? db.applications.toArray() : [],
     shown("check") ? db.prospects.where("next_check").between(from, addDays(to, 1), true, false).toArray() : [],
     shown("essay") ? db.modules.toArray() : [],
     shown("tasks") ? db.tasks.where("due_date").between(from, addDays(to, 1), true, false).toArray() : [],
+    // Each essay keeps its due date in its own settings row, beside its draft.
+    shown("essay") ? db.settings.where("id").startsWith("assessment:").toArray() : [],
   ]);
+  // The module is named by the part of the essay's id after "assessment:".
+  const moduleById = new Map(modules.map((m) => [m.id, m] as const));
   const events: (CalEvent | null)[] = [
     ...personal.map(buildPersonalEvent),
     ...google.map(buildGcalEvent),
@@ -39,6 +44,9 @@ export async function loadCalendarEvents(from: ISODate, to: ISODate, hidden: rea
     ...prospects.map(buildProspectEvent),
     ...tasks.map(buildTaskEvent),
     ...modules.flatMap((m) => (Array.isArray(m.key_dates) ? m.key_dates : []).map((k) => buildModuleKeyEvent(m, k))),
+    ...essays
+      .filter((row) => !("deleted" in row && row.deleted))
+      .map((row) => buildAssessmentDeadlineEvent(moduleById.get(row.id.split(":")[1]), row.id, row.value)),
   ];
   return events.filter((e): e is CalEvent => e !== null && overlaps(e, from, to));
 }

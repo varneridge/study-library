@@ -2,6 +2,7 @@ import { useSuspendingLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "../App";
 import { db } from "../lib/db";
+import { moduleOfItem } from "../lib/edits";
 import { byPosition } from "../lib/keys";
 import { clock } from "../lib/recorder";
 import { href, navigate, syncUrl, type Route } from "../lib/router";
@@ -12,6 +13,7 @@ import { fullTitle, shortTitle } from "../lib/titles";
 import { useTitle } from "../lib/ui";
 import { Icon } from "./icons";
 import { ChoiceCard } from "./ChoiceCard";
+import { ModuleCover } from "./Home";
 import { SearchField } from "./SearchField";
 
 type Kind = "all" | "readings" | "highlights" | "notes" | "recordings";
@@ -24,6 +26,23 @@ const KINDS: { value: Kind; label: string }[] = [
 ];
 const STEP = 40;
 const RECENT = "recent-searches";
+// The most modules a new tab's row can hold, of which styles.css shows as many as the width allows.
+const RECENT_MODULES = 5;
+
+// The modules whose readings were opened most recently, newest first. Modules
+// keep no time of their own for being opened, so the readings' times stand in.
+async function recentModuleIds(): Promise<string[]> {
+  const opened = (await db.items.toArray())
+    .filter((i) => !i.deleted && i.last_opened_at)
+    .sort((a, b) => (b.last_opened_at ?? "").localeCompare(a.last_opened_at ?? ""));
+  const ids: string[] = [];
+  for (const item of opened) {
+    if (ids.length >= RECENT_MODULES) break;
+    const id = await moduleOfItem(item);
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
 
 function recentSearches(): string[] {
   try { return JSON.parse(localStorage.getItem(RECENT) ?? "[]") as string[]; } catch { return []; }
@@ -70,6 +89,10 @@ export function SearchPage({ q = "" }: { q?: string }) {
   const [, refresh] = useState(0);
   const first = useRef<Route | null>(null);
   const modules = useSuspendingLiveQuery(async () => (await db.modules.toArray()).filter((m) => !m.deleted).sort(byPosition), ["search-modules"]);
+  const openedIds = useSuspendingLiveQuery(recentModuleIds, ["search-recent-modules"]);
+  // The row is filled out in Home's order, so that it is never empty before any reading has been opened.
+  const rank = (id: string) => (openedIds.includes(id) ? openedIds.indexOf(id) : openedIds.length);
+  const recentModules = [...modules].sort((a, b) => rank(a.id) - rank(b.id)).slice(0, RECENT_MODULES);
   useTitle(query ? `Search: ${query}` : "Search");
 
   useEffect(() => setLimit(STEP), [query]);
@@ -119,6 +142,32 @@ export function SearchPage({ q = "" }: { q?: string }) {
   return (
     <div className="page wide search-page">
       <h1>Search</h1>
+      {/* A new tab opens here, so the modules last worked in are one press away. It
+          follows the address the page opened at rather than what is typed, so that
+          the field never jumps up beneath the cursor as a search begins. */}
+      {!q.trim() && recentModules.length > 0 && (
+        <section className="recent-modules">
+          <div className="section-head">
+            <h2>Recent modules</h2>
+            <span className="spacer" />
+            <Link to={{ view: "home" }} className="quiet">See more</Link>
+          </div>
+          <ul className="module-grid">
+            {recentModules.map((m, index) => (
+              <li key={m.id} className="module-card">
+                <ModuleCover module={m} eager={index < 2} />
+                <div className="module-card-body">
+                  <Link to={{ view: "module", id: m.id }} className="module-row" label={`Open ${m.code} ${m.title || ""}`}>
+                    <span className="code">{m.code}</span>
+                    <span className="title">{m.title || m.code}</span>
+                    <span className="module-card-stretch" aria-hidden="true" />
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {/* On a touch screen the keyboard waits for a tap on the field, as in iOS's own search. */}
       <SearchField
         value={query}

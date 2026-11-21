@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   type CalEvent,
   buildApplicationEvent,
+  buildAssessmentDeadlineEvent,
   buildGcalEvent,
   buildModuleKeyEvent,
   buildPersonalEvent,
@@ -158,6 +159,33 @@ test("a deadline, a check and a key date link to their pages", () => {
   const k = buildModuleKeyEvent(module, { id: "k1", label: "Essay due", date: "2027-01-12" })!;
   assert.deepEqual([k.key, k.title, k.startDate], ["e:m1:k1", "HY310: Essay due", "2027-01-12"]);
   assert.deepEqual(k.to, { view: "assessment", id: "m1" });
+});
+
+test("an essay's due date lasts the day and links to its own essay", () => {
+  const module = { id: "m1", deleted: false, code: "HY310" } as ModuleRow;
+  const first = buildAssessmentDeadlineEvent(module, "assessment:m1", { title: "  ", dueDate: "2027-01-12" })!;
+  assert.deepEqual(
+    [first.key, first.source, first.title, first.startDate, first.endDate, first.allDay, first.editable],
+    ["a:assessment:m1", "essay", "HY310: Essay due", "2027-01-12", "2027-01-12", true, false],
+  );
+  assert.deepEqual(first.to, { view: "assessment", id: "m1" });
+
+  const second = buildAssessmentDeadlineEvent(module, "assessment:m1:e2", { title: "Reformation essay", dueDate: "2027-03-02T12:00:00.000Z" })!;
+  assert.deepEqual([second.key, second.title, second.startDate], ["a:assessment:m1:e2", "HY310: Reformation essay", "2027-03-02"]);
+  assert.deepEqual(second.to, { view: "assessment", id: "m1", essay: "e2" });
+
+  // A title that already names the module is not prefixed twice, and the default essay links without an essay id.
+  const named = buildAssessmentDeadlineEvent(module, "assessment:m1:default", { title: "HY310 Essay", dueDate: "2027-01-12" })!;
+  assert.equal(named.title, "HY310 Essay");
+  assert.deepEqual(named.to, { view: "assessment", id: "m1" });
+  assert.equal(buildAssessmentDeadlineEvent(undefined, "assessment:m1", { dueDate: "2027-01-12" })!.title, "Essay due");
+
+  assert.equal(buildAssessmentDeadlineEvent(module, "assessment:m1", { title: "No date", dueDate: null }), null);
+  assert.equal(buildAssessmentDeadlineEvent(module, "assessment:m1", { dueDate: "soon" }), null);
+  assert.equal(buildAssessmentDeadlineEvent(module, "assessment:m1", { enabled: false, dueDate: "2027-01-12" }), null);
+  assert.equal(buildAssessmentDeadlineEvent({ ...module, deleted: true }, "assessment:m1", { dueDate: "2027-01-12" }), null);
+  assert.equal(buildAssessmentDeadlineEvent(module, "assessment-notes:m1", { dueDate: "2027-01-12" }), null);
+  assert.equal(buildAssessmentDeadlineEvent(module, "assessment:m1", null), null);
 });
 
 test("a Google row becomes a read only event", () => {

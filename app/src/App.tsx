@@ -46,11 +46,27 @@ const CalendarPage = lazy(() => import("./components/calendar/CalendarPage").the
 // The to-do lists are the fourth, loaded when first opened.
 const TasksPage = lazy(() => import("./components/TasksPage").then((m) => ({ default: m.TasksPage })));
 
-export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden }: {
+// How the desktop window opens an address in a tab of its own, brought to the
+// front. It is set only while the window has tabs, so that anywhere else a link
+// asked to open in a new tab is followed in place, exactly as before.
+let openTabInFront: ((to: string) => void) | null = null;
+
+// Opens a page in a new tab in front, as a reading cited from notes or an essay
+// does, so that the page it was opened from stays open behind it. Whether it
+// did is returned, so that a caller outside the desktop window can navigate instead.
+export function openInNewTab(to: Route): boolean {
+  if (!openTabInFront) return false;
+  openTabInFront(href(to));
+  return true;
+}
+
+export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden, newTab }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
   tabIndex?: number; ariaHidden?: boolean;
   // The side of the app you are on, in the switch, rather than this very page.
   currentSide?: boolean;
+  // In the desktop window, open the page in a new tab in front rather than in this one.
+  newTab?: boolean;
 }) {
   return (
     <a
@@ -64,6 +80,7 @@ export function Link({ to, children, className, current, currentSide, title, lab
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
         event.preventDefault();
+        if (newTab && openInNewTab(to)) return;
         navigate(to);
       }}
     >
@@ -586,6 +603,16 @@ export function App() {
   useTypingClass();
   useAppearanceSync();
   useAccentSync();
+
+  // The tabs' own command is lent to openInNewTab for as long as the window has tabs.
+  useEffect(() => {
+    if (!desktop) return;
+    const open = (to: string) => tabs.commands.open(to);
+    openTabInFront = open;
+    return () => {
+      if (openTabInFront === open) openTabInFront = null;
+    };
+  }, [desktop, tabs.commands]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

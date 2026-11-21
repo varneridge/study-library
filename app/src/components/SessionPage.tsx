@@ -329,7 +329,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
                 {groupReadings(readings).map((group) => (
                   <section key={group.key} className={`side-readings kind-${group.key}`} aria-label={group.label}>
                     <h2 className="group-label">{group.label}</h2>
-                    <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={nav.weeks} short />)}</ul>
+                    <ul className="readings">{group.views.map((r) => <ReadingRow key={r.item.id} view={r} weeks={nav.weeks} short openInNewTab />)}</ul>
                   </section>
                 ))}
                 {/* The slides come last, so nothing sits below them to pass under while they stay in view.
@@ -343,7 +343,7 @@ export function SessionPage({ id, rec, t, turn }: { id: string; rec?: string; t?
                       className="side-readings side-slides"
                       renderHeader={(deck, controls) => (
                         <ul className="readings slides-row">
-                          <ReadingRow key={deck.item.id} view={deck} weeks={nav.weeks} short extra={controls} />
+                          <ReadingRow key={deck.item.id} view={deck} weeks={nav.weeks} short extra={controls} openInNewTab />
                         </ul>
                       )}
                     />

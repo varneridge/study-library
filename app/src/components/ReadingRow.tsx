@@ -65,7 +65,7 @@ function State({ view }: { view: ReadingView }) {
   return null;
 }
 
-export function ReadingTitle({ view, short }: { view: ReadingView; short?: boolean }) {
+export function ReadingTitle({ view, short, openInNewTab }: { view: ReadingView; short?: boolean; openInNewTab?: boolean }) {
   const label = short ? shortTitle(view.item) : fullTitle(view.item);
   const { main, sub } = titleParts(view.item);
   const body = short ? label : (
@@ -76,7 +76,7 @@ export function ReadingTitle({ view, short }: { view: ReadingView; short?: boole
   );
   // The full citation is the accessible name, read as one line.
   if (!readable(view)) return <span className="name" title={label} aria-label={label}>{body}</span>;
-  return <Link to={{ view: "reader", id: view.item.id }} className="name" title={label} label={label}>{body}</Link>;
+  return <Link to={{ view: "reader", id: view.item.id }} className="name" title={label} label={label} newTab={openInNewTab}>{body}</Link>;
 }
 
 // Where you stopped, shown until the reading is marked read.
@@ -571,7 +571,7 @@ export function MovePicker({ view, onMoved }: { view: ReadingView; onMoved: () =
 // reading is a video, but tiles always take a picture, because there the
 // picture is the tile. A still cover is never a link, as in Edit details,
 // where following it would throw away what had been typed.
-function Cover({ view, mode, isLibrary, still }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean; still?: boolean }) {
+function Cover({ view, mode, isLibrary, still, openInNewTab }: { view: ReadingView; mode: ReadingViewMode; isLibrary?: boolean; still?: boolean; openInNewTab?: boolean }) {
   const [failed, setFailed] = useState<string | null>(null);
   const video = isVideoView(view);
   const tile = isTileMode(mode);
@@ -589,14 +589,16 @@ function Cover({ view, mode, isLibrary, still }: { view: ReadingView; mode: Read
   );
   const className = `reading-cover shape-${coverShape(view)}${picture ? "" : " is-empty"}`;
   if (still || !readable(view)) return <span className={className} aria-hidden="true">{body}</span>;
-  return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true}>{body}</Link>;
+  return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true} newTab={openInNewTab}>{body}</Link>;
 }
 
 export function ReadingRow({
-  view, short, weeks: given, drag, extra, mode = "compact", isLibrary = false,
+  view, short, weeks: given, drag, extra, mode = "compact", isLibrary = false, openInNewTab = false,
 }: {
   view: ReadingView;
   short?: boolean;
+  // On a page with notes, the reading opens in a new tab in front, so the notes stay open behind it.
+  openInNewTab?: boolean;
   // How the folder lays its readings out. Rows unless a page says otherwise.
   mode?: ReadingViewMode;
   weeks?: WeekRow[];
@@ -669,8 +671,8 @@ export function ReadingRow({
           <Icon name="reorder" size={16} />
         </button>
       )}
-      <Cover view={view} mode={mode} isLibrary={isLibrary} />
-      <ReadingTitle view={view} short={short} />
+      <Cover view={view} mode={mode} isLibrary={isLibrary} openInNewTab={openInNewTab} />
+      <ReadingTitle view={view} short={short} openInNewTab={openInNewTab} />
       {/* What the reading's state is. In rows these sit inline, as before; in
           tiles they take a line of their own beneath the title. */}
       <span className="reading-meta">

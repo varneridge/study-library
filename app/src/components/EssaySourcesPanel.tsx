@@ -578,7 +578,7 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
       <>
         <div className="essay-ws-source-body">
           {reading ? (
-            <Link to={{ view: "reader", id: reading.id }} className="essay-ws-source-title" title={row.title}>
+            <Link to={{ view: "reader", id: reading.id }} className="essay-ws-source-title" title={row.title} newTab>
               {row.title}
             </Link>
           ) : (

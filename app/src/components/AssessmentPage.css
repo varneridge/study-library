@@ -1080,9 +1080,10 @@ a.essay-ws-doc-name:hover {
   max-width: 52rem;
   min-height: calc(var(--essay-pane-h) - var(--essay-toolbar-h));
   margin-inline: auto;
-  padding: 1.25rem 1.5rem;
-  border-radius: var(--r-md);
-  background: var(--card);
+  padding: 1.25rem 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .essay-ws-centre > .essay-plan > .essay-hint {
@@ -1508,5 +1509,26 @@ a.essay-ws-doc-name:hover {
   .is-jumped {
     transition: none;
     animation: none;
+  }
+}
+
+/* While you write in the plan, the mode bar and the hint fade, and return with the pointer. */
+.essay-ws-toolbar,
+.essay-ws-centre > .essay-plan > .essay-hint {
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+:root.typing .essay-ws-toolbar:not(:hover):not(:focus-within) {
+  opacity: 0;
+}
+:root.typing .essay-ws-centre > .essay-plan > .essay-hint {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-ws-toolbar,
+  .essay-ws-centre > .essay-plan > .essay-hint {
+    transition: none;
   }
 }

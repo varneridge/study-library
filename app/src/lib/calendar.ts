@@ -30,7 +30,7 @@ export type CalendarMode = "month" | "week" | "day" | "agenda";
 export type HHMM = string;
 
 export interface CalEvent {
-  // Unique across sources: p:, g:, d:, c:, e: or t: followed by the source's id.
+  // Unique across sources: p:, g:, d:, c:, e:, a: or t: followed by the source's id.
   key: string;
   source: CalendarSource;
   title: string;
@@ -378,6 +378,32 @@ export function buildModuleKeyEvent(module: ModuleRow, keyDate: KeyDate): CalEve
     title: code ? `${code}: ${label}` : label,
     ...when,
     to: { view: "assessment", id: module.id },
+    editable: false,
+  };
+}
+
+// An essay's due date, read from the essay's own settings row, whose id is
+// assessment:<moduleId> for a module's first essay and assessment:<moduleId>:<essayId>
+// for any other. Only the title, the due date and whether the essay is switched
+// off are read here, so that this file stays clear of the storage in assessment.ts
+// and its tests still run in Node. The module's code leads the title, as it does
+// for a key date, unless the essay's own title already begins with it.
+export function buildAssessmentDeadlineEvent(module: ModuleRow | undefined, settingId: string, value: unknown): CalEvent | null {
+  const match = /^assessment:([^:]+)(?::(.+))?$/.exec(settingId);
+  if (!match || module?.deleted) return null;
+  const [, moduleId, essayId] = match;
+  const v = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  if (v.enabled === false || typeof v.dueDate !== "string") return null;
+  const when = normalise(v.dueDate, null, null, null, true);
+  if (!when) return null;
+  const label = (typeof v.title === "string" && v.title.trim()) || "Essay due";
+  const code = module?.code?.trim();
+  return {
+    key: `a:${settingId}`,
+    source: "essay",
+    title: code && !label.startsWith(code) ? `${code}: ${label}` : label,
+    ...when,
+    to: { view: "assessment", id: moduleId, ...(essayId && essayId !== "default" ? { essay: essayId } : {}) },
     editable: false,
   };
 }

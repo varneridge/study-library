@@ -92,6 +92,32 @@ function NewModule({ onDone }: { onDone?: () => void }) {
 }
 
 
+// A module's picture, or its code set large when it has none or the picture
+// fails, shared by the cards here and the recent modules on a new tab.
+export function ModuleCover({ module, eager }: { module: Pick<ModuleSummary["module"], "code" | "image_key">; eager?: boolean }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const hasImage = Boolean(module.image_key && !imgFailed);
+  const imageSrc = module.image_key
+    ? (module.image_key.startsWith("pictures/") ? `/api/${module.image_key}` : `/api/pictures/${module.image_key}`)
+    : null;
+  return (
+    <div className="module-card-cover">
+      {hasImage && imageSrc ? (
+        <img
+          src={imageSrc}
+          alt=""
+          loading={eager ? "eager" : "lazy"}
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <div className="module-card-typo-cover" aria-hidden="true">
+          <span className="module-card-typo-code">{module.code}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // A module's card, which a mouse or a pen can drag from anywhere and a finger
 // from its "#" handle, shown while the modules are being reorganised.
 function ModuleCard({
@@ -106,12 +132,7 @@ function ModuleCard({
   onStep: (direction: -1 | 1) => void;
 }) {
   const { module } = item;
-  const [imgFailed, setImgFailed] = useState(false);
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: module.id });
-  const hasImage = Boolean(module.image_key && !imgFailed);
-  const imageSrc = module.image_key
-    ? (module.image_key.startsWith("pictures/") ? `/api/${module.image_key}` : `/api/pictures/${module.image_key}`)
-    : null;
 
   return (
     <li
@@ -120,20 +141,7 @@ function ModuleCard({
       className={`module-card module-item movable${isDragging ? " dragging" : ""}${arranging ? " arranging" : ""}`}
       {...(listeners as React.HTMLAttributes<HTMLLIElement>)}
     >
-      <div className="module-card-cover">
-        {hasImage && imageSrc ? (
-          <img
-            src={imageSrc}
-            alt=""
-            loading={index < 2 ? "eager" : "lazy"}
-            onError={() => setImgFailed(true)}
-          />
-        ) : (
-          <div className="module-card-typo-cover" aria-hidden="true">
-            <span className="module-card-typo-code">{module.code}</span>
-          </div>
-        )}
-      </div>
+      <ModuleCover module={module} eager={index < 2} />
       <div className="module-card-body">
         {arranging ? (
           <div className="module-row">
