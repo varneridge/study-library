@@ -234,6 +234,10 @@ if (typeof window !== "undefined") {
   // the page being left before the transition has taken its picture of it.
   history.scrollRestoration = "manual";
   window.addEventListener("popstate", async () => {
+    // A menu, sheet or dialog that closes steps back off its own history entry, which leaves
+    // the address as it was, so the step is no move between pages. Treating it as one would
+    // put the window back where it was and cancel a smooth scroll that had just begun.
+    if (window.location.href === currentAppliedUrl) return;
     if (popstateGuarding) return;
     if (hasOpenOverlay()) return;
     if (activeGuard) {

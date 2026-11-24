@@ -216,8 +216,82 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     wp.get_by_role("button", name="Back to preview").click()
     expect(wp.locator(".essay-page")).to_be_visible()
     expect(wp.get_by_label("Essay question")).to_have_value(question)
+
+    # Import a multi-paragraph Word document so the end of the draft sits well below the fold.
+    docx_path = Path(tmp) / "draft.docx"
+    paras = "".join(
+        f"<w:p><w:r><w:t>Paragraph {i}: the July Crisis escalated across European capitals.</w:t></w:r></w:p>"
+        for i in range(45)
+    )
+    with zipfile.ZipFile(docx_path, "w") as zf:
+        zf.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            "</Relationships>",
+        )
+        zf.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f"<w:body>{paras}</w:body></w:document>",
+        )
+    wp.locator("input[type=file][accept^='.docx,']").set_input_files(str(docx_path))
+    expect(wp.locator(".essay-sheet-container")).to_contain_text("Paragraph 44")
+
+    # Add a source by hand and cite it directly with one double-click: only one footnote is created,
+    # the inline tick replaces the cite button, and no extra "Cited" chip row is rendered.
+    wp.locator(".essay-ws-add-toggle").click()
+    wp.get_by_role("button", name="Add by hand").click()
+    wp.get_by_label("Title", exact=True).fill("Fischer, Germany's Aims in the First World War")
+    wp.get_by_role("button", name="Add source", exact=True).click()
+    source_row = wp.locator(".essay-ws-source", has_text="Fischer")
+    expect(source_row).to_be_visible()
+    cite_btn = source_row.locator(".essay-ws-source-cite")
+    source_row.hover()
+    cite_btn.dblclick()
+    expect(wp.get_by_role("heading", name="References (1)", exact=True)).to_be_visible()
+    expect(source_row.locator(".essay-ws-source-cite")).to_have_count(0)
+    expect(source_row.locator(".essay-ws-source-cited")).to_be_visible()
+    expect(wp.locator(".essay-ws-chip")).to_have_count(0)
+
+    # Scroll to the top, open the reference menu, and click "Show where it is cited":
+    # closing the menu must not cancel the smooth scroll to the cited sentence below the fold.
+    wp.evaluate("window.scrollTo(0, 0)")
+    ref_row = wp.locator(".essay-ws-ref").first
+    ref_row.hover()
+    ref_row.locator(".menu-button").click()
+    wp.get_by_role("menuitem", name="Show where it is cited").click()
+    wp.wait_for_timeout(1000)
+    expect(wp.locator("mark.essay-sheet-cited")).to_be_in_viewport()
+
+    # On a 390px phone viewport, add a second uncited source and verify the direct cite button
+    # is visible without hover and meets the 44px touch-target minimum.
+    wp.set_viewport_size({"width": 390, "height": 844})
+    wp.get_by_role("tab", name="Brief & sources").click()
+    wp.locator(".essay-ws-add-toggle").click()
+    wp.get_by_role("button", name="Add by hand").click()
+    wp.get_by_label("Title", exact=True).fill("Clark, The Sleepwalkers")
+    wp.get_by_role("button", name="Add source", exact=True).click()
+    uncited_row = wp.locator(".essay-ws-source", has_text="Clark")
+    uncited_cite = uncited_row.locator(".essay-ws-source-cite")
+    expect(uncited_cite).to_be_visible()
+    cite_box = uncited_cite.bounding_box()
+    assert cite_box["width"] >= 44 and cite_box["height"] >= 44, cite_box
+    wp.screenshot(path=str(HERE / "shots" / "assessment-3-sources-mobile.png"), full_page=True)
+
     wp.close()
-    print("the assessment page opens WordCraft and returns to the assessment overview")
+    print("the assessment page opens WordCraft, cites directly, and jumps to cited sentences")
     assert not errors, f"Page errors: {errors}"
     print("ok")
     browser.close()

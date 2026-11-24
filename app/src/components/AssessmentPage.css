@@ -40,6 +40,8 @@
  *   .is-drop-target              the part of the page that dropped files would go to
  *   .essay-ws-source-groups      the list of Primary, Secondary (course), Secondary (outside)
  *   .essay-ws-source-item        one row with its references editor, when open
+ *   .essay-ws-source-cite        the Cite button of an uncited row, before its ••• menu
+ *   .essay-ws-source-cited       the tick that takes its place once the source is cited
  *   .essay-ws-source-editor      the page references of one uploaded or hand-added source
  *
  * Type scale. Five roles share four sizes, so that weight and wrapping, not a crowd of sizes,
@@ -837,9 +839,8 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   min-width: 0;
 }
 
-/* Chips and reference badges share the house chip: a soft accent fill, fully rounded and
-   never outlined, with the badge being a button that opens its passage. */
-.essay-ws-chip,
+/* A reference badge is the house chip: a soft accent fill, fully rounded and never
+   outlined, and a button that opens its passage. */
 .essay-ws-link-badge {
   display: inline-flex;
   align-items: center;
@@ -874,7 +875,30 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   outline-offset: 1px;
 }
 
-/* Each row keeps its actions in its ••• menu, which appears when the row is pointed at
+/* The slot before a row's menu holds a Cite button while the source is uncited and a tick once
+   it is cited. Both are drawn like the ••• beside them, and the tick stays in view because it
+   says what is true of the row, where the button shares the menu's rule of appearing when the
+   row is pointed at or holds focus. */
+.essay-ws-source-cite,
+.essay-ws-source-cited {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.35rem;
+}
+
+.essay-ws-source-cite {
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.essay-ws-source-cited {
+  color: var(--accent);
+}
+
+/* Each row keeps its other actions in its ••• menu, which appears when the row is pointed at
    or holds focus, so that thirty quiet rows do not each carry a set of buttons. */
 .essay-ws-source-menu,
 .essay-ws-doc-menu {
@@ -887,6 +911,8 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 
 .essay-ws-source:hover .essay-ws-source-menu,
 .essay-ws-source:focus-within .essay-ws-source-menu,
+.essay-ws-source:hover .essay-ws-source-cite,
+.essay-ws-source:focus-within .essay-ws-source-cite,
 .essay-ws-docs li:hover .essay-ws-doc-menu,
 .essay-ws-docs li:focus-within .essay-ws-doc-menu {
   opacity: 1;
@@ -1610,6 +1636,7 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 
 /* Touch screens cannot hover, so the row actions stay in view there. */
 @media (hover: none) {
+  .essay-ws-source-cite,
   .essay-ws-source-menu,
   .essay-ws-doc-menu,
   .essay-ws-refs .essay-ws-ref-tools {
@@ -1717,6 +1744,12 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 /* On a touch screen or phone every control is at least 44 points, so the compact row actions,
    the corner bar and the Add choices all grow to that size while keeping their quiet look. */
 @media (pointer: coarse), (max-width: 48rem) {
+  .essay-ws-source-cite,
+  .essay-ws-source-cited {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
   .essay-ws-modes .essay-tab-btn {
     min-height: 2.75rem;
     line-height: 2.75rem;
@@ -1790,6 +1823,7 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 @media (prefers-reduced-motion: reduce) {
   .essay-ws-aside,
   .essay-ws-refs,
+  .essay-ws-source-cite,
   .essay-ws-source-menu,
   .essay-ws-doc-menu,
   .is-drop-target,

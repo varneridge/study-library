@@ -996,16 +996,24 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   useEffect(() => {
     if (!jump) return;
     const frame = window.requestAnimationFrame(() => {
-      previewRef.current
-        ?.querySelector(`[data-block-id="${CSS.escape(jump.blockId)}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      const block = previewRef.current?.querySelector(`[data-block-id="${CSS.escape(jump.blockId)}"]`);
+      // A PDF kept with the essay is drawn in place of the Word sheet, so it has no blocks to find.
+      if (!block) {
+        showToast(
+          storedField(assessment, "pdf")
+            ? "The preview is showing the PDF kept with this essay, so it cannot point to the sentence."
+            : "This reference is not cited in the essay text yet, so there is no place in the draft to show.",
+        );
+        return;
+      }
+      block.scrollIntoView({ block: "center", behavior: "smooth" });
     });
     const clear = window.setTimeout(() => setJump(null), JUMP_HIGHLIGHT_MS);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(clear);
     };
-  }, [jump]);
+  }, [jump, assessment]);
 
   // Full screen is an overlay inside the window, never the browser's own full screen, which
   // in the desktop window covers the taskbar and runs off the screen. It closes with Escape.
@@ -1857,8 +1865,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               </div>
               {orderedFootnotes.length === 0 ? (
                 <p className="small muted essay-ws-refs-empty">
-                  No references yet, so open the menu beside a source and choose Cite in the draft, or add a
-                  footnote when you edit in Word.
+                  No references yet, so use Cite beside a source, or add a footnote when you edit in Word.
                 </p>
               ) : (
                 <ol className="essay-ws-ref-list">
