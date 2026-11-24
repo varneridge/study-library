@@ -654,9 +654,9 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
    invisible tap area that a chip keeps. */
 .essay-ws-ref-link {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.2rem 0.5rem;
+  gap: 0.4rem;
   min-width: 0;
   padding: 0 0.35rem;
   color: var(--muted);
@@ -666,14 +666,17 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 }
 
 .essay-ws-ref-link-title {
+  flex: 1;
   min-width: 0;
-  overflow-wrap: break-word;
-  hyphens: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .essay-ws-ref-goto {
   position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
   min-height: 1.25rem;
   padding: 0 0.55rem;
@@ -765,10 +768,15 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   align-items: flex-start;
   gap: 0.25rem;
   min-width: 0;
-  padding: 0.25rem 0.2rem 0.25rem 0.4rem;
+  padding: 0.25rem 0.2rem 0.25rem 0.55rem;
   border-radius: var(--r-sm);
   font-size: var(--fs-sm);
   line-height: 1.35;
+}
+
+/* Cited sources carry an inset left accent bar so being cited never changes the row's shape. */
+.essay-ws-source.is-cited {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .essay-ws-source:hover,
@@ -881,27 +889,25 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   outline-offset: 1px;
 }
 
-/* The slot before a row's menu holds a Cite button while the source is uncited and a tick once
-   it is cited. Both are drawn like the ••• beside them, and the tick stays in view because it
-   says what is true of the row, where the button shares the menu's rule of appearing when the
-   row is pointed at or holds focus. */
-.essay-ws-source-cite,
-.essay-ws-source-cited {
+/* Cite and ••• stack vertically in one narrow column at the right so the title keeps its
+   maximum width; both appear when the row is pointed at or holds focus. */
+.essay-ws-source-actions {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  align-items: center;
+  gap: 0.1rem;
+}
+
+.essay-ws-source-cite {
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
   padding: 0.2rem 0.35rem;
-}
-
-.essay-ws-source-cite {
   color: var(--muted);
   opacity: 0;
   transition: opacity 0.12s ease;
-}
-
-.essay-ws-source-cited {
-  color: var(--accent);
 }
 
 /* Each row keeps its other actions in its ••• menu, which appears when the row is pointed at
@@ -919,6 +925,7 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 .essay-ws-source:focus-within .essay-ws-source-menu,
 .essay-ws-source:hover .essay-ws-source-cite,
 .essay-ws-source:focus-within .essay-ws-source-cite,
+.essay-ws-source:has(.menu-button[aria-expanded="true"]) .essay-ws-source-cite,
 .essay-ws-docs li:hover .essay-ws-doc-menu,
 .essay-ws-docs li:focus-within .essay-ws-doc-menu {
   opacity: 1;
@@ -1750,8 +1757,7 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 /* On a touch screen or phone every control is at least 44 points, so the compact row actions,
    the corner bar and the Add choices all grow to that size while keeping their quiet look. */
 @media (pointer: coarse), (max-width: 48rem) {
-  .essay-ws-source-cite,
-  .essay-ws-source-cited {
+  .essay-ws-source-cite {
     min-width: 2.75rem;
     min-height: 2.75rem;
   }

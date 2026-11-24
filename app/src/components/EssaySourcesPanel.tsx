@@ -182,7 +182,7 @@ const sourceRow = (source: EssaySource, paper: boolean): PanelRow => ({
 // finger from dragging it since there is no handle; Cite in the draft does the same job
 // on a phone. The id is the panel's own, so it never clashes with another draggable list,
 // while the data carries the source's id that the drop looks up.
-function SourceItem({ id, draggable, row, editor }: { id: string; draggable: boolean; row: ReactNode; editor?: ReactNode }) {
+function SourceItem({ id, draggable, cited, row, editor }: { id: string; draggable: boolean; cited?: boolean; row: ReactNode; editor?: ReactNode }) {
   const { listeners, setNodeRef, isDragging } = useDraggable({
     id: `panel-source:${id}`,
     data: { sourceId: id },
@@ -193,7 +193,7 @@ function SourceItem({ id, draggable, row, editor }: { id: string; draggable: boo
       ref={setNodeRef}
       className={`essay-ws-source-item${draggable ? " is-draggable" : ""}${isDragging ? " is-dragging" : ""}`}
     >
-      <div className="essay-ws-source" {...(draggable ? listeners : {})}>
+      <div className={`essay-ws-source${cited ? " is-cited" : ""}`} {...(draggable ? listeners : {})}>
         {row}
       </div>
       {editor}
@@ -850,27 +850,24 @@ export function EssaySourcesPanel({
             </div>
           )}
         </div>
-        {/* Trailing status and Cite action before the menu: a tick stays visible once the
-            source has been cited, and the Cite button remains available for repeat citations. */}
-        {cited && (
-          <span className="essay-ws-source-cited" role="img" aria-label="Cited in the draft" title="Cited in the draft">
-            <Icon name="check" size={16} />
+        {/* One narrow vertical column at the right for Cite and ••• so the title keeps its
+            full width, and an accent bar on the row marks cited sources without changing shape. */}
+        <span className="essay-ws-source-actions">
+          {(reading || source) && (
+            <button
+              type="button"
+              className="quiet essay-ws-source-cite"
+              aria-label={`Cite \u201c${row.title}\u201d in the draft`}
+              title="Cite in the draft"
+              disabled={citing.has(row.id)}
+              onClick={() => void cite(row.id, footnoteText)}
+            >
+              <Icon name="cite" size={16} />
+            </button>
+          )}
+          <span className="essay-ws-source-menu">
+            <Menu label={`Actions for ${row.title}`} items={items} />
           </span>
-        )}
-        {(reading || source) && (
-          <button
-            type="button"
-            className="quiet essay-ws-source-cite"
-            aria-label={`Cite \u201c${row.title}\u201d in the draft`}
-            title="Cite in the draft"
-            disabled={citing.has(row.id)}
-            onClick={() => void cite(row.id, footnoteText)}
-          >
-            <Icon name="cite" size={16} />
-          </button>
-        )}
-        <span className="essay-ws-source-menu">
-          <Menu label={`Actions for ${row.title}`} items={items} />
         </span>
       </>
     );
@@ -880,6 +877,7 @@ export function EssaySourcesPanel({
         key={row.key}
         id={row.id}
         draggable={draggableIds.has(row.id)}
+        cited={cited}
         row={content}
         editor={open && source ? renderEditor(source, sourceLinks) : null}
       />

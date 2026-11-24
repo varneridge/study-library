@@ -721,7 +721,14 @@ function ReferenceRow({
         />
         {binding && (
           <div className="essay-ws-ref-link">
-            <span className="essay-ws-ref-link-title">
+            <span
+              className="essay-ws-ref-link-title"
+              title={
+                binding.title
+                  ? `Linked to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}`
+                  : "Linked to a source that is no longer in this essay"
+              }
+            >
               {binding.title
                 ? `Linked to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}`
                 : "Linked to a source that is no longer in this essay"}
@@ -894,9 +901,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  // The preview opens at 130%, which reads comfortably beside the side columns, and null, which
+  // The preview opens at 90%, which reads comfortably beside the side columns, and null, which
   // Fit chooses, fits the page to the width of the column.
-  const [zoom, setZoom] = useState<number | null>(1.3);
+  const [zoom, setZoom] = useState<number | null>(0.9);
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);

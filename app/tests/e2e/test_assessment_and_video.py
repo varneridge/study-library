@@ -262,7 +262,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     source_row.hover()
     cite_btn.dblclick()
     expect(wp.get_by_role("heading", name="References (1)", exact=True)).to_be_visible()
-    expect(source_row.locator(".essay-ws-source-cited")).to_be_visible()
+    expect(source_row).to_have_class(re.compile(r"\bis-cited\b"))
     expect(cite_btn).to_be_visible()
     expect(wp.locator(".essay-ws-chip")).to_have_count(0)
 
