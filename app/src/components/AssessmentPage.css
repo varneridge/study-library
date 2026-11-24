@@ -29,6 +29,8 @@
  *   .essay-ws-pick               the floating card of the Add control and of the source picker, with
  *                                its search (-search), list (-list), rows (-row, -main, -title, -sub,
  *                                -snippet, -actions), empty line (-empty) and foot (-foot)
+ *   .essay-ws-add-pick           the Add control's card, the more compact of the two
+ *   .essay-ws-refs-empty         the line References shows before anything is cited
  *   .essay-ws-intake             the source card's form: the file's picture (-thumb, -thumb-frame,
  *                                -file), its fields (-fields), the role control (-role) and the count
  *                                in its foot (-count)
@@ -504,19 +506,52 @@ button.essay-ws-pick-row[aria-pressed="true"] {
   margin-top: 0.6rem;
 }
 
+/* The Add card is narrower than the picker, with tighter rows and a list about five readings
+   tall, so that it sits beside its button rather than covering the columns, and a snippet
+   holds two lines at most, so that one long match never pushes the rest out of view. */
+dialog.choice-card.essay-ws-add-pick:not(.sheet) {
+  width: min(22rem, calc(100vw - 1rem));
+}
+
+.essay-ws-add-pick .essay-ws-pick-search {
+  margin-bottom: 0.4rem;
+}
+
+.essay-ws-add-pick .essay-ws-pick-list {
+  gap: 0;
+  max-height: min(14rem, 40vh);
+}
+
+.essay-ws-add-pick .essay-ws-pick-row {
+  gap: 0.2rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.essay-ws-add-pick .essay-ws-pick-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.essay-ws-add-pick .essay-ws-pick-foot {
+  margin-top: 0.4rem;
+}
+
 /* The source card is wider than an ordinary sheet, to hold the file's picture beside its
    fields, and stacks them on a phone. The picture rests on a soft surface, with no line
    around it, and the fields drop the page's usual space under a labelled field, because the
    form's own gap already separates them. */
 @media (min-width: 44.01rem) {
   dialog.sheet-dialog.essay-ws-intake-sheet {
-    max-width: 40rem;
+    max-width: 44rem;
   }
 }
 
 .essay-ws-intake {
   display: grid;
-  grid-template-columns: 8rem minmax(0, 1fr);
+  grid-template-columns: 10.5rem minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -527,10 +562,12 @@ button.essay-ws-pick-row[aria-pressed="true"] {
   min-width: 0;
 }
 
+/* The frame has the proportions of an A4 page, so that a portrait page fills it from top to
+   bottom, and a picture of any other shape is shown whole rather than cropped. */
 .essay-ws-intake-thumb-frame {
   display: grid;
   place-items: center;
-  aspect-ratio: 1 / 1.38;
+  aspect-ratio: 1 / 1.414;
   overflow: hidden;
   border-radius: var(--r-sm);
   background: var(--surface);
@@ -541,6 +578,7 @@ button.essay-ws-pick-row[aria-pressed="true"] {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center top;
 }
 
 .essay-ws-intake-file {
@@ -854,6 +892,20 @@ button.essay-ws-pick-row[aria-pressed="true"] {
   opacity: 1;
 }
 
+/* An open menu floats outside its row, so the pointer and the focus leave the row to reach
+   it; the row keeps its highlight and its ••• in view until the menu closes. */
+.essay-ws-source:has(.menu-button[aria-expanded="true"]),
+.essay-ws-docs li:has(.menu-button[aria-expanded="true"]),
+.essay-ws-refs .essay-ws-ref:has(.menu-button[aria-expanded="true"]) {
+  background: var(--surface-hover);
+}
+
+.essay-ws-source-menu:has(.menu-button[aria-expanded="true"]),
+.essay-ws-doc-menu:has(.menu-button[aria-expanded="true"]),
+.essay-ws-refs .essay-ws-ref-tools:has(.menu-button[aria-expanded="true"]) {
+  opacity: 1;
+}
+
 /* The page references of one source open beneath its row on a white field, so that they
    read as belonging to that row rather than as a new card. */
 .essay-ws-source-editor {
@@ -1055,7 +1107,7 @@ button.essay-ws-pick-row[aria-pressed="true"] {
   background: var(--accent-soft);
 }
 
-.essay-ws-drop-hint {
+.essay-ws-refs-empty {
   margin: 0;
   padding: 0.75rem;
   border-radius: var(--r-sm);

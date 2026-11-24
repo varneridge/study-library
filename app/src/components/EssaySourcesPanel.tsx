@@ -371,7 +371,7 @@ function AddSourcesCard({ open, onClose, anchor, ...body }: {
       anchor={anchor}
       label="Add readings and sources"
       title={<h3 className="choice-title">Add readings and sources</h3>}
-      className="essay-ws-pick"
+      className="essay-ws-pick essay-ws-add-pick"
       initialFocus="input[type='search']"
     >
       <AddBody {...body} />

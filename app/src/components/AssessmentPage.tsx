@@ -894,8 +894,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [target, setTarget] = useState(assessment.wordTarget ? String(assessment.wordTarget) : "");
   const typingQuestion = useRef(false);
   const typingTarget = useRef(false);
-  // null fits the page to the width of the column, which is how the preview opens.
-  const [zoom, setZoom] = useState<number | null>(null);
+  // The preview opens at 130%, which reads comfortably beside the side columns, and null, which
+  // Fit chooses, fits the page to the width of the column.
+  const [zoom, setZoom] = useState<number | null>(1.3);
   const cancelTarget = useRef(false);
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -1855,7 +1856,10 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 </button>
               </div>
               {orderedFootnotes.length === 0 ? (
-                <p className="small muted essay-ws-drop-hint">Drag a source here to cite it at the end of the draft.</p>
+                <p className="small muted essay-ws-refs-empty">
+                  No references yet, so open the menu beside a source and choose Cite in the draft, or add a
+                  footnote when you edit in Word.
+                </p>
               ) : (
                 <ol className="essay-ws-ref-list">
                   {orderedFootnotes.map((fn) => (

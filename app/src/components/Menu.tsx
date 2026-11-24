@@ -1,4 +1,4 @@
-﻿import { Icon } from "./icons";
+import { Icon } from "./icons";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { sheetHost, useCloseOnBack } from "../lib/ui";
@@ -26,6 +26,11 @@ const SHEET_QUERY = "(max-width: 44rem)";
 // long enough that sweeping across the menu does not flicker groups open.
 const HOVER_DELAY = 200;
 const EDGE_MARGIN = 8;
+// The space between the button and the panel beneath or above it.
+const PANEL_GAP = 4;
+// A panel beside its button floats above the page's sticky columns, drawers and the
+// preview's full screen, which tops out at 1000.
+const FLOAT_LAYER = 1100;
 
 const sideways = () => typeof window !== "undefined" && !window.matchMedia(SHEET_QUERY).matches;
 
@@ -74,8 +79,8 @@ export function Menu({
   // The key handler is registered once per opening, so it reads these through refs.
   const submenuRef = useRef<string | null>(null);
   const sidewaysRef = useRef(false);
-  const [shift, setShift] = useState(0);
-  const [flipY, setFlipY] = useState(false);
+  // Where the panel sits on a wider screen, worked out once it has been measured.
+  const [panelAt, setPanelAt] = useState<{ left: number; top: number } | null>(null);
   const shown = items.filter(showable);
   const flyouts = sideways();
   submenuRef.current = submenu;
@@ -86,6 +91,7 @@ export function Menu({
   useEffect(() => {
     if (!open) {
       setSubmenu(null);
+      setPanelAt(null);
       window.clearTimeout(hoverTimer.current);
       return;
     }
@@ -136,14 +142,26 @@ export function Menu({
       else if (e.key === "ArrowDown") list[index < list.length - 1 ? index + 1 : 0]?.focus();
       else list[index > 0 ? index - 1 : list.length - 1]?.focus();
     };
+    // A floating panel is fixed to the window, so a scroll anywhere but inside the menu, or a
+    // resize, would leave it behind its button; it closes instead, as a Windows menu does.
+    const drift = (e: Event) => {
+      if (!sidewaysRef.current) return;
+      const target = e.target;
+      if (target instanceof Node && (panel.current?.contains(target) || flyout.current?.contains(target))) return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", key);
+    document.addEventListener("scroll", drift, true);
+    window.addEventListener("resize", drift);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", key);
+      document.removeEventListener("scroll", drift, true);
+      window.removeEventListener("resize", drift);
       window.clearTimeout(hoverTimer.current);
       if (!actionSelectedRef.current) {
-        buttonRef.current?.focus();
+        buttonRef.current?.focus({ preventScroll: true });
       }
     };
   }, [open]);
@@ -169,55 +187,54 @@ export function Menu({
   };
   const stayPut = () => window.clearTimeout(hoverTimer.current);
 
-  // Keep the panel on screen when its button sits near an edge or near the bottom.
-  // It is measured again when a group opens in place, because the panel grows.
-  // Once flipped it stays flipped while open, since a flipped panel always seems
-  // to fit and measuring it would otherwise send it back down past the edge.
+  // On a wider screen the panel floats over the page, fixed to the window, so that no column
+  // that scrolls or clips its overflow can cut it, or its flyout, off. It lines up with the
+  // right of its button, or with its left when there is no room, opens beneath it, or above
+  // it when the window has no room below, and stays inside the window's edges. Its place is
+  // worked out from where it is drawn now, so it holds even inside a transformed host.
   useLayoutEffect(() => {
-    if (!open || !panel.current || !sideways()) {
-      setShift(0);
-      setFlipY(false);
-      return;
+    if (!open || !flyouts) return;
+    const box = panel.current;
+    const trigger = buttonRef.current;
+    if (!box || !trigger) return;
+    const anchor = trigger.getBoundingClientRect();
+    const size = box.getBoundingClientRect();
+    const originLeft = size.left - (parseFloat(box.style.left) || 0);
+    const originTop = size.top - (parseFloat(box.style.top) || 0);
+    let left = anchor.right - size.width;
+    if (left < EDGE_MARGIN) left = anchor.left;
+    left = Math.max(EDGE_MARGIN, Math.min(left, window.innerWidth - EDGE_MARGIN - size.width));
+    let top = anchor.bottom + PANEL_GAP;
+    if (top + size.height > window.innerHeight - EDGE_MARGIN) {
+      const above = anchor.top - PANEL_GAP - size.height;
+      top = above >= EDGE_MARGIN ? above : Math.max(EDGE_MARGIN, window.innerHeight - EDGE_MARGIN - size.height);
     }
-    const rect = panel.current.getBoundingClientRect();
-    if (rect.left < EDGE_MARGIN) setShift((s) => s + EDGE_MARGIN - rect.left);
-    else if (rect.right > window.innerWidth - EDGE_MARGIN) setShift((s) => s + window.innerWidth - EDGE_MARGIN - rect.right);
-
-    if (rect.bottom > window.innerHeight - EDGE_MARGIN) {
-      setFlipY(true);
-    }
-  }, [open, submenu]);
+    setPanelAt({ left: left - originLeft, top: top - originTop });
+  }, [open, flyouts, shown.length]);
 
   // The flyout opens beside its item, on the right, or on the left when the
   // right has no room, and slides up only as far as it must to stay on
-  // screen. It shares the panel's frame, so its place is worked out in that
-  // frame's own coordinates and holds however the page is scrolled.
+  // screen. It floats as the panel does, so its place is worked out in the
+  // window's coordinates, from where it is drawn now.
   useLayoutEffect(() => {
     setFlyoutAt(null);
-    if (!open || !submenu || !flyouts) return;
+    if (!open || !submenu || !flyouts || !panelAt) return;
     const parent = parents.current.get(submenu);
     const box = flyout.current;
     if (!parent || !box) return;
     const item = parent.getBoundingClientRect();
     const size = box.getBoundingClientRect();
     const inset = parseFloat(getComputedStyle(box).paddingTop) || 0;
+    const originLeft = size.left - (parseFloat(box.style.left) || 0);
+    const originTop = size.top - (parseFloat(box.style.top) || 0);
     let left = item.right + 2;
     if (left + size.width > window.innerWidth - EDGE_MARGIN) left = item.left - 2 - size.width;
     left = Math.max(EDGE_MARGIN, left);
     let top = item.top - inset;
     if (top + size.height > window.innerHeight - EDGE_MARGIN) top = window.innerHeight - EDGE_MARGIN - size.height;
     top = Math.max(EDGE_MARGIN, top);
-    const frame = box.offsetParent;
-    if (frame instanceof HTMLElement && frame !== document.body) {
-      const origin = frame.getBoundingClientRect();
-      setFlyoutAt({
-        left: left - origin.left - frame.clientLeft + frame.scrollLeft,
-        top: top - origin.top - frame.clientTop + frame.scrollTop,
-      });
-    } else {
-      setFlyoutAt({ left: left + window.scrollX, top: top + window.scrollY });
-    }
-  }, [open, submenu, flyouts]);
+    setFlyoutAt({ left: left - originLeft, top: top - originTop });
+  }, [open, submenu, flyouts, panelAt]);
 
   // A flyout opened from the keyboard takes the focus once it is in place.
   useEffect(() => {
@@ -229,6 +246,16 @@ export function Menu({
   if (!shown.length) return null;
   const host = sheetHost();
   const portal = (node: ReactNode) => (host ? createPortal(node, host) : node);
+  // Beside its button the panel and its flyout leave the page's columns for the host or the
+  // body, so that a rail's overflow or a drawer's stacking never clips or covers them.
+  const float = (node: ReactNode) => (flyouts ? createPortal(node, host ?? document.body) : portal(node));
+  const floating = {
+    position: "fixed",
+    right: "auto",
+    bottom: "auto",
+    margin: 0,
+    zIndex: FLOAT_LAYER,
+  } as const;
   const group = flyouts && submenu ? shown.find((item) => item.label === submenu && item.items) : undefined;
 
   const action = (item: MenuItem, inFlyout: boolean) => (
@@ -290,15 +317,21 @@ export function Menu({
       </button>
       {/* On a phone the menu is a sheet over a dimmed page; tapping the page closes it. */}
       {open && portal(<div className="menu-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />)}
-      {open && portal(
+      {open && float(
         <div
           className="menu-panel"
           role="menu"
           ref={panel}
-          style={{
-            ...(shift ? { transform: `translateX(${shift}px)` } : {}),
-            ...(flipY ? { top: "auto", bottom: "100%", marginBottom: "0.25rem" } : {}),
-          }}
+          style={
+            flyouts
+              ? {
+                  ...floating,
+                  left: panelAt?.left ?? 0,
+                  top: panelAt?.top ?? 0,
+                  visibility: panelAt ? undefined : "hidden",
+                }
+              : undefined
+          }
         >
           {withSeparator(shown, entry)}
           <button role="menuitem" className="menu-cancel" onClick={() => setOpen(false)}>Cancel</button>
@@ -306,7 +339,7 @@ export function Menu({
       )}
       {/* The flyout is the panel's sibling rather than its child, so the
           panel's own scrolling never clips it. */}
-      {open && group?.items && portal(
+      {open && group?.items && float(
         <div
           className="menu-panel menu-flyout"
           role="menu"
@@ -314,8 +347,7 @@ export function Menu({
           ref={flyout}
           onMouseEnter={stayPut}
           style={{
-            right: "auto",
-            bottom: "auto",
+            ...floating,
             left: flyoutAt?.left ?? 0,
             top: flyoutAt?.top ?? 0,
             visibility: flyoutAt ? undefined : "hidden",
