@@ -18,21 +18,25 @@ import { chicagoNote, shortAuthor, shortTitle } from "./titles";
 import type { AttachmentRef, ItemRow } from "./types";
 import { isAssessmentEnabled } from "./assessmentEnabled";
 import {
+  addPassageLink,
   carryFootnoteBindings,
   createSourceLink,
   normaliseSourceCategory,
   normaliseSourceLinks,
   normaliseSourceMeta,
   removeLinksForFootnote,
+  removePassageLink,
   type EssaySourceCategory,
   type SourceLink,
   type SourceMeta,
 } from "./essaySources";
+import { referencesByHighlight, type HighlightReference } from "./highlightReferences";
 
 export type { CiteTarget } from "./router";
 
 const EMPTY_REF_IDS: string[] = [];
 const EMPTY_DRAFTS: AssessmentSnapshot[] = [];
+const NO_REFERENCES = new Map<string, HighlightReference[]>();
 const saveLocks = new Map<string, Promise<unknown>>();
 
 function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -813,6 +817,69 @@ export async function linkPassage(
         },
         sourceLinks: [...removeLinksForFootnote(links, noteId), link],
       };
+    },
+    { moduleCode: module.code, essayId: target.essay },
+  );
+}
+
+// The essays whose references draw on each highlight of a reading, kept up to date as any
+// essay changes, so that a highlight's card can say it is in use before it is deleted.
+export function useHighlightReferences(itemId: string): ReadonlyMap<string, HighlightReference[]> {
+  return useLiveQuery(
+    async () => referencesByHighlight(await db.settings.where("id").startsWith("assessment:").toArray(), await db.modules.toArray(), itemId),
+    [itemId],
+    NO_REFERENCES,
+  );
+}
+
+const PASSAGE_NOTE_GONE = "That footnote has changed since this passage was opened, so go back to the essay and open its passage again.";
+
+// Adds one highlight to the passage a footnote draws on, keeping the highlights it already
+// has from the same source. Unlike linkPassage this never guesses at a footnote that has been
+// renumbered, because a wrong guess would put the highlight on someone else's reference, so
+// a footnote that is no longer in the draft is an error to report instead. The page is kept
+// as the page number a reader sees, one more than the page's place in the file.
+export async function addPassage(
+  target: CiteTarget,
+  passage: { itemId: string; highlightId: string; quote: string; page: number },
+): Promise<void> {
+  const module = await db.modules.get(target.module);
+  if (!module || module.deleted) throw new Error("The essay's module no longer exists, so the passage could not be changed.");
+  await saveModuleAssessment(
+    target.module,
+    (current) => {
+      const notes = current.draft.footnotes;
+      if (target.footnote.startsWith("new:") || !notes.some((n) => n.id === target.footnote)) throw new Error(PASSAGE_NOTE_GONE);
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          footnotes: notes.map((n) => (n.id === target.footnote ? { ...n, citationItemId: passage.itemId } : n)),
+        },
+        sourceLinks: addPassageLink(current.sourceLinks ?? [], {
+          id: newId(),
+          footnoteId: target.footnote,
+          sourceId: passage.itemId,
+          highlightId: passage.highlightId,
+          quote: passage.quote,
+          page: String(passage.page + 1),
+        }),
+      };
+    },
+    { moduleCode: module.code, essayId: target.essay },
+  );
+}
+
+// Takes one highlight out of the passage a footnote draws on. The highlight itself stays in
+// the reading and its notes.
+export async function removePassage(target: CiteTarget, highlightId: string): Promise<void> {
+  const module = await db.modules.get(target.module);
+  if (!module || module.deleted) throw new Error("The essay's module no longer exists, so the passage could not be changed.");
+  await saveModuleAssessment(
+    target.module,
+    (current) => {
+      if (target.footnote.startsWith("new:") || !current.draft.footnotes.some((n) => n.id === target.footnote)) throw new Error(PASSAGE_NOTE_GONE);
+      return { ...current, sourceLinks: removePassageLink(current.sourceLinks ?? [], target.footnote, highlightId) };
     },
     { moduleCode: module.code, essayId: target.essay },
   );

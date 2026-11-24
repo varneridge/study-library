@@ -1954,6 +1954,7 @@ kbd {
   opacity: 1;
 }
 .floating.panel .write-note { justify-content: center; }
+.floating.panel .highlight-referenced, .menu-panel.highlight-sheet .highlight-referenced { margin: 0; }
 /* A selected quotation is outlined in the accent, rounded like other controls. */
 .note-editor .bn-block-content.ProseMirror-selectednode > ::after,
 .note-editor .ProseMirror-selectednode > .bn-block-content > ::after {

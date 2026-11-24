@@ -591,7 +591,7 @@ function Page({ route }: { route: Route }) {
     case "search": return <SearchPage q={route.q} />;
     // The lazy parts keep their own boundary, so a first visit shows their
     // skeleton rather than holding the old page while the code downloads.
-    case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} hl={route.hl} cite={route.cite} /></Suspense>;
+    case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} hl={route.hl} cite={route.cite} passage={route.passage} /></Suspense>;
     case "essay": return <Suspense fallback={openingEssay}><WordProcessor id={route.id} essayId={route.essay} q={route.q} /></Suspense>;
     case "jobs": return <Suspense fallback={<PageLoading label="Opening the job search" wide />}><JobsPage /></Suspense>;
     case "calendar": return <Suspense fallback={<PageLoading label="Opening the calendar" wide />}><CalendarPage route={route} /></Suspense>;

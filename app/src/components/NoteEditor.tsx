@@ -40,6 +40,7 @@ import { formattingToolbarFor } from "./NoteToolbars";
 // Inside a reading's own notes, a quotation's page link moves the reader to
 // the passage instead of opening the reading again.
 import { QuoteContext } from "./quoteContext";
+import { referencedInLabel } from "../lib/highlightReferences";
 
 // Outside the reader there is no shared writer, so notes elsewhere use this one.
 const fallbackComments = commentWriter((highlightId, comment) => update("highlights", highlightId, { comment }));
@@ -63,11 +64,13 @@ function Quote({
   editor?: any;
   props: { highlightId: string; itemId: string; page: number; text: string; colour: string; source: string };
 }) {
-  const { readingId, open, highlights, comments } = useContext(QuoteContext);
+  const { readingId, open, highlights, comments, references } = useContext(QuoteContext);
   const names = useColourNames();
   const here = readingId && props.itemId === readingId;
   const to = { view: "reader" as const, id: props.itemId, page: props.page };
   const named = names[props.colour.toLowerCase()];
+  // An essay that cites this highlight is named, so that deleting the quotation is not a surprise.
+  const referencedIn = referencedInLabel(references?.get(props.highlightId));
 
   // The comment lives on the highlight itself. The reader hands its highlights
   // down; anywhere else the card looks its own highlight up.
@@ -100,6 +103,7 @@ function Quote({
           <a href={href(to)} onClick={(e) => { e.preventDefault(); navigate(to); }}>{props.source}, p. {props.page + 1}</a>
         )}
         {named && <span className="quote-tag">{colourLabel(props.colour, names)}</span>}
+        {referencedIn && <span className="quote-referenced">{referencedIn}</span>}
         {editor && block && (
           <button
             type="button"

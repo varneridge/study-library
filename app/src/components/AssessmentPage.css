@@ -35,12 +35,13 @@
  *                                -file), its fields (-fields), the role control (-role) and the count
  *                                in its foot (-count)
  *   .essay-ws-docs               the admin documents, whose rows are drawn exactly as source rows
- *   .essay-ws-ref-link           the line under a reference that names the source it is linked to,
- *                                with its Go to button (.essay-ws-ref-goto)
+ *   .essay-ws-ref-link           the line under a reference that names the source it is linked to
+ *   .essay-ws-ref-passage        the magnifier below a reference's ••• menu, which opens its passage
  *   .is-drop-target              the part of the page that dropped files would go to
  *   .essay-ws-source-groups      the list of Primary, Secondary (course), Secondary (outside)
  *   .essay-ws-source-item        one row with its references editor, when open
- *   .essay-ws-source-cite        the Cite button of an uncited row, before its ••• menu
+ *   .essay-ws-source-cite        the Cite button of an uncited row, before its ••• menu; it and the
+ *                                menus of rows, documents and references are always in view
  *   .essay-ws-source-cited       the tick that takes its place once the source is cited
  *   .essay-ws-source-editor      the page references of one uploaded or hand-added source
  *
@@ -649,9 +650,8 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* A linked reference names its source under its text, with Go to beside it, which stays in
-   view because opening the passage is what a link is for. Go to is a chip, with the larger
-   invisible tap area that a chip keeps. */
+/* A linked reference names its source under its text. Opening its passage is the magnifier
+   beside its menu, so the line carries only the name. */
 .essay-ws-ref-link {
   display: flex;
   flex-wrap: nowrap;
@@ -671,41 +671,6 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.essay-ws-ref-goto {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  min-height: 1.25rem;
-  padding: 0 0.55rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font: inherit;
-  font-family: var(--sans);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.essay-ws-ref-goto::after {
-  content: "";
-  position: absolute;
-  inset: -0.4rem -0.25rem;
-}
-
-.essay-ws-ref-goto:hover {
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-}
-
-.essay-ws-ref-goto:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
 .essay-ws-source-groups {
@@ -906,43 +871,23 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   justify-content: center;
   padding: 0.2rem 0.35rem;
   color: var(--muted);
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
-/* Each row keeps its other actions in its ••• menu, which appears when the row is pointed at
-   or holds focus, so that thirty quiet rows do not each carry a set of buttons. */
+/* Each row keeps its other actions in its ••• menu, always in view, since a touch screen
+   cannot point and a control that appears only on hover is not found. */
 .essay-ws-source-menu,
 .essay-ws-doc-menu {
   display: inline-flex;
   flex: none;
   align-items: center;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.essay-ws-source:hover .essay-ws-source-menu,
-.essay-ws-source:focus-within .essay-ws-source-menu,
-.essay-ws-source:hover .essay-ws-source-cite,
-.essay-ws-source:focus-within .essay-ws-source-cite,
-.essay-ws-source:has(.menu-button[aria-expanded="true"]) .essay-ws-source-cite,
-.essay-ws-docs li:hover .essay-ws-doc-menu,
-.essay-ws-docs li:focus-within .essay-ws-doc-menu {
-  opacity: 1;
 }
 
 /* An open menu floats outside its row, so the pointer and the focus leave the row to reach
-   it; the row keeps its highlight and its ••• in view until the menu closes. */
+   it; the row keeps its highlight until the menu closes. */
 .essay-ws-source:has(.menu-button[aria-expanded="true"]),
 .essay-ws-docs li:has(.menu-button[aria-expanded="true"]),
 .essay-ws-refs .essay-ws-ref:has(.menu-button[aria-expanded="true"]) {
   background: var(--surface-hover);
-}
-
-.essay-ws-source-menu:has(.menu-button[aria-expanded="true"]),
-.essay-ws-doc-menu:has(.menu-button[aria-expanded="true"]),
-.essay-ws-refs .essay-ws-ref-tools:has(.menu-button[aria-expanded="true"]) {
-  opacity: 1;
 }
 
 /* The page references of one source open beneath its row on a white field, so that they
@@ -1156,8 +1101,8 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 }
 
 /* A reference is one row of three columns: its number, in the numerals of the page's own
-   footnotes, then its text, which takes all the width that is left, and its menu, which
-   comes forward when the row is pointed at or typed in. */
+   footnotes, then its text, which takes all the width that is left, and its tools, a ••• menu
+   with the magnifier that opens its passage below it, always in view. */
 .essay-ws-ref {
   display: grid;
   grid-template-columns: 1.75rem minmax(0, 1fr) auto;
@@ -1222,20 +1167,11 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 
 .essay-ws-ref-tools {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.1rem 0.25rem;
-  flex-wrap: wrap;
+  gap: 0.1rem;
+  flex-wrap: nowrap;
   min-width: 0;
-}
-
-.essay-ws-refs .essay-ws-ref-tools {
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.essay-ws-refs .essay-ws-ref:hover .essay-ws-ref-tools,
-.essay-ws-refs .essay-ws-ref:focus-within .essay-ws-ref-tools {
-  opacity: 1;
 }
 
 .essay-ws-refs .essay-ws-ref-tools a {
@@ -1647,16 +1583,6 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   display: none;
 }
 
-/* Touch screens cannot hover, so the row actions stay in view there. */
-@media (hover: none) {
-  .essay-ws-source-cite,
-  .essay-ws-source-menu,
-  .essay-ws-doc-menu,
-  .essay-ws-refs .essay-ws-ref-tools {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 1279.98px) {
   .essay-ws {
     --essay-rail-auto: clamp(16rem, 26%, 22rem);
@@ -1762,6 +1688,14 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
     min-height: 2.75rem;
   }
 
+  /* The ••• and the magnifier of a reference are 44 points square, and stacked they still
+     leave the reference's text its width. */
+  .essay-ws-refs .essay-ws-ref-tools .menu-button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
+  }
+
   .essay-ws-modes .essay-tab-btn {
     min-height: 2.75rem;
     line-height: 2.75rem;
@@ -1810,11 +1744,6 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
     min-height: 2.75rem;
   }
 
-  /* A chip keeps its look and grows only its tap area, to 44 points. */
-  .essay-ws-ref-goto::after {
-    inset: -0.75rem -0.5rem;
-  }
-
   .essay-ws-refs .essay-ws-ref-tools a {
     display: inline-flex;
     align-items: center;
@@ -1835,11 +1764,7 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 @media (prefers-reduced-motion: reduce) {
   .essay-ws-aside,
   .essay-ws-refs,
-  .essay-ws-source-cite,
-  .essay-ws-source-menu,
-  .essay-ws-doc-menu,
   .is-drop-target,
-  .essay-ws-refs .essay-ws-ref-tools,
   .essay-sheet-cited,
   .is-jumped {
     transition: none;

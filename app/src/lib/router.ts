@@ -18,8 +18,9 @@ export type Route =
   | { view: "module"; id: string }
   | { view: "week"; id: string; folder?: string }
   // A reading, at a page, with a search, opened at one highlight (hl), or open to link a
-  // passage to an essay's footnote (cite).
-  | { view: "reader"; id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget }
+  // passage to an essay's footnote (cite). With a cite, passage opens the reading as that
+  // footnote's passage alone, with only the highlights it draws on.
+  | { view: "reader"; id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget; passage?: boolean }
   | { view: "essay"; id: string; essay?: string; q?: string }
   // A module's Assessment & essay page.
   | { view: "assessment"; id: string; essay?: string }
@@ -79,6 +80,8 @@ export function parseRoute(search: string): Route {
         ? { module: citeModule, footnote: citeFootnote, ...(citeEssay ? { essay: citeEssay } : {}) }
         : undefined;
       const hl = params.get("hl") || undefined;
+      // The passage view is of a footnote's passage, so it needs the footnote to name one.
+      const passage = cite !== undefined && params.get("pv") === "1";
       return id
         ? {
             view,
@@ -87,6 +90,7 @@ export function parseRoute(search: string): Route {
             q: params.get("q") ?? undefined,
             ...(hl ? { hl } : {}),
             ...(cite ? { cite } : {}),
+            ...(passage ? { passage } : {}),
           }
         : { view: "home" };
     }
@@ -159,6 +163,7 @@ export function href(route: Route): string {
       params.set("cm", route.cite.module);
       if (route.cite.essay) params.set("ce", route.cite.essay);
       params.set("cf", route.cite.footnote);
+      if (route.passage) params.set("pv", "1");
     }
   }
   if (route.view === "session") {

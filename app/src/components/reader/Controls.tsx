@@ -52,8 +52,10 @@ function useMenuClose(open: boolean, setOpen: (on: boolean) => void) {
 }
 
 // Clicking a highlight: its colour, and a way to write about it in the notes.
-export function Popover({ highlight, at, names, onClose, onWrite }: {
+export function Popover({ highlight, at, names, onClose, onWrite, referencedIn }: {
   highlight: HighlightRow; at: Active; names: ColourNames; onClose: () => void; onWrite: () => void;
+  // Which essays cite this highlight, as "Referenced in ...", so that deleting it is not a surprise.
+  referencedIn?: string | null;
 }) {
   const narrow = useNarrow();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -109,6 +111,7 @@ export function Popover({ highlight, at, names, onClose, onWrite }: {
         <span className="small muted">{colourLabel(highlight.colour, names)}</span>
       </div>
       <button className="button primary write-note" onClick={onWrite}>Write a note about this</button>
+      {referencedIn && <p className="small muted highlight-referenced">{referencedIn}</p>}
       <div className="row">
         <button className="button" onClick={onClose}>Done</button>
         <span style={{ flex: 1 }} />

@@ -42,7 +42,10 @@ import {
   findCitationContext,
   formatCustomBibliography,
   formatCustomFootnote,
+  linksForFootnote,
   numberedFootnotes,
+  passageHighlightIds,
+  referenceLocator,
   removeLinksForFootnote,
   safeExternalUrl,
   sourceLinkLocator,
@@ -179,13 +182,16 @@ interface JumpTarget {
 }
 
 // The source a reference cites, as its row names it: the source's id, its title, or null
-// when the source has gone, the passage it is linked to when there is one, and whether
-// there is anything that Go to could open.
+// when the source has gone, the pages it is linked to when there are any, the links that
+// name its highlights, whether its passage can be shown ("show"), chosen ("choose") or
+// neither, which is for a source with no file to open, and whether the magnifier beside
+// its menu has anything to open.
 interface ReferenceBinding {
   sourceId: string;
   title: string | null;
   locator: string | null;
-  link: SourceLink | null;
+  links: SourceLink[];
+  passage: "show" | "choose" | null;
   canGoTo: boolean;
 }
 
@@ -581,8 +587,8 @@ function DropZone({ list, id, className, children }: { list: string; id?: string
 // One reference, edited directly as free text. It saves when the typing pauses and on blur,
 // Escape puts back what it said when focus arrived (saving that again if a pause had already
 // saved the edit), and an emptied reference returns to its saved text rather than vanishing.
-// A reference linked to a source names it beneath its text, with Go to beside it, which opens
-// the source at the passage it cites, so that checking a quotation takes one tap.
+// A reference linked to a source names it beneath its text, and has a magnifier beside its
+// menu, which opens the passage it cites, so that checking a quotation takes one tap.
 function ReferenceRow({
   number,
   footnoteId,
@@ -605,7 +611,7 @@ function ReferenceRow({
   onJump: (target: { blockId: string; footnoteId: string; sentence: string }) => void;
   // Opens the source picker beside the reference, to link it to a source or change its link.
   onLink: (footnoteId: string, anchor: HTMLElement | null) => void;
-  onGoTo: (binding: ReferenceBinding) => void;
+  onGoTo: (footnoteId: string, binding: ReferenceBinding) => void;
   onUnlink: (footnoteId: string) => void;
   onDelete: (footnoteId: string) => void;
 }) {
@@ -682,6 +688,14 @@ function ReferenceRow({
     onJump({ blockId: context.blockId, footnoteId, sentence: context.sentence });
   };
 
+  // What the magnifier does, named by what it opens: the passage's highlights, a prompt to
+  // choose them, or a source that is only a link.
+  const goLabel = binding?.passage === "show"
+    ? `Show passage for footnote ${number}`
+    : binding?.passage === "choose"
+      ? `Choose a passage for footnote ${number}`
+      : binding?.title ? `Open \u201c${binding.title}\u201d` : "Open the source";
+
   return (
     <li className="essay-ws-ref">
       <span className="essay-ref-badge" aria-hidden="true">{number}.</span>
@@ -733,22 +747,12 @@ function ReferenceRow({
                 ? `Linked to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}`
                 : "Linked to a source that is no longer in this essay"}
             </span>
-            {binding.canGoTo && (
-              <button
-                type="button"
-                className="essay-ws-ref-goto"
-                aria-label={binding.title ? `Go to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}` : "Go to the source"}
-                onClick={() => onGoTo(binding)}
-              >
-                Go to
-              </button>
-            )}
           </div>
         )}
       </div>
-      {/* Every action of a reference lives in one quiet menu, which comes forward when the row
-          is pointed at or holds focus, so that a long list of notes stays as calm as the
-          sources beside it and never widens the column. */}
+      {/* Every action of a reference but opening its passage lives in one quiet menu, with the
+          magnifier below it, both always in view since a touch screen cannot point, so that a
+          long list of notes stays calm and never widens the column. */}
       <span className="essay-ws-ref-tools">
         <Menu
           label={`Actions for footnote ${number}`}
@@ -759,6 +763,17 @@ function ReferenceRow({
             { label: "Delete reference", danger: true, onSelect: () => onDelete(footnoteId) },
           ]}
         />
+        {binding?.canGoTo && (
+          <button
+            type="button"
+            className="quiet menu-button essay-ws-ref-passage"
+            aria-label={goLabel}
+            title={goLabel}
+            onClick={() => onGoTo(footnoteId, binding)}
+          >
+            <Icon name="search" size={18} />
+          </button>
+        )}
       </span>
     </li>
   );
@@ -1338,47 +1353,55 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     );
   };
 
-  // What each reference cites, from its passage link when it has one and otherwise from the
-  // source its footnote names, with the title to show and whether Go to has anything to open.
+  // What each reference cites, from its passage links when it has any and otherwise from the
+  // source its footnote names, with the title to show and whether the magnifier has anything
+  // to open.
   const bindings = useMemo(() => {
     const map = new Map<string, ReferenceBinding>();
     const links = assessment.sourceLinks ?? [];
     const papers = assessment.attachedPapers ?? [];
     for (const note of assessment.draft.footnotes) {
-      const link = links.find((l) => l.footnoteId === note.id) ?? null;
-      const sourceId = link?.sourceId ?? note.citationItemId ?? null;
+      const noteLinks = linksForFootnote(links, note.id);
+      const sourceId = noteLinks[0]?.sourceId ?? note.citationItemId ?? null;
       if (!sourceId) continue;
       const reading = readings.find((r) => r.id === sourceId);
       const custom = customSources.find((c) => c.id === sourceId);
       const paper = papers.find((p) => p.id === sourceId);
+      // A reading or an uploaded paper opens in the reader, at its highlights when the
+      // reference has any and to choose them when it has none.
+      const passage = reading || paper?.r2Key
+        ? (passageHighlightIds(noteLinks, note.id).length ? "show" : "choose")
+        : null;
       map.set(note.id, {
         sourceId,
         title: reading?.title ?? custom?.title ?? paper?.title ?? null,
-        locator: link ? sourceLinkLocator(link) : null,
-        link,
-        canGoTo: Boolean(reading || paper?.r2Key || safeExternalUrl(custom?.url)),
+        locator: referenceLocator(noteLinks),
+        links: noteLinks,
+        passage,
+        canGoTo: Boolean(passage || safeExternalUrl(custom?.url)),
       });
     }
     return map;
   }, [assessment.draft.footnotes, assessment.sourceLinks, assessment.attachedPapers, readings, customSources]);
 
-  // Go to opens what a reference cites: a reading or an uploaded paper in the reader, in a new
-  // tab, at the highlighted passage or the page when the link has one, and a source added by
-  // hand at its own link.
-  const goToReference = (binding: ReferenceBinding) => {
-    const custom = customSources.find((c) => c.id === binding.sourceId);
-    if (custom) {
-      const url = safeExternalUrl(custom.url);
-      if (url) window.open(url, "_blank", "noopener,noreferrer");
+  // The magnifier opens what a reference cites: a reading or an uploaded paper in the reader,
+  // in a new tab, as the passage of its footnote with only the highlights it draws on, at
+  // the page of its first link when there are none to open at, and a source added by hand at
+  // its own link.
+  const goToReference = (footnoteId: string, binding: ReferenceBinding) => {
+    if (binding.passage) {
+      const page = Number.parseInt(binding.links[0]?.page ?? "", 10);
+      openReading({
+        view: "reader",
+        id: binding.sourceId,
+        ...(Number.isFinite(page) && page > 0 ? { page: page - 1 } : {}),
+        cite: { module: module.id, ...(essayId ? { essay: essayId } : {}), footnote: footnoteId },
+        passage: true,
+      });
       return;
     }
-    const page = Number.parseInt(binding.link?.page ?? "", 10);
-    openReading({
-      view: "reader",
-      id: binding.sourceId,
-      ...(Number.isFinite(page) && page > 0 ? { page: page - 1 } : {}),
-      ...(binding.link?.highlightId ? { hl: binding.link.highlightId } : {}),
-    });
+    const url = safeExternalUrl(customSources.find((c) => c.id === binding.sourceId)?.url);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const linkReference = (footnoteId: string, anchor: HTMLElement | null) => {

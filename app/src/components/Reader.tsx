@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { EXACT_SIZES_UP_TO, exactPageSizes, openPdf, openPdfData, pageSizes } from "../lib/pdfOpen";
 import { loadReader, placesOf } from "../lib/library";
 import { navigate, type CiteTarget } from "../lib/router";
-import { formatChicagoFootnote, getModuleAssessment, linkPassage, useModuleAssessment } from "../lib/assessment";
+import { formatChicagoFootnote, getModuleAssessment, linkPassage, useHighlightReferences, useModuleAssessment } from "../lib/assessment";
 import { numberedFootnotes } from "../lib/essaySources";
 import { bumpFile, commit, insert, newId, sendNow, update } from "../lib/sync";
 import { fullTitle, shortTitle } from "../lib/titles";
@@ -24,11 +24,12 @@ import { defaultTab } from "../lib/outline";
 import { Sidebar, type Tab } from "./reader/Sidebar";
 import { TextView, type TextSelection } from "./reader/TextView";
 import { headingsOf, offsetAtPoint, rectsFor, reflow, type Reflowed } from "../lib/reflow";
-import { fingerDown, SETTLE_NOW, settleDelay, touchScreen, whenLifted, widenSelection } from "../lib/selection";
+import { touchScreen, widenSelection } from "../lib/selection";
 import { reconcile } from "../lib/readingNotes";
 import { reconcileShape } from "../lib/noteShape";
 import { commentWriter } from "../lib/highlightComments";
-import { isDuplicate, isHighlightable, shortcutFor, spaceTogglesAudio, unionRect, type EdgesLike } from "../lib/highlightSelect";
+import { isDuplicate, isHighlightable, shortcutFor, spaceTogglesAudio } from "../lib/highlightSelect";
+import { referencedInLabel } from "../lib/highlightReferences";
 import { TAB_HIDDEN_EVENT, TAB_SHOWN_EVENT } from "../lib/shell";
 import { clampZoom, stepZoom } from "../lib/zoom";
 import { SelectionBar } from "./reader/SelectionBar";
@@ -37,7 +38,7 @@ import type { NoteEditorHandle } from "./NoteEditor";
 import { chooseAppearance, useTheme } from "../lib/appearance";
 import { citable, minutesLeft, readingMinutes } from "../lib/progress";
 import { deleteLabel } from "../lib/kinds";
-import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, toPdfRect, type Crop, type Size, type Theme } from "./reader/pages";
+import { findInDocument, type Needles, mergeRects, PageView, screenRect, textColumn, type Crop, type Size, type Theme } from "./reader/pages";
 import { Appearance, ColourPicker, EndOfReading, outline, PageJump, Popover, ReaderSheet, THEMES, type Active, type Heading } from "./reader/Controls";
 import { isVideoMime } from "../lib/video";
 import { VideoReader } from "./VideoReader";
@@ -52,6 +53,8 @@ import { createPageSurface, createTextSurface, type ListenSurface, type PageBox,
 import { modelIsCached, sharedBrowserEngine } from "../lib/listen/browserEngine";
 import { LocalKokoroEngine } from "../lib/listen/localEngine";
 import { ListenBar } from "./reader/ListenBar";
+import { PassageReader } from "./reader/PassageReader";
+import { usePageSelection, type PageSelection } from "./reader/usePageSelection";
 
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 4;
@@ -59,7 +62,7 @@ const MAX_SCALE = 4;
 // comfortable length on a large screen.
 const MAX_FIT_PX = 900;
 
-interface Selected { page: number; rects: number[][]; text: string; box: EdgesLike }
+type Selected = PageSelection;
 
 const NO_NEEDLES: Needles = { list: [], separate: false };
 const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
@@ -68,13 +71,18 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 const preparationAsked = new Set<string>();
 
 // A reading opens at a page, with a search, at one highlight (hl), as Go to on an essay's
-// reference opens it, or ready to link a passage to an essay's footnote (cite).
-export function Reader({ id, page, q, hl, cite }: { id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget }) {
+// reference opens it, or ready to link a passage to an essay's footnote (cite). With a cite,
+// passage opens it instead as that footnote's passage alone, with only the highlights it
+// draws on. A footnote that is still to be added has no passage to show, so it links as before.
+export function Reader({ id, page, q, hl, cite, passage }: { id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget; passage?: boolean }) {
   const data = useLiveQuery(() => loadReader(id), [id]);
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
   if (isVideoMime(data.file?.mime ?? data.upload?.mime)) {
     return <VideoReader data={data} q={q} />;
+  }
+  if (passage && cite && !cite.footnote.startsWith("new:")) {
+    return <PassageReader id={id} data={data} page={page} cite={cite} />;
   }
   return <PdfReader id={id} data={data} page={page} q={q} hl={hl} cite={cite} />;
 }
@@ -103,6 +111,8 @@ function PdfReader({ id, data, page, q, hl, cite }: { id: string; data: LoadedRe
   dataRef.current = data;
   useTitle(data ? fullTitle(data.item) : undefined);
   const names = useColourNames();
+  // The essays that cite each highlight, so that a highlight's card can say so.
+  const references = useHighlightReferences(id);
   const place = useLiveQuery(async () => (await placesOf([id])).get(id) ?? null, [id], null);
   const narrow = useNarrow();
   const appTheme = useTheme();
@@ -544,58 +554,9 @@ function PdfReader({ id, data, page, q, hl, cite }: { id: string; data: LoadedRe
     setHit(-1);
   }, []);
 
-  // Text selection becomes a highlight toolbar.
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const check = () => {
-      // A selection is not finished while a finger is still on the screen.
-      if (fingerDown()) return;
-      const selection = document.getSelection();
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-        setSelected(null);
-        return;
-      }
-      const range = selection.getRangeAt(0);
-      const start = range.startContainer.nodeType === Node.ELEMENT_NODE
-        ? (range.startContainer as Element)
-        : range.startContainer.parentElement;
-      const pageEl = start?.closest("[data-page]") as HTMLElement | null;
-      if (layoutRef.current === "text" && textRef.current) return;
-      if (!pageEl || !pages.current?.contains(pageEl)) return setSelected(null);
-      const index = Number(pageEl.dataset.page);
-      const viewport = viewports.current.get(index);
-      if (!viewport) return;
-      const box = pageEl.getBoundingClientRect();
-      const client = Array.from(range.getClientRects()).filter(
-        (r) => r.width > 1 && r.height > 1 && r.bottom > box.top && r.top < box.bottom && r.right > box.left && r.left < box.right,
-      );
-      const around = unionRect(client);
-      if (!around) return setSelected(null);
-      setSelected({
-        page: index,
-        rects: mergeRects(client.map((r) => toPdfRect(r, box, viewport))),
-        text: selection.toString().replace(/\s+/g, " ").trim(),
-        box: around,
-      });
-    };
-    const onChange = () => {
-      clearTimeout(timer);
-      timer = setTimeout(check, settleDelay());
-    };
-    const off = whenLifted(() => { clearTimeout(timer); timer = setTimeout(check, 150); });
-    const now = () => { clearTimeout(timer); check(); };
-    document.addEventListener(SETTLE_NOW, now);
-    const onUp = () => document.querySelectorAll(".textLayer.selecting").forEach((el) => el.classList.remove("selecting"));
-    document.addEventListener("selectionchange", onChange);
-    document.addEventListener("pointerup", onUp);
-    return () => {
-      clearTimeout(timer);
-      off();
-      document.removeEventListener(SETTLE_NOW, now);
-      document.removeEventListener("selectionchange", onChange);
-      document.removeEventListener("pointerup", onUp);
-    };
-  }, []);
+  // Text selection becomes a highlight toolbar. In text layout the selection is the text
+  // view's own, so the pages' capture leaves it alone.
+  usePageSelection({ pages, viewports, skip: () => layoutRef.current === "text" && textRef.current, onChange: setSelected });
 
   // Pinch to zoom on touch screens, and ctrl or cmd with the wheel elsewhere.
   useEffect(() => {
@@ -1279,7 +1240,7 @@ function PdfReader({ id, data, page, q, hl, cite }: { id: string; data: LoadedRe
         {left && (
           <Sidebar
             tab={tab} setTab={setTab} doc={doc} sizes={sizes} current={current} headings={headings}
-            itemId={id} highlights={highlights} noteHandle={noteHandle} comments={comments}
+            itemId={id} highlights={highlights} noteHandle={noteHandle} comments={comments} references={references}
             onGoPage={(p) => { goToPage(p); if (narrow) setLeft(false); }}
             onOpenHighlight={(hid) => { const h = highlights.find((x) => x.id === hid); if (h) goTo(h); }}
             onQuoteRemoved={onQuoteRemoved}
@@ -1392,7 +1353,7 @@ function PdfReader({ id, data, page, q, hl, cite }: { id: string; data: LoadedRe
         </ReaderSheet>
       )}
       {active && activeHighlight && (
-        <Popover highlight={activeHighlight} at={active} names={names} onClose={() => setActive(null)} onWrite={() => writeAbout(activeHighlight.id)} />
+        <Popover highlight={activeHighlight} at={active} names={names} onClose={() => setActive(null)} onWrite={() => writeAbout(activeHighlight.id)} referencedIn={referencedInLabel(references.get(activeHighlight.id))} />
       )}
       {listenOpen && listenController && (
         <ListenBar

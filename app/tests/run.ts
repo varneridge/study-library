@@ -34,6 +34,7 @@ import { registerSheetRouteTests } from "./test_sheet";
 import { registerJobLogicTests } from "./test_job_logic";
 import { registerSafetyTests } from "./test_safety";
 import { registerNotesAndReadingsTests } from "./test_notes_and_readings";
+import { registerEssayPassageTests } from "./test_essay_passage";
 import { dismissTopLayer } from "../src/lib/layers";
 import { coverShape, defaultViewMode, isTileMode, parseViewMode, VIEW_MODES, viewSettingKey } from "../src/lib/views";
 import { videoFrameTime } from "../src/lib/videoThumbs";
@@ -1678,6 +1679,7 @@ test("blank-slate sessions offer seminar and lecture, and a session holds one sl
 }
 
 registerNotesAndReadingsTests(test);
+registerEssayPassageTests(test);
 registerListenTests(test);
 await runUpdateTests();
 registerSpokenTextTests(test);

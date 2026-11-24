@@ -38,6 +38,7 @@ import {
   formatCustomFootnote,
   linksForSource,
   normaliseSourceCategory,
+  referenceCount,
   removeLinksForSource,
   removeSourceLink,
   renameSourceLink,
@@ -520,7 +521,7 @@ export function EssaySourcesPanel({
   // Asks first only when page references would go with it, since those are the part
   // that would be hard to put back; the reading itself stays in the module.
   async function removeReading(item: ItemRow) {
-    const count = linksForSource(links, item.id).length;
+    const count = referenceCount(linksForSource(links, item.id));
     if (count) {
       const noun = count === 1 ? "page reference goes" : "page references go";
       const ok = await confirmAction({
@@ -570,7 +571,7 @@ export function EssaySourcesPanel({
   // Deleting asks first only when page references would go with the source, since those
   // are the part that would be hard to put back.
   async function deleteSource(source: EssaySource) {
-    const count = linksForSource(links, source.id).length;
+    const count = referenceCount(linksForSource(links, source.id));
     if (count) {
       const noun = count === 1 ? "page reference goes" : "page references go";
       const ok = await confirmAction({

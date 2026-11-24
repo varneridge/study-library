@@ -454,6 +454,72 @@ export function linksForSource(links: readonly SourceLink[], sourceId: string): 
   return links.filter((link) => link.sourceId === sourceId);
 }
 
+// A reference can draw on several highlights. Each is a link of its own on the same
+// footnote, rather than a list on one link, because a device on an earlier version keeps
+// every link it is sent but drops any field it does not know, so a list would be lost the
+// first time such a device saved the essay.
+export function linksForFootnote(links: readonly SourceLink[], footnoteId: string): SourceLink[] {
+  return links.filter((link) => link.footnoteId === footnoteId);
+}
+
+// The highlights a reference draws on, in the order they were added, each named once.
+export function passageHighlightIds(links: readonly SourceLink[], footnoteId: string): string[] {
+  const ids: string[] = [];
+  for (const link of links) {
+    if (link.footnoteId === footnoteId && link.highlightId && !ids.includes(link.highlightId)) ids.push(link.highlightId);
+  }
+  return ids;
+}
+
+export interface PassageLinkInput {
+  id: string;
+  footnoteId: string;
+  sourceId: string;
+  highlightId: string;
+  quote?: string;
+  page?: string;
+}
+
+// Adds one highlight to a reference. The highlights it already draws on from the same
+// source stay, while a link to the whole work, to a page alone or to another source goes,
+// because the passage now says where the reference points; a name the writer gave such a
+// link is kept on the new one. The same list comes back when the highlight is there already.
+export function addPassageLink(links: SourceLink[], input: PassageLinkInput, now: string = new Date().toISOString()): SourceLink[] {
+  const onNote = linksForFootnote(links, input.footnoteId);
+  if (onNote.some((link) => link.highlightId === input.highlightId && link.sourceId === input.sourceId)) return links;
+  const replaced = onNote.filter((link) => !link.highlightId || link.sourceId !== input.sourceId);
+  const label = replaced.find((link) => link.label)?.label;
+  const added = createSourceLink({ ...input, ...(label ? { label } : {}) }, now);
+  return [...links.filter((link) => !replaced.includes(link)), added];
+}
+
+// Takes one highlight out of a reference, leaving the highlight itself in the reading.
+export function removePassageLink(links: SourceLink[], footnoteId: string, highlightId: string): SourceLink[] {
+  const next = links.filter((link) => !(link.footnoteId === footnoteId && link.highlightId === highlightId));
+  return next.length === links.length ? links : next;
+}
+
+// The locator for a reference made of several links: each page it cites, once and in
+// order, as "pp. 12, 15". One link, or links with no page, read exactly as a single link does.
+export function referenceLocator(links: readonly SourceLink[]): string | null {
+  if (!links.length) return null;
+  if (links.length === 1) return sourceLinkLocator(links[0]);
+  const pages: string[] = [];
+  for (const link of links) {
+    const page = link.wholeDocument ? undefined : link.page?.trim();
+    if (page && !pages.includes(page)) pages.push(page);
+  }
+  if (!pages.length) return sourceLinkLocator(links[0]);
+  pages.sort((a, b) => (Number.parseInt(a, 10) || 0) - (Number.parseInt(b, 10) || 0) || a.localeCompare(b));
+  return sourceLinkLocator({ page: pages.join(", ") });
+}
+
+// How many references a set of links makes, counting the links on one footnote once, so a
+// confirmation never counts one reference's highlights as several references.
+export function referenceCount(links: readonly SourceLink[]): number {
+  return new Set(links.map((link) => link.footnoteId ?? `link:${link.id}`)).size;
+}
+
 // Footnote text as it is compared across a save: trimmed, with runs of space made one
 // and curly quotation marks made straight, since Word may change either on its own.
 export function normaliseFootnoteText(text: string): string {

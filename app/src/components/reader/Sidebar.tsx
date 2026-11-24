@@ -6,6 +6,7 @@ import { NotesLoading } from "../ErrorBoundary";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import type { CommentWriter } from "../../lib/highlightComments";
+import type { HighlightReference } from "../../lib/highlightReferences";
 import type { HighlightRow } from "../../lib/types";
 import { Icon } from "../icons";
 import type { NoteEditorHandle } from "../NoteEditor";
@@ -66,10 +67,11 @@ const Thumb = memo(function Thumb({ doc, index, size, current, onGo }: {
 });
 
 export function Sidebar({
-  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, comments, onGoPage, onOpenHighlight, onQuoteRemoved, onQuoteRestored, onClose,
+  tab, setTab, doc, sizes, current, headings, itemId, highlights, noteHandle, comments, references, onGoPage, onOpenHighlight, onQuoteRemoved, onQuoteRestored, onClose,
 }: {
   tab: Tab; setTab: (tab: Tab) => void; doc: PDFDocumentProxy | null; sizes: Size[]; current: number;
   headings: Heading[]; itemId: string; highlights: HighlightRow[]; noteHandle: Ref<NoteEditorHandle>; comments?: CommentWriter;
+  references?: ReadonlyMap<string, HighlightReference[]>;
   onGoPage: (page: number) => void; onOpenHighlight: (highlightId: string, page: number) => void;
   onQuoteRemoved: (highlightId: string) => void; onQuoteRestored?: (highlightId: string) => void; onClose: () => void;
 }) {
@@ -129,7 +131,7 @@ export function Sidebar({
 
       <div className="pane-body">
         {tab === "notes" && (
-          <QuoteContext.Provider value={{ readingId: itemId, open: onOpenHighlight, highlights: highlightMap, comments }}>
+          <QuoteContext.Provider value={{ readingId: itemId, open: onOpenHighlight, highlights: highlightMap, comments, references }}>
             <div className="reading-notes" data-notes-panel>
               <Suspense fallback={<NotesLoading />}><NoteEditor target={{ item_id: itemId }} handle={noteHandle} onQuoteRemoved={onQuoteRemoved} onQuoteRestored={onQuoteRestored} label="Reading notes" /></Suspense>
             </div>

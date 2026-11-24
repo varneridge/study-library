@@ -18,6 +18,9 @@ export interface SelectionBarProps {
   onDismiss(): void;
   // While the reader is linking a passage to an essay's footnote, links the selection.
   onLink?: () => void;
+  // In the passage reader the selection is only ever added to the passage, so the bar offers
+  // that and Copy and none of the colours or comments. onHighlight and onComment are not used then.
+  onAddToPassage?: () => void;
 }
 
 interface Edges {
@@ -135,7 +138,7 @@ function onScrollBar(e: PointerEvent, el: Element): boolean {
   return pastRight || pastBottom;
 }
 
-export function SelectionBar({ anchor, colours, current, onHighlight, onComment, onCopy, onDismiss, onLink }: SelectionBarProps) {
+export function SelectionBar({ anchor, colours, current, onHighlight, onComment, onCopy, onDismiss, onLink, onAddToPassage }: SelectionBarProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   // While the selection is scrolled out of sight the bar is hidden, rather
@@ -212,41 +215,49 @@ export function SelectionBar({ anchor, colours, current, onHighlight, onComment,
       data-selection-bar=""
       className="selection-bar"
       role="toolbar"
-      aria-label="Highlight selection"
+      aria-label={onAddToPassage ? "Add the selection to the passage" : "Highlight selection"}
       style={{ ...BAR_STYLE, left: position?.left ?? 0, top: position?.top ?? 0, visibility: position && !offscreen ? "visible" : "hidden" }}
       // Keeping the mouse press from moving focus is what preserves the
       // selection while the reader reaches for a button.
       onMouseDown={(e) => e.preventDefault()}
     >
-      {/* Linking a passage is the one thing the selection is for while it is offered, so it comes first. */}
-      {onLink && (
-        <button type="button" className="selection-bar-link" style={{ ...BUTTON_STYLE, fontWeight: 600 }} onClick={onLink}>
-          Link passage
+      {onAddToPassage ? (
+        <button type="button" className="selection-bar-link" style={{ ...BUTTON_STYLE, fontWeight: 600 }} aria-keyshortcuts="H" onClick={onAddToPassage}>
+          Add to passage
         </button>
-      )}
-      <button type="button" className="selection-bar-primary" style={BUTTON_STYLE} aria-keyshortcuts="H" onClick={() => onHighlight(current)}>
-        <span aria-hidden="true" style={dot(current, "0.9rem")} />
-        <span>Highlight</span>
-      </button>
-      <span role="group" aria-label="Highlight colour" style={{ display: "inline-flex", gap: "0.2rem", padding: "0 0.25rem" }}>
-        {colours.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            data-colour={c.value}
-            aria-label={`Highlight ${c.label}`}
-            title={c.label}
-            aria-pressed={c.value === current}
-            style={{ ...BUTTON_STYLE, minHeight: "1.75rem", padding: "0 0.2rem" }}
-            onClick={() => onHighlight(c.value)}
-          >
-            <span aria-hidden="true" style={dot(c.value, c.value === current ? "1.1rem" : "0.9rem")} />
+      ) : (
+        <>
+          {/* Linking a passage is the one thing the selection is for while it is offered, so it comes first. */}
+          {onLink && (
+            <button type="button" className="selection-bar-link" style={{ ...BUTTON_STYLE, fontWeight: 600 }} onClick={onLink}>
+              Link passage
+            </button>
+          )}
+          <button type="button" className="selection-bar-primary" style={BUTTON_STYLE} aria-keyshortcuts="H" onClick={() => onHighlight(current)}>
+            <span aria-hidden="true" style={dot(current, "0.9rem")} />
+            <span>Highlight</span>
           </button>
-        ))}
-      </span>
-      <button type="button" className="selection-bar-comment" style={BUTTON_STYLE} aria-keyshortcuts="C" onClick={() => onComment(current)}>
-        Comment
-      </button>
+          <span role="group" aria-label="Highlight colour" style={{ display: "inline-flex", gap: "0.2rem", padding: "0 0.25rem" }}>
+            {colours.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                data-colour={c.value}
+                aria-label={`Highlight ${c.label}`}
+                title={c.label}
+                aria-pressed={c.value === current}
+                style={{ ...BUTTON_STYLE, minHeight: "1.75rem", padding: "0 0.2rem" }}
+                onClick={() => onHighlight(c.value)}
+              >
+                <span aria-hidden="true" style={dot(c.value, c.value === current ? "1.1rem" : "0.9rem")} />
+              </button>
+            ))}
+          </span>
+          <button type="button" className="selection-bar-comment" style={BUTTON_STYLE} aria-keyshortcuts="C" onClick={() => onComment(current)}>
+            Comment
+          </button>
+        </>
+      )}
       <button type="button" className="selection-bar-copy" style={BUTTON_STYLE} onClick={onCopy}>
         Copy
       </button>
