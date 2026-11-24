@@ -70,13 +70,16 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     # Open the essay page and add the reading to it
     page.goto(BASE + "/")
     page.locator(".module-row, .module-card", has_text="HY320").first.click()
-    page.locator(".course-materials .section-toggle").click()
-    page.locator(".course-materials .assessment-card").first.click()
+    materials = page.locator(".course-materials")
+    expect(materials).to_be_visible()
+    materials.get_by_role("button", name="Add to course materials").click()
+    page.get_by_role("menuitem", name="Essay").click()
+    materials.locator(".essay-card .week-card-title-link").first.click()
     expect(page.locator(".essay-page")).to_be_visible()
 
     page.locator(".essay-ws-add-toggle").click()
-    page.get_by_role("checkbox").first.check()
-    page.get_by_role("button", name=re.compile(r"^Add \(")).click()
+    page.locator(".essay-ws-pick-row").first.click()
+    page.get_by_role("button", name="Add reading", exact=True).click()
     source_row = page.locator(".essay-ws-source", has_text="Global Cold War")
     expect(source_row).to_be_visible()
 
@@ -157,8 +160,7 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     # Check 390px magnifier touch target on essay page
     page.goto(BASE + "/")
     page.locator(".module-row, .module-card", has_text="HY320").first.click()
-    page.locator(".course-materials .section-toggle").click()
-    page.locator(".course-materials .assessment-card").first.click()
+    page.locator(".course-materials .essay-card .week-card-title-link").first.click()
     page.set_viewport_size({"width": 390, "height": 844})
     page.get_by_role("tab", name="References").click()
     mag_mobile = page.locator(".essay-ws-ref-passage").first.bounding_box()

@@ -141,19 +141,43 @@ export function normaliseSourceCategory(
 
 // What kind of primary source a reading is, which names the field that holds its
 // details on the source card (the newspaper, where a speech was given, and so on).
-export type PrimaryType = "image" | "newspaper" | "speech" | "other";
+export type PrimaryType =
+  | "document"
+  | "letter"
+  | "diary"
+  | "official"
+  | "newspaper"
+  | "speech"
+  | "image"
+  | "treaty"
+  | "other";
 
-export const PRIMARY_TYPES: readonly PrimaryType[] = ["image", "newspaper", "speech", "other"];
+export const PRIMARY_TYPES: readonly PrimaryType[] = [
+  "document",
+  "letter",
+  "diary",
+  "official",
+  "newspaper",
+  "speech",
+  "image",
+  "treaty",
+  "other",
+];
 
 export const PRIMARY_TYPE_LABEL: Record<PrimaryType, string> = {
-  image: "Image",
+  document: "Archive document",
+  letter: "Letter",
+  diary: "Diary or memoir",
+  official: "Official paper",
   newspaper: "Newspaper",
   speech: "Speech",
+  image: "Image",
+  treaty: "Treaty or law",
   other: "Other",
 };
 
 export function isPrimaryType(value: unknown): value is PrimaryType {
-  return value === "image" || value === "newspaper" || value === "speech" || value === "other";
+  return typeof value === "string" && (PRIMARY_TYPES as readonly string[]).includes(value);
 }
 
 // What one essay knows about one of its sources beyond the source itself: the group it

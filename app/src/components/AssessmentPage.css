@@ -554,29 +554,44 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
    form's own gap already separates them. */
 @media (min-width: 44.01rem) {
   dialog.sheet-dialog.essay-ws-intake-sheet {
-    max-width: 44rem;
+    max-width: 48rem;
+  }
+}
+
+@media (min-width: 34.01rem) {
+  dialog.sheet-dialog.essay-ws-intake-sheet .sheet-body {
+    overflow: hidden;
+    padding: 0;
+    min-height: 0;
   }
 }
 
 .essay-ws-intake {
   display: grid;
-  grid-template-columns: 10.5rem minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(12rem, 38%) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
 }
 
 .essay-ws-intake-thumb {
-  display: grid;
-  gap: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   min-width: 0;
+  min-height: 0;
+  padding: 1.25rem 0 1.25rem 1.25rem;
 }
 
-/* The frame has the proportions of an A4 page, so that a portrait page fills it from top to
-   bottom, and a picture of any other shape is shown whole rather than cropped. */
+/* The thumbnail fills the full height of the card on the left and stays fixed while only
+   the options column on the right scrolls. */
 .essay-ws-intake-thumb-frame {
   display: grid;
   place-items: center;
-  aspect-ratio: 1 / 1.414;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   overflow: hidden;
   border-radius: var(--r-sm);
   background: var(--surface);
@@ -587,10 +602,11 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  object-position: center top;
+  object-position: center;
 }
 
 .essay-ws-intake-file {
+  flex: none;
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -600,8 +616,12 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
 
 .essay-ws-intake-fields {
   display: grid;
+  align-content: start;
   gap: 0.9rem;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem;
 }
 
 .essay-ws-intake-fields > p {
@@ -635,9 +655,20 @@ dialog.choice-card.essay-ws-add-pick:not(.sheet) {
   }
 
   .essay-ws-intake-thumb {
+    display: grid;
     grid-template-columns: 4.5rem minmax(0, 1fr);
     align-items: center;
     gap: 0.75rem;
+    padding: 0;
+  }
+
+  .essay-ws-intake-thumb-frame {
+    aspect-ratio: 1 / 1.414;
+  }
+
+  .essay-ws-intake-fields {
+    overflow: visible;
+    padding: 0;
   }
 }
 

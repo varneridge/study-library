@@ -36,9 +36,14 @@ const WORK_KINDS: { value: SourceDraft["work_kind"]; label: string }[] = [
 // What a primary source's details field asks for depends on its type, so that a
 // newspaper is named as one and a speech is placed where it was given.
 const PRIMARY_DETAILS: Record<PrimaryType, { label: string; placeholder: string }> = {
-  image: { label: "Collection or archive", placeholder: "Such as the Imperial War Museum, or TNA INF 3" },
+  document: { label: "Collection or archive", placeholder: "Such as TNA FO 371/1234" },
+  letter: { label: "Recipient or archive", placeholder: "Such as Letter to Eden, or TNA PREM 8/432" },
+  diary: { label: "Edition or archive", placeholder: "Such as Diaries, Vol. 2" },
+  official: { label: "Department or series", placeholder: "Such as Hansard, or Cmd. 7012" },
   newspaper: { label: "Newspaper", placeholder: "Such as The Times" },
   speech: { label: "Where it was given", placeholder: "Such as the House of Commons" },
+  image: { label: "Collection or archive", placeholder: "Such as the Imperial War Museum, or TNA INF 3" },
+  treaty: { label: "Series or reference", placeholder: "Such as Cmd. 7240, or UNTS" },
   other: { label: "Details", placeholder: "Such as an archive reference" },
 };
 
