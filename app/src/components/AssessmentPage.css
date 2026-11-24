@@ -288,6 +288,12 @@
   margin-right: auto;
 }
 
+.essay-ws-refs-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .essay-ws-card-title {
   margin: 0;
   font-family: var(--sans);

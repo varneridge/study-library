@@ -132,10 +132,8 @@ function withLinks(current: AssessmentData, change: (links: SourceLink[]) => Sou
 }
 
 // Cites a source with a footnote at the end of the draft, as dropping it on References
-// does, and leaves the draft alone when a footnote already cites it, so that two quick
-// taps still make a single note.
+// Appends a footnote for a source at the end of the draft.
 function withFootnote(current: AssessmentData, sourceId: string, text: string): AssessmentData {
-  if (current.draft.footnotes.some((note) => note.citationItemId === sourceId)) return current;
   const footnoteId = `fn-${newId()}`;
   const blocks = [...current.draft.blocks];
   const last = blocks.length - 1;
@@ -503,13 +501,10 @@ export function EssaySourcesPanel({
     return saved;
   }
 
-  // Resolves to whether a footnote was saved, so that the Cite button can hand its focus on.
+  // Guards against rapid double-taps while the save is in flight, while allowing a source
+  // that is already cited to be cited again.
   async function cite(id: string, text: string | null | undefined): Promise<boolean> {
     if (!text || citingRef.current.has(id)) return false;
-    if (citedIds.has(id)) {
-      showToast("That source is already cited in the references.");
-      return false;
-    }
     citingRef.current.add(id);
     setCiting(new Set(citingRef.current));
     try {
@@ -817,7 +812,7 @@ export function EssaySourcesPanel({
     const items: MenuItem[] = reading
       ? [
           { label: "Edit details", onSelect: () => onEdit(ref) },
-          ...(cited ? [] : [{ label: "Cite in the draft", onSelect: () => void cite(reading.id, footnoteText) }]),
+          { label: "Cite in the draft", onSelect: () => void cite(reading.id, footnoteText) },
           { label: "Move to", items: moveItems(ref, category, Boolean(reading.file_id)) },
           { label: "Remove from essay", onSelect: () => void removeReading(reading) },
         ]
@@ -825,7 +820,7 @@ export function EssaySourcesPanel({
         ? [
             { label: "Edit details", onSelect: () => onEdit(ref) },
             { label: "Page references", onSelect: () => openReferences(source.id) },
-            ...(cited ? [] : [{ label: "Cite in the draft", onSelect: () => void cite(source.id, footnoteText) }]),
+            { label: "Cite in the draft", onSelect: () => void cite(source.id, footnoteText) },
             { label: "Move to", items: moveItems(ref, category, row.paper && "r2Key" in source && Boolean(source.r2Key)) },
             { label: "Delete source", danger: true, onSelect: () => void deleteSource(source) },
           ]
@@ -855,34 +850,24 @@ export function EssaySourcesPanel({
             </div>
           )}
         </div>
-        {/* One slot before the menu: a tick when the source is cited, and otherwise a Cite
-            button, so that citing is one tap and a cited row needs no row of its own. */}
-        {cited ? (
+        {/* Trailing status and Cite action before the menu: a tick stays visible once the
+            source has been cited, and the Cite button remains available for repeat citations. */}
+        {cited && (
           <span className="essay-ws-source-cited" role="img" aria-label="Cited in the draft" title="Cited in the draft">
             <Icon name="check" size={16} />
           </span>
-        ) : (
-          (reading || source) && (
-            <button
-              type="button"
-              className="quiet essay-ws-source-cite"
-              aria-label={`Cite \u201c${row.title}\u201d in the draft`}
-              title="Cite in the draft"
-              disabled={citing.has(row.id)}
-              onClick={(event) => {
-                // The button goes once the note is saved, so focus that it holds moves to the
-                // title; a tap that never focused it leaves the focus where it was.
-                const button = event.currentTarget;
-                const held = document.activeElement === button;
-                const item = button.closest("li");
-                void cite(row.id, footnoteText).then((saved) => {
-                  if (saved && held) item?.querySelector<HTMLElement>(".essay-ws-source-title")?.focus();
-                });
-              }}
-            >
-              <Icon name="cite" size={16} />
-            </button>
-          )
+        )}
+        {(reading || source) && (
+          <button
+            type="button"
+            className="quiet essay-ws-source-cite"
+            aria-label={`Cite \u201c${row.title}\u201d in the draft`}
+            title="Cite in the draft"
+            disabled={citing.has(row.id)}
+            onClick={() => void cite(row.id, footnoteText)}
+          >
+            <Icon name="cite" size={16} />
+          </button>
         )}
         <span className="essay-ws-source-menu">
           <Menu label={`Actions for ${row.title}`} items={items} />

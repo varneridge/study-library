@@ -250,7 +250,8 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     expect(wp.locator(".essay-sheet-container")).to_contain_text("Paragraph 44")
 
     # Add a source by hand and cite it directly with one double-click: only one footnote is created,
-    # the inline tick replaces the cite button, and no extra "Cited" chip row is rendered.
+    # the inline tick appears, no extra "Cited" chip row is rendered, and the Cite button stays
+    # available so the same source can be cited again.
     wp.locator(".essay-ws-add-toggle").click()
     wp.get_by_role("button", name="Add by hand").click()
     wp.get_by_label("Title", exact=True).fill("Fischer, Germany's Aims in the First World War")
@@ -261,9 +262,19 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     source_row.hover()
     cite_btn.dblclick()
     expect(wp.get_by_role("heading", name="References (1)", exact=True)).to_be_visible()
-    expect(source_row.locator(".essay-ws-source-cite")).to_have_count(0)
     expect(source_row.locator(".essay-ws-source-cited")).to_be_visible()
+    expect(cite_btn).to_be_visible()
     expect(wp.locator(".essay-ws-chip")).to_have_count(0)
+
+    # Citing the same source a second time adds a second footnote, and the Cite button at the top
+    # of References opens the SourcePicker to cite from there too.
+    cite_btn.click()
+    expect(wp.get_by_role("heading", name="References (2)", exact=True)).to_be_visible()
+    wp.locator(".essay-ws-refs-cite").click()
+    picker = wp.get_by_role("dialog", name="Cite a source")
+    expect(picker).to_be_visible()
+    picker.get_by_role("button", name="Cite the whole source").first.click()
+    expect(wp.get_by_role("heading", name="References (3)", exact=True)).to_be_visible()
 
     # Scroll to the top, open the reference menu, and click "Show where it is cited":
     # closing the menu must not cancel the smooth scroll to the cited sentence below the fold.

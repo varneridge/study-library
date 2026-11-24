@@ -912,6 +912,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   // The reference whose link is being chosen, and the field the picker sits beside.
   const [linking, setLinking] = useState<string | null>(null);
   const linkAnchor = useRef<HTMLElement | null>(null);
+  const [citing, setCiting] = useState(false);
+  const citeAnchor = useRef<HTMLButtonElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
   // The preview is mounted only while it is the chosen view, so the measuring hooks follow the
@@ -1139,22 +1141,6 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     return list;
   }, [chosenModuleItems, customSources]);
 
-  const citedIds = useMemo(() => {
-    const set = new Set<string>();
-    orderedFootnotes.forEach((fn) => {
-      if (fn.text) {
-        const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
-        if (rawFn?.citationItemId) set.add(rawFn.citationItemId);
-        allResearchItems.forEach((ri) => {
-          if (ri.title.length > 4 && fn.text.toLowerCase().includes(ri.title.toLowerCase())) {
-            set.add(ri.id);
-          }
-        });
-      }
-    });
-    return set;
-  }, [orderedFootnotes, assessment.draft.footnotes, allResearchItems]);
-
   const handleSaveFootnote = (fnId: string, newText: string) => {
     void save((prev) => ({
       ...prev,
@@ -1216,15 +1202,9 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     }
   };
 
-  // Cites a source with a footnote at the end of the draft, for the "+ Cite" button and for a
-  // drop on the references. The draft is checked again inside the save, so two quick drops of
-  // the same source still leave a single footnote.
+  // Cites a source with a footnote at the end of the draft, for a drop on the references
+  // or when citing a whole source.
   const citeInDraft = async (item: ResearchItem) => {
-    const already = "That source is already cited in the references.";
-    if (citedIds.has(item.id)) {
-      showToast(already);
-      return;
-    }
     const text = item.moduleItem
       ? formatChicagoFootnote(item.moduleItem)
       : item.customSource
@@ -1232,10 +1212,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         : null;
     if (!text) return;
     const footnoteId = `fn-${newId()}`;
-    let added = false;
-    await save((prev) => {
-      if (prev.draft.footnotes.some((f) => f.citationItemId === item.id)) return prev;
-      added = true;
+    const saved = await save((prev) => {
       const blocks = [...prev.draft.blocks];
       const last = blocks.length - 1;
       if (last >= 0) {
@@ -1250,7 +1227,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
       };
     });
-    showToast(added ? "Footnote added at the end of the draft." : already);
+    if (saved) showToast("Footnote added at the end of the draft.");
   };
 
   // An admin document uploaded before admin documents had readings of their own is only a
@@ -1426,6 +1403,38 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         choice.kind === "passage"
           ? `${name} is linked to its source. Select the passage in the reading, then choose Link passage.`
           : `${name} is linked to the whole source.`,
+      );
+    });
+  };
+
+  // Cites a source from the References Cite button, matching the word processor's picker:
+  // a whole source adds a footnote at the end of the draft, and a passage also opens the
+  // reading in a new tab so the passage can be linked straight onto that footnote.
+  const pickCitation = (choice: SourceChoice) => {
+    const footnoteId = `fn-${newId()}`;
+    if (choice.kind === "passage") {
+      openReading({ view: "reader", id: choice.sourceId, cite: { module: module.id, ...(essayId ? { essay: essayId } : {}), footnote: footnoteId } });
+    }
+    void save((prev) => {
+      const blocks = [...prev.draft.blocks];
+      const last = blocks.length - 1;
+      if (last >= 0) {
+        blocks[last] = {
+          ...blocks[last],
+          runs: [...blocks[last].runs, { type: "footnote_ref", footnoteId }],
+        };
+      }
+      const note: DocxFootnote = { id: footnoteId, text: choice.footnoteText, citationItemId: choice.sourceId };
+      return {
+        ...prev,
+        draft: { ...prev.draft, blocks, footnotes: [...prev.draft.footnotes, note] },
+      };
+    }).then((saved) => {
+      if (!saved) return;
+      showToast(
+        choice.kind === "passage"
+          ? "Footnote added at the end of the draft. Select the passage in the reading, then choose Link passage."
+          : "Footnote added at the end of the draft.",
       );
     });
   };
@@ -1849,6 +1858,21 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
             <DropZone list="references" className="essay-ws-card essay-ws-refs">
               <div className="essay-ws-card-head">
                 <h2 className="essay-ws-card-title">References ({orderedFootnotes.length})</h2>
+                {hasSources && (
+                  <button
+                    ref={citeAnchor}
+                    type="button"
+                    className="button quiet small essay-ws-refs-cite"
+                    title="Cite a source"
+                    aria-label="Cite a source"
+                    aria-haspopup="dialog"
+                    aria-expanded={citing}
+                    onClick={() => setCiting(true)}
+                  >
+                    <Icon name="cite" size={14} />
+                    Cite
+                  </button>
+                )}
                 {(orderedFootnotes.length > 0 || hasSources) && (
                   <button type="button" className="button quiet small" onClick={() => void copyBibliography()}>
                     Copy bibliography
@@ -1865,7 +1889,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               </div>
               {orderedFootnotes.length === 0 ? (
                 <p className="small muted essay-ws-refs-empty">
-                  No references yet, so use Cite beside a source, or add a footnote when you edit in Word.
+                  No references yet, so use Cite above or beside a source, or add a footnote when you edit in Word.
                 </p>
               ) : (
                 <ol className="essay-ws-ref-list">
@@ -1915,6 +1939,17 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         essayId={essayId}
         title="Link to a source"
         onPick={pickLinkSource}
+      />
+
+      <SourcePicker
+        open={citing}
+        onClose={() => setCiting(false)}
+        anchor={citeAnchor}
+        moduleId={module.id}
+        moduleCode={module.code}
+        essayId={essayId}
+        title="Cite a source"
+        onPick={pickCitation}
       />
 
       <input
