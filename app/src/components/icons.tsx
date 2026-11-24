@@ -60,6 +60,8 @@ const paths = {
   viewLarge: <><rect x="3.25" y="3.25" width="13.5" height="9.75" /><path d="M3.25 16.25h8.5" /></>,
   clock: <><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.25l3 1.75" /></>,
   external: <><path d="M11.5 3.5h5v5M16.5 3.5 9.5 10.5" /><path d="M8.5 5H4.25v10.75H15V11.5" /></>,
+  // A pair of opening quotation marks, for citing a source in the word processor.
+  cite: <path d="M3.5 10.5h4.5v4.5H3.5zM3.5 10.5a4 4 0 0 1 4-4M11.5 10.5h4.5v4.5h-4.5zM11.5 10.5a4 4 0 0 1 4-4" />,
   // The sync symbols, one for each status in lib/syncStatus: a loop that
   // spins while changes or files are on their way, and a cloud otherwise,
   // with a tick once everything is saved, an arrow while changes wait to be

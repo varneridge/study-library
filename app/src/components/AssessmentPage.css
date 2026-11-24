@@ -26,10 +26,29 @@
  *   .essay-corner-button         one control of the bar, holding text or a drawn glyph
  *   .essay-corner-sep            a hairline between the bar's groups of controls
  *   .essay-ws-sources-card       the single Readings and sources card
- *   .essay-ws-add-panel          the choices the card's Add control opens
+ *   .essay-ws-pick               the floating card of the Add control and of the source picker, with
+ *                                its search (-search), list (-list), rows (-row, -main, -title, -sub,
+ *                                -snippet, -actions), empty line (-empty) and foot (-foot)
+ *   .essay-ws-intake             the source card's form: the file's picture (-thumb, -thumb-frame,
+ *                                -file), its fields (-fields), the role control (-role) and the count
+ *                                in its foot (-count)
+ *   .essay-ws-docs               the admin documents, whose rows are drawn exactly as source rows
+ *   .essay-ws-ref-link           the line under a reference that names the source it is linked to,
+ *                                with its Go to button (.essay-ws-ref-goto)
+ *   .is-drop-target              the part of the page that dropped files would go to
  *   .essay-ws-source-groups      the list of Primary, Secondary (course), Secondary (outside)
  *   .essay-ws-source-item        one row with its references editor, when open
  *   .essay-ws-source-editor      the page references of one uploaded or hand-added source
+ *
+ * Type scale. Five roles share four sizes, so that weight and wrapping, not a crowd of sizes,
+ * make the hierarchy:
+ *   the essay's title    --fs-xl, in the display face
+ *   card titles          --fs-md, 600, such as Brief, Readings and sources and References
+ *   group headings       --fs-sm, 600, muted, such as Admin documents and Primary
+ *   rows and body        --fs-sm
+ *   metadata and chips   --fs-xs, such as counts, chips and small actions
+ * Text wraps at word breaks and hyphenates (the page sets lang="en-GB"), and every box that
+ * holds wrapping text has min-width: 0, so that a long word never widens a column.
  */
 
 /* The page runs to the edges of the window, so that the three columns can use every pixel of
@@ -88,7 +107,9 @@
   letter-spacing: -0.018em;
   line-height: 1.2;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  text-wrap: pretty;
   resize: none;
 }
 
@@ -275,7 +296,7 @@
 
 .essay-ws-count {
   color: var(--faint);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -316,77 +337,17 @@
   font-weight: 600;
 }
 
-.essay-ws-docs,
 .essay-ws-ref-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0.25rem;
-}
-
-.essay-ws-docs li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "name remove" "meta remove";
-  align-items: center;
-  column-gap: 0.5rem;
-  padding: 0.25rem 0.35rem;
-  border-radius: var(--r-sm);
-}
-
-.essay-ws-docs li:hover,
-.essay-ws-docs li:focus-within {
-  background: var(--surface-hover);
-}
-
-.essay-ws-doc-name {
-  grid-area: name;
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-a.essay-ws-doc-name {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--fs-sm);
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-a.essay-ws-doc-name:hover {
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-}
-
-.essay-ws-docs li > .small {
-  grid-area: meta;
-}
-
-/* Remove is a small quiet word that appears when the row is pointed at or holds focus,
-   so that a list of papers does not carry a large box beside every name. */
-.essay-ws-docs li > .button {
-  grid-area: remove;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.essay-ws-docs li:hover > .button,
-.essay-ws-docs li:focus-within > .button {
-  opacity: 1;
-}
-
-.essay-ws-docs li > .button:hover {
-  color: var(--danger);
-}
-
-/* Small actions inside rows share one compact size, so that References, admin documents
-   and the source editor all read as text that lifts on hover rather than as boxes. */
-.essay-ws-docs li > .button,
+/* Small actions inside rows share one compact size, so that References and the source
+   editor read as text that lifts on hover rather than as boxes. */
 .essay-ws-refs .essay-ws-ref-tools .button,
 .essay-ws-source-editor .button {
   height: auto;
@@ -412,48 +373,290 @@ a.essay-ws-doc-name:hover {
   flex: none;
 }
 
-/* The Add control opens a small panel of three choices directly under the card's head,
-   which is lighter than a dialog for so few options and keeps a visible Cancel. */
-.essay-ws-add-panel {
+/* The Add control's card and the source picker are choice cards: a small panel beside their
+   button on a laptop and a sheet from the foot of the screen on a phone, in front of the page
+   rather than filling a column. Their search is the app's own search field, so it clears in
+   one tap, and their list scrolls inside them, so that the search and Cancel stay in view. */
+dialog.choice-card.essay-ws-pick {
+  width: min(26rem, calc(100vw - 1rem));
+}
+
+dialog.choice-card.essay-ws-pick.sheet {
+  width: 100%;
+}
+
+.essay-ws-pick-search {
+  margin-bottom: 0.6rem;
+}
+
+.essay-ws-pick-list {
+  list-style: none;
+  margin: 0 -0.4rem;
+  padding: 0;
   display: grid;
   gap: 0.1rem;
-  padding: 0.25rem;
-  border-radius: var(--r-md);
-  background: var(--card);
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.essay-ws-add-choice {
+/* A row is flat, and lifts onto a soft surface when pointed at, as the page's other rows do.
+   Where a row is itself a button, as in the Add card, one tap chooses it, and a chosen row
+   takes the house look for selected: the soft accent with accent text. */
+.essay-ws-pick-row {
   display: grid;
-  gap: 0.05rem;
-  width: 100%;
+  gap: 0.35rem;
+  min-width: 0;
   padding: 0.45rem 0.6rem;
-  border: 0;
   border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-family: var(--sans);
-  font-size: var(--fs-sm);
   text-align: left;
-  cursor: pointer;
 }
 
-.essay-ws-add-choice:hover {
+.essay-ws-pick-row:hover,
+.essay-ws-pick-row:focus-within {
   background: var(--surface);
 }
 
-.essay-ws-add-choice:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+button.essay-ws-pick-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
 }
 
-.essay-ws-add-choice-note {
+button.essay-ws-pick-row[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.essay-ws-pick-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.essay-ws-pick-title {
+  font-family: var(--serif);
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  text-wrap: pretty;
+}
+
+.essay-ws-pick-sub {
   color: var(--muted);
+  font-family: var(--sans);
   font-size: var(--fs-xs);
 }
 
-.essay-ws-add-cancel {
-  justify-self: end;
+/* Where in a reading's own text the words were found, with the words themselves marked. */
+.essay-ws-pick-snippet {
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.essay-ws-pick-snippet mark {
+  border-radius: var(--r-xs);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.essay-ws-pick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.essay-ws-pick-actions .button {
+  padding: 0.2rem 0.55rem;
+  font-size: var(--fs-xs);
+}
+
+/* The quieter action is plain text that lifts on hover, so that the main one stands out. */
+.essay-ws-pick-actions .button.quiet {
+  background: transparent;
+  color: var(--muted);
+}
+
+.essay-ws-pick-actions .button.quiet:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.essay-ws-pick-empty {
+  margin: 0;
+  padding: 0.6rem 0;
+}
+
+/* The Add card's other ways in sit under its list as plain words that lift on hover. */
+.essay-ws-pick-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.6rem;
+}
+
+/* The source card is wider than an ordinary sheet, to hold the file's picture beside its
+   fields, and stacks them on a phone. The picture rests on a soft surface, with no line
+   around it, and the fields drop the page's usual space under a labelled field, because the
+   form's own gap already separates them. */
+@media (min-width: 44.01rem) {
+  dialog.sheet-dialog.essay-ws-intake-sheet {
+    max-width: 40rem;
+  }
+}
+
+.essay-ws-intake {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.essay-ws-intake-thumb {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.essay-ws-intake-thumb-frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1.38;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.essay-ws-intake-thumb-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.essay-ws-intake-file {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.essay-ws-intake-fields {
+  display: grid;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.essay-ws-intake-fields > p {
+  margin: 0;
+}
+
+.essay-ws-intake-fields .field {
+  margin: 0;
+}
+
+.essay-ws-intake-fields input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.essay-ws-intake-role {
+  justify-self: start;
+}
+
+.essay-ws-intake-count {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 34rem) {
+  .essay-ws-intake {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+
+  .essay-ws-intake-thumb {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+  }
+}
+
+/* The part of the page that dropped files would go to is filled with the soft accent, as a
+   chosen thing is everywhere, and the fill reaches a little beyond its text without moving it. */
+.is-drop-target {
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 0.35rem var(--accent-soft);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* A linked reference names its source under its text, with Go to beside it, which stays in
+   view because opening the passage is what a link is for. Go to is a chip, with the larger
+   invisible tap area that a chip keeps. */
+.essay-ws-ref-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+  min-width: 0;
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.essay-ws-ref-link-title {
+  min-width: 0;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.essay-ws-ref-goto {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-family: var(--sans);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.essay-ws-ref-goto::after {
+  content: "";
+  position: absolute;
+  inset: -0.4rem -0.25rem;
+}
+
+.essay-ws-ref-goto:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.essay-ws-ref-goto:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .essay-ws-source-groups {
@@ -478,25 +681,28 @@ a.essay-ws-doc-name:hover {
   padding: 0 0.4rem;
   color: var(--muted);
   font-family: var(--sans);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 
 .essay-ws-source-group-count {
   margin-left: auto;
   color: var(--faint);
+  font-size: var(--fs-xs);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
 /* Rows follow the week page's readings: flat, with no lines between them, and the row
    under the pointer lifts onto a soft surface across its whole width. */
-.essay-ws-sources {
+.essay-ws-sources,
+.essay-ws-docs {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0;
+  min-width: 0;
 }
 
 .essay-ws-source-item {
@@ -507,7 +713,8 @@ a.essay-ws-doc-name:hover {
   opacity: 0.45;
 }
 
-.essay-ws-source {
+.essay-ws-source,
+.essay-ws-docs li {
   display: flex;
   align-items: flex-start;
   gap: 0.25rem;
@@ -519,7 +726,9 @@ a.essay-ws-doc-name:hover {
 }
 
 .essay-ws-source:hover,
-.essay-ws-source:focus-within {
+.essay-ws-source:focus-within,
+.essay-ws-docs li:hover,
+.essay-ws-docs li:focus-within {
   background: var(--surface-hover);
 }
 
@@ -537,8 +746,10 @@ a.essay-ws-doc-name:hover {
 }
 
 /* A title wraps onto as many lines as it needs, so that none is cut short and the whole of
-   a long title can be read without opening the reader. */
-.essay-ws-source-title {
+   a long title can be read without opening the reader. An admin document's name is drawn
+   the same way, whether it is a link or a button, so that it never shows a box of its own. */
+.essay-ws-source-title,
+.essay-ws-doc-name {
   display: block;
   min-width: 0;
   max-width: 100%;
@@ -552,16 +763,23 @@ a.essay-ws-doc-name:hover {
   text-align: left;
   text-decoration: none;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
   text-wrap: pretty;
   cursor: pointer;
 }
 
-.essay-ws-source-title:hover {
+.essay-ws-doc-name {
+  flex: 1;
+}
+
+.essay-ws-source-title:hover,
+.essay-ws-doc-name:hover {
   color: var(--accent);
 }
 
-.essay-ws-source-title:focus-visible {
+.essay-ws-source-title:focus-visible,
+.essay-ws-doc-name:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: var(--r-xs);
@@ -620,7 +838,8 @@ a.essay-ws-doc-name:hover {
 
 /* Each row keeps its actions in its ••• menu, which appears when the row is pointed at
    or holds focus, so that thirty quiet rows do not each carry a set of buttons. */
-.essay-ws-source-menu {
+.essay-ws-source-menu,
+.essay-ws-doc-menu {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -629,7 +848,9 @@ a.essay-ws-doc-name:hover {
 }
 
 .essay-ws-source:hover .essay-ws-source-menu,
-.essay-ws-source:focus-within .essay-ws-source-menu {
+.essay-ws-source:focus-within .essay-ws-source-menu,
+.essay-ws-docs li:hover .essay-ws-doc-menu,
+.essay-ws-docs li:focus-within .essay-ws-doc-menu {
   opacity: 1;
 }
 
@@ -637,6 +858,7 @@ a.essay-ws-doc-name:hover {
    read as belonging to that row rather than as a new card. */
 .essay-ws-source-editor {
   display: grid;
+  min-width: 0;
   gap: 0.4rem;
   margin: 0.15rem 0 0.4rem 0.4rem;
   padding: 0.5rem 0.6rem;
@@ -797,6 +1019,9 @@ a.essay-ws-doc-name:hover {
 
 .essay-ws-sheet-actions {
   display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   justify-content: flex-end;
 }
@@ -890,7 +1115,8 @@ a.essay-ws-doc-name:hover {
   font-family: var(--serif);
   font-size: var(--fs-sm);
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .essay-ws-ref-text:hover {
@@ -946,7 +1172,8 @@ a.essay-ws-doc-name:hover {
   color: var(--ink);
   font-family: var(--serif);
   font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  hyphens: auto;
   cursor: pointer;
 }
 
@@ -1084,10 +1311,6 @@ a.essay-ws-doc-name:hover {
   border: 0;
   box-shadow: none;
   background: transparent;
-}
-
-.essay-ws-centre > .essay-plan > .essay-hint {
-  margin: 0;
 }
 
 /* The preview has no frame of its own that scrolls: its pages sit in the page's flow and the
@@ -1336,7 +1559,7 @@ a.essay-ws-doc-name:hover {
 /* Touch screens cannot hover, so the row actions stay in view there. */
 @media (hover: none) {
   .essay-ws-source-menu,
-  .essay-ws-docs li > .button,
+  .essay-ws-doc-menu,
   .essay-ws-refs .essay-ws-ref-tools {
     opacity: 1;
   }
@@ -1480,13 +1703,19 @@ a.essay-ws-doc-name:hover {
     margin-inline: auto;
   }
 
-  .essay-ws-docs li > .button,
   .essay-ws-refs .essay-ws-ref-tools .button,
   .essay-ws-refs .essay-ws-ref-tools a,
   .essay-ws-source-editor .button,
-  .essay-ws-add-choice,
+  .essay-ws-pick-actions .button,
+  button.essay-ws-pick-row,
+  .essay-ws-intake-role .tool,
   .essay-ws-group-option {
     min-height: 2.75rem;
+  }
+
+  /* A chip keeps its look and grows only its tap area, to 44 points. */
+  .essay-ws-ref-goto::after {
+    inset: -0.75rem -0.5rem;
   }
 
   .essay-ws-refs .essay-ws-ref-tools a {
@@ -1494,8 +1723,15 @@ a.essay-ws-doc-name:hover {
     align-items: center;
   }
 
-  .essay-ws-source-title {
-    padding-block: 0.55rem;
+  /* A title is a control too, so it is 44 points tall and its row adds no space of its own. */
+  .essay-ws-source,
+  .essay-ws-docs li {
+    padding-block: 0;
+  }
+
+  .essay-ws-source-title,
+  .essay-ws-doc-name {
+    padding-block: 0.8rem;
   }
 }
 
@@ -1503,32 +1739,12 @@ a.essay-ws-doc-name:hover {
   .essay-ws-aside,
   .essay-ws-refs,
   .essay-ws-source-menu,
-  .essay-ws-docs li > .button,
+  .essay-ws-doc-menu,
+  .is-drop-target,
   .essay-ws-refs .essay-ws-ref-tools,
   .essay-sheet-cited,
   .is-jumped {
     transition: none;
     animation: none;
-  }
-}
-
-/* While you write in the plan, the mode bar and the hint fade, and return with the pointer. */
-.essay-ws-toolbar,
-.essay-ws-centre > .essay-plan > .essay-hint {
-  transition: opacity var(--dur-3) var(--ease-out);
-}
-
-:root.typing .essay-ws-toolbar:not(:hover):not(:focus-within) {
-  opacity: 0;
-}
-:root.typing .essay-ws-centre > .essay-plan > .essay-hint {
-  opacity: 0;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .essay-ws-toolbar,
-  .essay-ws-centre > .essay-plan > .essay-hint {
-    transition: none;
   }
 }

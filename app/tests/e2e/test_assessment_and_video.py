@@ -201,19 +201,22 @@ with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
     print("a collapsible heading folds its whole section and opens again")
 
     # Open WordCraft from the Preview, through the mode bar's Edit in Word, where the question
-    # is the essay's title.
+    # is the essay's title. In a browser it opens in a new tab.
     page.get_by_role("tab", name="Preview", exact=True).click()
-    page.get_by_role("link", name="Edit in Word", exact=True).click()
-    expect(page.locator(".word-processor")).to_be_visible()
-    expect(page.locator(".wp-title")).to_contain_text(question)
-    expect(page.locator(".wp-count")).to_contain_text("0 of 2,500 words")
-    expect(page.locator(".wp-frame")).to_be_visible()
-    page.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
+    with page.expect_popup() as wp_info:
+        page.get_by_role("link", name="Edit in Word", exact=True).click()
+    wp = wp_info.value
+    expect(wp.locator(".word-processor")).to_be_visible()
+    expect(wp.locator(".wp-title")).to_contain_text(question)
+    expect(wp.locator(".wp-count")).to_contain_text("0 of 2,500 words")
+    expect(wp.locator(".wp-frame")).to_be_visible()
+    wp.screenshot(path=str(HERE / "shots" / "assessment-2-wordcraft.png"), full_page=True)
 
     # Back returns to the module assessment page preview.
-    page.get_by_role("button", name="Back to preview").click()
-    expect(page.locator(".essay-page")).to_be_visible()
-    expect(page.get_by_label("Essay question")).to_have_value(question)
+    wp.get_by_role("button", name="Back to preview").click()
+    expect(wp.locator(".essay-page")).to_be_visible()
+    expect(wp.get_by_label("Essay question")).to_have_value(question)
+    wp.close()
     print("the assessment page opens WordCraft and returns to the assessment overview")
     assert not errors, f"Page errors: {errors}"
     print("ok")

@@ -76,7 +76,7 @@ export function ReadingTitle({ view, short, openInNewTab }: { view: ReadingView;
   );
   // The full citation is the accessible name, read as one line.
   if (!readable(view)) return <span className="name" title={label} aria-label={label}>{body}</span>;
-  return <Link to={{ view: "reader", id: view.item.id }} className="name" title={label} label={label} newTab={openInNewTab}>{body}</Link>;
+  return <Link to={{ view: "reader", id: view.item.id }} className="name" title={label} label={label} newTab={openInNewTab ? "always" : false}>{body}</Link>;
 }
 
 // Where you stopped, shown until the reading is marked read.
@@ -589,7 +589,7 @@ function Cover({ view, mode, isLibrary, still, openInNewTab }: { view: ReadingVi
   );
   const className = `reading-cover shape-${coverShape(view)}${picture ? "" : " is-empty"}`;
   if (still || !readable(view)) return <span className={className} aria-hidden="true">{body}</span>;
-  return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true} newTab={openInNewTab}>{body}</Link>;
+  return <Link to={{ view: "reader", id: view.item.id }} className={className} tabIndex={-1} ariaHidden={true} newTab={openInNewTab ? "always" : false}>{body}</Link>;
 }
 
 export function ReadingRow({

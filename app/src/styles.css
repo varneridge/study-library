@@ -1299,10 +1299,6 @@ a.quiet { text-decoration: none; }
 .note-editor .bn-editor,
 .note-editor .bn-editor[contenteditable="true"] { background: transparent; border: 0; box-shadow: none; outline: 0; }
 
-/* While you write, the top bar and the heading above the notes fade, and return with the pointer. */
-.topbar, .session-head { transition: opacity var(--dur-3) var(--ease-out); }
-:root.typing .topbar:not(:hover):not(:focus-within), :root.typing .session-head:not(:hover):not(:focus-within) { opacity: 0; }
-@media (prefers-reduced-motion: reduce) { .topbar, .session-head { transition: none; } }
 .note-highlight { border-left: 3px solid; padding: 0.15rem 0 0.15rem 0.75rem; width: 100%; }
 .note-highlight .quote { display: block; font-family: var(--serif); }
 .note-highlight a { font-family: var(--sans); font-size: var(--fs-xs); color: var(--muted); }
@@ -4475,10 +4471,10 @@ mark.hl-text { padding: 0.18em 0; box-decoration-break: clone; -webkit-box-decor
   border-radius: var(--r-sm);
 }
 .essay-panel { background: var(--surface); border-radius: var(--r-md); padding: 1.1rem 1.25rem; }
-.essay-panel h2, .essay-plan h2 { font-size: var(--fs-lg); margin: 0 0 0.6rem; }
+.essay-panel h2 { font-size: var(--fs-lg); margin: 0 0 0.6rem; }
+.essay-plan h2 { font-size: var(--fs-md); margin: 0 0 0.6rem; }
 .essay-panel-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin-bottom: 0.6rem; }
 .essay-panel-head h2 { margin: 0; flex: 1; }
-.essay-hint { margin: 0.35rem 0 0.75rem; }
 .essay-bar { display: block; height: 0.4rem; border-radius: 999px; background: var(--surface-hover); overflow: hidden; margin: 0.4rem 0 0.6rem; }
 .essay-bar > span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
 .essay-source-list, .essay-snapshot-list { list-style: none; margin: 0; padding: 0; }

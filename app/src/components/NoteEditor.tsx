@@ -32,7 +32,7 @@ import { colourLabel, useColourNames } from "../lib/settings";
 import { blockText, findNote, mergeDuplicateNotes, noteBlocks, saveNote, targetKey, type NoteTarget, type Saved } from "../lib/notes";
 import { href, navigate, parseRoute, type Route } from "../lib/router";
 import { isDesktop } from "../lib/shell";
-import { openInNewTab } from "../App";
+import { openInTab } from "../App";
 import { fullTitle, shortTitle } from "../lib/titles";
 import type { Block, HighlightRow, ItemRow, NoteBlockRow, NoteRow } from "../lib/types";
 import { formattingToolbarFor } from "./NoteToolbars";
@@ -480,38 +480,6 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     };
   }, []);
 
-  // While you write, the chrome above the page fades so that nothing competes with the text.
-  // It returns as soon as the pointer moves, a key such as Escape is pressed, or focus leaves.
-  // A short editor, such as a seminar answer, and a reading's own notes have no such chrome.
-  useEffect(() => {
-    const root = container.current;
-    const html = document.documentElement;
-    if (!root || compact || variant === "reading") return;
-    const stop = () => {
-      html.classList.remove("typing");
-      window.removeEventListener("pointermove", onMove, true);
-    };
-    // A pointer event with no movement is the browser repeating the last position after a scroll.
-    const onMove = (e: PointerEvent) => {
-      if (e.movementX || e.movementY) stop();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return stop();
-      if ((e.target as HTMLElement | null)?.closest?.("textarea, input")) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.length !== 1 && !["Backspace", "Delete", "Enter"].includes(e.key)) return;
-      html.classList.add("typing");
-      window.addEventListener("pointermove", onMove, true);
-    };
-    root.addEventListener("keydown", onKey, true);
-    root.addEventListener("focusout", stop);
-    return () => {
-      root.removeEventListener("keydown", onKey, true);
-      root.removeEventListener("focusout", stop);
-      stop();
-    };
-  }, [compact, variant]);
-
   // The editable area has no name of its own, so give it one.
   useEffect(() => {
     const area = container.current?.querySelector(".bn-editor, [contenteditable='true']");
@@ -642,7 +610,7 @@ function Inner({ target, handle, live, onQuoteRemoved, onQuoteRestored, placehol
     if (!to) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!openInNewTab(to)) void navigate(to);
+    openInTab(to);
   };
 
   // Clicking empty space below notes allows typing at the end.

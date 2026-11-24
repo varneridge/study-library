@@ -2,7 +2,9 @@
 // The workspace has three flush columns so that the writing stays front and centre: the brief
 // with its admin documents, the module readings and the essay's sources on the left, the
 // essay itself in the centre (the page preview or the plan), and its references on the
-// right. The essay's pages scroll with the window, as one long document,
+// right. Files dropped on any part of the page, or chosen with Add, are checked on the
+// source card before they are kept, and a reading, a source or the word processor opened
+// from the page comes up in a new tab. The essay's pages scroll with the window, as one long document,
 // while the two side columns and the mode bar stay in view. Below 1280px the right column
 // becomes a drawer, and below 900px one pane shows at a time, chosen by tabs. On the module
 // page it is a card under Course materials & assessments, opened like a week.
@@ -10,52 +12,59 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { DndContext, DragOverlay, useDroppable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { useLiveQuery, useSuspendingLiveQuery } from "dexie-react-hooks";
-import { Link, openInNewTab } from "../App";
+import { Link, openInTab } from "../App";
 import { navigate, type Route } from "../lib/router";
 import {
   assessmentNotesKey,
   deleteModuleEssay,
   downloadDocxFile,
+  ensureSourceReading,
   formatChicagoFootnote,
   importAssessmentDocxFile,
+  moveSourceTo,
+  readingCategoryOf,
   renameModuleEssay,
   saveModuleAssessment,
   useModuleAssessment,
   type CustomSource,
   type EssaySource,
+  type SourceRef,
 } from "../lib/assessment";
 import { shortDate } from "../lib/dates";
 import { db } from "../lib/db";
 import { countDocxWords, type DocxDocument, type DocxFootnote, type DocxBlock, type DocxRun } from "../lib/docx";
 import { listCollision, swallowClickAfterDrag, useDragSensors } from "../lib/drag";
 import {
+  ESSAY_SOURCE_CATEGORIES,
+  ESSAY_SOURCE_CATEGORY_LABEL,
+  compareSourceTitles,
   effectiveWordCount,
   findCitationContext,
   formatCustomBibliography,
   formatCustomFootnote,
   numberedFootnotes,
+  removeLinksForFootnote,
   safeExternalUrl,
   sourceLinkLocator,
+  type EssaySourceCategory,
   type SourceLink,
 } from "../lib/essaySources";
 import { countdown } from "../lib/sections";
-import { api, commit, newId } from "../lib/sync";
-import { resolveExistingFile } from "../lib/importing";
-import { stripExtension } from "../lib/parse";
+import { newId } from "../lib/sync";
 import { moduleReadings } from "../lib/library";
+import { draftFromFile, draftFromItem, draftFromSource, type SourceDraft, type SourceRole } from "../lib/sourceIntake";
 import { chicagoBibliography, fullTitle } from "../lib/titles";
 import type { AttachmentRef, ItemRow, ModuleRow } from "../lib/types";
 import { confirmAction, showToast, useTitle } from "../lib/ui";
-import { mimeFor, queueUpload, sha256 } from "../lib/uploads";
 import { DatePicker } from "./DatePicker";
 import { NotesLoading } from "./ErrorBoundary";
 import { clampEssayZoom, EssayPreviewCorner } from "./EssayPreviewCorner";
 import { EssayPdfPages, useCtrlWheelZoom, useEssayFitScale } from "./EssayPreviewPages";
-import { EssaySourcesPanel, type EssaySourceUpload } from "./EssaySourcesPanel";
+import { EssaySourcesPanel } from "./EssaySourcesPanel";
 import { Icon } from "./icons";
 import { Menu } from "./Menu";
-import { PdfPages } from "./reader/PdfPages";
-import { Sheet } from "./Sheet";
+import { SourceCard, useEssayFileDrop } from "./SourceCard";
+import { SourcePicker, type SourceChoice } from "./SourcePicker";
 // The splitters borrow the session page's hairline, which turns to the accent when pointed at.
 // Its sheet comes first, so that the essay's own rules can adjust it.
 import "./SplitHandle.css";
@@ -69,10 +78,6 @@ const dayOf = (iso: string) => new Date(`${iso}T00:00:00`);
 const REFERENCE_SAVE_DELAY = 600;
 // How long a sentence or heading reached from the side columns stays highlighted.
 const JUMP_HIGHLIGHT_MS = 3200;
-// Admin documents and uploaded sources go up in one request, so they are held under the
-// size that would need the upload to be sent in parts.
-const ADMIN_DOCUMENT_LIMIT = 50 * 1024 * 1024;
-
 // A stored Word file counts as present once it holds more than a bare header.
 const hasDocxBytes = (assessment: object): boolean => {
   const stored = (assessment as { docx?: { byteLength: number } | null }).docx;
@@ -102,10 +107,10 @@ const pdfBytesOf = (stored: unknown): Uint8Array | null => {
 
 const safeFileName = (name: string): string => name.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Essay";
 
-// A reading opened from the essay comes up in a new tab in front in the desktop window,
-// so that the draft stays open behind it, and is followed in place anywhere else.
+// A reading opened from the essay comes up in a new tab, in front in the desktop window and
+// in the browser alike, so that the draft stays open behind it.
 const openReading = (to: Route): void => {
-  if (!openInNewTab(to)) void navigate(to);
+  openInTab(to);
 };
 
 function downloadBytes(bytes: Uint8Array, name: string, type: string) {
@@ -159,19 +164,6 @@ function printEssayPages(pages: HTMLElement, title: string): boolean {
   return true;
 }
 
-// A source opened inside the essay, together with the page a reference cites when it cites one.
-interface ViewedDocument {
-  title: string;
-  url: string;
-  mime?: string;
-  name?: string;
-  page?: number;
-  locator?: string;
-}
-
-const isPdfDocument = (file: ViewedDocument): boolean =>
-  file.mime === "application/pdf" || /\.pdf$/i.test(file.name ?? file.url);
-
 
 // Which pane shows below 900px; between 900px and 1280px "aside" means the drawer is open.
 type Pane = "rail" | "centre" | "aside";
@@ -186,6 +178,17 @@ interface JumpTarget {
   token: number;
 }
 
+// The source a reference cites, as its row names it: the source's id, its title, or null
+// when the source has gone, the passage it is linked to when there is one, and whether
+// there is anything that Go to could open.
+interface ReferenceBinding {
+  sourceId: string;
+  title: string | null;
+  locator: string | null;
+  link: SourceLink | null;
+  canGoTo: boolean;
+}
+
 // A module reading chosen for the essay or a source added by hand, as the rail lists them.
 interface ResearchItem {
   id: string;
@@ -193,17 +196,6 @@ interface ResearchItem {
   isModule: boolean;
   moduleItem?: ItemRow;
   customSource?: CustomSource;
-}
-
-// Puts an uploaded source into storage by the same route as a note's
-// picture, and returns its key. Files are stored by their contents, so the same paper is
-// only ever kept once however many essays use it.
-async function uploadEssayFile(file: File, mime: string): Promise<string> {
-  const sha = await sha256(file);
-  const response = await api(`/api/files/${sha}`, { method: "PUT", headers: { "content-type": mime }, body: file });
-  const { key } = (await response.json()) as { key?: unknown };
-  if (typeof key !== "string" || !key) throw new Error("The upload did not return a file.");
-  return key;
 }
 
 // The card on the module page, in the Course materials & assessments grid.
@@ -589,23 +581,32 @@ function DropZone({ list, id, className, children }: { list: string; id?: string
 // One reference, edited directly as free text. It saves when the typing pauses and on blur,
 // Escape puts back what it said when focus arrived (saving that again if a pause had already
 // saved the edit), and an emptied reference returns to its saved text rather than vanishing.
+// A reference linked to a source names it beneath its text, with Go to beside it, which opens
+// the source at the passage it cites, so that checking a quotation takes one tap.
 function ReferenceRow({
   number,
   footnoteId,
   text,
   doc,
-  readingId,
+  binding,
   onCommit,
   onJump,
+  onLink,
+  onGoTo,
+  onUnlink,
   onDelete,
 }: {
   number: number;
   footnoteId: string;
   text: string;
   doc: DocxDocument;
-  readingId?: string;
+  binding?: ReferenceBinding;
   onCommit: (footnoteId: string, text: string) => void;
   onJump: (target: { blockId: string; footnoteId: string; sentence: string }) => void;
+  // Opens the source picker beside the reference, to link it to a source or change its link.
+  onLink: (footnoteId: string, anchor: HTMLElement | null) => void;
+  onGoTo: (binding: ReferenceBinding) => void;
+  onUnlink: (footnoteId: string) => void;
   onDelete: (footnoteId: string) => void;
 }) {
   const [value, setValue] = useState(text);
@@ -718,6 +719,25 @@ function ReferenceRow({
             }
           }}
         />
+        {binding && (
+          <div className="essay-ws-ref-link">
+            <span className="essay-ws-ref-link-title">
+              {binding.title
+                ? `Linked to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}`
+                : "Linked to a source that is no longer in this essay"}
+            </span>
+            {binding.canGoTo && (
+              <button
+                type="button"
+                className="essay-ws-ref-goto"
+                aria-label={binding.title ? `Go to \u201c${binding.title}\u201d${binding.locator ? `, ${binding.locator}` : ""}` : "Go to the source"}
+                onClick={() => onGoTo(binding)}
+              >
+                Go to
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {/* Every action of a reference lives in one quiet menu, which comes forward when the row
           is pointed at or holds focus, so that a long list of notes stays as calm as the
@@ -727,61 +747,13 @@ function ReferenceRow({
           label={`Actions for footnote ${number}`}
           items={[
             { label: "Show where it is cited", onSelect: showCitation },
-            ...(readingId ? [{ label: "Open reading", onSelect: () => openReading({ view: "reader", id: readingId }) }] : []),
+            { label: binding ? "Change link" : "Link to a source", onSelect: () => onLink(footnoteId, areaRef.current) },
+            ...(binding ? [{ label: "Unlink", onSelect: () => onUnlink(footnoteId) }] : []),
             { label: "Delete reference", danger: true, onSelect: () => onDelete(footnoteId) },
           ]}
         />
       </span>
     </li>
-  );
-}
-
-// An uploaded source, opened inside the essay just as a reading opens in the reader, so that
-// a cited page can be checked without leaving the draft.
-function DocumentViewer({ file, onClose }: { file: ViewedDocument | null; onClose: () => void }) {
-  return (
-    <Sheet
-      open={file !== null}
-      onClose={onClose}
-      title={file?.title ?? "Document"}
-      subtitle={file?.locator ? `Cited at ${file.locator}` : "Opened from this essay"}
-      className="essay-doc-viewer"
-      footer={
-        <div className="row" style={{ gap: "0.5rem", justifyContent: "flex-end" }}>
-          {file && (
-            <a className="button quiet" href={file.url} target="_blank" rel="noreferrer">
-              Open in a new tab
-            </a>
-          )}
-          <button type="button" className="button primary" onClick={onClose}>
-            Done
-          </button>
-        </div>
-      }
-    >
-      {file && <ViewerPages key={`${file.url}#${file.page ?? 0}`} file={file} />}
-    </Sheet>
-  );
-}
-
-function ViewerPages({ file }: { file: ViewedDocument }) {
-  const pdf = isPdfDocument(file);
-
-  return (
-    <div className="essay-doc-viewer-body">
-      {pdf ? (
-        <PdfPages
-          url={file.url}
-          initialPage={file.page ? file.page - 1 : undefined}
-          className="essay-doc-frame"
-          fallback={<p className="small muted">Opening {file.title}, which may take a moment for a long file.</p>}
-        />
-      ) : (
-        <p className="small muted">
-          Only PDFs can be shown inside the essay, so use Open in a new tab to read it in the browser instead.
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -903,13 +875,16 @@ export function AssessmentPage({ id, essayId }: { id: string; essayId?: string }
 function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: string }) {
   const assessment = useModuleAssessment(module.id, module.code, essayId);
   // Every field save goes through here, and a failure is reported in a toast, because the Saved
-  // indicator that once showed it is gone.
-  const save = async (patch: Parameters<typeof saveModuleAssessment>[1]) => {
+  // indicator that once showed it is gone. Whether it worked is returned, so that a caller
+  // says what changed only when it did.
+  const save = async (patch: Parameters<typeof saveModuleAssessment>[1]): Promise<boolean> => {
     try {
       await saveModuleAssessment(module.id, patch, { moduleCode: module.code, essayId });
+      return true;
     } catch (err) {
       console.error("Saving the essay failed", err);
       showToast("The essay could not be saved. Your latest change may be lost.");
+      return false;
     }
   };
 
@@ -925,7 +900,17 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   const [jump, setJump] = useState<JumpTarget | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
-  const [viewing, setViewing] = useState<ViewedDocument | null>(null);
+  // The source card, with the files or the source being checked. A drop while it is open adds
+  // the new files to it, so that one card takes everything brought in at once.
+  const [intake, setIntake] = useState<{ mode: "add" | "edit"; drafts: SourceDraft[] } | null>(null);
+  const openIntake = (files: File[], role: SourceRole) => {
+    const drafts = files.map((file) => draftFromFile(file, role));
+    setIntake((current) => ({ mode: "add", drafts: [...(current?.drafts ?? []), ...drafts] }));
+  };
+  const drop = useEssayFileDrop(openIntake);
+  // The reference whose link is being chosen, and the field the picker sits beside.
+  const [linking, setLinking] = useState<string | null>(null);
+  const linkAnchor = useRef<HTMLElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
   // The preview is mounted only while it is the chosen view, so the measuring hooks follow the
@@ -1192,6 +1177,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         ),
         footnotes: prev.draft.footnotes.filter((f) => f.id !== fnId),
       },
+      ...(prev.sourceLinks ? { sourceLinks: removeLinksForFootnote(prev.sourceLinks, fnId) } : {}),
     }));
     showToast("Reference deleted.");
   };
@@ -1258,94 +1244,69 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     showToast(added ? "Footnote added at the end of the draft." : already);
   };
 
-  // An admin document is stored as a reading of its own, kept apart from the week boards, so
-  // that the normal readings viewer opens it by the same id the essay lists it under.
-  const addAdminDocuments = async (files: File[]) => {
-    for (const file of files) {
-      if (file.size > ADMIN_DOCUMENT_LIMIT) {
-        showToast(`${file.name} is over 50 MB.`);
-        continue;
-      }
-      const ref: AttachmentRef = {
-        id: newId(),
-        name: file.name,
-        size: file.size,
-        mime: mimeFor(file) ?? (file.type || "application/octet-stream"),
-      };
-      const sha = await sha256(file);
-      const existing = await resolveExistingFile(sha);
-      const fileId = existing?.fileId ?? newId();
-      await commit([
-        {
-          table: "items",
-          row: {
-            id: ref.id,
-            kind: "secondary" as const,
-            author: null,
-            title: stripExtension(file.name),
-            source: null,
-            pages: null,
-            year: null,
-            doc_date: null,
-            file_id: existing?.fileId ?? null,
-            original_file_id: existing?.originalFileId ?? null,
-            tray_module_id: null,
-            zotero_key: null,
-            last_page: null,
-            read_status: "unread" as const,
-          },
-        },
-      ]);
-      if (!existing) {
-        await queueUpload({ file_id: fileId, item_id: ref.id, name: file.name, mime: ref.mime, sha256: sha, bytes: file.size, blob: file });
-      }
-      await save((prev) => ({ ...prev, adminDocuments: [...(prev.adminDocuments ?? []), ref] }));
+  // An admin document uploaded before admin documents had readings of their own is only a
+  // stored key on the essay, so it is given the file row and the hidden reading a new upload
+  // gets as soon as the essay opens, under ids made from its own, so that its name is an
+  // ordinary link to the reader and doing this on two devices makes the same rows.
+  const legacyAdminKey = adminDocuments.filter((doc) => doc.r2Key).map((doc) => doc.id).join(",");
+  useEffect(() => {
+    for (const doc of adminDocuments) {
+      if (doc.r2Key) void ensureSourceReading(doc).catch(() => undefined);
+    }
+    // The documents are read again only when one with a stored key is added or removed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacyAdminKey]);
+
+  const sortedAdminDocuments = useMemo(
+    () => [...adminDocuments].sort((a, b) => compareSourceTitles(a.name, b.name) || a.id.localeCompare(b.id)),
+    [adminDocuments],
+  );
+
+  // An admin document moved into a group becomes one of the essay's readings under its own
+  // id, so a legacy one is given its reading first.
+  const moveAdminDocument = async (doc: AttachmentRef, to: EssaySourceCategory) => {
+    if (!(await ensureSourceReading(doc))) {
+      showToast("That document has no stored file, so it cannot become a reading.");
+      return;
+    }
+    if (await save((prev) => moveSourceTo(prev, { type: "admin", id: doc.id }, to))) {
+      showToast(`Moved to ${ESSAY_SOURCE_CATEGORY_LABEL[to]}.`);
     }
   };
 
-  // Every admin document opens in the normal reader. One uploaded before admin documents had
-  // readings of their own is only a stored key on the essay, so the first time it is opened it
-  // is given the file row and the hidden reading that a new upload gets, under ids made from
-  // its own, so that opening it on two devices makes the same rows rather than two copies.
-  const openAdminDocument = async (doc: AttachmentRef) => {
-    if (doc.r2Key && !(await db.items.get(doc.id))) {
-      const fileId = `${doc.id}:file`;
-      await commit([
-        {
-          table: "files",
-          row: {
-            id: fileId,
-            sha256: /[0-9a-f]{64}/i.exec(doc.r2Key)?.[0].toLowerCase() ?? `legacy:${doc.id}`,
-            r2_key: doc.r2Key,
-            mime: doc.mime,
-            bytes: doc.size,
-            original_name: doc.name,
-            page_count: null,
-            text_status: "pending" as const,
-          },
-        },
-        {
-          table: "items",
-          row: {
-            id: doc.id,
-            kind: "secondary" as const,
-            author: null,
-            title: stripExtension(doc.name),
-            source: null,
-            pages: null,
-            year: null,
-            doc_date: null,
-            file_id: fileId,
-            original_file_id: null,
-            tray_module_id: null,
-            zotero_key: null,
-            last_page: null,
-            read_status: "unread" as const,
-          },
-        },
-      ]);
+  // The source card opens again on a source already on the essay, with its details as stored.
+  const editSource = async (ref: SourceRef) => {
+    const meta = assessment.sourceMeta?.[ref.id];
+    let draft: SourceDraft | null = null;
+    if (ref.type === "reading" || ref.type === "admin") {
+      const doc = ref.type === "admin" ? adminDocuments.find((d) => d.id === ref.id) : undefined;
+      if (doc) await ensureSourceReading(doc);
+      const item = await db.items.get(ref.id);
+      if (item && !item.deleted) {
+        const role: SourceRole = doc ? "admin" : readingCategoryOf(assessment, item) === "primary" ? "primary" : "secondary";
+        draft = { ...draftFromItem(item, role, meta), ...(doc ? { name: doc.name } : {}) };
+      }
+    } else {
+      const source = ref.type === "custom"
+        ? customSources.find((c) => c.id === ref.id)
+        : (assessment.attachedPapers ?? []).find((paper) => paper.id === ref.id);
+      if (source) draft = draftFromSource(source, ref.type, meta);
     }
-    openReading({ view: "reader", id: doc.id });
+    if (!draft) {
+      showToast("That source is no longer on this essay, so its details cannot be edited.");
+      return;
+    }
+    setIntake({ mode: "edit", drafts: [draft] });
+  };
+
+  const intakeDone = ({ added, updated }: { added: number; updated: number }) => {
+    setIntake(null);
+    if (!added) {
+      showToast("Details saved.");
+      return;
+    }
+    const what = added === 1 ? "One source was" : `${added} sources were`;
+    showToast(`${what} added to the essay${updated ? ", and the other details were saved" : ""}.`);
   };
 
   const removeAdminDocument = async (doc: AttachmentRef) => {
@@ -1363,30 +1324,13 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
     showToast("Document removed.");
   };
 
-  // Sources uploaded in the Sources card go up by the same route as admin documents, and the
-  // card keeps the returned key on the paper, so that its references can open the file later.
-  const uploadSourceFile = async (file: File): Promise<EssaySourceUpload> => {
-    if (!navigator.onLine) throw new Error("Connect to the internet to upload a source.");
-    if (file.size > ADMIN_DOCUMENT_LIMIT) throw new Error(`${file.name} is over 50 MB, so it cannot be uploaded in one go.`);
-    const r2Key = await uploadEssayFile(file, mimeFor(file) ?? (file.type || "application/octet-stream"));
-    return { r2Key };
-  };
-
-  // A reference opens its source at the page it cites: a stored file opens in the document
-  // viewer, and a source added by hand with a link opens that link in a new tab.
+  // A page reference opens its source at the page it cites: an uploaded paper in the reader,
+  // in a new tab, through the reading it is given, and a source added by hand at its link.
   const openPassage = (link: SourceLink, source: EssaySource) => {
     const locator = link.wholeDocument ? undefined : sourceLinkLocator(link) ?? undefined;
-    const r2Key = textField(source, "r2Key");
-    if (r2Key) {
+    if (textField(source, "r2Key")) {
       const page = link.wholeDocument ? Number.NaN : Number.parseInt(String(link.page ?? ""), 10);
-      setViewing({
-        title: source.title,
-        url: `/api/objects/${r2Key}`,
-        mime: textField(source, "mime"),
-        name: textField(source, "name"),
-        page: Number.isFinite(page) ? page : undefined,
-        locator,
-      });
+      openReading({ view: "reader", id: source.id, ...(Number.isFinite(page) && page > 0 ? { page: page - 1 } : {}) });
       return;
     }
     const url = safeExternalUrl(textField(source, "url"));
@@ -1399,6 +1343,118 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         ? `This source has no file or link to open, so check ${locator} in your own copy.`
         : "This source has no file or link to open, so check it in your own copy.",
     );
+  };
+
+  // What each reference cites, from its passage link when it has one and otherwise from the
+  // source its footnote names, with the title to show and whether Go to has anything to open.
+  const bindings = useMemo(() => {
+    const map = new Map<string, ReferenceBinding>();
+    const links = assessment.sourceLinks ?? [];
+    const papers = assessment.attachedPapers ?? [];
+    for (const note of assessment.draft.footnotes) {
+      const link = links.find((l) => l.footnoteId === note.id) ?? null;
+      const sourceId = link?.sourceId ?? note.citationItemId ?? null;
+      if (!sourceId) continue;
+      const reading = readings.find((r) => r.id === sourceId);
+      const custom = customSources.find((c) => c.id === sourceId);
+      const paper = papers.find((p) => p.id === sourceId);
+      map.set(note.id, {
+        sourceId,
+        title: reading?.title ?? custom?.title ?? paper?.title ?? null,
+        locator: link ? sourceLinkLocator(link) : null,
+        link,
+        canGoTo: Boolean(reading || paper?.r2Key || safeExternalUrl(custom?.url)),
+      });
+    }
+    return map;
+  }, [assessment.draft.footnotes, assessment.sourceLinks, assessment.attachedPapers, readings, customSources]);
+
+  // Go to opens what a reference cites: a reading or an uploaded paper in the reader, in a new
+  // tab, at the highlighted passage or the page when the link has one, and a source added by
+  // hand at its own link.
+  const goToReference = (binding: ReferenceBinding) => {
+    const custom = customSources.find((c) => c.id === binding.sourceId);
+    if (custom) {
+      const url = safeExternalUrl(custom.url);
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const page = Number.parseInt(binding.link?.page ?? "", 10);
+    openReading({
+      view: "reader",
+      id: binding.sourceId,
+      ...(Number.isFinite(page) && page > 0 ? { page: page - 1 } : {}),
+      ...(binding.link?.highlightId ? { hl: binding.link.highlightId } : {}),
+    });
+  };
+
+  const linkReference = (footnoteId: string, anchor: HTMLElement | null) => {
+    linkAnchor.current = anchor;
+    setLinking(footnoteId);
+  };
+
+  // A choice links the reference at once, so that it names its source straight away. Choosing
+  // a passage also opens the reading in a new tab, straight from the tap so that the browser
+  // allows it, to select the words it cites, and the passage is linked from there.
+  const pickLinkSource = (choice: SourceChoice) => {
+    const footnoteId = linking;
+    if (!footnoteId) return;
+    const number = orderedFootnotes.find((fn) => fn.id === footnoteId)?.number;
+    const name = number ? `Footnote ${number}` : "The footnote";
+    if (choice.kind === "passage") {
+      openReading({ view: "reader", id: choice.sourceId, cite: { module: module.id, ...(essayId ? { essay: essayId } : {}), footnote: footnoteId } });
+    }
+    void save((prev) => ({
+      ...prev,
+      draft: {
+        ...prev.draft,
+        footnotes: prev.draft.footnotes.map((f) => (f.id === footnoteId ? { ...f, citationItemId: choice.sourceId } : f)),
+      },
+      ...(prev.sourceLinks ? { sourceLinks: removeLinksForFootnote(prev.sourceLinks, footnoteId) } : {}),
+    })).then((saved) => {
+      if (!saved) return;
+      showToast(
+        choice.kind === "passage"
+          ? `${name} is linked to its source. Select the passage in the reading, then choose Link passage.`
+          : `${name} is linked to the whole source.`,
+      );
+    });
+  };
+
+  // Unlinking keeps the footnote's own text and offers Undo, which puts the source and any
+  // passage link back.
+  const unlinkReference = async (footnoteId: string) => {
+    let before: { citationItemId: string | null; links: SourceLink[] } = { citationItemId: null, links: [] };
+    const saved = await save((prev) => {
+      before = {
+        citationItemId: prev.draft.footnotes.find((f) => f.id === footnoteId)?.citationItemId ?? null,
+        links: (prev.sourceLinks ?? []).filter((l) => l.footnoteId === footnoteId),
+      };
+      return {
+        ...prev,
+        draft: {
+          ...prev.draft,
+          footnotes: prev.draft.footnotes.map((f) => (f.id === footnoteId ? { ...f, citationItemId: null } : f)),
+        },
+        ...(prev.sourceLinks ? { sourceLinks: removeLinksForFootnote(prev.sourceLinks, footnoteId) } : {}),
+      };
+    });
+    if (!saved) return;
+    showToast("Link removed, and the footnote keeps its text.", {
+      label: "Undo",
+      run: () =>
+        void save((prev) => {
+          const kept = prev.sourceLinks ?? [];
+          return {
+            ...prev,
+            draft: {
+              ...prev.draft,
+              footnotes: prev.draft.footnotes.map((f) => (f.id === footnoteId ? { ...f, citationItemId: before.citationItemId } : f)),
+            },
+            sourceLinks: [...kept, ...before.links.filter((l) => !kept.some((k) => k.id === l.id))],
+          };
+        }),
+    });
   };
 
   const handleDeleteAssessment = async () => {
@@ -1474,7 +1530,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
   );
 
   return (
-    <div className="page wide essay-page essay-ws-page">
+    <div className="page wide essay-page essay-ws-page" lang="en-GB" {...drop.handlers}>
       <SegmentedTabs
         className="essay-ws-tabs"
         label="Essay workspace"
@@ -1526,7 +1582,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                     label="Essay actions"
                     items={[
                       { label: `Back to ${module.code || "the module"}`, onSelect: () => navigate({ view: "module", id: module.id }) },
-                      { label: "Edit in Word", onSelect: () => navigate(wordProcessorRoute) },
+                      { label: "Edit in Word", onSelect: () => openInTab(wordProcessorRoute) },
                       { label: "Delete essay", danger: true, onSelect: () => void handleDeleteAssessment() },
                     ]}
                   />
@@ -1640,33 +1696,39 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 {due && assessment.dueDate ? <span className="muted small essay-due-words">{due.words}</span> : null}
               </div>
 
-              {/* Admin documents belong to the brief, so they are folded into its card. */}
-              <div className="essay-ws-brief-docs">
+              {/* Admin documents belong to the brief, so they are folded into its card, and files
+                  dropped on them become admin documents. Each row is drawn as a source row is. */}
+              <div
+                className={`essay-ws-brief-docs${drop.overRole === "admin" ? " is-drop-target" : ""}`}
+                data-drop-role="admin"
+              >
                 <div className="essay-ws-card-head">
                   <h3 id="essay-admin-head" className="essay-ws-brief-subhead">Admin documents</h3>
                   <button type="button" className="button quiet small" onClick={() => adminInput.current?.click()}>
                     Add
                   </button>
                 </div>
-                {adminDocuments.length === 0 ? (
-                  <p className="small muted">Add the brief, the marking criteria or any other papers for this essay.</p>
+                {sortedAdminDocuments.length === 0 ? (
+                  <p className="small muted">Drop the brief, the marking criteria or any other papers for this essay here, or use Add.</p>
                 ) : (
                   <ul className="essay-ws-docs" aria-labelledby="essay-admin-head">
-                    {adminDocuments.map((doc) => (
+                    {sortedAdminDocuments.map((doc) => (
                       <li key={doc.id}>
-                        <button
-                          type="button"
-                          className="essay-ws-doc-name"
-                          title={`Open ${doc.name}`}
-                          onClick={() => void openAdminDocument(doc)}
-                        >
+                        <Link to={{ view: "reader", id: doc.id }} className="essay-ws-doc-name" title={doc.name} newTab="always">
                           {doc.name}
-                        </button>
-                        <span className="essay-ws-doc-menu" style={{ gridArea: "remove" }}>
+                        </Link>
+                        <span className="essay-ws-doc-menu">
                           <Menu
                             label={`Actions for ${doc.name}`}
                             items={[
-                              { label: "Open", onSelect: () => void openAdminDocument(doc) },
+                              { label: "Edit details", onSelect: () => void editSource({ type: "admin", id: doc.id }) },
+                              {
+                                label: "Move to",
+                                items: ESSAY_SOURCE_CATEGORIES.map((category) => ({
+                                  label: ESSAY_SOURCE_CATEGORY_LABEL[category],
+                                  onSelect: () => void moveAdminDocument(doc, category),
+                                })),
+                              },
                               { label: "Remove", danger: true, onSelect: () => void removeAdminDocument(doc) },
                             ]}
                           />
@@ -1686,8 +1748,11 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               moduleCode={module.code}
               essayId={essayId}
               readings={readings}
-              uploadFile={uploadSourceFile}
+              onFiles={openIntake}
+              onEdit={(ref) => void editSource(ref)}
               onOpenPassage={openPassage}
+              dragging={drop.dragging}
+              overRole={drop.overRole}
             />
           </DropZone>
 
@@ -1721,7 +1786,8 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 <Link
                   to={wordProcessorRoute}
                   className="button primary essay-open-button"
-                  title="Open the draft in the word processor"
+                  title="Open the draft in the word processor, in a new tab"
+                  newTab="always"
                 >
                   <Icon name="highlight" size={16} />
                   Edit in Word
@@ -1747,14 +1813,11 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
               </div>
             ) : (
               <div id="essay-centre-plan" role="tabpanel" aria-labelledby="essay-view-plan" className="essay-plan">
-                <p className="small muted essay-hint">
-                  Structure your thesis and argument. Use headings for sections, bullet points for evidence, and @ to cite readings directly.
-                </p>
                 <Suspense fallback={<NotesLoading />}>
                   <NoteEditor
                     target={{ week_id: assessmentNotesKey(module.id, essayId) }}
                     label="Plan and argument"
-                    placeholder="Your central thesis statement in a sentence, followed by section headings and arguments..."
+                    placeholder="Write your plan here: your thesis in a sentence, then headings for sections, lists for evidence and @ to cite a reading."
                   />
                 </Suspense>
               </div>
@@ -1795,25 +1858,22 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
                 <p className="small muted essay-ws-drop-hint">Drag a source here to cite it at the end of the draft.</p>
               ) : (
                 <ol className="essay-ws-ref-list">
-                  {orderedFootnotes.map((fn) => {
-                    const rawFn = assessment.draft.footnotes.find((f) => f.id === fn.id);
-                    const linked = rawFn?.citationItemId
-                      ? allResearchItems.find((r) => r.id === rawFn.citationItemId)
-                      : undefined;
-                    return (
-                      <ReferenceRow
-                        key={fn.id}
-                        number={fn.number}
-                        footnoteId={fn.id}
-                        text={fn.text}
-                        doc={assessment.draft}
-                        readingId={linked?.moduleItem ? linked.id : undefined}
-                        onCommit={handleSaveFootnote}
-                        onJump={jumpTo}
-                        onDelete={(fnId) => void handleDeleteFootnote(fnId)}
-                      />
-                    );
-                  })}
+                  {orderedFootnotes.map((fn) => (
+                    <ReferenceRow
+                      key={fn.id}
+                      number={fn.number}
+                      footnoteId={fn.id}
+                      text={fn.text}
+                      doc={assessment.draft}
+                      binding={bindings.get(fn.id)}
+                      onCommit={handleSaveFootnote}
+                      onJump={jumpTo}
+                      onLink={linkReference}
+                      onGoTo={goToReference}
+                      onUnlink={(fnId) => void unlinkReference(fnId)}
+                      onDelete={(fnId) => void handleDeleteFootnote(fnId)}
+                    />
+                  ))}
                 </ol>
               )}
             </DropZone>
@@ -1825,8 +1885,26 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         </DragOverlay>
       </DndContext>
 
-      {/* Uploaded sources, opened inside the essay */}
-      <DocumentViewer file={viewing} onClose={() => setViewing(null)} />
+      {intake && (
+        <SourceCard
+          drafts={intake.drafts}
+          mode={intake.mode}
+          essay={{ moduleId: module.id, moduleCode: module.code, essayId }}
+          onClose={() => setIntake(null)}
+          onDone={intakeDone}
+        />
+      )}
+
+      <SourcePicker
+        open={linking !== null}
+        onClose={() => setLinking(null)}
+        anchor={linkAnchor}
+        moduleId={module.id}
+        moduleCode={module.code}
+        essayId={essayId}
+        title="Link to a source"
+        onPick={pickLinkSource}
+      />
 
       <input
         ref={importer}
@@ -1855,7 +1933,7 @@ function AssessmentBody({ module, essayId }: { module: ModuleRow; essayId?: stri
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = "";
-          void addAdminDocuments(files);
+          if (files.length) openIntake(files, "admin");
         }}
       />
     </div>

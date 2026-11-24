@@ -49,6 +49,7 @@ import { registerListenTests } from "./test_listen";
 import { registerCalendarTests } from "./calendar";
 import { registerTodoTests } from "./todo";
 import { registerRoutingTests } from "./routing";
+import { registerEssaySourcesTests } from "./test_essay_sources";
 import { runUpdateTests } from "./test_update";
 import { registerSpokenTextTests } from "./test_spoken_text";
 import { registerPinyinTests } from "./test_pinyin";
@@ -76,6 +77,7 @@ registerSafetyTests(test);
 registerCalendarTests(test);
 registerTodoTests(test);
 registerRoutingTests(test);
+registerEssaySourcesTests(test);
 for (const fixture of fixtures) {
   test(`parse ${fixture.input.slice(0, 50)}`, () => {
     assert.deepEqual(parseTitle(fixture.input), fixture.expect);

@@ -16,6 +16,8 @@ export interface SelectionBarProps {
   onComment(colour: string): void;
   onCopy(): void;
   onDismiss(): void;
+  // While the reader is linking a passage to an essay's footnote, links the selection.
+  onLink?: () => void;
 }
 
 interface Edges {
@@ -133,7 +135,7 @@ function onScrollBar(e: PointerEvent, el: Element): boolean {
   return pastRight || pastBottom;
 }
 
-export function SelectionBar({ anchor, colours, current, onHighlight, onComment, onCopy, onDismiss }: SelectionBarProps) {
+export function SelectionBar({ anchor, colours, current, onHighlight, onComment, onCopy, onDismiss, onLink }: SelectionBarProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   // While the selection is scrolled out of sight the bar is hidden, rather
@@ -216,6 +218,12 @@ export function SelectionBar({ anchor, colours, current, onHighlight, onComment,
       // selection while the reader reaches for a button.
       onMouseDown={(e) => e.preventDefault()}
     >
+      {/* Linking a passage is the one thing the selection is for while it is offered, so it comes first. */}
+      {onLink && (
+        <button type="button" className="selection-bar-link" style={{ ...BUTTON_STYLE, fontWeight: 600 }} onClick={onLink}>
+          Link passage
+        </button>
+      )}
       <button type="button" className="selection-bar-primary" style={BUTTON_STYLE} aria-keyshortcuts="H" onClick={() => onHighlight(current)}>
         <span aria-hidden="true" style={dot(current, "0.9rem")} />
         <span>Highlight</span>

@@ -60,14 +60,27 @@ export function openInNewTab(to: Route): boolean {
   return true;
 }
 
+// Opens a page in a new tab whatever runs the app: a tab of its own in front in the
+// desktop window, and a new browser tab anywhere else, so that the page it was opened
+// from stays open behind it in both. A browser that blocks the new tab, as one may when
+// this is not called straight from a click, follows the link in place instead.
+export function openInTab(to: Route): void {
+  if (openInNewTab(to)) return;
+  const opened = window.open(href(to), "_blank");
+  if (opened) opened.opener = null;
+  else void navigate(to);
+}
+
 export function Link({ to, children, className, current, currentSide, title, label, tabIndex, ariaHidden, newTab }: {
   to: Route; children: React.ReactNode; className?: string; current?: boolean; title?: string; label?: string;
   tabIndex?: number; ariaHidden?: boolean;
   // The side of the app you are on, in the switch, rather than this very page.
   currentSide?: boolean;
   // In the desktop window, open the page in a new tab in front rather than in this one.
-  newTab?: boolean;
+  // "always" opens a new tab in a browser as well, so that both behave the same.
+  newTab?: boolean | "always";
 }) {
+  const always = newTab === "always";
   return (
     <a
       className={className}
@@ -77,8 +90,15 @@ export function Link({ to, children, className, current, currentSide, title, lab
       tabIndex={tabIndex}
       aria-hidden={ariaHidden ? true : undefined}
       href={href(to)}
+      // A browser opens the new tab itself from the link, which no pop-up blocker stops.
+      target={always ? "_blank" : undefined}
+      rel={always ? "noopener" : undefined}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        if (always) {
+          if (openInNewTab(to)) event.preventDefault();
+          return;
+        }
         event.preventDefault();
         if (newTab && openInNewTab(to)) return;
         navigate(to);
@@ -571,7 +591,7 @@ function Page({ route }: { route: Route }) {
     case "search": return <SearchPage q={route.q} />;
     // The lazy parts keep their own boundary, so a first visit shows their
     // skeleton rather than holding the old page while the code downloads.
-    case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} /></Suspense>;
+    case "reader": return <Suspense fallback={opening}><Reader id={route.id} page={route.page} q={route.q} hl={route.hl} cite={route.cite} /></Suspense>;
     case "essay": return <Suspense fallback={openingEssay}><WordProcessor id={route.id} essayId={route.essay} q={route.q} /></Suspense>;
     case "jobs": return <Suspense fallback={<PageLoading label="Opening the job search" wide />}><JobsPage /></Suspense>;
     case "calendar": return <Suspense fallback={<PageLoading label="Opening the calendar" wide />}><CalendarPage route={route} /></Suspense>;

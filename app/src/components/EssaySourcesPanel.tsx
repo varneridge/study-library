@@ -1,31 +1,39 @@
 // The Readings and sources card of the essay workspace. It is one quiet list of everything
-// the essay can cite, grouped as Primary, Secondary (course) and Secondary (outside), so
-// that the course readings chosen for the essay sit beside the files uploaded onto it and
-// the sources added by hand, and there is one place to add, cite and check any of them. A
-// single Add control offers an upload, a choice from the course readings or a source typed
-// by hand, and each row keeps its other actions in its ••• menu so that a long list stays
-// calm. Uploaded and hand-added sources hold the passage-linked references that cite them,
-// so that a reference can be renamed or reworded without losing the page or passage it
-// points at.
+// the essay can cite, grouped as Primary, Secondary (course) and Secondary (outside), each
+// group in alphabetical order, so that the course readings chosen for the essay sit beside
+// the files uploaded onto it and the sources added by hand, and there is one place to add,
+// cite and check any of them. Add opens a small card in front of the page that searches
+// every reading, its text as well as its title, and also offers an upload and a source
+// typed by hand; files can be dropped on the card too, onto the group they belong to. A
+// row's title opens the source, and the row keeps its other actions in its ••• menu so
+// that a long list stays calm. Uploaded and hand-added sources hold the passage-linked
+// references that cite them, so that a reference can be renamed or reworded without
+// losing the page or passage it points at.
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Link } from "../App";
 import {
+  ensureSourceReading,
   essaySourcesOf,
   formatChicagoFootnote,
+  moveSourceTo,
+  readingCategoryOf,
   saveModuleAssessment,
   useModuleAssessment,
   type AssessmentData,
-  type AttachedPaper,
   type CustomSource,
   type EssaySource,
+  type SourceDestination,
+  type SourceRef,
 } from "../lib/assessment";
+import { db } from "../lib/db";
 import type { DocxFootnote } from "../lib/docx";
 import {
   ESSAY_SOURCE_CATEGORIES,
   ESSAY_SOURCE_CATEGORY_LABEL,
+  compareSourceTitles,
   createSourceLink,
   formatCustomFootnote,
   linksForSource,
@@ -34,26 +42,25 @@ import {
   removeSourceLink,
   renameSourceLink,
   resolveSourceLink,
+  safeExternalUrl,
   sourceLinkLocator,
   updateSourceLink,
   type EssaySourceCategory,
   type SourceLink,
 } from "../lib/essaySources";
-import { newId } from "../lib/sync";
 import { moduleReadings } from "../lib/library";
+import { READING_ACCEPT } from "../lib/photos";
+import { MARK_END, MARK_START, searchReadings, type ReadingHit } from "../lib/search";
+import type { SourceRole } from "../lib/sourceIntake";
+import { newId } from "../lib/sync";
 import { fullTitle } from "../lib/titles";
 import type { ItemRow } from "../lib/types";
 import { confirmAction, showToast } from "../lib/ui";
-import { mimeFor } from "../lib/uploads";
-import { Menu } from "./Menu";
+import { ChoiceCard } from "./ChoiceCard";
+import { Menu, type MenuItem } from "./Menu";
+import { SearchField } from "./SearchField";
 import { Sheet } from "./Sheet";
 import "./AssessmentPage.css";
-
-// Where an uploaded file was stored, so that the paper made from it can be opened later.
-export interface EssaySourceUpload {
-  fileId?: string;
-  r2Key?: string;
-}
 
 export interface EssaySourcesPanelProps {
   moduleId: string;
@@ -61,18 +68,31 @@ export interface EssaySourcesPanelProps {
   essayId?: string;
   // The module's readings, which the essay page already holds. Left out, the panel finds them itself.
   readings?: ItemRow[];
-  // Stores the file, such as through the reading upload queue, and says where it went.
-  uploadFile: (file: File) => Promise<EssaySourceUpload>;
+  // Files chosen with Upload files or dropped on the card, with the role of where they
+  // landed, for the page to check on the source card before they are kept.
+  onFiles: (files: File[], role: SourceRole) => void;
+  // Opens the source card for a source already on the essay, to edit its details.
+  onEdit: (ref: SourceRef) => void;
   // Opens the source at the page or passage a reference cites, so that it can be checked.
   onOpenPassage: (link: SourceLink, source: EssaySource) => void;
+  // Whether files are being dragged over the page, and the role of the part they are over,
+  // so that the groups that take them show, and the one they would go to is marked.
+  dragging: boolean;
+  overRole?: SourceRole | null;
 }
 
 const EMPTY_LINKS: SourceLink[] = [];
-const PRIMARY_CATEGORY: EssaySourceCategory = "primary";
-const COURSE_CATEGORY: EssaySourceCategory = "secondary_course";
-// Uploads land in Secondary (outside), since most papers brought in by hand are outside
-// reading, and a row's menu moves one elsewhere in a tap.
+// A source added by hand starts in Secondary (outside), since most sources typed in are
+// outside reading, and its group can be changed before it is added.
 const UPLOAD_CATEGORY: EssaySourceCategory = "secondary_outside";
+
+// Files dropped on a group become sources of that kind. Course readings are the ones the
+// module sets in its weeks, so nothing dropped lands there, and a drop anywhere else on
+// the card counts as outside reading.
+const DROP_ROLE: Partial<Record<EssaySourceCategory, SourceRole>> = {
+  primary: "primary",
+  secondary_outside: "secondary",
+};
 
 // A page number or range, with or without its own "p." or "pp.", such as "12", "12-14"
 // or "pp. 3, 7", which is told apart from a passage such as "chapter 3".
@@ -91,28 +111,8 @@ function sourceSub(source: EssaySource): string {
   return [source.author?.trim(), source.year?.trim()].filter(Boolean).join(", ");
 }
 
-function titleFromFileName(name: string): string {
-  return name.replace(/\.[^.]+$/, "").trim() || name;
-}
-
 function errorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-// A course reading is grouped by its own kind, so that a primary source set in a week
-// sits with the other primary sources rather than among the secondary reading.
-function readingCategory(item: ItemRow): EssaySourceCategory {
-  return item.kind === "primary" ? PRIMARY_CATEGORY : COURSE_CATEGORY;
-}
-
-// Moves one source into another group wherever it is held, whether it was added by
-// hand or uploaded, leaving every other field of it as stored.
-function withCategory(current: AssessmentData, id: string, kind: EssaySourceCategory): AssessmentData {
-  return {
-    ...current,
-    customSources: (current.customSources ?? []).map((source) => (source.id === id ? { ...source, kind } : source)),
-    attachedPapers: current.attachedPapers?.map((paper) => (paper.id === id ? { ...paper, kind } : paper)),
-  };
 }
 
 // Removes one source together with the references that cite it, because a reference
@@ -157,6 +157,7 @@ interface HandForm {
 const EMPTY_HAND_FORM: HandForm = { title: "", author: "", year: "", publisher: "", url: "", category: UPLOAD_CATEGORY };
 
 // One line of the card, which is either a course reading or a source held on the essay.
+// It is sorted by the words it starts with, so that the list reads in alphabetical order.
 interface PanelRow {
   key: string;
   id: string;
@@ -164,16 +165,18 @@ interface PanelRow {
   sub: string;
   reading?: ItemRow;
   source?: EssaySource;
+  paper: boolean;
 }
 
-const readingRow = (item: ItemRow): PanelRow => ({ key: `reading:${item.id}`, id: item.id, title: fullTitle(item), sub: "", reading: item });
+const readingRow = (item: ItemRow): PanelRow => ({ key: `reading:${item.id}`, id: item.id, title: fullTitle(item), sub: "", reading: item, paper: false });
 
-const sourceRow = (source: EssaySource): PanelRow => ({
+const sourceRow = (source: EssaySource, paper: boolean): PanelRow => ({
   key: `source:${source.id}`,
   id: source.id,
   title: source.title,
   sub: sourceSub(source),
   source,
+  paper,
 });
 
 // A row that a mouse can carry into References, by the rules in drag.ts, which keep a
@@ -199,14 +202,199 @@ function SourceItem({ id, draggable, row, editor }: { id: string; draggable: boo
   );
 }
 
-export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: given, uploadFile, onOpenPassage }: EssaySourcesPanelProps) {
+// Where in a reading's text the words were found, with each of them marked as the search
+// marked it.
+function Marked({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  text.split(MARK_START).forEach((chunk, index) => {
+    if (index === 0) {
+      if (chunk) parts.push(<Fragment key="start">{chunk}</Fragment>);
+      return;
+    }
+    const [hit, ...rest] = chunk.split(MARK_END);
+    parts.push(<mark key={`hit${index}`}>{hit}</mark>);
+    const after = rest.join(MARK_END);
+    if (after) parts.push(<Fragment key={`after${index}`}>{after}</Fragment>);
+  });
+  return <>{parts}</>;
+}
+
+// How long the search waits for typing to pause, so that every key does not search.
+const SEARCH_DELAY = 250;
+
+// What the Add card holds. With nothing typed it lists the module's readings not yet in the
+// essay; with a search it finds readings anywhere in the library by title, highlight and,
+// when online, the text of their pages. A tap chooses a reading and another tap lets it go,
+// and the chosen ones are added together.
+function AddBody({ readings, chosen, onAdd, onUpload, onByHand }: {
+  readings: ItemRow[];
+  chosen: ReadonlySet<string>;
+  onAdd: (items: ItemRow[]) => Promise<boolean>;
+  onUpload: () => void;
+  onByHand: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<ReadingHit[] | null>(null);
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const [picked, setPicked] = useState<Map<string, ItemRow>>(() => new Map());
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
+  const q = query.trim();
+
+  // The titles and highlights on this device show first, and the text of the pages joins
+  // them from the server, so that a slow connection never holds back what is already known.
+  useEffect(() => {
+    setHits(null);
+    setRemoteFailed(false);
+    if (!q) return;
+    let live = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const local = await searchReadings(q, { remote: false });
+        if (!live) return;
+        setHits(local);
+        if (!navigator.onLine) return;
+        const all = await searchReadings(q, { remote: true });
+        if (live) setHits(all);
+      } catch {
+        if (live) setRemoteFailed(true);
+      }
+    }, SEARCH_DELAY);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [q]);
+
+  const rows: ReadingHit[] = useMemo(() => {
+    if (q) return (hits ?? []).filter((hit) => !chosen.has(hit.item.id));
+    return readings
+      .filter((item) => !chosen.has(item.id))
+      .map((item) => ({ item }))
+      .sort((a, b) => compareSourceTitles(fullTitle(a.item), fullTitle(b.item)));
+  }, [q, hits, readings, chosen]);
+
+  const toggle = (item: ItemRow) =>
+    setPicked((current) => {
+      const next = new Map(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.set(item.id, item);
+      return next;
+    });
+
+  // The button is disabled from the first tap until the save finishes, so a double tap
+  // can only ever add the readings once.
+  async function add() {
+    if (addingRef.current || !picked.size) return;
+    addingRef.current = true;
+    setAdding(true);
+    const saved = await onAdd([...picked.values()]);
+    addingRef.current = false;
+    if (!saved) setAdding(false);
+  }
+
+  let note: string | null = null;
+  if (!q && !rows.length) {
+    note = readings.length
+      ? "Every reading set in this module is already in the essay, so search to find others."
+      : "This module has no readings yet, so search to find one elsewhere, or upload a file.";
+  } else if (q && hits === null && !remoteFailed) note = "Searching";
+  else if (q && !rows.length) note = `No readings match \u201c${q}\u201d.`;
+
+  return (
+    <>
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        label="Search readings"
+        placeholder="Search titles, highlights and the text of readings"
+        className="essay-ws-pick-search"
+      />
+      {note ? (
+        <p className="small muted essay-ws-pick-empty" role="status">{note}</p>
+      ) : (
+        <ul className="essay-ws-pick-list">
+          {rows.map(({ item, snippet }) => (
+            <li key={item.id}>
+              <button type="button" className="essay-ws-pick-row" aria-pressed={picked.has(item.id)} onClick={() => toggle(item)}>
+                <span className="essay-ws-pick-main">
+                  <span className="essay-ws-pick-title">{fullTitle(item)}</span>
+                  {snippet && (
+                    <span className="essay-ws-pick-snippet">
+                      <Marked text={snippet} />
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {q && remoteFailed && (
+        <p className="small muted essay-ws-pick-empty">The text inside readings could not be searched, so check the connection.</p>
+      )}
+      {q && !remoteFailed && !navigator.onLine && (
+        <p className="small muted essay-ws-pick-empty">Offline, so only titles and highlights are searched.</p>
+      )}
+      <div className="essay-ws-pick-foot">
+        <button type="button" className="button quiet small" onClick={onUpload}>
+          Upload files
+        </button>
+        <button type="button" className="button quiet small" onClick={onByHand}>
+          Add by hand
+        </button>
+        <button
+          type="button"
+          className="button primary small"
+          style={{ marginLeft: "auto" }}
+          disabled={!picked.size || adding}
+          onClick={() => void add()}
+        >
+          {picked.size > 1 ? `Add ${picked.size} readings` : "Add reading"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+// The Add control's card: a small panel in front of the page beside the button on a
+// laptop, and a sheet from the foot of the screen on a phone, with a visible Cancel.
+function AddSourcesCard({ open, onClose, anchor, ...body }: {
+  open: boolean;
+  onClose: () => void;
+  anchor: RefObject<HTMLElement | null>;
+} & Parameters<typeof AddBody>[0]) {
+  return (
+    <ChoiceCard
+      open={open}
+      onClose={onClose}
+      anchor={anchor}
+      label="Add readings and sources"
+      title={<h3 className="choice-title">Add readings and sources</h3>}
+      className="essay-ws-pick"
+      initialFocus="input[type='search']"
+    >
+      <AddBody {...body} />
+    </ChoiceCard>
+  );
+}
+
+export function EssaySourcesPanel({
+  moduleId,
+  moduleCode,
+  essayId,
+  readings: given,
+  onFiles,
+  onEdit,
+  onOpenPassage,
+  dragging,
+  overRole = null,
+}: EssaySourcesPanelProps) {
   const data = useModuleAssessment(moduleId, moduleCode, essayId);
   const sources = useMemo(() => essaySourcesOf(data), [data]);
   const links = data.sourceLinks ?? EMPTY_LINKS;
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [choosing, setChoosing] = useState(false);
   const [byHandOpen, setByHandOpen] = useState(false);
   const [handForm, setHandForm] = useState<HandForm>(EMPTY_HAND_FORM);
   const [addingSource, setAddingSource] = useState(false);
@@ -216,10 +404,9 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
   const [wholeDocument, setWholeDocument] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
-  const firstChoice = useRef<HTMLButtonElement>(null);
 
   // Every reading set in the module's weeks or its tray, together with any already chosen
-  // for the essay, so that the choice sheet can list them and the card can show the chosen.
+  // for the essay, so that the Add card can offer them and the card can show the chosen.
   const refIds = data.referenceItemIds.join(",");
   const found = useLiveQuery(
     () => (given ? [] : moduleReadings(moduleId, data.referenceItemIds)),
@@ -228,10 +415,24 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
   );
   const readings = given ?? found;
 
-  const chosenReadings = useMemo(() => {
-    const chosen = new Set(data.referenceItemIds);
-    return readings.filter((item) => chosen.has(item.id));
-  }, [readings, data.referenceItemIds]);
+  const chosenIds = useMemo(() => new Set(data.referenceItemIds), [data.referenceItemIds]);
+  const chosenReadings = useMemo(() => readings.filter((item) => chosenIds.has(item.id)), [readings, chosenIds]);
+  const paperIds = useMemo(() => new Set((data.attachedPapers ?? []).map((paper) => paper.id)), [data.attachedPapers]);
+
+  // A paper uploaded before sources had readings of their own is given one, under its own
+  // id, so that its title opens it in the reader in a new tab with one click. Doing so on
+  // two devices makes the same rows, and a paper that already has its reading is left alone.
+  const paperKey = (data.attachedPapers ?? []).map((paper) => `${paper.id}:${paper.r2Key ?? ""}`).join(",");
+  useEffect(() => {
+    for (const paper of data.attachedPapers ?? []) {
+      if (!paper.r2Key) continue;
+      void ensureSourceReading({ id: paper.id, name: paper.name ?? paper.title, size: paper.size, mime: paper.mime, r2Key: paper.r2Key }).catch(
+        () => undefined,
+      );
+    }
+    // The papers are read again only when one is added, removed or given a file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperKey]);
 
   const groups = useMemo(
     () =>
@@ -239,11 +440,13 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
         category,
         label: ESSAY_SOURCE_CATEGORY_LABEL[category],
         rows: [
-          ...chosenReadings.filter((item) => readingCategory(item) === category).map(readingRow),
-          ...sources.filter((source) => normaliseSourceCategory(source.kind) === category).map(sourceRow),
-        ],
+          ...chosenReadings.filter((item) => readingCategoryOf(data, item) === category).map(readingRow),
+          ...sources
+            .filter((source) => normaliseSourceCategory(source.kind) === category)
+            .map((source) => sourceRow(source, paperIds.has(source.id))),
+        ].sort((a, b) => compareSourceTitles(a.title, b.title) || a.id.localeCompare(b.id)),
       })),
-    [chosenReadings, sources],
+    [chosenReadings, sources, data, paperIds],
   );
   const total = groups.reduce((sum, group) => sum + group.rows.length, 0);
 
@@ -260,11 +463,6 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     [chosenReadings, data.customSources],
   );
 
-  // The first choice takes focus when the Add panel opens, so the keyboard lands in it.
-  useEffect(() => {
-    if (addOpen) firstChoice.current?.focus();
-  }, [addOpen]);
-
   // Every change is applied to the freshest stored data inside the essay's save lock, so
   // that two quick edits, or an edit made on another device, never overwrite each other.
   function save(update: (current: AssessmentData) => AssessmentData): Promise<boolean> {
@@ -278,47 +476,25 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     );
   }
 
-  function closeAdd() {
-    setAddOpen(false);
-    addButton.current?.focus();
-  }
-
-  // Each file is saved onto the essay as soon as it is stored, so that one failed file
-  // in a batch does not lose the papers uploaded before it.
-  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!files.length) return;
-    setBusy(true);
-    setError(null);
-    let added = 0;
-    try {
-      for (const file of files) {
-        const stored = await uploadFile(file);
-        const paper: AttachedPaper = {
-          id: newId(),
-          title: titleFromFileName(file.name),
-          kind: UPLOAD_CATEGORY,
-          name: file.name,
-          size: file.size,
-          added_at: new Date().toISOString(),
-        };
-        const mime = mimeFor(file) ?? file.type;
-        if (mime) paper.mime = mime;
-        if (stored.fileId) paper.fileId = stored.fileId;
-        if (stored.r2Key) paper.r2Key = stored.r2Key;
-        if (!(await save((current) => ({ ...current, attachedPapers: [...(current.attachedPapers ?? []), paper] })))) break;
-        added += 1;
+  // Readings found outside the module are outside reading, so they join that group; a
+  // primary source stays with the primary sources wherever it was found.
+  async function addReadings(items: ItemRow[]): Promise<boolean> {
+    const inModule = new Set(readings.map((item) => item.id));
+    const saved = await save((current) => {
+      let next: AssessmentData = {
+        ...current,
+        referenceItemIds: [...current.referenceItemIds, ...items.map((item) => item.id).filter((id) => !current.referenceItemIds.includes(id))],
+      };
+      for (const item of items) {
+        if (!inModule.has(item.id) && item.kind !== "primary") next = moveSourceTo(next, { type: "reading", id: item.id }, "secondary_outside");
       }
-    } catch (err) {
-      setError(errorText(err, "The file could not be uploaded, so check the connection and try again."));
-    } finally {
-      setBusy(false);
+      return next;
+    });
+    if (saved) {
+      setAddOpen(false);
+      showToast(items.length === 1 ? "Reading added to this essay." : `${items.length} readings added to this essay.`);
     }
-    if (added) {
-      const what = added === 1 ? "The file was" : `${added} files were`;
-      showToast(`${what} added to ${ESSAY_SOURCE_CATEGORY_LABEL[UPLOAD_CATEGORY]}, and its menu moves it elsewhere.`);
-    }
+    return saved;
   }
 
   function cite(id: string, text: string | null | undefined) {
@@ -332,27 +508,54 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     });
   }
 
-  function toggleReading(id: string) {
-    void save((current) => ({
+  // Asks first only when page references would go with it, since those are the part
+  // that would be hard to put back; the reading itself stays in the module.
+  async function removeReading(item: ItemRow) {
+    const count = linksForSource(links, item.id).length;
+    if (count) {
+      const noun = count === 1 ? "page reference goes" : "page references go";
+      const ok = await confirmAction({
+        title: `Remove \u201c${item.title}\u201d from this essay?`,
+        body: `Its ${count} ${noun} with it, though the reading stays in the module.`,
+        confirm: "Remove from essay",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    const saved = await save((current) => ({
       ...current,
-      referenceItemIds: current.referenceItemIds.includes(id)
-        ? current.referenceItemIds.filter((x) => x !== id)
-        : [...current.referenceItemIds, id],
+      referenceItemIds: current.referenceItemIds.filter((x) => x !== item.id),
+      sourceLinks: removeLinksForSource(current.sourceLinks ?? EMPTY_LINKS, item.id),
     }));
+    if (saved) showToast("Reading removed from this essay, though it stays in the module.");
   }
 
-  function removeReading(item: ItemRow) {
-    void save((current) => ({ ...current, referenceItemIds: current.referenceItemIds.filter((x) => x !== item.id) })).then(
-      (saved) => {
-        if (saved) showToast("Reading removed from this essay, though it stays in the module.");
-      },
-    );
+  // Moves a source to another group or to the admin documents. A reading needs its file's
+  // details to become an admin document, which are read from the file it holds.
+  async function moveTo(ref: SourceRef, to: SourceDestination) {
+    let file: { name: string; size: number; mime: string } | undefined;
+    if (ref.type === "reading" && to === "admin") {
+      const item = readings.find((reading) => reading.id === ref.id);
+      const row = item?.file_id ? await db.files.get(item.file_id) : undefined;
+      if (!item || !row) {
+        showToast("This reading has no file yet, so it cannot be an admin document.");
+        return;
+      }
+      file = { name: item.title, size: row.bytes, mime: row.mime };
+    }
+    if (await save((current) => moveSourceTo(current, ref, to, file))) {
+      showToast(`Moved to ${to === "admin" ? "Admin documents" : ESSAY_SOURCE_CATEGORY_LABEL[to]}.`);
+    }
   }
 
-  function moveSource(source: EssaySource, category: EssaySourceCategory) {
-    void save((current) => withCategory(current, source.id, category)).then((saved) => {
-      if (saved) showToast(`Moved to ${ESSAY_SOURCE_CATEGORY_LABEL[category]}.`);
-    });
+  function moveItems(ref: SourceRef, current: EssaySourceCategory, toAdmin: boolean): MenuItem[] {
+    return [
+      ...ESSAY_SOURCE_CATEGORIES.filter((category) => category !== current).map((category) => ({
+        label: ESSAY_SOURCE_CATEGORY_LABEL[category],
+        onSelect: () => void moveTo(ref, category),
+      })),
+      ...(toAdmin ? [{ label: "Admin documents", onSelect: () => void moveTo(ref, "admin") }] : []),
+    ];
   }
 
   // Deleting asks first only when page references would go with the source, since those
@@ -371,6 +574,11 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     }
     if (openId === source.id) setOpenId(null);
     if (await save((current) => withoutSource(current, source.id))) showToast("Source deleted.");
+  }
+
+  function openReferences(id: string) {
+    setOpenId(id);
+    setAddingId(null);
   }
 
   function toggleOpen(id: string) {
@@ -551,25 +759,59 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     );
   }
 
-  function renderRow(row: PanelRow) {
+  // A row's title opens what it names: a reading in the reader, in a new tab, an uploaded
+  // paper the same way through the reading it is given, and a source added by hand at its
+  // link. A source with nothing to open offers its details instead.
+  function renderTitle(row: PanelRow, ref: SourceRef) {
+    const label = [row.title, row.sub].filter(Boolean).join(", ");
+    const body = (
+      <>
+        {row.title}
+        {row.sub && <span className="essay-ws-source-sub">{` ${row.sub}`}</span>}
+      </>
+    );
+    if (row.reading || (row.paper && row.source && "r2Key" in row.source && row.source.r2Key)) {
+      return (
+        <Link to={{ view: "reader", id: row.id }} className="essay-ws-source-title" title={label} newTab="always">
+          {body}
+        </Link>
+      );
+    }
+    const url = row.source && !row.paper ? safeExternalUrl(row.source.url) : null;
+    if (url) {
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" className="essay-ws-source-title" title={label}>
+          {body}
+        </a>
+      );
+    }
+    return (
+      <button type="button" className="essay-ws-source-title" title={`Edit details of ${row.title}`} onClick={() => onEdit(ref)}>
+        {body}
+      </button>
+    );
+  }
+
+  function renderRow(row: PanelRow, category: EssaySourceCategory) {
     const cited = citedIds.has(row.id);
     const { reading, source } = row;
     const sourceLinks = source ? linksForSource(links, source.id) : EMPTY_LINKS;
     const open = Boolean(source) && openId === row.id;
+    const ref: SourceRef = { type: reading ? "reading" : row.paper ? "paper" : "custom", id: row.id };
 
-    const items = reading
+    const items: MenuItem[] = reading
       ? [
+          { label: "Edit details", onSelect: () => onEdit(ref) },
           ...(cited ? [] : [{ label: "Cite in the draft", onSelect: () => cite(reading.id, formatChicagoFootnote(reading)) }]),
-          { label: "Remove from essay", onSelect: () => removeReading(reading) },
+          { label: "Move to", items: moveItems(ref, category, Boolean(reading.file_id)) },
+          { label: "Remove from essay", onSelect: () => void removeReading(reading) },
         ]
       : source
         ? [
-            { label: "Add a page reference", onSelect: () => startAdding(source.id) },
+            { label: "Edit details", onSelect: () => onEdit(ref) },
+            { label: "Page references", onSelect: () => openReferences(source.id) },
             ...(cited ? [] : [{ label: "Cite in the draft", onSelect: () => cite(source.id, formatCustomFootnote(source)) }]),
-            ...ESSAY_SOURCE_CATEGORIES.filter((category) => category !== normaliseSourceCategory(source.kind)).map((category) => ({
-              label: `Move to ${ESSAY_SOURCE_CATEGORY_LABEL[category]}`,
-              onSelect: () => moveSource(source, category),
-            })),
+            { label: "Move to", items: moveItems(ref, category, row.paper && "r2Key" in source && Boolean(source.r2Key)) },
             { label: "Delete source", danger: true, onSelect: () => void deleteSource(source) },
           ]
         : [];
@@ -577,22 +819,7 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
     const content = (
       <>
         <div className="essay-ws-source-body">
-          {reading ? (
-            <Link to={{ view: "reader", id: reading.id }} className="essay-ws-source-title" title={row.title} newTab>
-              {row.title}
-            </Link>
-          ) : (
-            <button
-              type="button"
-              className="essay-ws-source-title"
-              aria-expanded={open}
-              title={[row.title, row.sub].filter(Boolean).join(", ")}
-              onClick={() => toggleOpen(row.id)}
-            >
-              {row.title}
-              {row.sub && <span className="essay-ws-source-sub">{` ${row.sub}`}</span>}
-            </button>
-          )}
+          {renderTitle(row, ref)}
           {(cited || sourceLinks.length > 0) && (
             <div className="essay-ws-source-meta">
               {cited && <span className="essay-ws-chip">Cited</span>}
@@ -632,7 +859,7 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
   }
 
   return (
-    <section className="essay-ws-card essay-ws-sources-card" aria-labelledby="essay-ws-sources-title">
+    <section className="essay-ws-card essay-ws-sources-card" aria-labelledby="essay-ws-sources-title" data-drop-role="secondary">
       <div className="essay-ws-card-head">
         <h2 id="essay-ws-sources-title" className="essay-ws-card-title">
           Readings and sources
@@ -642,71 +869,25 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
           ref={addButton}
           type="button"
           className="button quiet small essay-ws-add-toggle"
+          aria-haspopup="dialog"
           aria-expanded={addOpen}
-          aria-controls="essay-ws-add-panel"
-          disabled={busy}
-          onClick={() => (addOpen ? closeAdd() : setAddOpen(true))}
+          onClick={() => setAddOpen(true)}
         >
-          {busy ? "Uploading" : "Add"}
+          Add
         </button>
-        <input ref={fileInput} type="file" multiple hidden onChange={(event) => void handleFiles(event)} />
-      </div>
-
-      {addOpen && (
-        <div
-          id="essay-ws-add-panel"
-          className="essay-ws-add-panel"
-          role="group"
-          aria-label="Add a reading or source"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              closeAdd();
-            }
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          accept={READING_ACCEPT}
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            event.target.value = "";
+            if (files.length) onFiles(files, "secondary");
           }}
-        >
-          <button
-            ref={firstChoice}
-            type="button"
-            className="essay-ws-add-choice"
-            onClick={() => {
-              setAddOpen(false);
-              fileInput.current?.click();
-            }}
-          >
-            <span>Upload a file</span>
-            <span className="essay-ws-add-choice-note">
-              Added to {ESSAY_SOURCE_CATEGORY_LABEL[UPLOAD_CATEGORY]}, and moved from its menu if it belongs elsewhere
-            </span>
-          </button>
-          <button
-            type="button"
-            className="essay-ws-add-choice"
-            onClick={() => {
-              setAddOpen(false);
-              setChoosing(true);
-            }}
-          >
-            <span>Choose from course readings</span>
-            <span className="essay-ws-add-choice-note">The readings set in the weeks of this module</span>
-          </button>
-          <button
-            type="button"
-            className="essay-ws-add-choice"
-            onClick={() => {
-              setAddOpen(false);
-              setByHandOpen(true);
-            }}
-          >
-            <span>Add by hand</span>
-            <span className="essay-ws-add-choice-note">A book, article or archive document without a file</span>
-          </button>
-          <button type="button" className="button quiet small essay-ws-add-cancel" onClick={closeAdd}>
-            Cancel
-          </button>
-        </div>
-      )}
+        />
+      </div>
 
       {error && (
         <p className="small essay-ws-error" role="alert">
@@ -714,66 +895,52 @@ export function EssaySourcesPanel({ moduleId, moduleCode, essayId, readings: giv
         </p>
       )}
 
-      {total === 0 ? (
+      {total === 0 && !dragging ? (
         <p className="small muted">
-          No readings or sources yet. Use Add to upload a file, choose course readings or add a source by hand.
+          No readings or sources yet. Drop files here, or use Add to find a reading, upload a file or add a source by hand.
         </p>
       ) : (
         <ul className="essay-ws-source-groups">
-          {groups.map((group) =>
-            group.rows.length > 0 ? (
-              <li key={group.category} className="essay-ws-source-group">
+          {groups.map((group) => {
+            const role = DROP_ROLE[group.category];
+            if (!group.rows.length && !(dragging && role)) return null;
+            return (
+              <li
+                key={group.category}
+                className={`essay-ws-source-group${role && overRole === role ? " is-drop-target" : ""}`}
+                data-drop-role={role}
+              >
                 <h3 className="essay-ws-source-group-head">
                   {group.label}
-                  <span className="essay-ws-source-group-count">{group.rows.length}</span>
+                  {group.rows.length > 0 && <span className="essay-ws-source-group-count">{group.rows.length}</span>}
                 </h3>
-                <ul className="essay-ws-sources">{group.rows.map(renderRow)}</ul>
+                {group.rows.length > 0 ? (
+                  <ul className="essay-ws-sources">{group.rows.map((row) => renderRow(row, group.category))}</ul>
+                ) : (
+                  <p className="small muted">Drop files here.</p>
+                )}
               </li>
-            ) : null,
-          )}
+            );
+          })}
         </ul>
       )}
 
-      <Sheet
-        open={choosing}
-        onClose={() => setChoosing(false)}
-        title="Choose course readings"
-        subtitle={moduleCode ? `Readings assigned in ${moduleCode}` : "Readings assigned in this module"}
-        className="essay-sources-sheet"
-        footer={
-          <button type="button" className="button primary" onClick={() => setChoosing(false)}>
-            Done
-          </button>
-        }
-      >
-        {readings.length === 0 ? (
-          <p className="small muted">This module has no readings yet, so add them to its weeks first.</p>
-        ) : (
-          (["primary", "secondary"] as const).map((group) => {
-            const rows = readings.filter((item) => (group === "primary" ? item.kind === "primary" : item.kind !== "primary"));
-            if (!rows.length) return null;
-            return (
-              <div key={group} className="essay-ws-source-group">
-                <h3 className="essay-ws-source-group-head">{group === "primary" ? "Primary sources" : "Secondary reading"}</h3>
-                <ul className="citation-list">
-                  {rows.map((item) => (
-                    <li key={item.id}>
-                      <label className="check-row">
-                        <input
-                          type="checkbox"
-                          checked={data.referenceItemIds.includes(item.id)}
-                          onChange={() => toggleReading(item.id)}
-                        />
-                        <span>{fullTitle(item)}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })
-        )}
-      </Sheet>
+      <AddSourcesCard
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        anchor={addButton}
+        readings={readings}
+        chosen={chosenIds}
+        onAdd={addReadings}
+        onUpload={() => {
+          setAddOpen(false);
+          fileInput.current?.click();
+        }}
+        onByHand={() => {
+          setAddOpen(false);
+          setByHandOpen(true);
+        }}
+      />
 
       <Sheet
         open={byHandOpen}

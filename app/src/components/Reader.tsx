@@ -9,7 +9,9 @@ import type { PageViewport, PDFDocumentProxy } from "pdfjs-dist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EXACT_SIZES_UP_TO, exactPageSizes, openPdf, openPdfData, pageSizes } from "../lib/pdfOpen";
 import { loadReader, placesOf } from "../lib/library";
-import { navigate } from "../lib/router";
+import { navigate, type CiteTarget } from "../lib/router";
+import { formatChicagoFootnote, getModuleAssessment, linkPassage, useModuleAssessment } from "../lib/assessment";
+import { numberedFootnotes } from "../lib/essaySources";
 import { bumpFile, commit, insert, newId, sendNow, update } from "../lib/sync";
 import { fullTitle, shortTitle } from "../lib/titles";
 import { COLOURS, colourLabel, useColourNames } from "../lib/settings";
@@ -65,19 +67,36 @@ const clamp = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value))
 /** Readings whose paragraphs this session has already asked to be prepared. */
 const preparationAsked = new Set<string>();
 
-export function Reader({ id, page, q }: { id: string; page?: number; q?: string }) {
+// A reading opens at a page, with a search, at one highlight (hl), as Go to on an essay's
+// reference opens it, or ready to link a passage to an essay's footnote (cite).
+export function Reader({ id, page, q, hl, cite }: { id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget }) {
   const data = useLiveQuery(() => loadReader(id), [id]);
   if (data === undefined) return null;
   if (data === null) return <div className="page"><p className="muted">This reading no longer exists.</p></div>;
   if (isVideoMime(data.file?.mime ?? data.upload?.mime)) {
     return <VideoReader data={data} q={q} />;
   }
-  return <PdfReader id={id} data={data} page={page} q={q} />;
+  return <PdfReader id={id} data={data} page={page} q={q} hl={hl} cite={cite} />;
+}
+
+// While a passage is being chosen for an essay's footnote, a bar under the reader's own
+// says so, with Cancel, which leaves the reading open where it is.
+function CiteBanner({ cite, onCancel }: { cite: CiteTarget; onCancel: () => void }) {
+  const data = useModuleAssessment(cite.module, undefined, cite.essay);
+  const number = useMemo(() => numberedFootnotes(data.draft).find((fn) => fn.id === cite.footnote)?.number, [data.draft, cite.footnote]);
+  const what = cite.footnote.startsWith("new:") ? "the new footnote" : number ? `footnote ${number}` : "the footnote";
+  return (
+    <div className="find-bar cite-bar" role="status">
+      <span>Select the passage for {what}, then choose Link passage.</span>
+      <span className="spacer" />
+      <button type="button" className="button small" onClick={onCancel}>Cancel</button>
+    </div>
+  );
 }
 
 type LoadedReaderData = NonNullable<Awaited<ReturnType<typeof loadReader>>>;
 
-function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; page?: number; q?: string }) {
+function PdfReader({ id, data, page, q, hl, cite }: { id: string; data: LoadedReaderData; page?: number; q?: string; hl?: string; cite?: CiteTarget }) {
   const [sheet, setSheet] = useState<"edit" | "move" | null>(null);
   const replacer = useRef<HTMLInputElement>(null);
   const dataRef = useRef(data);
@@ -894,13 +913,17 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   // taken when the bar appeared, so nothing that moves the page in between can
   // change what is highlighted. Words already highlighted on the page are not
   // highlighted twice, and a second press while one is being made does nothing.
+  // The highlight's id is returned, which is the one already there when the
+  // words are highlighted already, and null when nothing could be highlighted.
   const creating = useRef(false);
-  async function createHighlight(colour: string, withComment = false) {
+  async function createHighlight(colour: string, withComment = false): Promise<string | null> {
     const s = selectedRef.current;
-    if (!s || creating.current) return;
+    if (!s || creating.current) return null;
     const done = () => { document.getSelection()?.removeAllRanges(); setSelected(null); };
     const capture = { page: s.page, body: s.text };
-    if (!isHighlightable(capture) || isDuplicate(dataRef.current?.highlights ?? [], capture)) { done(); return; }
+    if (!isHighlightable(capture)) { done(); return null; }
+    const existing = (dataRef.current?.highlights ?? []).find((h) => isDuplicate([h], capture));
+    if (existing) { done(); return existing.id; }
     creating.current = true;
     try {
       const highlightId = newId();
@@ -911,8 +934,46 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       if (colour !== toolColourRef.current) { setToolColour(colour); localStorage.setItem("highlight-colour", colour); }
       done();
       if (withComment) writeAbout(highlightId);
+      return highlightId;
     } finally {
       creating.current = false;
+    }
+  }
+
+  // Links the selected passage, as a highlight of its own, to the essay's footnote that
+  // asked for it, then leaves linking at that highlight. A second press while one is being
+  // linked does nothing.
+  const linkingRef = useRef(false);
+  async function linkSelection() {
+    const s = selectedRef.current;
+    const reading = dataRef.current?.item;
+    if (!cite || !s || !reading || linkingRef.current) return;
+    linkingRef.current = true;
+    try {
+      const highlightId = await createHighlight(toolColourRef.current);
+      if (!highlightId) return;
+      await linkPassage(cite, {
+        itemId: id,
+        highlightId,
+        quote: s.text,
+        page: s.page,
+        footnoteText: formatChicagoFootnote(reading, String(s.page + 1)),
+      });
+      // The reading is already at the passage, so opening at its highlight is not done again.
+      wentTo.current = highlightId;
+      void navigate({ view: "reader", id, hl: highlightId }, { replace: true });
+      if (cite.footnote.startsWith("new:")) {
+        showToast("Passage linked, and its footnote is added in the word processor.");
+        return;
+      }
+      const essay = await getModuleAssessment(cite.module, undefined, cite.essay);
+      const linked = essay.sourceLinks?.find((link) => link.highlightId === highlightId)?.footnoteId;
+      const number = numberedFootnotes(essay.draft).find((fn) => fn.id === linked)?.number;
+      showToast(number ? `Passage linked to footnote ${number}.` : "Passage linked to the footnote.");
+    } catch (error) {
+      showToast(error instanceof Error && error.message ? error.message : "The passage could not be linked, so try again in a moment.");
+    } finally {
+      linkingRef.current = false;
     }
   }
   const createRef = useRef(createHighlight);
@@ -920,11 +981,12 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
   const toolColourRef = useRef(toolColour);
   toolColourRef.current = toolColour;
 
-  // With the highlight tool on, a selection becomes a highlight straight away.
+  // With the highlight tool on, a selection becomes a highlight straight away,
+  // except while a passage is being chosen to link, which Link passage highlights.
   useEffect(() => {
-    if (tool !== "highlight" || !selected) return;
+    if (tool !== "highlight" || !selected || cite) return;
     void createRef.current(toolColourRef.current);
-  }, [tool, selected]);
+  }, [tool, selected, cite]);
 
   const copySelection = () => {
     const text = selectedRef.current?.text ?? "";
@@ -983,6 +1045,35 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
       }),
     );
   }
+
+  // Opened at one highlight, the reading goes to it once its pages or its text are laid
+  // out, and only once, so that reading on from there is never undone. A highlight that has
+  // been removed opens the reading at the page the link names, and says so.
+  const wentTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hl || wentTo.current === hl || !doc || !sizes.length) return;
+    if (layout === "text" && !textReady) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (wentTo.current === hl) return;
+        wentTo.current = hl;
+        const target = dataRef.current?.highlights.find((h) => h.id === hl && !h.deleted);
+        if (target) {
+          goTo(target);
+          return;
+        }
+        if (page !== undefined) goToPage(Math.min(page, sizes.length - 1));
+        showToast(
+          page !== undefined
+            ? "That highlight has been removed, so the reading opens at its page."
+            : "That highlight has been removed, so the reading opens where you were.",
+        );
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+    // goTo reads the layout as it stands when it runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hl, doc, sizes.length, layout, textReady]);
 
 
   // The notes hold every highlight as a quotation. Whenever a highlight is
@@ -1177,6 +1268,8 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         </div>
       )}
 
+      {cite && <CiteBanner cite={cite} onCancel={() => void navigate({ view: "reader", id }, { replace: true })} />}
+
       {narrow && (
         <div className="reading-progress" role="progressbar" aria-label="How far through the reading" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
           <span style={{ transform: `scaleX(${progress})` }} />
@@ -1264,6 +1357,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
         // phone's own Copy menu. Sentence and Paragraph widen a rough selection.
         <div className="touch-bar" role="toolbar" aria-label="Highlight the selection" onPointerDown={(e) => e.preventDefault()}>
           <div className="touch-bar-widen">
+            {cite && <button type="button" className="tool" onClick={() => void linkSelection()}>Link passage</button>}
             <button type="button" className="tool" onClick={() => widen("sentence")}>Whole sentence</button>
             {layout === "text" && <button type="button" className="tool" onClick={() => widen("paragraph")}>Whole paragraph</button>}
           </div>
@@ -1287,6 +1381,7 @@ function PdfReader({ id, data, page, q }: { id: string; data: LoadedReaderData; 
           onComment={(colour) => void createHighlight(colour, true)}
           onCopy={copySelection}
           onDismiss={() => setSelected(null)}
+          onLink={cite ? () => void linkSelection() : undefined}
         />
       ))}
       {sheet && (

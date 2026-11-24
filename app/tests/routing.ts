@@ -82,6 +82,41 @@ test("other fields never leak into a calendar link", () => {
     }
   });
 
+  test("a reader route keeps its highlight and the footnote it links, through a link and back", () => {
+    const routes: Route[] = [
+      { view: "reader", id: "i1", hl: "h9" },
+      { view: "reader", id: "i1", page: 11, hl: "h9" },
+      { view: "reader", id: "i1", cite: { module: "m1", footnote: "fn-3" } },
+      { view: "reader", id: "i1", cite: { module: "m1", essay: "e2", footnote: "new:tab-7" } },
+      { view: "reader", id: "i1", page: 0, q: "ultimatum", hl: "h1", cite: { module: "m1", essay: "e2", footnote: "fn-1" } },
+      // Characters a query string would otherwise take for its own.
+      { view: "reader", id: "i 1", hl: "h&1=2", cite: { module: "m?1", essay: "e#2", footnote: "new:a b+c" } },
+    ];
+    for (const route of routes) {
+      const back = round(route);
+      // A reader route always carries page and q, set or not, so every field the link held
+      // is compared, and the link made again from what was read must be the same link.
+      for (const [key, value] of Object.entries(route)) assert.deepEqual((back as Record<string, unknown>)[key], value, `${href(route)} ${key}`);
+      assert.equal(href(back), href(route));
+    }
+  });
+
+  test("a reader link names its highlight and footnote plainly, and only when they are set", () => {
+    assert.equal(href({ view: "reader", id: "i1", hl: "h9", cite: { module: "m1", essay: "e2", footnote: "fn-3" } }), "/?v=reader&id=i1&hl=h9&cm=m1&ce=e2&cf=fn-3");
+    assert.equal(href({ view: "reader", id: "i1", cite: { module: "m1", footnote: "new:k" } }), "/?v=reader&id=i1&cm=m1&cf=new%3Ak");
+    assert.equal(href({ view: "reader", id: "i1" }), "/?v=reader&id=i1");
+  });
+
+  test("half a footnote link, or an empty highlight, is dropped", () => {
+    for (const search of ["?v=reader&id=i1&cm=m1", "?v=reader&id=i1&cf=fn-1", "?v=reader&id=i1&ce=e1&cf=fn-1", "?v=reader&id=i1&cm=&cf=fn-1"]) {
+      assert.equal((parseRoute(search) as { cite?: unknown }).cite, undefined, search);
+    }
+    assert.deepEqual((parseRoute("?v=reader&id=i1&cm=m1&cf=fn-1&ce=") as { cite?: unknown }).cite, { module: "m1", footnote: "fn-1" });
+    assert.equal((parseRoute("?v=reader&id=i1&hl=") as { hl?: string }).hl, undefined);
+    // A footnote link on any other page is not part of its route.
+    assert.equal(href(parseRoute("?v=essay&id=m1&cm=m1&cf=fn-1&hl=h1")), "/?v=essay&id=m1");
+  });
+
   test("the existing routes are untouched", () => {
     assert.deepEqual(parseRoute(""), { view: "home" });
     assert.deepEqual(parseRoute("?v=nonsense"), { view: "home" });

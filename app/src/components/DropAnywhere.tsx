@@ -237,8 +237,8 @@ export function DropAnywhere({ route }: { route: Route }) {
     };
   }, []);
 
-  // Week and module pages show their own, more precise, drop marks.
-  const ownMarks = route.view === "week";
+  // The week page and the essay page show their own, more precise, drop marks.
+  const ownMarks = route.view === "week" || route.view === "assessment";
   return (
     <>
       {over && !ownMarks && (

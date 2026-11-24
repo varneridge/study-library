@@ -5,6 +5,7 @@
 // of a word, and "quoted phrases" must match as written.
 
 import { db } from "./db";
+import { compareSourceTitles } from "./essaySources";
 import { placesOf, type Place } from "./library";
 import { weekCode } from "./modules";
 import { blockText } from "./notes";
@@ -245,4 +246,34 @@ export async function searchRemote(query: string, limit = 40): Promise<RemoteRes
   for (const group of recordings.values()) group.hits.sort((a, b) => a.start - b.start);
 
   return { pages: [...groups.values()], transcripts: [...recordings.values()], more: Boolean(result.more) };
+}
+
+// A reading found for an essay's Add card, with where in it the words were found when
+// that was inside the text rather than in its title.
+export interface ReadingHit { item: ItemRow; snippet?: string; page?: number }
+
+// Readings that match a query, for adding to an essay: by title, then by a highlight,
+// then, with remote, by the text of their pages, which only the server can search. Each
+// reading appears once, at its first match. With remote, a failed server search throws,
+// so a caller that has already shown the local results can keep them and say so.
+export async function searchReadings(query: string, opts: { remote: boolean }): Promise<ReadingHit[]> {
+  if (!tokens(query).length) return [];
+  const hits = new Map<string, ReadingHit>();
+  const add = (item: ItemRow, snippet?: string, page?: number) => {
+    if (item.deleted || item.kind === "slides" || hits.has(item.id)) return;
+    hits.set(item.id, { item, ...(snippet ? { snippet } : {}), ...(page !== undefined ? { page } : {}) });
+  };
+  const local = await searchLocal(query);
+  [...local.titles]
+    .sort((a, b) => compareSourceTitles(fullTitle(a.item), fullTitle(b.item)))
+    .forEach((hit) => add(hit.item));
+  for (const group of local.highlights) {
+    const first = group.highlights[0];
+    add(group.item, first?.text, first?.highlight.page);
+  }
+  if (opts.remote) {
+    const remote = await searchRemote(query);
+    for (const group of remote.pages) add(group.item, group.pages[0]?.snippet, group.pages[0]?.page);
+  }
+  return [...hits.values()];
 }

@@ -2,7 +2,7 @@
 // component so they can be tested. Footnote and bibliography text is plain text
 // that goes straight into Word, so it carries no Markdown markers.
 
-import { computeFootnoteNumbers, type DocxDocument, type WordCountBreakdown } from "./docx";
+import { computeFootnoteNumbers, type DocxDocument, type DocxFootnote, type WordCountBreakdown } from "./docx";
 
 // The fields of a custom source these helpers read, so any richer source type fits.
 export interface ExternalSourceFields {
@@ -139,6 +139,63 @@ export function normaliseSourceCategory(
   return fallback;
 }
 
+// What kind of primary source a reading is, which names the field that holds its
+// details on the source card (the newspaper, where a speech was given, and so on).
+export type PrimaryType = "image" | "newspaper" | "speech" | "other";
+
+export const PRIMARY_TYPES: readonly PrimaryType[] = ["image", "newspaper", "speech", "other"];
+
+export const PRIMARY_TYPE_LABEL: Record<PrimaryType, string> = {
+  image: "Image",
+  newspaper: "Newspaper",
+  speech: "Speech",
+  other: "Other",
+};
+
+export function isPrimaryType(value: unknown): value is PrimaryType {
+  return value === "image" || value === "newspaper" || value === "speech" || value === "other";
+}
+
+// What one essay knows about one of its sources beyond the source itself: the group it
+// is shown in and, for a primary source, its type. It is kept on the essay rather than on
+// the reading, so that the same reading can sit in a different group in another essay
+// and the readings table keeps the columns the server already has.
+export interface SourceMeta {
+  category?: EssaySourceCategory;
+  primaryType?: PrimaryType;
+}
+
+// Reads the stored map, keeping only the values it knows, so that a malformed entry
+// synced from another device never puts a source in a group that does not exist. The
+// older plain "secondary" is read as course reading, as it is everywhere else.
+export function normaliseSourceMeta(raw: unknown): Record<string, SourceMeta> {
+  const out: Record<string, SourceMeta> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!id || !value || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    const meta: SourceMeta = {};
+    if (isEssaySourceCategory(entry.category) || entry.category === "secondary") meta.category = normaliseSourceCategory(entry.category);
+    if (isPrimaryType(entry.primaryType)) meta.primaryType = entry.primaryType;
+    if (meta.category || meta.primaryType) out[id] = meta;
+  }
+  return out;
+}
+
+// Sources are listed alphabetically, as a bibliography is, with accents, case, quotation
+// marks and an opening bracket ignored and numbers read as numbers, so that "Bront\u00eb"
+// sorts with "Bronte", "2 Kings" comes before "10 Kings", and a title sorts the same in
+// quotation marks as out of them, as a reading with no author is shown in them.
+const TITLE_COLLATOR = new Intl.Collator("en-GB", { sensitivity: "base", numeric: true });
+const QUOTATION_MARKS = /["'\u2018\u2019\u201c\u201d]/g;
+const LEADING_MARKS = /^[\s([]+/;
+
+const titleSortKey = (title: string) => title.replace(QUOTATION_MARKS, "").replace(LEADING_MARKS, "");
+
+export function compareSourceTitles(a: string, b: string): number {
+  return TITLE_COLLATOR.compare(titleSortKey(a), titleSortKey(b));
+}
+
 export interface SourceGroup<T> {
   category: EssaySourceCategory;
   label: string;
@@ -229,11 +286,14 @@ export interface SourceLink {
   footnoteId?: string;
   label?: string;
   footnoteText?: string;
+  // Set while a footnote for this link is waiting to be added in the word processor, to
+  // the key of the word processor tab that asked for it, so that only that tab adds it.
+  awaitingInsert?: string;
   created_at?: string;
   updated_at?: string;
 }
 
-const LINK_TEXT_FIELDS = ["page", "passage", "highlightId", "quote", "footnoteId", "label", "footnoteText", "created_at", "updated_at"] as const;
+const LINK_TEXT_FIELDS = ["page", "passage", "highlightId", "quote", "footnoteId", "label", "footnoteText", "awaitingInsert", "created_at", "updated_at"] as const;
 
 function cleanText(value: unknown): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -385,6 +445,117 @@ export function removeLinksForSource(links: SourceLink[], sourceId: string): Sou
   return next.length === links.length ? links : next;
 }
 
+export function removeLinksForFootnote(links: SourceLink[], footnoteId: string): SourceLink[] {
+  const next = links.filter((link) => link.footnoteId !== footnoteId);
+  return next.length === links.length ? links : next;
+}
+
 export function linksForSource(links: readonly SourceLink[], sourceId: string): SourceLink[] {
   return links.filter((link) => link.sourceId === sourceId);
+}
+
+// Footnote text as it is compared across a save: trimmed, with runs of space made one
+// and curly quotation marks made straight, since Word may change either on its own.
+export function normaliseFootnoteText(text: string): string {
+  return text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, " ").trim();
+}
+
+export interface FootnoteCarry {
+  draft: DocxDocument;
+  sourceLinks: SourceLink[];
+}
+
+// A draft read back from Word gives every footnote a new id and keeps none of the
+// sources they cite, so this carries both across from the draft that was saved before.
+// Footnotes are paired by their text first, then the links waiting for a new footnote
+// claim theirs by its text, and what is left is paired in order when as many notes went
+// as came, which is a note reworded in place. pairByOrder is turned off for a document
+// that replaces the draft outright, whose notes have nothing to do with the old ones.
+// A link whose footnote has gone keeps its source and passage as a page reference.
+// The same draft and the same list come back when nothing needed to change.
+export function carryFootnoteBindings(
+  prev: DocxDocument,
+  next: DocxDocument,
+  links: SourceLink[],
+  options: { pairByOrder?: boolean; now?: string } = {},
+): FootnoteCarry {
+  const now = options.now ?? new Date().toISOString();
+  const byText = new Map<string, DocxFootnote[]>();
+  for (const note of prev.footnotes) {
+    const key = normaliseFootnoteText(note.text);
+    byText.set(key, [...(byText.get(key) ?? []), note]);
+  }
+
+  // The earlier footnote each new one continues, by index in the new draft.
+  const continues = new Map<number, DocxFootnote>();
+  const paired = new Set<DocxFootnote>();
+  next.footnotes.forEach((note, index) => {
+    const match = byText.get(normaliseFootnoteText(note.text))?.shift();
+    if (!match) return;
+    continues.set(index, match);
+    paired.add(match);
+  });
+
+  // A link waiting for a new footnote takes the first unpaired one with its text.
+  const claimed = new Map<string, number>();
+  const taken = new Set<number>();
+  for (const link of links) {
+    if (!link.awaitingInsert || link.footnoteId || !link.footnoteText) continue;
+    const text = normaliseFootnoteText(link.footnoteText);
+    const index = next.footnotes.findIndex((note, at) => !continues.has(at) && !taken.has(at) && normaliseFootnoteText(note.text) === text);
+    if (index < 0) continue;
+    claimed.set(link.id, index);
+    taken.add(index);
+  }
+
+  if (options.pairByOrder !== false) {
+    const leftOld = prev.footnotes.filter((note) => !paired.has(note));
+    const leftNew = next.footnotes.map((_, index) => index).filter((index) => !continues.has(index) && !taken.has(index));
+    if (leftOld.length && leftOld.length === leftNew.length) leftNew.forEach((index, at) => continues.set(index, leftOld[at]));
+  }
+
+  const renamed = new Map<string, string>();
+  let draftChanged = false;
+  const footnotes = next.footnotes.map((note, index) => {
+    const before = continues.get(index);
+    if (!before) return note;
+    renamed.set(before.id, note.id);
+    const carried: DocxFootnote = { ...note };
+    if (!carried.citationItemId && before.citationItemId) carried.citationItemId = before.citationItemId;
+    if (!carried.locator && before.locator) carried.locator = before.locator;
+    if (carried.citationItemId === note.citationItemId && carried.locator === note.locator) return note;
+    draftChanged = true;
+    return carried;
+  });
+
+  const oldIds = new Set(prev.footnotes.map((note) => note.id));
+  const newIds = new Set(next.footnotes.map((note) => note.id));
+  let linksChanged = false;
+  const sourceLinks = links.map((link) => {
+    const index = claimed.get(link.id);
+    if (index !== undefined) {
+      const note = footnotes[index];
+      if (note.citationItemId !== link.sourceId) {
+        footnotes[index] = { ...note, citationItemId: link.sourceId };
+        draftChanged = true;
+      }
+      linksChanged = true;
+      const bound: SourceLink = { ...link, footnoteId: note.id, updated_at: now };
+      delete bound.awaitingInsert;
+      return bound;
+    }
+    if (!link.footnoteId) return link;
+    const target = oldIds.has(link.footnoteId) ? renamed.get(link.footnoteId) : newIds.has(link.footnoteId) ? link.footnoteId : undefined;
+    if (target === link.footnoteId) return link;
+    linksChanged = true;
+    if (target) return { ...link, footnoteId: target, updated_at: now };
+    const detached: SourceLink = { ...link, updated_at: now };
+    delete detached.footnoteId;
+    return detached;
+  });
+
+  return {
+    draft: draftChanged ? { ...next, footnotes } : next,
+    sourceLinks: linksChanged ? sourceLinks : links,
+  };
 }

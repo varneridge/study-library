@@ -5,11 +5,21 @@ import { useEffect, useLayoutEffect, useState, useTransition } from "react";
 import { parseISO } from "./civilDate";
 import { hasOpenOverlay } from "./ui";
 
+// The footnote of an essay that a passage chosen in the reader is linked to. A footnote
+// of "new:" and a key asks for a new one, which the word processor tab with that key adds.
+export interface CiteTarget {
+  module: string;
+  essay?: string;
+  footnote: string;
+}
+
 export type Route =
   | { view: "home" }
   | { view: "module"; id: string }
   | { view: "week"; id: string; folder?: string }
-  | { view: "reader"; id: string; page?: number; q?: string }
+  // A reading, at a page, with a search, opened at one highlight (hl), or open to link a
+  // passage to an essay's footnote (cite).
+  | { view: "reader"; id: string; page?: number; q?: string; hl?: string; cite?: CiteTarget }
   | { view: "essay"; id: string; essay?: string; q?: string }
   // A module's Assessment & essay page.
   | { view: "assessment"; id: string; essay?: string }
@@ -61,8 +71,23 @@ export function parseRoute(search: string): Route {
       const pageStr = params.get("page");
       const pageNum = pageStr !== null && pageStr.trim() !== "" ? Number(pageStr) : NaN;
       const validPage = Number.isInteger(pageNum) && pageNum >= 0 ? pageNum : undefined;
+      // A link to a footnote needs both the module and the footnote, so half of one is ignored.
+      const citeModule = params.get("cm");
+      const citeFootnote = params.get("cf");
+      const citeEssay = params.get("ce");
+      const cite = citeModule && citeFootnote
+        ? { module: citeModule, footnote: citeFootnote, ...(citeEssay ? { essay: citeEssay } : {}) }
+        : undefined;
+      const hl = params.get("hl") || undefined;
       return id
-        ? { view, id, page: validPage, q: params.get("q") ?? undefined }
+        ? {
+            view,
+            id,
+            page: validPage,
+            q: params.get("q") ?? undefined,
+            ...(hl ? { hl } : {}),
+            ...(cite ? { cite } : {}),
+          }
         : { view: "home" };
     }
     case "across":
@@ -128,6 +153,14 @@ export function href(route: Route): string {
   if (route.view === "week" && route.folder) params.set("folder", route.folder);
   if (route.view === "reader" && route.page !== undefined) params.set("page", String(route.page));
   if ((route.view === "reader" || route.view === "essay") && route.q) params.set("q", route.q);
+  if (route.view === "reader") {
+    if (route.hl) params.set("hl", route.hl);
+    if (route.cite) {
+      params.set("cm", route.cite.module);
+      if (route.cite.essay) params.set("ce", route.cite.essay);
+      params.set("cf", route.cite.footnote);
+    }
+  }
   if (route.view === "session") {
     if (route.rec) params.set("rec", route.rec);
     if (route.t !== undefined) params.set("t", String(Math.floor(route.t)));

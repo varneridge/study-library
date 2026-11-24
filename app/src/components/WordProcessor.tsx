@@ -3,10 +3,13 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../lib/db";
 import { useModuleAssessment, saveModuleAssessment, getModuleAssessment, wordProgress } from "../lib/assessment";
 import { toDocxBytes, fromDocxBytes, countDocxWords, type DocxDocument } from "../lib/docx";
-import { effectiveWordCount } from "../lib/essaySources";
+import { carryFootnoteBindings, createSourceLink, effectiveWordCount } from "../lib/essaySources";
 import { navigate } from "../lib/router";
+import { newId } from "../lib/sync";
 import { showToast, useTitle } from "../lib/ui";
+import { openInTab } from "../App";
 import { Icon } from "./icons";
+import { SourcePicker, type SourceChoice } from "./SourcePicker";
 import "./WordProcessor.css";
 import {
   COMPACT_BELOW_PX,
@@ -31,6 +34,10 @@ const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 // whole status bar our docks then cover.
 const CHROME_TIMEOUT_MS = 4_000;
 
+// How long to wait for the editor to say it has added a footnote before copying its text
+// for the student to paste instead, as an older build without the command never answers.
+const INSERT_TIMEOUT_MS = 1_500;
+
 type ChromeMode = "pending" | "embedded" | "fallback";
 
 export type WordProcessorStatus = "loading" | "ready" | "unsaved" | "saving" | "saved" | "error";
@@ -49,7 +56,8 @@ type InboundMessage =
   | { type: "wordcraft:dirty"; dirty: boolean }
   | { type: "wordcraft:save"; payload: unknown }
   | { type: "wordcraft:chrome"; chrome: ChromeInfo | null }
-  | { type: "wordcraft:selection"; words: number };
+  | { type: "wordcraft:selection"; words: number }
+  | { type: "wordcraft:footnote-inserted"; id: string; ok: boolean };
 
 type EditorError = { kind: "load" | "save" | "file"; message: string };
 
@@ -72,6 +80,8 @@ function parseMessage(data: unknown): InboundMessage | null {
       return { type: "wordcraft:chrome", chrome: parseChrome(record.chrome) };
     case "wordcraft:selection":
       return { type: "wordcraft:selection", words: parseSelectionWords(record.words) };
+    case "wordcraft:footnote-inserted":
+      return typeof record.id === "string" ? { type: "wordcraft:footnote-inserted", id: record.id, ok: record.ok === true } : null;
     default:
       return null;
   }
@@ -138,6 +148,13 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
   const [initialInsets] = useState<ChromeInsets>(() => (compact ? INSETS_COMPACT : INSETS_REGULAR));
   const stageRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
+  // Cite opens the source picker beside its button. This tab's own key marks the citations
+  // it asked for, so that only this tab adds their footnotes, and only once each.
+  const [citing, setCiting] = useState(false);
+  const citeButton = useRef<HTMLButtonElement>(null);
+  const [sessionKey] = useState(() => newId());
+  const sentLinks = useRef(new Set<string>());
+  const insertWaits = useRef(new Map<string, { timer: number; fallBack: () => void }>());
   const sentStatusInsetRef = useRef<number | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -207,6 +224,31 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
 
   const editorCommand = useCallback((type: "wordcraft:undo" | "wordcraft:redo") => {
     postToEditor({ type });
+    refocusEditor();
+  }, [postToEditor, refocusEditor]);
+
+  // Asks the editor to add a footnote with this text where the cursor is. An editor that
+  // cannot, or does not answer in time, leaves the text on the clipboard to paste into a
+  // footnote of its own. Either way the source is bound to the footnote by its text when the
+  // draft is next saved, so the citation keeps its source however the footnote was made.
+  const insertFootnote = useCallback((text: string, linkId: string) => {
+    const fallBack = () => {
+      insertWaits.current.delete(linkId);
+      const typeIt = () => showToast(`The editor could not add the footnote itself, so choose Insert footnote and add this: ${text}`);
+      const copied = navigator.clipboard?.writeText(text);
+      if (!copied) {
+        typeIt();
+        return;
+      }
+      copied.then(
+        () => showToast("The editor could not add the footnote itself, so its text is copied. Choose Insert footnote and paste it."),
+        typeIt,
+      );
+    };
+    const waiting = insertWaits.current.get(linkId);
+    if (waiting) window.clearTimeout(waiting.timer);
+    insertWaits.current.set(linkId, { timer: window.setTimeout(fallBack, INSERT_TIMEOUT_MS), fallBack });
+    postToEditor({ type: "wordcraft:insert-footnote", id: linkId, text });
     refocusEditor();
   }, [postToEditor, refocusEditor]);
 
@@ -300,13 +342,21 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
             showToast("Draft saved as docx, but search text could not be refreshed.");
           }
 
+          // A draft read back from Word gives its footnotes new ids and keeps none of the
+          // sources they cite, so those are carried across from the draft saved before.
+          const parsed = updatedDoc;
           await saveModuleAssessment(
             id,
-            (prev) => ({
-              ...prev,
-              docx: job.bytes,
-              draft: updatedDoc ?? prev.draft,
-            }),
+            (prev) => {
+              if (!parsed) return { ...prev, docx: job.bytes };
+              const carried = carryFootnoteBindings(prev.draft, parsed, prev.sourceLinks ?? []);
+              return {
+                ...prev,
+                docx: job.bytes,
+                draft: carried.draft,
+                ...(prev.sourceLinks ? { sourceLinks: carried.sourceLinks } : {}),
+              };
+            },
             { moduleCode, essayId },
           );
 
@@ -410,6 +460,15 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
         case "wordcraft:selection":
           setSelectedWords(message.words);
           break;
+
+        case "wordcraft:footnote-inserted": {
+          const waiting = insertWaits.current.get(message.id);
+          if (!waiting) break;
+          window.clearTimeout(waiting.timer);
+          insertWaits.current.delete(message.id);
+          if (!message.ok) waiting.fallBack();
+          break;
+        }
       }
     };
 
@@ -425,6 +484,23 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     };
     document.addEventListener("focusin", handleFocusIn);
     return () => document.removeEventListener("focusin", handleFocusIn);
+  }, []);
+
+  // A citation this tab asked for, of a whole source or of a passage linked in the reader,
+  // waits on the essay for its footnote, which is added here once the editor is ready, and
+  // once only for each, however often the essay changes while it waits.
+  useEffect(() => {
+    if (!readyRef.current || status === "loading") return;
+    for (const link of assessment.sourceLinks ?? []) {
+      if (link.awaitingInsert !== sessionKey || !link.footnoteText || sentLinks.current.has(link.id)) continue;
+      sentLinks.current.add(link.id);
+      insertFootnote(link.footnoteText, link.id);
+    }
+  }, [assessment.sourceLinks, status, sessionKey, insertFootnote]);
+
+  useEffect(() => () => {
+    for (const waiting of insertWaits.current.values()) window.clearTimeout(waiting.timer);
+    insertWaits.current.clear();
   }, []);
 
   useEffect(() => {
@@ -546,6 +622,22 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
     navigate({ view: "assessment", id, ...(essayId && essayId !== "default" ? { essay: essayId } : {}) });
   };
 
+  // A whole source is cited at once, as a link waiting for its footnote, which the effect
+  // above adds where the cursor is. A passage is chosen in the reading, in a new tab, and its
+  // footnote is added here once it is linked there.
+  const pickCitation = (choice: SourceChoice) => {
+    if (choice.kind === "passage") {
+      openInTab({ view: "reader", id: choice.sourceId, cite: { module: id, ...(essayId ? { essay: essayId } : {}), footnote: `new:${sessionKey}` } });
+      showToast("Select the passage in the reading, then choose Link passage, and its footnote is added here.");
+      return;
+    }
+    const link = createSourceLink({ id: newId(), sourceId: choice.sourceId, wholeDocument: true, footnoteText: choice.footnoteText, awaitingInsert: sessionKey });
+    saveModuleAssessment(id, (prev) => ({ ...prev, sourceLinks: [...(prev.sourceLinks ?? []), link] }), { moduleCode, essayId }).catch((err) => {
+      console.error("Citing the source failed", err);
+      showToast("The source could not be cited, so try again in a moment.");
+    });
+  };
+
   const reloadEditor = () => {
     setError(null);
     setFrameKey((k) => k + 1);
@@ -641,6 +733,20 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
             <Icon name="redo" size={15} />
           </button>
 
+          <button
+            ref={citeButton}
+            type="button"
+            className={compact ? "wp-dock-button" : "wp-switch wp-cite"}
+            title="Cite a source"
+            aria-label="Cite a source"
+            aria-haspopup="dialog"
+            aria-expanded={citing}
+            onClick={() => setCiting(true)}
+          >
+            <Icon name="cite" size={15} />
+            {!compact && <span className="wp-switch-label" aria-hidden="true">Cite</span>}
+          </button>
+
           <span className="wp-dock-rule" aria-hidden="true" />
 
           <span className="wp-count">{countLabel}</span>
@@ -704,6 +810,17 @@ export function WordProcessor({ id, essayId }: { id: string; essayId?: string; q
           </div>
         )}
       </div>
+
+      <SourcePicker
+        open={citing}
+        onClose={() => setCiting(false)}
+        anchor={citeButton}
+        moduleId={id}
+        moduleCode={moduleCode}
+        essayId={essayId}
+        title="Cite a source"
+        onPick={pickCitation}
+      />
     </div>
   );
 }

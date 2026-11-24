@@ -69,12 +69,15 @@ with sync_playwright() as p:
     expect(nav.get_by_role("link", name="AT1 Seminar")).to_be_visible()
     print("the session page renames, changes kind, deletes, and goes on to the next session")
 
-    # Slides opened from the lecture go back to the lecture.
-    slides.locator("a.name").first.click()
-    back = page.locator(".reader-bar").get_by_role("button", name="Back to The Consulate")
+    # Slides opened from the lecture open in a new tab and go back to the lecture.
+    with page.expect_popup() as slides_pop:
+        slides.locator("a.name").first.click()
+    slides_tab = slides_pop.value
+    back = slides_tab.locator(".reader-bar").get_by_role("button", name="Back to The Consulate")
     expect(back).to_be_visible()
     back.click()
-    expect(page.get_by_role("heading", name="The Consulate")).to_be_visible()
+    expect(slides_tab.get_by_role("heading", name="The Consulate")).to_be_visible()
+    slides_tab.close()
     print("Back from slides returns to their session")
 
     # The reader's menu has the reading's own actions.

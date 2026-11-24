@@ -12,15 +12,24 @@ import {
   type DocxDocument,
 } from "./docx";
 import { commit, newId } from "./sync";
+import { stripExtension } from "./parse";
+import type { CiteTarget } from "./router";
 import { chicagoNote, shortAuthor, shortTitle } from "./titles";
 import type { AttachmentRef, ItemRow } from "./types";
 import { isAssessmentEnabled } from "./assessmentEnabled";
 import {
+  carryFootnoteBindings,
+  createSourceLink,
   normaliseSourceCategory,
   normaliseSourceLinks,
+  normaliseSourceMeta,
+  removeLinksForFootnote,
   type EssaySourceCategory,
   type SourceLink,
+  type SourceMeta,
 } from "./essaySources";
+
+export type { CiteTarget } from "./router";
 
 const EMPTY_REF_IDS: string[] = [];
 const EMPTY_DRAFTS: AssessmentSnapshot[] = [];
@@ -30,9 +39,13 @@ function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = saveLocks.get(key) ?? Promise.resolve();
   const next = prev.catch(() => undefined).then(fn);
   saveLocks.set(key, next);
-  void next.finally(() => {
-    if (saveLocks.get(key) === next) saveLocks.delete(key);
-  });
+  // The caller hears of a failure from the promise returned, so the copy that only
+  // clears the lock swallows it rather than reporting it a second time, unhandled.
+  void next
+    .finally(() => {
+      if (saveLocks.get(key) === next) saveLocks.delete(key);
+    })
+    .catch(() => undefined);
   return next;
 }
 
@@ -102,6 +115,8 @@ export interface AssessmentData {
   adminDocuments?: AttachmentRef[];
   attachedPapers?: AttachedPaper[];
   sourceLinks?: SourceLink[];
+  // What this essay knows about each of its sources, by the source's id.
+  sourceMeta?: Record<string, SourceMeta>;
   previousDrafts: AssessmentSnapshot[];
   rev: number;
   updated_at?: string;
@@ -233,6 +248,7 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
     ? obj.attachedPapers.map(normaliseAttachedPaper).filter((paper): paper is AttachedPaper => paper !== null)
     : undefined;
   const sourceLinks = Array.isArray(obj.sourceLinks) ? normaliseSourceLinks(obj.sourceLinks) : undefined;
+  const sourceMeta = obj.sourceMeta !== undefined ? normaliseSourceMeta(obj.sourceMeta) : undefined;
 
   return {
     id: typeof obj.id === "string" && obj.id ? obj.id : (essayId ?? "default"),
@@ -247,6 +263,7 @@ export function normaliseAssessmentData(raw: unknown, moduleCode?: string, essay
     ...(adminDocuments ? { adminDocuments } : {}),
     ...(attachedPapers ? { attachedPapers } : {}),
     ...(sourceLinks ? { sourceLinks } : {}),
+    ...(sourceMeta ? { sourceMeta } : {}),
     previousDrafts: Array.isArray(obj.previousDrafts) ? obj.previousDrafts : EMPTY_DRAFTS,
     rev: typeof obj.rev === "number" ? obj.rev : 1,
     updated_at: typeof obj.updated_at === "string" ? obj.updated_at : undefined,
@@ -581,16 +598,224 @@ export async function importAssessmentDocxFile(
   }
 
   const stem = file.name.replace(/\.docx$/i, "").trim();
+  // The imported notes keep a source only where their text is the same as a note that
+  // cited it, since a new document's notes cannot be paired with the old ones in order.
+  let saved = imported;
   await saveModuleAssessment(
     moduleId,
-    {
-      title: stem || current.title,
-      draft: imported,
-      previousDrafts: previousDrafts.slice(0, 30),
+    (prev) => {
+      const carried = carryFootnoteBindings(prev.draft, imported, prev.sourceLinks ?? [], { pairByOrder: false });
+      saved = carried.draft;
+      return {
+        ...prev,
+        title: stem || current.title,
+        draft: carried.draft,
+        previousDrafts: previousDrafts.slice(0, 30),
+        ...(prev.sourceLinks ? { sourceLinks: carried.sourceLinks } : {}),
+      };
     },
     { moduleCode, essayId },
   );
-  return imported;
+  return saved;
+}
+
+// The group a reading is shown in on this essay: the one it was moved to, if any, and
+// otherwise primary for a primary source and course reading for anything else.
+export function readingCategoryOf(data: Pick<AssessmentData, "sourceMeta">, item: Pick<ItemRow, "id" | "kind">): EssaySourceCategory {
+  return data.sourceMeta?.[item.id]?.category ?? (item.kind === "primary" ? "primary" : "secondary_course");
+}
+
+// Which of an essay's lists a source is held in, and where it can be moved.
+export type SourceRef = { type: "reading" | "admin" | "custom" | "paper"; id: string };
+export type SourceDestination = EssaySourceCategory | "admin";
+
+function withSourceCategory(
+  meta: Record<string, SourceMeta> | undefined,
+  id: string,
+  category: EssaySourceCategory | undefined,
+): Record<string, SourceMeta> {
+  const next = { ...(meta ?? {}) };
+  const entry: SourceMeta = { ...(next[id] ?? {}) };
+  if (category) entry.category = category;
+  else delete entry.category;
+  if (entry.category || entry.primaryType) next[id] = entry;
+  else delete next[id];
+  return next;
+}
+
+// Moves one source to a group or to the admin documents, keeping its id, so that every
+// footnote and page reference that cites it still does. A reading needs its file's
+// name, size and type to become an admin document, a source added by hand has no file
+// and so never can, and an uploaded paper can only go there with its stored file. A
+// legacy admin document with no reading of its own is given one by ensureSourceReading
+// before it is moved into a group. The same data comes back when the move cannot be made.
+export function moveSourceTo(
+  data: AssessmentData,
+  ref: SourceRef,
+  to: SourceDestination,
+  file?: { name: string; size: number; mime: string },
+): AssessmentData {
+  const admin = data.adminDocuments ?? [];
+  switch (ref.type) {
+    case "reading": {
+      if (to !== "admin") return { ...data, sourceMeta: withSourceCategory(data.sourceMeta, ref.id, to) };
+      if (!file) return data;
+      return {
+        ...data,
+        referenceItemIds: data.referenceItemIds.filter((id) => id !== ref.id),
+        adminDocuments: admin.some((doc) => doc.id === ref.id)
+          ? admin
+          : [...admin, { id: ref.id, name: file.name, size: file.size, mime: file.mime }],
+        sourceMeta: withSourceCategory(data.sourceMeta, ref.id, undefined),
+      };
+    }
+    case "admin": {
+      if (to === "admin" || !admin.some((doc) => doc.id === ref.id)) return data;
+      return {
+        ...data,
+        adminDocuments: admin.filter((doc) => doc.id !== ref.id),
+        referenceItemIds: data.referenceItemIds.includes(ref.id) ? data.referenceItemIds : [...data.referenceItemIds, ref.id],
+        sourceMeta: withSourceCategory(data.sourceMeta, ref.id, to),
+      };
+    }
+    case "custom": {
+      if (to === "admin") return data;
+      return {
+        ...data,
+        customSources: (data.customSources ?? []).map((source) => (source.id === ref.id ? { ...source, kind: to } : source)),
+      };
+    }
+    case "paper": {
+      if (to !== "admin") {
+        return {
+          ...data,
+          attachedPapers: data.attachedPapers?.map((paper) => (paper.id === ref.id ? { ...paper, kind: to } : paper)),
+        };
+      }
+      const paper = data.attachedPapers?.find((p) => p.id === ref.id);
+      if (!paper?.r2Key) return data;
+      const doc: AttachmentRef = {
+        id: paper.id,
+        name: paper.name ?? paper.title,
+        size: paper.size ?? 0,
+        mime: paper.mime ?? "application/octet-stream",
+        r2Key: paper.r2Key,
+      };
+      return {
+        ...data,
+        attachedPapers: data.attachedPapers?.filter((p) => p.id !== ref.id),
+        adminDocuments: admin.some((d) => d.id === ref.id) ? admin : [...admin, doc],
+      };
+    }
+  }
+}
+
+// Makes sure a stored file has a reading of its own, so that it opens in the reader and
+// can have passages linked. A file uploaded before admin documents and essay sources had
+// readings is only a key on the essay, so it is given the file row and the hidden
+// reading a new upload gets, under ids made from its own, so that doing this on two
+// devices makes the same rows rather than two copies. Whether a reading exists after
+// this is returned, which is false for one deleted or with no stored file to make it from.
+export async function ensureSourceReading(source: { id: string; name: string; size?: number; mime?: string; r2Key?: string }): Promise<boolean> {
+  const existing = await db.items.get(source.id);
+  if (existing) return !existing.deleted;
+  if (!source.r2Key) return false;
+  const fileId = `${source.id}:file`;
+  await commit([
+    {
+      table: "files",
+      row: {
+        id: fileId,
+        sha256: /[0-9a-f]{64}/i.exec(source.r2Key)?.[0].toLowerCase() ?? `legacy:${source.id}`,
+        r2_key: source.r2Key,
+        mime: source.mime ?? "application/octet-stream",
+        bytes: source.size ?? 0,
+        original_name: source.name,
+        page_count: null,
+        text_status: "pending" as const,
+      },
+    },
+    {
+      table: "items",
+      row: {
+        id: source.id,
+        kind: "secondary" as const,
+        author: null,
+        title: stripExtension(source.name),
+        source: null,
+        pages: null,
+        year: null,
+        doc_date: null,
+        file_id: fileId,
+        original_file_id: null,
+        tray_module_id: null,
+        zotero_key: null,
+        last_page: null,
+        read_status: "unread" as const,
+      },
+    },
+  ]);
+  return true;
+}
+
+// Links a passage chosen in the reader to an essay's footnote, replacing any link that
+// footnote had. The page is kept as the page number a reader sees, one more than the
+// page's place in the file. A footnote renumbered by a save from the word processor
+// since it was chosen is found again as the one note citing that reading with no
+// passage yet. A target of "new:" and a key keeps the passage, with its note text, for
+// the word processor tab with that key to add as a new footnote.
+export async function linkPassage(
+  target: CiteTarget,
+  passage: { itemId: string; highlightId: string; quote: string; page: number; footnoteText: string },
+): Promise<void> {
+  const module = await db.modules.get(target.module);
+  if (!module || module.deleted) throw new Error("The essay's module no longer exists, so the passage could not be linked.");
+  const page = String(passage.page + 1);
+  await saveModuleAssessment(
+    target.module,
+    (current) => {
+      const links = current.sourceLinks ?? [];
+      if (target.footnote.startsWith("new:")) {
+        const session = target.footnote.slice("new:".length);
+        const link = createSourceLink({
+          id: newId(),
+          sourceId: passage.itemId,
+          highlightId: passage.highlightId,
+          quote: passage.quote,
+          page,
+          footnoteText: passage.footnoteText,
+          ...(session ? { awaitingInsert: session } : {}),
+        });
+        return { ...current, sourceLinks: [...links, link] };
+      }
+      const notes = current.draft.footnotes;
+      let note = notes.find((n) => n.id === target.footnote);
+      if (!note) {
+        const withPassage = new Set(links.filter((l) => l.highlightId && l.footnoteId).map((l) => l.footnoteId));
+        const citing = notes.filter((n) => n.citationItemId === passage.itemId && !withPassage.has(n.id));
+        if (citing.length === 1) note = citing[0];
+      }
+      if (!note) throw new Error("That footnote has changed since you chose it, so choose Link to a source on it again.");
+      const noteId = note.id;
+      const link = createSourceLink({
+        id: newId(),
+        sourceId: passage.itemId,
+        footnoteId: noteId,
+        highlightId: passage.highlightId,
+        quote: passage.quote,
+        page,
+      });
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          footnotes: notes.map((n) => (n.id === noteId ? { ...n, citationItemId: passage.itemId } : n)),
+        },
+        sourceLinks: [...removeLinksForFootnote(links, noteId), link],
+      };
+    },
+    { moduleCode: module.code, essayId: target.essay },
+  );
 }
 
 // Formats a Chicago 18th edition footnote (full note on first reference, short note thereafter).
